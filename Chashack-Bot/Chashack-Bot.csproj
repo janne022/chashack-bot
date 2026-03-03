@@ -11,6 +11,12 @@
   <ItemGroup>
     <PackageReference Include="Discord.Net" Version="3.19.0" />
     <PackageReference Include="Discord.Net.Interactions" Version="3.19.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.3" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageReference Include="WolverineFx" Version="5.17.0" />
+    <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="5.17.0" />
+    <PackageReference Include="WolverineFx.Postgresql" Version="5.17.0" />
   </ItemGroup>
 </Project>

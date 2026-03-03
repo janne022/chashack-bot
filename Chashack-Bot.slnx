@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="Chashack-Bot/Chashack-Bot.csproj" />
+  <Project Path="ChasHack.AppHost/ChasHack.AppHost.csproj" />
 </Solution>

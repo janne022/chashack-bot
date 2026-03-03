@@ -10,11 +10,10 @@
 using System;
 using System.Reflection;
 
-[assembly: Microsoft.Extensions.Configuration.UserSecrets.UserSecretsIdAttribute("dotnet-Chashack_Bot-e7898e7e-ef0a-4cc4-b584-dc3e68df6574")]
 [assembly: System.Reflection.AssemblyCompanyAttribute("Chashack-Bot")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+fdb76f0eb6530f49f3c1e5acfdf500442ac43e91")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7bdbbd98787c6f7e4705cc5d826c18432ede51fa")]
 [assembly: System.Reflection.AssemblyProductAttribute("Chashack-Bot")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Chashack-Bot")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
