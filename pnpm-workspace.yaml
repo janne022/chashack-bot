@@ -1,0 +1,6 @@
+packages:
+  - apps/*
+# Supply-chain risk lock: packages must be published >= 3 days (4320 minutes)
+# before pnpm will install them. Do not lower this. Do not add excludes.
+minimumReleaseAge: 4320
+minimumReleaseAgeStrict: true

@@ -1,0 +1,21 @@
+{
+  "name": "chashack-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Discord bot for hackathon team signups, matching and admin management",
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "dev:admin": "pnpm --filter admin-ui dev",
+    "build:admin": "pnpm --filter admin-ui build",
+    "register:commands": "pnpm --filter bot register:commands"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
