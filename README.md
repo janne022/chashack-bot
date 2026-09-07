@@ -93,6 +93,32 @@ node apps/bot/scripts/smoke-admin.mjs          # API/auth/SPA smoke checks
 BOOT_ADMIN=1 node apps/bot/scripts/dev-admin.mjs  # seeded demo on :8491
 ```
 
+## Docker / CI-CD
+
+The image is published to GHCR on every push to `main`
+(`.github/workflows/docker-publish.yml`, tags: `main`, `sha`, semver on
+`v*` tags) using the workflow's built-in `GITHUB_TOKEN` — no secrets needed.
+Pull after the first successful run:
+
+```bash
+docker pull ghcr.io/janne022/chashack-bot:main
+docker run -d --name chashack \
+  -p 8420:8420 -v chashack-data:/data \
+  -e DISCORD_TOKEN=... -e DISCORD_CLIENT_ID=... \
+  -e DISCORD_GUILD_ID=... -e ADMIN_PASSWORD=... \
+  --restart unless-stopped \
+  ghcr.io/janne022/chashack-bot:main
+```
+
+- Multi-stage build: full workspace build stage → runtime with bot prod deps
+  + compiled output only; runs as `node` (uid 1000); SQLite on `/data` volume;
+  `HEALTHCHECK` hits `/healthz`.
+- `SKIP_DISCORD=1` runs the admin panel without the Discord gateway
+  (UI-only deployments, container smoke tests).
+- CI (`.github/workflows/ci.yml`) gates every push/PR: supply-chain policy
+  check, frozen-lockfile install, typecheck, build, tests, API smoke suite.
+- All pipeline deps are exact-pinned; CI runs on Node 24.
+
 ## Notes
 
 - The matching engine is deterministic and pure (`features/matching/engine.ts`)

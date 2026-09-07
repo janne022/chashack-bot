@@ -43,7 +43,11 @@ registerInteractionHandlers(client, {
   announce,
 });
 
-await client.login(config.discordToken);
+if (config.skipDiscord) {
+  console.log('SKIP_DISCORD set — starting admin server without the Discord gateway.');
+} else {
+  await client.login(config.discordToken);
+}
 
 const server = await startAdminServer({ db, config, announce });
 

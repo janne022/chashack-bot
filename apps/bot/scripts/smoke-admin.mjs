@@ -27,6 +27,10 @@ const indexRes = await fetch(base);
 const indexHtml = await indexRes.text();
 check('GET / serves the React shell', indexRes.status === 200 && indexHtml.includes('<div id="root">'));
 
+// 1b. Health endpoint (container HEALTHCHECK target)
+const healthRes = await fetch(`${base}/healthz`);
+check('/healthz returns ok', healthRes.status === 200 && (await healthRes.json()).ok === true);
+
 // 2. SPA fallback for client routes
 const spaRes = await fetch(`${base}/participants`);
 const spaHtml = await spaRes.text();
