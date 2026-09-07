@@ -24,6 +24,9 @@ export async function startAdminServer(deps: {
 
   registerRoutes(app, deps as WebDeps);
 
+  // Liveness endpoint for container orchestrators / uptime checks.
+  app.get('/healthz', async () => ({ ok: true, ts: Date.now() }));
+
   // Built admin UI: apps/admin-ui/dist (three levels up from dist/adminweb).
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [

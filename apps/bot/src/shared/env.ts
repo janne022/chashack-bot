@@ -38,6 +38,8 @@ export interface Env {
   dbPath: string;
   announceChannelId: string | undefined;
   auditChannelId: string | undefined;
+  /** Run the admin panel without the Discord gateway (container smoke tests, UI-only deploys). */
+  skipDiscord: boolean;
 }
 
 let cached: Env | undefined;
@@ -51,12 +53,15 @@ export function env(): Env {
   const token = get('DISCORD_TOKEN');
   const clientId = get('DISCORD_CLIENT_ID');
   const adminPassword = get('ADMIN_PASSWORD');
+  const skipDiscord = get('SKIP_DISCORD') === '1' || process.env.RUN_DRY === '1';
 
   const missing: string[] = [];
-  if (!process.env.RUN_DRY) {
+  if (!skipDiscord) {
     if (token === '') missing.push('DISCORD_TOKEN');
     if (clientId === '') missing.push('DISCORD_CLIENT_ID');
     if (adminPassword === '') missing.push('ADMIN_PASSWORD');
+  } else if (adminPassword === '') {
+    missing.push('ADMIN_PASSWORD');
   }
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')} (see .env.example)`);
@@ -75,6 +80,7 @@ export function env(): Env {
     dbPath: get('DB_PATH') || 'data/chashack.db',
     announceChannelId: get('ANNOUNCE_CHANNEL_ID') || undefined,
     auditChannelId: get('AUDIT_CHANNEL_ID') || undefined,
+    skipDiscord,
   };
   return cached;
 }
