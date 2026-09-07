@@ -1,0 +1,53 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Hackathon admin — dark, calm, Discord-adjacent.
+     Accent: blurple; semantic status colors reserved for meaning. */
+  --color-background: #0b0d13;
+  --color-surface: #12141d;
+  --color-surface-2: #1a1d2a;
+  --color-border: #262a3b;
+  --color-foreground: #e7eaf3;
+  --color-muted-foreground: #8f96ad;
+  --color-accent: #5865f2;
+  --color-accent-strong: #4752c4;
+  --color-accent-soft: #5865f221;
+
+  --color-ok: #3ec46d;
+  --color-warn: #f0b429;
+  --color-danger: #ef4444;
+
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --animate-fade-in: fade-in 0.25s ease-out;
+  --animate-slide-in: slide-in 0.25s ease-out;
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(14px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Consistent focus ring everywhere */
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Slim scrollbars for dense tables */
+*::-webkit-scrollbar { height: 8px; width: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }

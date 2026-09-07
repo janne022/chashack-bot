@@ -1,0 +1,257 @@
+/**
+ * Admin web routes. Session auth via HMAC-signed cookie; all state-changing
+ * routes are POST + JSON. UI files served from public/.
+ */
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { Db } from '../shared/db.js';
+import type { Env } from '../shared/env.js';
+import { audit } from '../shared/audit.js';
+import { auditList } from '../shared/audit.js';
+import {
+  blockParticipant,
+  unblockParticipant,
+  withdrawParticipant,
+  listParticipants,
+  getParticipant,
+} from '../features/signup/store.js';
+import {
+  createTeam,
+  deleteTeam,
+  rotateJoinCode,
+  adminAssign,
+  listTeams,
+  removeMember,
+} from '../features/teams/service.js';
+import { previewMatch, commitMatch, lastMatchInfo } from '../features/matching/service.js';
+import { getForm, updateForm, resetForm } from '../features/form/service.js';
+import type { FormConfig } from '../features/form/domain.js';
+
+export interface WebDeps {
+  db: Db;
+  config: Env;
+  announce: (guildId: string, content: string) => Promise<void>;
+}
+
+const COOKIE = 'hacksess';
+
+function sign(secret: string, exp: number): string {
+  return createHmac('sha256', secret).update(`admin:${exp}`).digest('hex');
+}
+
+function makeToken(secret: string): string {
+  const exp = Date.now() + 7 * 24 * 3600 * 1000;
+  return `${exp}.${sign(secret, exp)}`;
+}
+
+function verifyToken(secret: string, token: string): boolean {
+  const dot = token.indexOf('.');
+  if (dot === -1) return false;
+  const exp = Number(token.slice(0, dot));
+  const mac = token.slice(dot + 1);
+  if (!Number.isFinite(exp) || exp < Date.now()) return false;
+  const expected = Buffer.from(sign(secret, exp));
+  const given = Buffer.from(mac);
+  return expected.length === given.length && timingSafeEqual(expected, given);
+}
+
+function sessionFrom(req: FastifyRequest, config: Env): string | null {
+  const cookie = req.headers.cookie ?? '';
+  const m = new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]+)`).exec(cookie);
+  if (m === null) return null;
+  return verifyToken(config.adminSessionSecret, decodeURIComponent(m[1]!)) ? m[1]! : null;
+}
+
+export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
+  const { db, config } = deps;
+  const guildId = config.guildId ?? 'default';
+
+  app.addHook('preHandler', async (req, reply) => {
+    const isApi = req.url.startsWith('/api/');
+    const isLogin = req.url === '/api/login';
+    // Static files and the login endpoint are public; every other /api route
+    // requires a valid session.
+    if (!isApi || isLogin) return;
+    if (sessionFrom(req, config) === null) {
+      await reply.code(401).send({ error: 'unauthorized' });
+    }
+  });
+
+  app.post('/api/login', async (req, reply) => {
+    const body = req.body as { password?: string } | null;
+    if (body?.password !== config.adminPassword) {
+      await reply.code(401).send({ error: 'invalid_password' });
+      return;
+    }
+    const token = makeToken(config.adminSessionSecret);
+    reply.header(
+      'set-cookie',
+      `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${7 * 24 * 3600}`,
+    );
+    audit(db, 'web', 'web.login', 'admin', null);
+    return { ok: true };
+  });
+
+  app.get('/api/state', async () => {
+    const participants = listParticipants(db, guildId);
+    const teams = listTeams(db, guildId);
+    return {
+      participants,
+      teams,
+      config: getForm(db),
+      audit: auditList(db, 100),
+      lastMatch: lastMatchInfo(db, guildId),
+      stats: {
+        signups: participants.filter((p) => p.status !== 'withdrawn').length,
+        active: participants.filter((p) => p.status === 'active').length,
+        blocked: participants.filter((p) => p.status === 'blocked').length,
+        unteamed: participants.filter((p) => p.status === 'active' && p.teamId === null).length,
+        matchingOptIn: participants.filter((p) => p.status === 'active' && p.teamId === null && p.teamPref === 'private_team').length,
+        teams: teams.length,
+      },
+    };
+  });
+
+  app.post('/api/participants/:userId/status', async (req, reply) => {
+    const { userId } = req.params as { userId: string };
+    const body = req.body as { action?: string; reason?: string } | null;
+    const actor = 'web';
+    let res;
+    switch (body?.action) {
+      case 'block':
+        res = blockParticipant(db, actor, guildId, userId, body.reason ?? 'No reason given');
+        break;
+      case 'unblock':
+        res = unblockParticipant(db, actor, guildId, userId);
+        break;
+      case 'withdraw':
+        res = withdrawParticipant(db, actor, guildId, userId);
+        break;
+      case 'reactivate': {
+        const p = getParticipant(db, guildId, userId);
+        if (p === null) {
+          res = { ok: false, code: 'not_found', message: 'Participant not found.' };
+          break;
+        }
+        db.prepare("UPDATE participants SET status = 'active', block_reason = NULL, updated_at = ? WHERE user_id = ?").run(
+          Date.now(),
+          userId,
+        );
+        audit(db, actor, 'participant.reactivate', userId, null);
+        res = { ok: true, value: undefined };
+        break;
+      }
+      default:
+        res = { ok: false, code: 'bad_action', message: 'Unknown action.' };
+    }
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true };
+  });
+
+  app.post('/api/participants/:userId/team', async (req, reply) => {
+    const { userId } = req.params as { userId: string };
+    const body = req.body as { teamId?: string | null } | null;
+    const res = adminAssign(db, 'web', guildId, userId, body?.teamId ?? null);
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true };
+  });
+
+  app.post('/api/teams', async (req, reply) => {
+    const body = req.body as { name?: string; kind?: string; ownerId?: string } | null;
+    if (body?.kind !== 'public' && body?.kind !== 'private') {
+      await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be public|private' });
+      return;
+    }
+    if (body.ownerId !== undefined && getParticipant(db, guildId, body.ownerId) === null) {
+      await reply.code(400).send({ ok: false, code: 'not_found', message: 'Owner has no signup.' });
+      return;
+    }
+    const ownerId = body.ownerId ?? `admin-${Date.now()}`;
+    const res = createTeam(db, 'web', guildId, body.name ?? '', body.kind, ownerId);
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true, team: res.value };
+  });
+
+  app.post('/api/teams/:teamId/delete', async (req, reply) => {
+    const res = deleteTeam(db, 'web', (req.params as { teamId: string }).teamId);
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true };
+  });
+
+  app.post('/api/teams/:teamId/rotate-code', async (req, reply) => {
+    const res = rotateJoinCode(db, 'web', (req.params as { teamId: string }).teamId);
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true, code: res.value };
+  });
+
+  app.post('/api/teams/:teamId/remove-member', async (req, reply) => {
+    const { teamId } = req.params as { teamId: string };
+    const body = req.body as { userId?: string } | null;
+    const res = removeMember(db, 'web', teamId, body?.userId ?? '');
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true };
+  });
+
+  app.post('/api/match/preview', async (req, reply) => {
+    const res = previewMatch(db, guildId, getForm(db));
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true, result: res.value };
+  });
+
+  app.post('/api/match/commit', async () => {
+    const res = commitMatch(db, 'web', guildId, getForm(db));
+    if (!res.ok) {
+      return { ok: false, code: res.code, message: res.message };
+    }
+    const lines = res.value.teams
+      .map((t) => `**${t.name}** — compatibility ${t.score}\n${t.memberIds.map((id) => `<@${id}>`).join(', ')}`)
+      .join('\n\n');
+    await deps.announce(guildId, `🏁 **Teams are locked in!**\n\n${lines}`);
+    return { ok: true, result: res.value };
+  });
+
+  app.post('/api/form', async (req, reply) => {
+    const body = req.body as Partial<FormConfig> | null;
+    const res = updateForm(db, 'web', body ?? {});
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true, config: res.value };
+  });
+
+  app.post('/api/form/reset', async () => {
+    const res = resetForm(db, 'web');
+    return { ok: res.ok, config: res.ok ? res.value : undefined };
+  });
+
+  app.post('/api/event/reset', async () => {
+    const participants = listParticipants(db, guildId).length;
+    const teams = listTeams(db, guildId).length;
+    db.prepare('DELETE FROM participants WHERE guild_id = ?').run(guildId);
+    db.prepare('DELETE FROM teams WHERE guild_id = ?').run(guildId);
+    audit(db, 'web', 'event.reset', guildId, { participants, teams });
+    return { ok: true, removed: { participants, teams } };
+  });
+}
