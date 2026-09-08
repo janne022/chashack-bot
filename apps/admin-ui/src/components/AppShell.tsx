@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
+import { motion } from 'framer-motion'
 import {
   CalendarDays,
   Users,
@@ -129,7 +130,16 @@ export function AppShell({
       </div>
 
       {/* Content */}
-      <main className="min-w-0 flex-1 pb-20 lg:pb-0">{children}</main>
+      <main className="min-w-0 flex-1 pb-20 lg:pb-0">
+        <motion.div
+          key={pathname}
+          initial={{ opacity: 0, x: 12 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+        >
+          {children}
+        </motion.div>
+      </main>
 
       {/* Mobile bottom tabs */}
       <nav
