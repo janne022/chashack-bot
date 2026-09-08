@@ -26,7 +26,8 @@ import {
   setGuildCategory,
   getGuildSettings,
 } from '../features/teams/data.js';
-import { previewMatch, commitMatch, lastMatchInfo } from '../features/matching/data.js';
+import { previewMatch, commitMatch, lastMatchInfo, listTeamsWithMembers } from '../features/matching/data.js';
+import { suggestTeamsForParticipant } from '../features/matching/domain.js';
 import {
   createEvent,
   getActiveEvent,
@@ -36,6 +37,8 @@ import {
   activateEvent,
   endEvent,
   updateEvent,
+  markMatchLocked,
+  markMatchUnlocked,
   saveTemplate,
   listTemplates,
   deleteTemplate,
@@ -206,6 +209,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       startsAt?: number | null;
       endsAt?: number | null;
       cleanupDelayHours?: number;
+      matchAt?: number | null;
     } | null;
     const res = updateEvent(db, 'web', eventId, {
       ...(body?.name !== undefined ? { name: body.name } : {}),
@@ -213,6 +217,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body?.startsAt !== undefined ? { startsAt: body.startsAt } : {}),
       ...(body?.endsAt !== undefined ? { endsAt: body.endsAt } : {}),
       ...(body?.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : {}),
+      ...(body?.matchAt !== undefined ? { matchAt: body.matchAt } : {}),
     });
     if (!res.ok) {
       await reply.code(400).send(res);
@@ -459,6 +464,38 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       .join('\n\n');
     await deps.announce(guildId, `🏁 **Teams are locked in!**\n\n${lines}`);
     return { ok: true, result: res.value };
+  });
+
+  /** Late-signup placement: top-3 team suggestions for one participant (pure read). */
+  app.post('/api/match/suggestions', async (req, reply) => {
+    const body = req.body as { participantId?: string } | null;
+    const participantId = body?.participantId ?? '';
+    const eventId = activeEventId();
+    const participant = getParticipant(db, eventId, participantId);
+    if (participant === null) {
+      await reply.code(404).send({ ok: false, code: 'not_found', message: 'Participant not found in this event.' });
+      return;
+    }
+    if (participant.teamId !== null) {
+      await reply.code(400).send({ ok: false, code: 'already_in_team', message: 'Participant is already on a team.' });
+      return;
+    }
+    const suggestions = suggestTeamsForParticipant(participant, listTeamsWithMembers(db, eventId), getForm(db));
+    return { ok: true, suggestions };
+  });
+
+  /** Lock teams in now: skips future auto-match (manual match runs still allowed). */
+  app.post('/api/match/lock', async () => {
+    markMatchLocked(db, activeEventId());
+    audit(db, 'web', 'match.lock', activeEventId(), null);
+    return { ok: true };
+  });
+
+  /** Clear the lock so auto-match can fire again. */
+  app.post('/api/match/unlock', async () => {
+    markMatchUnlocked(db, activeEventId());
+    audit(db, 'web', 'match.unlock', activeEventId(), null);
+    return { ok: true };
   });
 
   app.post('/api/form', async (req, reply) => {
