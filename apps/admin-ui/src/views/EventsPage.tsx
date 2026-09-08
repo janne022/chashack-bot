@@ -5,13 +5,15 @@ import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
 import { api } from '@/api'
 import { createEventSchema, announceSchema, cleanupDelaySchema } from '@/lib/schemas'
-import type { HackathonEvent } from '@/types'
+import type { FormConfig, HackathonEvent, Participant } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { dateTime, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { SignupsTimeline } from '@/views/panels/charts/SignupsTimeline'
+import { TeamComposition } from '@/views/panels/charts/TeamComposition'
 
 export function EventsPage() {
   const { state, refresh } = useAppContext()
@@ -29,6 +31,8 @@ export function EventsPage() {
       </header>
 
       {activeEvent !== null && <ActiveEventCard event={activeEvent} refresh={refresh} />}
+
+      <InsightsSection participants={state.participants} config={state.config} />
 
       <section>
         <h2 className="font-display mb-3 text-sm uppercase tracking-wide text-muted-foreground">
@@ -478,6 +482,26 @@ function QuickLinks({ activeEventId }: { activeEventId: string | null }) {
           No active event — create and activate one first; the other tabs operate on it.
         </p>
       )}
+    </section>
+  )
+}
+
+function InsightsSection({
+  participants,
+  config,
+}: {
+  participants: Participant[]
+  config: FormConfig
+}) {
+  return (
+    <section>
+      <h2 className="font-display mb-3 text-sm uppercase tracking-wide text-muted-foreground">
+        Insights
+      </h2>
+      <div className="grid gap-3 md:grid-cols-2">
+        <SignupsTimeline participants={participants} />
+        <TeamComposition participants={participants} config={config} />
+      </div>
     </section>
   )
 }
