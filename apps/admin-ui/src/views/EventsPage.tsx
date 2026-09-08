@@ -3,6 +3,7 @@ import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio,
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
+import { useT } from '@/lib/i18n'
 import { api } from '@/api'
 import { createEventSchema, announceSchema, cleanupDelaySchema } from '@/lib/schemas'
 import type { FormConfig, HackathonEvent, Participant } from '@/types'
@@ -17,6 +18,7 @@ import { TeamComposition } from '@/views/panels/charts/TeamComposition'
 
 export function EventsPage() {
   const { state, refresh } = useAppContext()
+  const t = useT()
   const events = state.events ?? []
   const activeEvent = events.find((e) => e.status === 'active') ?? null
 
@@ -24,8 +26,8 @@ export function EventsPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl">Events</h1>
-          <p className="text-sm text-muted-foreground">Create, configure and run hackathon events</p>
+          <h1 className="font-display text-2xl">{t('events.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('events.subtitle')}</p>
         </div>
         <NewEventButton />
       </header>
@@ -36,15 +38,15 @@ export function EventsPage() {
 
       <section>
         <h2 className="font-display mb-3 text-sm uppercase tracking-wide text-muted-foreground">
-          All events ({events.length})
+          {t('events.all', { count: events.length })}
         </h2>
         {events.length === 0 ? (
           <Card>
             <CardContent>
               <EmptyState
                 icon={<CalendarDays className="size-5" />}
-                title="No events yet"
-                description="Create your first event, configure the signup form, then activate it."
+                title={t('events.none_title')}
+                description={t('events.none_desc')}
                 action={<NewEventButton />}
               />
             </CardContent>
@@ -65,6 +67,7 @@ export function EventsPage() {
 
 function NewEventButton() {
   const { refresh } = useAppContext()
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -82,13 +85,13 @@ function NewEventButton() {
       endsAt: ends,
     })
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? 'Invalid input')
+      toast.error(parsed.error.issues[0]?.message ?? t('events.invalid_input'))
       return
     }
     setBusy(true)
     try {
       await api.createEvent(parsed.data)
-      toast.success(`Event “${name.trim()}” created`)
+      toast.success(t('events.created', { name: name.trim() }))
       setOpen(false)
       setName('')
       setDescription('')
@@ -96,7 +99,7 @@ function NewEventButton() {
       setEndsAt('')
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Create failed')
+      toast.error(e instanceof Error ? e.message : t('events.create_failed'))
     } finally {
       setBusy(false)
     }
@@ -106,7 +109,7 @@ function NewEventButton() {
     <>
       <Button onClick={() => setOpen(true)}>
         <Plus />
-        New event
+        {t('events.new')}
       </Button>
       {open && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
@@ -115,43 +118,43 @@ function NewEventButton() {
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
             <CardHeader>
-              <CardTitle>Create event</CardTitle>
-              <CardDescription>Starts as a draft. Activate when the signup panel is ready.</CardDescription>
+              <CardTitle>{t('events.create_title')}</CardTitle>
+              <CardDescription>{t('events.create_desc')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">Name</span>
+                <span className="font-medium">{t('events.name')}</span>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="ChasHack 2026 Spring"
+                  placeholder={t('events.name_placeholder')}
                   className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm"
                   maxLength={100}
                 />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">Description</span>
+                <span className="font-medium">{t('events.description')}</span>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="48-hour hackathon…"
+                  placeholder={t('events.desc_placeholder')}
                   className="min-h-16 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm"
                   maxLength={1000}
                 />
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="font-medium">Starts</span>
+                  <span className="font-medium">{t('events.starts')}</span>
                   <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm" />
                 </label>
                 <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="font-medium">Ends</span>
+                  <span className="font-medium">{t('events.ends')}</span>
                   <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm" />
                 </label>
               </div>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-                <Button disabled={busy || name.trim().length < 3} onClick={() => void create()}>Create</Button>
+                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+                <Button disabled={busy || name.trim().length < 3} onClick={() => void create()}>{t('common.create')}</Button>
               </div>
             </CardContent>
           </Card>
@@ -163,6 +166,7 @@ function NewEventButton() {
 
 function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
   const { state } = useAppContext()
+  const t = useT()
 
   return (
     <Card className="border-accent/40">
@@ -174,7 +178,7 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
               <span className="relative inline-flex size-2.5 rounded-full bg-ok" />
             </span>
             <CardTitle className="font-display text-xl">{event.name}</CardTitle>
-            <Badge>live</Badge>
+            <Badge>{t('events.live')}</Badge>
           </div>
           {event.description !== '' && (
             <CardDescription className="mt-1 max-w-2xl">{event.description}</CardDescription>
@@ -185,11 +189,11 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
             variant="outline"
             size="sm"
             onClick={() => {
-              void navigator.clipboard.writeText(event.id).then(() => toast.info('Event id copied'))
+              void navigator.clipboard.writeText(event.id).then(() => toast.info(t('events.id_copied')))
             }}
           >
             <Copy />
-            Copy id
+            {t('events.copy_id')}
           </Button>
         </div>
       </CardHeader>
@@ -198,42 +202,42 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
           <div className="flex items-center gap-2">
             <CalendarDays className="size-4 text-accent" />
             <div>
-              <div className="text-muted-foreground text-xs">Starts</div>
-              <div>{event.startsAt !== null ? `${dateTime(event.startsAt)} (${timeAgo(event.startsAt)})` : 'not set'}</div>
+              <div className="text-muted-foreground text-xs">{t('events.starts')}</div>
+              <div>{event.startsAt !== null ? `${dateTime(event.startsAt)} (${timeAgo(event.startsAt)})` : t('common.not_set')}</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <CalendarDays className="size-4 text-danger" />
             <div>
-              <div className="text-muted-foreground text-xs">Ends</div>
-              <div>{event.endsAt !== null ? `${dateTime(event.endsAt)}` : 'not set'}</div>
+              <div className="text-muted-foreground text-xs">{t('events.ends')}</div>
+              <div>{event.endsAt !== null ? `${dateTime(event.endsAt)}` : t('common.not_set')}</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Users className="size-4 text-accent" />
             <div>
-              <div className="text-muted-foreground text-xs">Signups</div>
+              <div className="text-muted-foreground text-xs">{t('events.signups')}</div>
               <div>{state.stats.active}</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <UsersRound className="size-4 text-accent" />
             <div>
-              <div className="text-muted-foreground text-xs">Teams</div>
+              <div className="text-muted-foreground text-xs">{t('events.teams')}</div>
               <div>{state.stats.teams}</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Radio className="size-4 text-accent" />
             <div>
-              <div className="text-muted-foreground text-xs">Cleanup</div>
-              <div>{event.cleanupDone ? 'done' : `${event.cleanupDelayHours}h after end`}</div>
+              <div className="text-muted-foreground text-xs">{t('events.cleanup')}</div>
+              <div>{event.cleanupDone ? t('events.cleanup_done') : t('events.cleanup_pending', { hours: event.cleanupDelayHours })}</div>
             </div>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button asChild>
-            <Link to="/form">Configure form</Link>
+            <Link to="/form">{t('events.configure_form')}</Link>
           </Button>
           <NotificationButtons event={event} refresh={refresh} />
           <EndEventButton event={event} refresh={refresh} />
@@ -244,6 +248,7 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
 }
 
 function NotificationButtons({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+  const t = useT()
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
   const [dm, setDm] = useState(false)
@@ -253,20 +258,20 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   async function send() {
     const parsed = announceSchema.safeParse({ eventId: event.id, title: title.trim(), message: message.trim(), dm })
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? 'Invalid input')
+      toast.error(parsed.error.issues[0]?.message ?? t('events.invalid_input'))
       return
     }
     setBusy(true)
     try {
       const res = await api.announce(event.id, title.trim(), message.trim(), dm)
-      toast.success(res.posted ? `Posted${dm ? ` · ${res.dmSent} DMs sent` : ''}` : 'Posted (channel unreachable)')
-      if (res.dmFailed > 0) toast.info(`${res.dmFailed} DMs failed (closed DMs)`)
+      toast.success(res.posted ? (dm ? t('events.posted_with_dms', { count: res.dmSent }) : t('events.posted')) : t('events.posted_unreachable'))
+      if (res.dmFailed > 0) toast.info(t('events.dms_failed', { count: res.dmFailed }))
       setOpen(false)
       setTitle('')
       setMessage('')
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Announce failed')
+      toast.error(e instanceof Error ? e.message : t('events.announce_failed'))
     } finally {
       setBusy(false)
     }
@@ -276,39 +281,39 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
     <>
       <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
         <Bell />
-        Announce
+        {t('events.announce')}
       </Button>
       {open && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
           <Card className="w-full max-w-md animate-pop-in" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             <CardHeader>
-              <CardTitle>Announce</CardTitle>
-              <CardDescription>Posts to the signup panel channel. DMs go to every active signup.</CardDescription>
+              <CardTitle>{t('events.announce')}</CardTitle>
+              <CardDescription>{t('events.announce_desc')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Headline"
+                placeholder={t('events.headline_placeholder')}
                 className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm"
                 maxLength={100}
               />
               <textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="What to say…"
+                placeholder={t('events.message_placeholder')}
                 className="min-h-24 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm"
                 maxLength={800}
               />
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={dm} onChange={(e) => setDm(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
-                Also DM all participants
+                {t('events.also_dm')}
               </label>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
                 <Button disabled={busy || title.trim() === '' || message.trim() === ''} onClick={() => void send()}>
                   <Bell />
-                  Send
+                  {t('events.send')}
                 </Button>
               </div>
             </CardContent>
@@ -322,6 +327,7 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
 const updateCleanupPlaceholder = undefined
 
 function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+  const t = useT()
   const [hours, setHours] = useState(String(event.cleanupDelayHours))
   const [busy, setBusy] = useState(false)
   const dirty = Number(hours) !== event.cleanupDelayHours && hours !== ''
@@ -329,16 +335,16 @@ function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh
   async function save() {
     const parsed = cleanupDelaySchema.safeParse(Number(hours))
     if (!parsed.success) {
-      toast.error('Delay must be 0–720 hours')
+      toast.error(t('events.cleanup_delay_aria'))
       return
     }
     setBusy(true)
     try {
       await api.updateEvent(event.id, { cleanupDelayHours: parsed.data })
-      toast.success(`Cleanup delay set to ${parsed.data}h after the event ends`)
+      toast.success(t('events.cleanup_delay_saved', { hours: parsed.data }))
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Save failed')
+      toast.error(e instanceof Error ? e.message : t('events.save_failed'))
     } finally {
       setBusy(false)
     }
@@ -346,7 +352,7 @@ function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh
 
   return (
     <label className="flex items-center gap-2 text-xs text-muted-foreground">
-      Cleanup delay
+      {t('events.cleanup_delay')}
       <input
         type="number"
         min={0}
@@ -354,12 +360,12 @@ function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh
         value={hours}
         onChange={(e) => setHours(e.target.value)}
         className="h-7 w-16 rounded-md border border-border bg-surface-2 px-2 text-foreground"
-        aria-label="Cleanup delay in hours after the event ends"
+        aria-label={t('events.cleanup_delay_aria')}
       />
       h
       {dirty && (
         <Button size="sm" variant="secondary" disabled={busy} onClick={() => void save()}>
-          Save
+          {t('common.save')}
         </Button>
       )}
     </label>
@@ -367,16 +373,17 @@ function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh
 }
 
 function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+  const t = useT()
   void updateCleanupPlaceholder
   const [confirming, setConfirming] = useState(false)
 
   async function end() {
     try {
       await api.endEvent(event.id)
-      toast.success('Event ended — cleanup scheduled')
+      toast.success(t('events.ended_toast'))
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'End failed')
+      toast.error(e instanceof Error ? e.message : t('events.end_failed'))
     }
   }
 
@@ -385,23 +392,20 @@ function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: ()
       <CleanupDelayConfig event={event} refresh={refresh} />
       <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>
         <Trash2 />
-        End event
+        {t('events.end_event')}
       </Button>
       {confirming && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setConfirming(false)}>
           <Card className="w-full max-w-md animate-pop-in" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             <CardHeader>
-              <CardTitle>End “{event.name}”?</CardTitle>
+              <CardTitle>{t('events.end_confirm_title', { name: event.name })}</CardTitle>
               <CardDescription>
-                Team roles, channels and Discord events are cleaned up automatically{' '}
-                <strong>{event.cleanupDelayHours}h</strong> after the end time — people keep a grace window to
-                grab photos and screenshots (warnings go out at 72h and 24h before removal). Data is kept for archive.
-                Change the delay in the event config below.
+                {t('events.end_confirm_before')} <strong>{event.cleanupDelayHours}h</strong> {t('events.end_confirm_after')}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button>
-              <Button variant="destructive" onClick={() => { setConfirming(false); void end() }}>End event</Button>
+              <Button variant="outline" onClick={() => setConfirming(false)}>{t('common.cancel')}</Button>
+              <Button variant="destructive" onClick={() => { setConfirming(false); void end() }}>{t('events.end_event')}</Button>
             </CardContent>
           </Card>
         </div>
@@ -411,15 +415,24 @@ function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: ()
 }
 
 function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActive: boolean; refresh: () => Promise<void> }) {
+  const t = useT()
+
   async function activate() {
     try {
       await api.activateEvent(event.id)
-      toast.success(`“${event.name}” is now live`)
+      toast.success(t('events.activated_toast', { name: event.name }))
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Activate failed')
+      toast.error(e instanceof Error ? e.message : t('events.activate_failed'))
     }
   }
+
+  const statusKey =
+    event.status === 'active'
+      ? 'events.status_active'
+      : event.status === 'ended'
+        ? 'events.status_ended'
+        : 'events.status_draft'
 
   return (
     <Card className={cn(isActive && 'border-accent/40')}>
@@ -427,11 +440,11 @@ function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActi
         <div className="min-w-0">
           <CardTitle className="truncate">{event.name}</CardTitle>
           <CardDescription className="pt-1">
-            {event.startsAt !== null ? dateTime(event.startsAt) : 'no date set'}
+            {event.startsAt !== null ? dateTime(event.startsAt) : t('events.no_date')}
           </CardDescription>
         </div>
         <Badge variant={event.status === 'active' ? 'success' : event.status === 'ended' ? 'secondary' : 'warning'}>
-          {event.status}
+          {t(statusKey)}
         </Badge>
       </CardHeader>
       <CardContent className="flex items-center justify-between gap-2">
@@ -439,11 +452,11 @@ function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActi
         {event.status === 'draft' ? (
           <Button size="sm" variant="secondary" onClick={() => void activate()}>
             <ExternalLink />
-            Activate
+            {t('events.activate')}
           </Button>
         ) : (
           <Button size="sm" variant="ghost" asChild>
-            <Link to="/events">View</Link>
+            <Link to="/events">{t('events.view')}</Link>
           </Button>
         )}
       </CardContent>
@@ -452,16 +465,17 @@ function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActi
 }
 
 function QuickLinks({ activeEventId }: { activeEventId: string | null }) {
+  const t = useT()
   const cards = [
-    { to: '/participants', label: 'Participants', desc: 'Review signups, move people, block' },
-    { to: '/teams', label: 'Teams', desc: 'Inspect team spaces, kick, rotate codes' },
-    { to: '/matching', label: 'Matching', desc: 'Preview & commit compatibility teams' },
-    { to: '/audit', label: 'Audit log', desc: 'Every mutation, newest first' },
+    { to: '/participants', label: t('nav.participants'), desc: t('events.ql_participants') },
+    { to: '/teams', label: t('nav.teams'), desc: t('events.ql_teams') },
+    { to: '/matching', label: t('nav.matching'), desc: t('events.ql_matching') },
+    { to: '/audit', label: t('nav.audit'), desc: t('events.ql_audit') },
   ] as const
 
   return (
     <section>
-      <h2 className="font-display mb-3 text-sm uppercase tracking-wide text-muted-foreground">Operate</h2>
+      <h2 className="font-display mb-3 text-sm uppercase tracking-wide text-muted-foreground">{t('events.operate')}</h2>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((c) => (
           <Link key={c.to} to={c.to} className="group">
@@ -479,7 +493,7 @@ function QuickLinks({ activeEventId }: { activeEventId: string | null }) {
       </div>
       {activeEventId === null && (
         <p className="mt-3 text-xs text-muted-foreground">
-          No active event — create and activate one first; the other tabs operate on it.
+          {t('events.no_active')}
         </p>
       )}
     </section>
@@ -493,10 +507,11 @@ function InsightsSection({
   participants: Participant[]
   config: FormConfig
 }) {
+  const t = useT()
   return (
     <section>
       <h2 className="font-display mb-3 text-sm uppercase tracking-wide text-muted-foreground">
-        Insights
+        {t('events.insights')}
       </h2>
       <div className="grid gap-3 md:grid-cols-2">
         <SignupsTimeline participants={participants} />

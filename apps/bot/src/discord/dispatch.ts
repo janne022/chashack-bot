@@ -16,6 +16,7 @@ import { handleAdminCommand } from './admin-commands.js';
 import { handleEventAdminCommand, handleEventInfo } from './event-commands.js';
 import { onComponent, onModalSubmit } from './components.js';
 import { eph, type Ctx } from './shared.js';
+import { t } from '../shared/i18n.js';
 
 export interface RouterDeps {
   db: Db;
@@ -23,6 +24,8 @@ export interface RouterDeps {
   client: Client;
   /** Env fallback for the team channel category (guild setting wins). */
   teamCategoryId: string | undefined;
+  /** Bot UI language for Discord-facing strings (BOT_LANGUAGE, default 'en'). */
+  botLanguage: 'en' | 'sv';
   announce: (guildId: string, content: string) => Promise<void>;
 }
 
@@ -63,7 +66,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
       const guildId = interaction.inGuild() ? interaction.guildId : null;
       if (guildId === null) {
         if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-          await interaction.reply(eph('Use this inside a server.'));
+          await interaction.reply(eph(t(deps.botLanguage, 'discord.admin.use_in_server')));
         }
         return;
       }
@@ -78,11 +81,13 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
 
       const activeEvent = getActiveEvent(deps.db, guildId);
       const guildDefault = getForm(deps.db);
+      const locale = deps.botLanguage;
       const ctx: Ctx = {
         db: deps.db,
         config: getEventForm(deps.db, activeEvent, guildDefault),
+        botLocale: locale,
         eventId: activeEvent?.id ?? guildId,
-        eventName: activeEvent?.name ?? 'the hackathon',
+        eventName: activeEvent?.name ?? t(locale, 'discord.admin.event_name_fallback'),
         guildId,
         actor: `discord:${interaction.user.id}`,
         isAdmin: isAdminMember(interaction, deps.adminIds),
@@ -111,7 +116,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         ];
         if (group === 'admin' && eventAdminSubs.includes(sub)) {
           if (!ctx.isAdmin) {
-            await interaction.reply(eph('Organizer only — you need **Manage Server** or be in ADMIN_IDS.'));
+            await interaction.reply(eph(t(locale, 'discord.admin.organizer_only')));
             return;
           }
           await handleEventAdminCommand(interaction, ctx, sub);
@@ -119,7 +124,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         }
         if (group === 'admin') {
           if (!ctx.isAdmin) {
-            await interaction.reply(eph('Organizer only — you need **Manage Server** or be in ADMIN_IDS.'));
+            await interaction.reply(eph(t(locale, 'discord.admin.organizer_only')));
             return;
           }
           await handleAdminCommand(interaction, ctx, sub);
@@ -137,7 +142,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
     } catch (error) {
       console.error('interaction handler failed:', error);
       try {
-        const payload = { content: 'Something broke on our side. Try again, or ping an organizer.', flags: 64 };
+        const payload = { content: t(deps.botLanguage, 'discord.admin.something_broke'), flags: 64 };
         if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
           await interaction.reply(payload);
         } else if (interaction.isRepliable() && interaction.deferred && !interaction.replied) {
