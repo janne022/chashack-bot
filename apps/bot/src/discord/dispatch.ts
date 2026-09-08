@@ -88,6 +88,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         botLocale: locale,
         eventId: activeEvent?.id ?? guildId,
         eventName: activeEvent?.name ?? t(locale, 'discord.admin.event_name_fallback'),
+        hasActiveEvent: activeEvent !== null,
         guildId,
         actor: `discord:${interaction.user.id}`,
         isAdmin: isAdminMember(interaction, deps.adminIds),

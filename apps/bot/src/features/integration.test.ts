@@ -41,6 +41,10 @@ function signup(
 /** Fresh in-memory DB per test (node:test runs this file in one process). */
 function freshDb(): void {
   db = openDb(':memory:');
+  // The signup data layer gates on an ACTIVE event row — seed the fixture event.
+  db.prepare(
+    "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES (?, ?, 'Integration Fixture', 'active', 1, 1)",
+  ).run(EV, G);
 }
 
 test('signup → unteamed list → matching → committed teams', () => {

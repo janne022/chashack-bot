@@ -71,6 +71,19 @@ export function upsertParticipant(
   userId: string,
   signup: ValidatedSignup,
 ): Result<Participant> {
+  // Data-layer gate: never write signups for events that are not active
+  // (defense in depth — the interaction layer also gates, but a modal can
+  // stay open across an event transition).
+  const eventRow = db.prepare('SELECT status FROM events WHERE id = ?').get(eventId) as
+    | { status: string }
+    | undefined;
+  if (eventRow === undefined) {
+    return err('no_event', 'This signup has no active event behind it. An organizer must activate an event first.');
+  }
+  if (eventRow.status !== 'active') {
+    return err('event_not_active', 'This hackathon is not accepting signups right now.');
+  }
+
   const blocked = db
     .prepare('SELECT status, block_reason FROM participants WHERE event_id = ? AND user_id = ?')
     .get(eventId, userId) as { status: string; block_reason: string | null } | undefined;

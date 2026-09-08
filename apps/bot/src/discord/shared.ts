@@ -32,6 +32,9 @@ export const IDS = {
   // signup panel buttons
   signupButton: 'hack:panel:signup',
   teamsButton: 'hack:panel:teams',
+  // post-signup follow-up actions (in-modal continuation)
+  followCreateTeam: 'hack:follow:create-team',
+  followBrowseTeams: 'hack:follow:browse-teams',
 } as const;
 
 export interface Ctx {
@@ -42,6 +45,8 @@ export interface Ctx {
   /** Active event (or the one the admin explicitly selected). */
   eventId: string;
   eventName: string;
+  /** False when no event is active: user-facing signup/team flows must gate on this. */
+  hasActiveEvent: boolean;
   guildId: string;
   actor: string;
   isAdmin: boolean;
