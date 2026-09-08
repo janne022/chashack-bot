@@ -67,7 +67,7 @@ export function FormPanel({ state, refresh }: { state: AppState; refresh: () => 
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-6 sm:grid-cols-[1fr_12rem]">
             <div className="flex flex-col gap-2">
               <Label htmlFor="form-title">{t('form.form_title')}</Label>
               <Input
@@ -196,22 +196,22 @@ function OptionListEditor({
         <CardDescription>{hint}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <ul className="flex flex-wrap gap-2">
+        <ul className="flex flex-wrap gap-2.5">
           {items.map((item) => (
             <li
               key={item.id}
-              className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm"
+              className="flex items-center gap-2 rounded-full border border-border bg-surface-2 py-1.5 pr-2 pl-3.5 text-sm"
             >
               <span>{item.label}</span>
               {'group' in item && item.group !== undefined && item.group !== '' && (
-                <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] uppercase text-accent">
+                <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase text-accent">
                   {item.group}
                 </span>
               )}
               <button
                 onClick={() => onChange(items.filter((i) => i.id !== item.id))}
                 aria-label={t('form.remove_aria', { label: item.label })}
-                className="text-muted-foreground hover:text-danger"
+                className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-danger/10 hover:text-danger focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               >
                 ×
               </button>

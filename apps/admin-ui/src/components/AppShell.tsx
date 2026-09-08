@@ -78,11 +78,13 @@ export function AppShell({
   return (
     <div className="min-h-screen lg:flex">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-surface p-4 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-hidden border-r border-border bg-surface p-4 pl-6 lg:flex">
         <div className="mb-6 flex items-center gap-3 px-1 pt-1">
           <img src={brandMark} alt="" className="hex-badge size-9 object-cover" />
           <div>
-            <div className="font-display text-base leading-tight">{t('common.app_name')}</div>
+            <div className="font-display text-base leading-tight text-foreground">
+              {t('common.app_name')}
+            </div>
             <div className="text-xs text-muted-foreground">{t('common.organizer_console')}</div>
           </div>
         </div>
@@ -99,7 +101,12 @@ export function AppShell({
                   : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground',
               )}
             >
-              {isActive(to) && <span className="hex-badge absolute -left-2 size-2.5 bg-accent" aria-hidden />}
+              {isActive(to) && (
+                <span
+                  className="hex-badge absolute top-1/2 -left-4 size-2.5 -translate-y-1/2 bg-accent"
+                  aria-hidden
+                />
+              )}
               <Icon className="size-4 shrink-0" />
               {t(key)}
             </Link>
@@ -160,12 +167,13 @@ export function AppShell({
       </div>
 
       {/* Content */}
-      <main className="min-w-0 flex-1 pb-20 lg:pb-0">
+      <main className="min-w-0 flex-1 px-4 pb-20 pt-6 lg:px-8 lg:pb-10 lg:pt-8">
         <motion.div
           key={pathname}
           initial={{ opacity: 0, x: 12 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.2, ease: 'easeOut' }}
+          className="mx-auto flex w-full max-w-6xl flex-col gap-6"
         >
           {children}
         </motion.div>
