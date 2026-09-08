@@ -7,6 +7,7 @@ import { openDb, resolveDbPath } from './shared/db.js';
 import { audit } from './shared/audit.js';
 import { registerInteractionHandlers } from './discord/dispatch.js';
 import { startAdminServer } from './adminweb/server.js';
+import { runMaintenance } from './discord/notify.js';
 
 const config = env();
 const db = openDb(resolveDbPath(config.dbPath));
@@ -53,8 +54,21 @@ if (config.skipDiscord) {
 
 const server = await startAdminServer({ db, config, announce, client });
 
+// Maintenance loop: 24h reminders, auto-end at end time, post-event cleanup.
+// Low frequency is fine — the planner is time-based, not edge-triggered.
+const MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
+const maintenanceTimer = setInterval(() => {
+  void runMaintenance({ db, client })
+    .then((summary) => {
+      for (const line of summary) console.log(`[maintenance] ${line}`);
+    })
+    .catch((error) => console.error('maintenance pass failed:', error));
+}, MAINTENANCE_INTERVAL_MS);
+maintenanceTimer.unref();
+
 async function shutdown(signal: string): Promise<void> {
   console.log(`${signal} received, shutting down…`);
+  clearInterval(maintenanceTimer);
   try {
     await server.stop();
     await client.destroy();
