@@ -427,9 +427,32 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/match/commit', async () => {
-    const res = commitMatch(db, 'web', activeEventId(), guildId, getForm(db));
+    const eventId = activeEventId();
+    const res = commitMatch(db, 'web', eventId, guildId, getForm(db));
     if (!res.ok) {
       return { ok: false, code: res.code, message: res.message };
+    }
+    // Provision matched team spaces + roles (parity with the Discord commit flow).
+    if (deps.client !== null) {
+      const categoryId = getGuildSettings(db, guildId).teamCategoryId ?? config.teamCategoryId;
+      const provisionDeps = { db, client: deps.client, categoryIdFor: () => categoryId ?? undefined };
+      const { provisionTeamSpace, grantTeamRole, sendJoinWelcome } = await import('../discord/provision.js');
+      const matched = listTeams(db, eventId).filter((t) => t.kind === 'matched');
+      for (const team of matched) {
+        const provisioned = await provisionTeamSpace(provisionDeps, team);
+        for (const member of team.members) {
+          await grantTeamRole(provisionDeps, provisioned, member.userId);
+        }
+        const first = team.members[0];
+        if (first !== undefined) {
+          await sendJoinWelcome(
+            provisionDeps,
+            provisioned,
+            first.userId,
+            team.members.map((m) => ({ userId: m.userId, displayName: m.displayName })),
+          );
+        }
+      }
     }
     const lines = res.value.teams
       .map((t) => `**${t.name}** — compatibility ${t.score}\n${t.memberIds.map((id) => `<@${id}>`).join(', ')}`)
