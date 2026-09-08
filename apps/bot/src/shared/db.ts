@@ -57,6 +57,8 @@ function migrate(db: Db): void {
       category_id TEXT,
       cleanup_delay_hours INTEGER NOT NULL DEFAULT 48,
       cleanup_done INTEGER NOT NULL DEFAULT 0,
+      cleanup_warned_72h INTEGER NOT NULL DEFAULT 0,
+      cleanup_warned_24h INTEGER NOT NULL DEFAULT 0,
       reminded_24h INTEGER NOT NULL DEFAULT 0,
       discord_event_ids TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL,
@@ -152,6 +154,8 @@ function migrate(db: Db): void {
   addColumnIfMissing(db, 'teams', 'text_channel_id', 'TEXT');
   addColumnIfMissing(db, 'teams', 'voice_channel_id', 'TEXT');
   addColumnIfMissing(db, 'teams', 'color', 'TEXT');
+  addColumnIfMissing(db, 'events', 'cleanup_warned_72h', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'events', 'cleanup_warned_24h', 'INTEGER NOT NULL DEFAULT 0');
 
   backfillLegacyEvents(db);
   recreateParticipantsTable(db);

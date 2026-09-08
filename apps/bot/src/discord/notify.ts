@@ -16,14 +16,17 @@ import {
   endEvent,
   type HackathonEvent,
 } from '../features/events/data.js';
+import type { KyselyDb } from '../shared/kysely.js';
 import { listParticipants } from '../features/signup/data.js';
 import { listTeams, deleteEventTeams } from '../features/teams/data.js';
+import { markCleanupWarned } from '../features/events/data.js';
 import { destroyTeamSpace } from './provision.js';
 import { postOrUpdatePanel } from './signup-panel.js';
 
 export interface NotifyDeps {
   db: Db;
   client: Client;
+  kysely?: KyselyDb;
 }
 
 function buildAnnouncementEmbed(event: HackathonEvent, title: string, message: string): EmbedBuilder {
@@ -151,15 +154,21 @@ export async function createDiscordEvents(
  * interval from index.ts.
  */
 export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
-  const { db, client } = deps;
+  const { db, client, kysely } = deps;
   const now = Date.now();
   const summary: string[] = [];
 
-  // Collect all known guilds from events.
-  const allEvents: HackathonEvent[] = [];
-  const guildRows = db.prepare('SELECT DISTINCT guild_id FROM events').all() as unknown as { guild_id: string }[];
-  for (const { guild_id } of guildRows) {
-    allEvents.push(...listEvents(db, guild_id));
+  // Collect all events (typed Kysely read when the instance is wired).
+  let allEvents: HackathonEvent[];
+  if (kysely !== undefined) {
+    const { listEventsForMaintenance } = await import('../features/events/data.js');
+    allEvents = await listEventsForMaintenance(kysely);
+  } else {
+    allEvents = [];
+    const guildRows = db.prepare('SELECT DISTINCT guild_id FROM events').all() as unknown as { guild_id: string }[];
+    for (const { guild_id } of guildRows) {
+      allEvents.push(...listEvents(db, guild_id));
+    }
   }
   const actions = planMaintenance(allEvents, now);
   if (actions.length === 0) return summary;
@@ -192,7 +201,12 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           for (const p of listParticipants(db, event.id, 'active')) {
             await client.users.fetch(p.userId).then((u) => u.send({ embeds: [embed] })).catch(() => undefined);
           }
-          db.prepare('UPDATE events SET reminded_24h = 1, updated_at = ? WHERE id = ?').run(Date.now(), event.id);
+          if (kysely !== undefined) {
+            const { markReminded24h } = await import('../features/events/data.js');
+            await markReminded24h(kysely, event.id);
+          } else {
+            db.prepare('UPDATE events SET reminded_24h = 1, updated_at = ? WHERE id = ?').run(Date.now(), event.id);
+          }
           audit(db, 'system', 'event.remind_24h', event.id, null);
           summary.push(`reminded: ${event.name}`);
           break;
@@ -219,6 +233,42 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           summary.push(`ended: ${event.name}`);
           break;
         }
+        case 'cleanup_warn': {
+          // Grace-window notice: channels stay up so people can grab photos.
+          const hoursLeft = action.hoursLeft;
+          const teams2 = listTeams(db, event.id);
+          const provisionDepsW = { db, client, categoryIdFor: () => event.categoryId ?? undefined };
+          for (const team of teams2) {
+            if (team.textChannelId === null) continue;
+            try {
+              const g = await client.guilds.fetch(event.guildId);
+              const ch = await g.channels.fetch(team.textChannelId).catch(() => null);
+              if (ch !== null && ch.isTextBased()) {
+                await ch.send({
+                  embeds: [
+                    new EmbedBuilder()
+                      .setTitle(`🧹 This channel will be deleted in ~${hoursLeft}h`)
+                      .setDescription(
+                        [
+                          `**${event.name}** is over — team spaces (this channel, the voice channel and the team role) are scheduled for removal.`,
+                          '',
+                          'Grab your screenshots, photos and anything else you want to keep.',
+                          `Need more time? Ask an organizer to extend the cleanup delay (currently ${event.cleanupDelayHours}h after the event end).`,
+                        ].join('\n'),
+                      )
+                      .setColor(0xf0b429),
+                  ],
+                });
+              }
+            } catch (err2) {
+              console.warn('cleanup warn post failed:', err2);
+            }
+          }
+          markCleanupWarned(db, event.id, hoursLeft > 24 ? '72h' : '24h');
+          audit(db, 'system', 'event.cleanup_warn', event.id, { hoursLeft, teams: teams2.length });
+          summary.push(`cleanup warning (${hoursLeft}h): ${event.name}`);
+          break;
+        }
         case 'cleanup': {
           const teams = listTeams(db, event.id);
           const provisionDeps = { db, client, categoryIdFor: () => event.categoryId ?? undefined };
@@ -233,7 +283,12 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             }
           }
           deleteEventTeams(db, 'system', event.id);
-          db.prepare('UPDATE events SET cleanup_done = 1, updated_at = ? WHERE id = ?').run(Date.now(), event.id);
+          if (kysely !== undefined) {
+            const { markCleanupDone } = await import('../features/events/data.js');
+            await markCleanupDone(kysely, event.id);
+          } else {
+            db.prepare('UPDATE events SET cleanup_done = 1, updated_at = ? WHERE id = ?').run(Date.now(), event.id);
+          }
           audit(db, 'system', 'event.cleanup', event.id, { teams: teams.length });
           summary.push(`cleaned up: ${event.name} (${teams.length} team spaces)`);
           break;

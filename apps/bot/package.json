@@ -16,9 +16,10 @@
     "postinstall": "node scripts/no-install-scripts.mjs"
   },
   "dependencies": {
+    "@fastify/static": "10.1.3",
     "discord.js": "14.27.0",
     "fastify": "5.12.3",
-    "@fastify/static": "10.1.3"
+    "kysely": "0.29.5"
   },
   "devDependencies": {
     "@types/node": "24.13.3",

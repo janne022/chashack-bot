@@ -29,6 +29,8 @@ export interface HackathonEvent {
   /** Hours after ends_at when roles/channels are torn down. */
   cleanupDelayHours: number;
   cleanupDone: boolean;
+  cleanupWarned72h: boolean;
+  cleanupWarned24h: boolean;
   reminded24h: boolean;
   /** Discord scheduled-event ids created for this hackathon event. */
   discordEventIds: string[];
@@ -49,6 +51,8 @@ interface EventRow {
   category_id: string | null;
   cleanup_delay_hours: number;
   cleanup_done: number;
+  cleanup_warned_72h: number;
+  cleanup_warned_24h: number;
   reminded_24h: number;
   discord_event_ids: string;
   created_at: number;
@@ -75,6 +79,8 @@ function toEvent(row: EventRow): HackathonEvent {
     categoryId: row.category_id,
     cleanupDelayHours: row.cleanup_delay_hours,
     cleanupDone: row.cleanup_done === 1,
+    cleanupWarned72h: row.cleanup_warned_72h === 1,
+    cleanupWarned24h: row.cleanup_warned_24h === 1,
     reminded24h: row.reminded_24h === 1,
     discordEventIds,
     createdAt: row.created_at,
@@ -312,6 +318,7 @@ export function templateToEventInput(json: string): Partial<CreateEventInput> {
 export type MaintenanceAction =
   | { type: 'remind_24h'; eventId: string }
   | { type: 'end_event'; eventId: string }
+  | { type: 'cleanup_warn'; eventId: string; hoursLeft: number }
   | { type: 'cleanup'; eventId: string };
 
 /** Decide what should happen now, given the current time. Pure. */
@@ -332,10 +339,60 @@ export function planMaintenance(events: HackathonEvent[], now: number): Maintena
       }
     }
     if (event.status === 'ended' && !event.cleanupDone && event.endsAt !== null) {
-      if (event.endsAt + event.cleanupDelayHours * 3600 * 1000 <= now) {
+      const cleanupAt = event.endsAt + event.cleanupDelayHours * 3600 * 1000;
+      // Grace window: people keep sharing screenshots until teardown. Warn in
+      // team channels at 72h and 24h before deletion.
+      if (cleanupAt <= now) {
         actions.push({ type: 'cleanup', eventId: event.id });
+      } else if (!event.cleanupWarned72h && cleanupAt - now <= 72 * 3600 * 1000) {
+        actions.push({ type: 'cleanup_warn', eventId: event.id, hoursLeft: Math.round((cleanupAt - now) / 3600 / 1000) });
+      } else if (!event.cleanupWarned24h && cleanupAt - now <= 24 * 3600 * 1000) {
+        actions.push({ type: 'cleanup_warn', eventId: event.id, hoursLeft: Math.round((cleanupAt - now) / 3600 / 1000) });
       }
     }
   }
   return actions;
+}
+
+// ─── Kysely-based queries (typed; the migration path for complex reads) ─────
+
+import type { KyselyDb } from '../../shared/kysely.js';
+
+/** All events for the maintenance planner, via typed Kysely query. */
+export async function listEventsForMaintenance(kysely: KyselyDb): Promise<HackathonEvent[]> {
+  const rows = await kysely
+    .selectFrom('events')
+    .selectAll()
+    .orderBy('created_at', 'desc')
+    .execute();
+  return rows.map((row) =>
+    toEvent({
+      ...(row as unknown as EventRow),
+      discord_event_ids: row.discord_event_ids ?? '[]',
+    }),
+  );
+}
+
+/** Mark the 24h reminder as sent. */
+export async function markReminded24h(kysely: KyselyDb, eventId: string): Promise<void> {
+  await kysely
+    .updateTable('events')
+    .set({ reminded_24h: 1, updated_at: Date.now() })
+    .where('id', '=', eventId)
+    .execute();
+}
+
+/** Mark cleanup done. */
+export async function markCleanupDone(kysely: KyselyDb, eventId: string): Promise<void> {
+  await kysely
+    .updateTable('events')
+    .set({ cleanup_done: 1, updated_at: Date.now() })
+    .where('id', '=', eventId)
+    .execute();
+}
+
+/** Mark the 72h/24h cleanup warning as posted. Tier selects the flag column. */
+export function markCleanupWarned(db: import('../../shared/db.js').Db, eventId: string, tier: '72h' | '24h'): void {
+  const column = tier === '72h' ? 'cleanup_warned_72h' : 'cleanup_warned_24h';
+  db.prepare(`UPDATE events SET ${column} = 1, updated_at = ? WHERE id = ?`).run(Date.now(), eventId);
 }

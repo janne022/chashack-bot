@@ -143,6 +143,16 @@ export const api = {
     await request(`/api/events/${eventId}/activate`, { method: 'POST' })
   },
 
+  async updateEvent(
+    eventId: string,
+    update: { name?: string; description?: string; startsAt?: number | null; endsAt?: number | null; cleanupDelayHours?: number },
+  ): Promise<void> {
+    await request(`/api/events/${eventId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(update),
+    })
+  },
+
   async endEvent(eventId: string): Promise<void> {
     await request(`/api/events/${eventId}/end`, { method: 'POST' })
   },

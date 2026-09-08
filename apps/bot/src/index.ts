@@ -4,6 +4,7 @@
 import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
 import { env } from './shared/env.js';
 import { openDb, resolveDbPath } from './shared/db.js';
+import { createKysely } from './shared/kysely.js';
 import { audit } from './shared/audit.js';
 import { registerInteractionHandlers } from './discord/dispatch.js';
 import { startAdminServer } from './adminweb/server.js';
@@ -11,6 +12,7 @@ import { runMaintenance } from './discord/notify.js';
 
 const config = env();
 const db = openDb(resolveDbPath(config.dbPath));
+const kysely = createKysely(db);
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -58,7 +60,7 @@ const server = await startAdminServer({ db, config, announce, client });
 // Low frequency is fine — the planner is time-based, not edge-triggered.
 const MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
 const maintenanceTimer = setInterval(() => {
-  void runMaintenance({ db, client })
+  void runMaintenance({ db, client, kysely })
     .then((summary) => {
       for (const line of summary) console.log(`[maintenance] ${line}`);
     })
