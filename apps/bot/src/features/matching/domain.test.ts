@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTeams, scorePair } from './domain.js';
+import { buildTeams, scorePair, suggestTeamsForParticipant } from './domain.js';
 import { DEFAULT_FORM, type FormConfig } from '../form/domain.js';
 import type { Participant } from '../signup/data.js';
+import type { TeamWithMembers } from '../teams/data.js';
 
 function makeParticipant(overrides: Partial<Participant> & { userId: string }): Participant {
   return {
@@ -90,4 +91,71 @@ test('everyone gets placed exactly once', () => {
   const placed = result.teams.flatMap((t) => t.memberIds);
   assert.equal(placed.length, people.length);
   assert.equal(new Set(placed).size, people.length);
+});
+
+// ─── suggestTeamsForParticipant ──────────────────────────────────────────────
+
+function makeTeam(id: string, name: string, members: Participant[]): TeamWithMembers {
+  return {
+    id,
+    eventId: 'ev1',
+    guildId: 'g1',
+    name,
+    kind: 'public',
+    ownerId: null,
+    joinCode: null,
+    roleId: null,
+    textChannelId: null,
+    voiceChannelId: null,
+    colorId: null,
+    createdAt: 0,
+    members: members.map((m) => ({
+      userId: m.userId,
+      displayName: m.displayName,
+      roleTrack: m.roleTrack,
+      experience: m.experience,
+      skills: m.skills,
+    })),
+  };
+}
+
+test('suggest: orders teams by best average fit and caps at 3', () => {
+  // Two shared skills + same role track (74) must beat a complementary stranger (63).
+  const late = makeParticipant({ userId: 'late', roleTrack: 'frontend', skills: ['frontend_react', 'frontend_typescript'], experience: 'veteran' });
+  const be = makeParticipant({ userId: 'be', roleTrack: 'backend', skills: [], experience: 'first_timer' });
+  const feLike = makeParticipant({ userId: 'felike', roleTrack: 'frontend', skills: ['frontend_react', 'frontend_typescript'], experience: 'veteran' });
+  const teams = [makeTeam('t1', 'Zeta', [be]), makeTeam('t2', 'Alpha', [feLike])];
+  const suggestions = suggestTeamsForParticipant(late, teams, CONFIG);
+  assert.equal(suggestions.length, 2);
+  assert.equal(suggestions[0]!.teamId, 't2');
+  assert.ok(suggestions[0]!.score >= suggestions[1]!.score);
+});
+
+test('suggest: respects team capacity (full teams are excluded)', () => {
+  const late = makeParticipant({ userId: 'late' });
+  const full = makeTeam('tfull', 'Full', [makeParticipant({ userId: 'm1' }), makeParticipant({ userId: 'm2' }), makeParticipant({ userId: 'm3' })]);
+  const open = makeTeam('topen', 'Open', [makeParticipant({ userId: 'm4' })]);
+  const suggestions = suggestTeamsForParticipant(late, [full, open], CONFIG); // teamSize 3
+  assert.equal(suggestions.length, 1);
+  assert.equal(suggestions[0]!.teamId, 'topen');
+});
+
+test('suggest: returns at most 3 even with many open teams', () => {
+  const late = makeParticipant({ userId: 'late' });
+  const many = ['a', 'b', 'c', 'd', 'e'].map((id) => makeTeam(`t${id}`, `Team ${id.toUpperCase()}`, []));
+  const suggestions = suggestTeamsForParticipant(late, many, CONFIG);
+  assert.equal(suggestions.length, 3);
+});
+
+test('suggest: empty teams list yields no suggestions', () => {
+  const late = makeParticipant({ userId: 'late' });
+  assert.deepEqual(suggestTeamsForParticipant(late, [], CONFIG), []);
+});
+
+test('suggest: never auto-assigns (pure, no mutation of input teams)', () => {
+  const late = makeParticipant({ userId: 'late' });
+  const teams = [makeTeam('t1', 'Alpha', [])];
+  const before = JSON.stringify(teams);
+  suggestTeamsForParticipant(late, teams, CONFIG);
+  assert.equal(JSON.stringify(teams), before);
 });

@@ -13,6 +13,7 @@
  */
 import type { FormConfig } from '../form/domain.js';
 import type { Participant } from '../signup/data.js';
+import type { TeamWithMembers } from '../teams/data.js';
 
 const EXP_LEVEL: Record<string, number> = {
   first_timer: 0,
@@ -221,4 +222,56 @@ export function buildTeams(participants: Participant[], config: FormConfig): Mat
   }
 
   return { teams: result, conflicts };
+}
+
+// ─── late-signup suggestions ─────────────────────────────────────────────────
+
+export interface TeamSuggestion {
+  teamId: string;
+  teamName: string;
+  /** Average scorePair of the participant against the team's current members. */
+  score: number;
+}
+
+/**
+ * Top teams with free capacity for a late signup, best fit first. Pure —
+ * never assigns anything; the admin decides via manual placement.
+ */
+export function suggestTeamsForParticipant(
+  participant: Participant,
+  teams: TeamWithMembers[],
+  config: FormConfig,
+): TeamSuggestion[] {
+  const teamSize = config.teamSize;
+  return teams
+    .filter((team) => team.members.length < teamSize)
+    .map((team) => {
+      if (team.members.length === 0) {
+        return { teamId: team.id, teamName: team.name, score: 50 };
+      }
+      const total = team.members.reduce(
+        (sum, m) =>
+          sum +
+          scorePair(participant, {
+            eventId: '',
+            guildId: '',
+            userId: m.userId,
+            displayName: m.displayName,
+            experience: m.experience,
+            roleTrack: m.roleTrack,
+            skills: m.skills,
+            teamPref: 'join_team',
+            teammates: [],
+            teamId: team.id,
+            status: 'active',
+            blockReason: null,
+            createdAt: 0,
+            updatedAt: 0,
+          }),
+        0,
+      );
+      return { teamId: team.id, teamName: team.name, score: Math.round(total / team.members.length) };
+    })
+    .sort((a, b) => b.score - a.score || a.teamName.localeCompare(b.teamName))
+    .slice(0, 3);
 }

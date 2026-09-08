@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound } from 'lucide-react'
+import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
@@ -228,6 +228,22 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
             <div>
               <div className="text-muted-foreground text-xs">Cleanup</div>
               <div>{event.cleanupDone ? 'done' : `${event.cleanupDelayHours}h after end`}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <CalendarClock className="size-4 text-accent" />
+            <div>
+              <div className="text-muted-foreground text-xs">Auto-match</div>
+              <div className="flex items-center gap-1.5">
+                {event.matchLocked && <Lock className="size-3 text-ok" />}
+                <span>
+                  {event.matchAt !== null
+                    ? `${dateTime(event.matchAt)} (${timeAgo(event.matchAt)})${event.matchLocked ? ' · locked' : ''}`
+                    : event.matchLocked
+                      ? 'locked · manual'
+                      : 'manual'}
+                </span>
+              </div>
             </div>
           </div>
         </div>

@@ -154,6 +154,15 @@ export const HACKATHON_COMMAND = new SlashCommandBuilder()
       )
       .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
         sub
+          .setName('auto-match')
+          .setDescription('Schedule automatic team matching (runs at the next maintenance tick, ≤5 min later)')
+          .addStringOption((o) =>
+            o.setName('at').setDescription('When to auto-match (ISO date or unix ms); omit with clear to inspect').setRequired(false),
+          )
+          .addBooleanOption((o) => o.setName('clear').setDescription('Cancel the scheduled auto-match').setRequired(false)),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub
           .setName('announce')
           .setDescription('Announce to the panel channel and (optionally) DM all participants')
           .addStringOption((o) => o.setName('title').setDescription('Headline').setRequired(true).setMaxLength(100))
