@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Link, useRouter } from '@tanstack/react-router'
+import { Link, useLocation } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import {
   CalendarDays,
@@ -42,8 +42,8 @@ export function AppShell({
   refresh: () => Promise<void>
   children: ReactNode
 }) {
-  const router = useRouter()
-  const pathname = router.state.location.pathname
+  const location = useLocation()
+  const pathname = location.pathname
   const isActive = (to: string) => pathname === to || pathname.startsWith(`${to}/`)
 
   const t = useT()
@@ -78,7 +78,7 @@ export function AppShell({
   return (
     <div className="min-h-screen lg:flex">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-hidden border-r border-border bg-surface p-4 pl-6 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-surface p-4 pl-6 lg:flex">
         <div className="mb-6 flex items-center gap-3 px-1 pt-1">
           <img src={brandMark} alt="" className="hex-badge size-9 object-cover" />
           <div>

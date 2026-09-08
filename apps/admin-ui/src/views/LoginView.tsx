@@ -49,7 +49,7 @@ export function LoginView({ onLogin }: { onLogin: (password: string) => Promise<
       </button>
       <div className="relative z-10 w-full max-w-sm animate-pop-in">
         <div className="mb-6 flex flex-col items-center text-center">
-          <img src={brandMark} alt="ChasHack" className="size-20 drop-shadow-[0_0_24px_rgba(85,187,218,0.35)]" />
+          <img src={brandMark} alt="ChasHack" className="size-20 drop-shadow-[0_0_24px_var(--color-sky)]" />
           <img src={wordmark} alt="ChasHack" className="-mt-2 max-w-56 mix-blend-screen" />
           <p className="mt-3 text-sm text-muted-foreground">{t('login.tagline')}</p>
         </div>
