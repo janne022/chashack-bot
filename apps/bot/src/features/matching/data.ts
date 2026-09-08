@@ -7,8 +7,8 @@ import { newId } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import type { FormConfig } from '../form/domain.js';
-import { listMatchable } from '../signup/store.js';
-import { buildTeams, type MatchResult } from './engine.js';
+import { listMatchable } from '../signup/data.js';
+import { buildTeams, type MatchResult } from './domain.js';
 
 export function previewMatch(db: Db, eventId: string, config: FormConfig): Result<MatchResult> {
   const participants = listMatchable(db, eventId);

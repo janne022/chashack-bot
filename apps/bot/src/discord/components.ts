@@ -15,7 +15,7 @@ import {
   type StringSelectMenuInteraction,
 } from 'discord.js';
 import { MODAL_IDS, validateSignupInput } from '../features/form/domain.js';
-import { upsertParticipant, getParticipant } from '../features/signup/store.js';
+import { upsertParticipant, getParticipant } from '../features/signup/data.js';
 import {
   createTeam,
   getTeamForUser,
@@ -23,8 +23,8 @@ import {
   updateTeamSettings,
   adminAssign,
   joinPrivateTeam,
-} from '../features/teams/service.js';
-import { createJoinRequest, decideRequest, cancelRequest } from '../features/teams/requests.js';
+} from '../features/teams/data.js';
+import { createJoinRequest, decideRequest, cancelRequest } from '../features/teams/requests-data.js';
 import { applyTeamJoin } from './provision.js';
 import { buildSignupModal, CREATE_TEAM_IDS, TEAM_SETTINGS_IDS } from './modal.js';
 import { IDS, buildParticipantEmbed, displayErr, embedErr, embedOk, eph, type Ctx } from './shared.js';

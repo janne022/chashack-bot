@@ -15,8 +15,8 @@ import {
   type Guild,
 } from 'discord.js';
 import type { Db } from '../shared/db.js';
-import { setProvisioning, setRole, setTextChannel, setVoiceChannel } from '../features/teams/service.js';
-import type { Team } from '../features/teams/service.js';
+import { setProvisioning, setRole, setTextChannel, setVoiceChannel } from '../features/teams/data.js';
+import type { Team } from '../features/teams/data.js';
 import { teamColor } from '../features/form/domain.js';
 
 const MANAGE_FLAGS = [

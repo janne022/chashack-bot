@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb, type Db } from '../../shared/db.js';
-import { upsertParticipant } from '../signup/store.js';
+import { upsertParticipant } from '../signup/data.js';
 import { validateSignupInput, DEFAULT_FORM } from '../form/domain.js';
-import { createTeam, listTeams } from './service.js';
+import { createTeam, listTeams } from './data.js';
 import {
   createInvite,
   createJoinRequest,
   decideRequest,
   cancelRequest,
-} from './requests.js';
+} from './requests-data.js';
 
 const G = 'guild1';
 const EV = 'ev_test1';

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTeams, scorePair } from './engine.js';
+import { buildTeams, scorePair } from './domain.js';
 import { DEFAULT_FORM, type FormConfig } from '../form/domain.js';
-import type { Participant } from '../signup/store.js';
+import type { Participant } from '../signup/data.js';
 
 function makeParticipant(overrides: Partial<Participant> & { userId: string }): Participant {
   return {

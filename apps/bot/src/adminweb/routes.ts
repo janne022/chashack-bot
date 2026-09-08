@@ -14,7 +14,7 @@ import {
   withdrawParticipant,
   listParticipants,
   getParticipant,
-} from '../features/signup/store.js';
+} from '../features/signup/data.js';
 import {
   createTeam,
   deleteTeam,
@@ -25,10 +25,23 @@ import {
   updateTeamSettings,
   setGuildCategory,
   getGuildSettings,
-} from '../features/teams/service.js';
-import { previewMatch, commitMatch, lastMatchInfo } from '../features/matching/service.js';
-import { getForm, updateForm, resetForm } from '../features/form/service.js';
+} from '../features/teams/data.js';
+import { previewMatch, commitMatch, lastMatchInfo } from '../features/matching/data.js';
+import {
+  createEvent,
+  getActiveEvent,
+  getEvent,
+  getEventForm,
+  listEvents,
+  activateEvent,
+  endEvent,
+  saveTemplate,
+  listTemplates,
+  deleteTemplate,
+} from '../features/events/data.js';
+import { getForm, updateForm, resetForm } from '../features/form/data.js';
 import { refreshSignupPanel } from '../discord/signup-panel.js';
+import { sendAnnouncement, createDiscordEvents } from '../discord/notify.js';
 import type { FormConfig } from '../features/form/domain.js';
 
 export interface WebDeps {
@@ -110,6 +123,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const eventId = activeEventId();
     const participants = listParticipants(db, eventId);
     const teams = listTeams(db, eventId);
+    const events = listEvents(db, guildId);
+    const active = events.find((e) => e.status === 'active') ?? null;
     return {
       participants,
       teams,
@@ -117,6 +132,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       audit: auditList(db, 100),
       lastMatch: lastMatchInfo(db, eventId),
       guildSettings: getGuildSettings(db, guildId),
+      events,
+      templates: listTemplates(db, guildId),
+      activeEventId: active?.id ?? null,
       stats: {
         signups: participants.filter((p) => p.status !== 'withdrawn').length,
         active: participants.filter((p) => p.status === 'active').length,
@@ -126,6 +144,138 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         teams: teams.length,
       },
     };
+  });
+
+  // ── events ────────────────────────────────────────────────────────────────
+
+  app.post('/api/events', async (req, reply) => {
+    const body = req.body as {
+      name?: string;
+      description?: string;
+      startsAt?: number | null;
+      endsAt?: number | null;
+      templateId?: string;
+    } | null;
+    if (body?.name === undefined || body.name.trim().length < 3) {
+      await reply.code(400).send({ ok: false, code: 'bad_name', message: 'Event name must be at least 3 characters.' });
+      return;
+    }
+    let form: Parameters<typeof createEvent>[3]['form'];
+    if (body.templateId !== undefined) {
+      const tpl = listTemplates(db, guildId, 'event').find((t) => t.id === body.templateId);
+      if (tpl === undefined) {
+        await reply.code(400).send({ ok: false, code: 'not_found', message: 'Template not found.' });
+        return;
+      }
+      const { templateToEventInput } = await import('../features/events/data.js');
+      form = templateToEventInput(tpl.json).form;
+    }
+    const res = createEvent(db, 'web', guildId, {
+      name: body.name,
+      ...(body.description !== undefined ? { description: body.description } : {}),
+      ...(body.startsAt != null ? { startsAt: body.startsAt } : {}),
+      ...(body.endsAt != null ? { endsAt: body.endsAt } : {}),
+      ...(form !== undefined ? { form } : {}),
+    });
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true, event: res.value };
+  });
+
+  app.post('/api/events/:eventId/activate', async (req, reply) => {
+    const res = activateEvent(db, 'web', (req.params as { eventId: string }).eventId);
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    // Refresh the signup panel for the newly active event.
+    if (deps.client !== null) {
+      await refreshSignupPanel(db, deps.client, guildId).catch(() => undefined);
+    }
+    return { ok: true, event: res.value };
+  });
+
+  app.post('/api/events/:eventId/end', async (req, reply) => {
+    const res = endEvent(db, 'web', (req.params as { eventId: string }).eventId);
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true, event: res.value };
+  });
+
+  app.post('/api/events/announce', async (req, reply) => {
+    const body = req.body as { eventId?: string; title?: string; message?: string; dm?: boolean } | null;
+    const event = body?.eventId !== undefined ? getEvent(db, body.eventId) : getActiveEvent(db, guildId);
+    if (event === null) {
+      await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found.' });
+      return;
+    }
+    if (deps.client === null) {
+      await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' });
+      return;
+    }
+    if (body?.title === undefined || body.message === undefined) {
+      await reply.code(400).send({ ok: false, code: 'bad_input', message: 'title and message are required.' });
+      return;
+    }
+    const result = await sendAnnouncement({ db, client: deps.client }, 'web', event, body.title, body.message, body.dm ?? false);
+    return { ok: true, ...result };
+  });
+
+  app.post('/api/events/:eventId/discord-events', async (req, reply) => {
+    const event = getEvent(db, (req.params as { eventId: string }).eventId);
+    if (event === null) {
+      await reply.code(404).send({ ok: false, code: 'not_found', message: 'Event not found.' });
+      return;
+    }
+    if (deps.client === null) {
+      await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' });
+      return;
+    }
+    const body = req.body as { days?: number; durationHours?: number } | null;
+    const result = await createDiscordEvents({ db, client: deps.client }, 'web', event, body?.days ?? 1, body?.durationHours ?? 24);
+    if (result.created.length === 0) {
+      await reply.code(400).send({ ok: false, code: 'failed', message: result.errors.join('; ') || 'Nothing created.' });
+      return;
+    }
+    return { ok: true, created: result.created, errors: result.errors };
+  });
+
+  // ── templates ─────────────────────────────────────────────────────────────
+
+  app.post('/api/templates', async (req, reply) => {
+    const body = req.body as { eventId?: string; name?: string; kind?: string } | null;
+    const event = body?.eventId !== undefined ? getEvent(db, body.eventId) : getActiveEvent(db, guildId);
+    if (event === null) {
+      await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found.' });
+      return;
+    }
+    const { getEventForm } = await import('../features/events/data.js');
+    const { DEFAULT_FORM } = await import('../features/form/domain.js');
+    const payload = {
+      name: event.name,
+      description: event.description,
+      cleanupDelayHours: event.cleanupDelayHours,
+      form: getEventForm(db, event, DEFAULT_FORM),
+    };
+    const res = saveTemplate(db, 'web', guildId, body?.name ?? event.name, 'event', JSON.stringify(payload));
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true, template: res.value };
+  });
+
+  app.delete('/api/templates/:templateId', async (req, reply) => {
+    const res = deleteTemplate(db, 'web', (req.params as { templateId: string }).templateId);
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true };
   });
 
   app.post('/api/participants/:userId/status', async (req, reply) => {
@@ -285,8 +435,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.post('/api/event/reset', async () => {
     const eventId = activeEventId();
-    const { purgeEventParticipants } = await import('../features/signup/store.js');
-    const { deleteEventTeams } = await import('../features/teams/service.js');
+    const { purgeEventParticipants } = await import('../features/signup/data.js');
+    const { deleteEventTeams } = await import('../features/teams/data.js');
     const participants = purgeEventParticipants(db, 'web', eventId);
     const teams = deleteEventTeams(db, 'web', eventId);
     return { ok: true, removed: { participants, teams } };

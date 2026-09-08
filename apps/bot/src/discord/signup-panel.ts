@@ -16,7 +16,7 @@ import {
   type TextChannel,
 } from 'discord.js';
 import type { Db } from '../shared/db.js';
-import { getForm } from '../features/form/service.js';
+import { getForm } from '../features/form/data.js';
 import type { FormConfig } from '../features/form/domain.js';
 import { labelFor } from '../features/form/domain.js';
 import { IDS } from './shared.js';

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
+import { Link, useRouter } from '@tanstack/react-router'
 import {
-  LayoutDashboard,
+  CalendarDays,
   Users,
   UsersRound,
   Sparkles,
@@ -9,26 +10,24 @@ import {
   RefreshCw,
   Sun,
   Moon,
-  CalendarDays,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { AppState } from '@/types'
-import type { TabId } from '@/types-dashboard'
 import brandMark from '@/assets/brand/1.png'
 
-const NAV: { id: TabId; label: string; icon: typeof LayoutDashboard }[] = [
-  { id: 'overview', label: 'Events', icon: CalendarDays },
-  { id: 'participants', label: 'Participants', icon: Users },
-  { id: 'teams', label: 'Teams', icon: UsersRound },
-  { id: 'matching', label: 'Matching', icon: Sparkles },
-  { id: 'form', label: 'Form', icon: ClipboardList },
-  { id: 'audit', label: 'Audit log', icon: History },
-]
+const NAV = [
+  { to: '/events', label: 'Events', icon: CalendarDays },
+  { to: '/participants', label: 'Participants', icon: Users },
+  { to: '/teams', label: 'Teams', icon: UsersRound },
+  { to: '/matching', label: 'Matching', icon: Sparkles },
+  { to: '/form', label: 'Form', icon: ClipboardList },
+  { to: '/audit', label: 'Audit log', icon: History },
+] as const
 
 /**
  * App shell — "Honeycomb playtech" world.
- * Sidebar with the brand mark, theme toggle, mobile bottom tabs.
+ * Router-aware sidebar; theme toggle persists in localStorage.
  */
 export function AppShell({
   state,
@@ -37,9 +36,12 @@ export function AppShell({
 }: {
   state: AppState
   refresh: () => Promise<void>
-  children: (tab: TabId, go: (t: TabId) => void) => ReactNode
+  children: ReactNode
 }) {
-  const [tab, setTab] = useState<TabId>('overview')
+  const router = useRouter()
+  const pathname = router.state.location.pathname
+  const isActive = (to: string) => pathname === to || pathname.startsWith(`${to}/`)
+
   const [theme, setTheme] = useState<'dark' | 'light'>(
     () => (localStorage.getItem('chas-theme') as 'dark' | 'light') ?? 'dark',
   )
@@ -50,36 +52,9 @@ export function AppShell({
     localStorage.setItem('chas-theme', next)
     document.documentElement.dataset.theme = next
   }
-
-  // Apply on first paint
   if (document.documentElement.dataset.theme !== theme) {
     document.documentElement.dataset.theme = theme
   }
-
-  const nav = (compact: boolean) => (
-    <>
-      {NAV.map(({ id, label, icon: Icon }) => (
-        <button
-          key={id}
-          onClick={() => setTab(id)}
-          aria-current={tab === id ? 'page' : undefined}
-          className={cn(
-            'group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition-all',
-            'relative',
-            tab === id
-              ? 'bg-accent-soft text-accent'
-              : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground',
-          )}
-        >
-          {tab === id && (
-            <span className="hex-badge absolute -left-2 size-2.5 bg-accent" aria-hidden />
-          )}
-          <Icon className="size-4 shrink-0" />
-          <span className={compact ? 'hidden lg:inline' : ''}>{label}</span>
-        </button>
-      ))}
-    </>
-  )
 
   return (
     <div className="min-h-screen lg:flex">
@@ -93,7 +68,23 @@ export function AppShell({
           </div>
         </div>
         <nav className="flex flex-col gap-1" aria-label="Sections">
-          {nav(true)}
+          {NAV.map(({ to, label, icon: Icon }) => (
+            <Link
+              key={to}
+              to={to}
+              aria-current={isActive(to) ? 'page' : undefined}
+              className={cn(
+                'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition-all',
+                isActive(to)
+                  ? 'bg-accent-soft text-accent'
+                  : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground',
+              )}
+            >
+              {isActive(to) && <span className="hex-badge absolute -left-2 size-2.5 bg-accent" aria-hidden />}
+              <Icon className="size-4 shrink-0" />
+              {label}
+            </Link>
+          ))}
         </nav>
         <div className="mt-auto flex flex-col gap-2 pb-1">
           <div className="hex-bg rounded-xl border border-border p-3">
@@ -104,7 +95,12 @@ export function AppShell({
             <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label="Refresh data">
               <RefreshCw />
             </Button>
-            <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            >
               {theme === 'dark' ? <Sun /> : <Moon />}
             </Button>
           </div>
@@ -121,18 +117,19 @@ export function AppShell({
           <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label="Refresh data">
             <RefreshCw />
           </Button>
-          <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
             {theme === 'dark' ? <Sun /> : <Moon />}
           </Button>
         </div>
       </div>
 
       {/* Content */}
-      <main className="min-w-0 flex-1 pb-20 lg:pb-0">
-        <div key={tab} className="mx-auto max-w-5xl animate-fade-in p-4 sm:p-6">
-          {children(tab, setTab)}
-        </div>
-      </main>
+      <main className="min-w-0 flex-1 pb-20 lg:pb-0">{children}</main>
 
       {/* Mobile bottom tabs */}
       <nav
@@ -140,19 +137,19 @@ export function AppShell({
         aria-label="Sections"
       >
         <div className="mx-auto flex max-w-lg items-stretch justify-around">
-          {NAV.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              aria-current={tab === id ? 'page' : undefined}
+          {NAV.map(({ to, label, icon: Icon }) => (
+            <Link
+              key={to}
+              to={to}
+              aria-current={isActive(to) ? 'page' : undefined}
               className={cn(
                 'flex flex-col items-center gap-0.5 py-2 text-[10px] font-semibold',
-                tab === id ? 'text-accent' : 'text-muted-foreground',
+                isActive(to) ? 'text-accent' : 'text-muted-foreground',
               )}
             >
               <Icon className="size-5" />
               {label}
-            </button>
+            </Link>
           ))}
         </div>
       </nav>

@@ -7,7 +7,7 @@ import {
   getParticipant,
   setTeammates,
   blockParticipant,
-} from './signup/store.js';
+} from './signup/data.js';
 import { validateSignupInput, DEFAULT_FORM } from './form/domain.js';
 import {
   createTeam,
@@ -15,8 +15,8 @@ import {
   joinPrivateTeam,
   leaveTeam,
   listOpenPublicTeams,
-} from './teams/service.js';
-import { previewMatch, commitMatch } from './matching/service.js';
+} from './teams/data.js';
+import { previewMatch, commitMatch } from './matching/data.js';
 const G = 'guild1';
 const EV = 'ev_test1';
 let db: Db;

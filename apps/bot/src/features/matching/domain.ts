@@ -12,7 +12,7 @@
  *    (team, candidate) pairing is chosen repeatedly.
  */
 import type { FormConfig } from '../form/domain.js';
-import type { Participant } from '../signup/store.js';
+import type { Participant } from '../signup/data.js';
 
 const EXP_LEVEL: Record<string, number> = {
   first_timer: 0,

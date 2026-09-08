@@ -11,7 +11,7 @@
 import type { Db } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
-import { countMembers, getTeam, getTeamForUser, type Team } from './service.js';
+import { countMembers, getTeam, getTeamForUser, type Team } from './data.js';
 
 export type RequestKind = 'join_request' | 'invite';
 export type RequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled';

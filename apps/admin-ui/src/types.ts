@@ -86,6 +86,34 @@ export interface Stats {
   teams: number
 }
 
+export interface HackathonEvent {
+  id: string
+  guildId: string
+  name: string
+  description: string
+  startsAt: number | null
+  endsAt: number | null
+  status: 'draft' | 'active' | 'ended'
+  formJson: string | null
+  panelChannelId: string | null
+  categoryId: string | null
+  cleanupDelayHours: number
+  cleanupDone: boolean
+  reminded24h: boolean
+  discordEventIds: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface EventTemplate {
+  id: string
+  guildId: string | null
+  name: string
+  kind: 'event' | 'form'
+  json: string
+  createdAt: number
+}
+
 export interface AppState {
   participants: Participant[]
   teams: Team[]
@@ -93,6 +121,9 @@ export interface AppState {
   audit: AuditEntry[]
   lastMatch: { at: number; teams: number } | null
   guildSettings: { teamCategoryId: string | null }
+  events: HackathonEvent[]
+  templates: EventTemplate[]
+  activeEventId: string | null
   stats: Stats
 }
 
