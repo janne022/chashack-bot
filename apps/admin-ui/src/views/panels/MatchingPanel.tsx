@@ -3,6 +3,7 @@ import { CalendarClock, Check, ExternalLink, Lock, LockOpen, Pencil, Sparkles, T
 import { toast } from 'sonner'
 import type { AppState, HackathonEvent, MatchResult, Team, TeamSuggestion } from '@/types'
 import { api } from '@/api'
+import { useT } from '@/lib/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -42,6 +43,7 @@ import { dateTime, timeAgo } from '@/lib/format'
 import { matchAtSchema } from '@/lib/schemas'
 
 export function MatchingPanel({ state, refresh }: { state: AppState; refresh: () => Promise<void> }) {
+  const t = useT()
   const [preview, setPreview] = useState<MatchResult | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -85,9 +87,9 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
     try {
       const result = await api.matchPreview()
       setPreview(result)
-      toast.success(`${result.teams.length} teams drafted`)
+      toast.success(t('matching.drafted', { count: result.teams.length }))
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Preview failed')
+      toast.error(e instanceof Error ? e.message : t('matching.preview_failed'))
       setPreview(null)
     } finally {
       setBusy(false)
@@ -99,11 +101,11 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
     try {
       const result = await api.matchCommit()
       setPreview(null)
-      toast.success(`${result.teams.length} teams committed and announced`)
+      toast.success(t('matching.committed', { count: result.teams.length }))
       await refresh()
       await loadSuggestions()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Commit failed')
+      toast.error(e instanceof Error ? e.message : t('matching.commit_failed'))
     } finally {
       setBusy(false)
     }
@@ -144,26 +146,25 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
 
       <Card>
         <CardHeader>
-          <CardTitle>Compatibility matching</CardTitle>
+          <CardTitle>{t('matching.title')}</CardTitle>
           <CardDescription>
-            Builds teams from unteamed participants who opted into matching. Mutual friend requests are
-            kept together; scores blend role complementarity, skill overlap/diversity and experience mix.
+            {t('matching.desc')}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-4">
           <div className="text-sm">
             <div className="text-2xl font-bold">{candidates}</div>
-            <div className="text-xs text-muted-foreground">participants ready to match</div>
+            <div className="text-xs text-muted-foreground">{t('matching.ready_count')}</div>
           </div>
           <div className="ml-auto flex gap-2">
             {preview !== null && (
               <Button variant="outline" onClick={() => setPreview(null)}>
-                Discard draft
+                {t('matching.discard')}
               </Button>
             )}
             <Button onClick={() => void runPreview()} disabled={busy || candidates < 2}>
               <Sparkles />
-              {preview !== null ? 'Re-run preview' : 'Preview match'}
+              {preview !== null ? t('matching.rerun') : t('matching.preview')}
             </Button>
           </div>
         </CardContent>
@@ -171,7 +172,7 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
 
       {state.lastMatch !== null && (
         <p className="text-xs text-muted-foreground">
-          Last committed match: {state.lastMatch.teams} teams · {timeAgo(state.lastMatch.at)}
+          {t('matching.last_match', { count: state.lastMatch.teams, when: timeAgo(state.lastMatch.at) })}
         </p>
       )}
 
@@ -219,11 +220,11 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
             <CardContent>
               <EmptyState
                 icon={<Sparkles className="size-5" />}
-                title={candidates === 0 ? 'Nobody to match yet' : 'Need one more participant'}
+                title={candidates === 0 ? t('matching.nobody_title') : t('matching.need_one_title')}
                 description={
                   candidates === 0
-                    ? 'Participants who pick “match me into a team” in the signup form appear here.'
-                    : 'Matching needs at least 2 participants who opted in and have no team.'
+                    ? t('matching.nobody_desc')
+                    : t('matching.need_one_desc')
                 }
               />
             </CardContent>
@@ -233,8 +234,8 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
             <CardContent>
               <EmptyState
                 icon={<Sparkles className="size-5" />}
-                title="Ready when you are"
-                description="Run a preview to draft teams. Nothing is saved until you commit."
+                title={t('matching.ready_title')}
+                description={t('matching.ready_desc')}
               />
             </CardContent>
           </Card>
@@ -281,7 +282,7 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
                       <p className="pt-1 text-xs text-warn">{team.notes.join(' · ')}</p>
                     )}
                     {avgExp > 1 && members.length > 1 && (
-                      <p className="text-xs text-muted-foreground">mixed experience levels</p>
+                      <p className="text-xs text-muted-foreground">{t('matching.mixed_experience')}</p>
                     )}
                   </CardContent>
                 </Card>
@@ -292,22 +293,21 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
           <div className="flex justify-end">
             <Button size="lg" onClick={() => setConfirmOpen(true)}>
               <Check />
-              Commit these teams
+              {t('matching.commit_these')}
             </Button>
           </div>
 
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Commit {preview.teams.length} teams?</AlertDialogTitle>
+                <AlertDialogTitle>{t('matching.commit_title', { count: preview.teams.length })}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Previous matched teams are dissolved, these become permanent, and the lineups are
-                  announced in Discord. You can re-run matching later if people drop.
+                  {t('matching.commit_desc')}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Back</AlertDialogCancel>
-                <AlertDialogAction onClick={() => void commit()}>Commit & announce</AlertDialogAction>
+                <AlertDialogCancel>{t('matching.back')}</AlertDialogCancel>
+                <AlertDialogAction onClick={() => void commit()}>{t('matching.commit_announce')}</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>

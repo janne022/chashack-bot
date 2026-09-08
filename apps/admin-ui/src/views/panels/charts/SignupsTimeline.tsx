@@ -10,6 +10,7 @@ import {
   type TooltipContentProps,
 } from 'recharts'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useT } from '@/lib/i18n'
 import type { Participant } from '@/types'
 
 const SKY = '#55bbda'
@@ -75,31 +76,33 @@ function buildTimeline(participants: Participant[]): DayPoint[] {
 }
 
 function TimelineTooltip({ active, payload, label }: TooltipContentProps) {
+  const t = useT()
   if (!active || payload === undefined || payload.length === 0) return null
   const value = payload[0]?.value
   return (
     <div className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs shadow-lg">
       <div className="font-semibold text-foreground">{String(label ?? '')}</div>
-      <div className="mt-0.5 text-accent">{String(value ?? 0)} signups</div>
+      <div className="mt-0.5 text-accent">{t('charts.signups_count', { count: Number(value ?? 0) })}</div>
     </div>
   )
 }
 
 export function SignupsTimeline({ participants }: { participants: Participant[] }) {
+  const t = useT()
   const points = useMemo(() => buildTimeline(participants), [participants])
 
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle>Signups over time</CardTitle>
+        <CardTitle>{t('charts.signups_over_time')}</CardTitle>
         <CardDescription>
-          Cumulative registrations by day · {participants.length} total
+          {t('charts.signups_desc', { count: participants.length })}
         </CardDescription>
       </CardHeader>
       <CardContent>
         {points.length === 0 ? (
           <div className="grid h-60 place-items-center text-sm text-muted-foreground">
-            No data yet
+            {t('common.no_data_yet')}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={240}>
@@ -130,7 +133,7 @@ export function SignupsTimeline({ participants }: { participants: Participant[] 
               <Area
                 type="monotone"
                 dataKey="count"
-                name="Signups"
+                name={t('charts.signups')}
                 stroke={SKY}
                 strokeWidth={2}
                 fill="url(#signupsFill)"

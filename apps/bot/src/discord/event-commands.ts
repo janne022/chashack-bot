@@ -27,6 +27,7 @@ import { listParticipants } from '../features/signup/data.js';
 import { listTeams } from '../features/teams/data.js';
 import { postOrUpdatePanel } from './signup-panel.js';
 import { displayErr, embedOk, eph, type Ctx } from './shared.js';
+import { t } from '../shared/i18n.js';
 
 function parseDate(raw: string | null): number | null | undefined {
   if (raw === null) return undefined;
@@ -40,32 +41,37 @@ function parseDate(raw: string | null): number | null | undefined {
 export function eventInfoEmbed(
   event: { name: string; description: string; startsAt: number | null; endsAt: number | null; panelChannelId: string | null; status: string },
   stats: { signups: number; teams: number },
+  locale: import('../shared/i18n.js').BotLocale = 'en',
 ): EmbedBuilder {
   const lines: string[] = [];
   if (event.description !== '') lines.push(event.description, '');
-  if (event.startsAt !== null) lines.push(`🗓️ **Starts:** <t:${Math.floor(event.startsAt / 1000)}:F> (<t:${Math.floor(event.startsAt / 1000)}:R>)`);
-  if (event.endsAt !== null) lines.push(`🏁 **Ends:** <t:${Math.floor(event.endsAt / 1000)}:F> (<t:${Math.floor(event.endsAt / 1000)}:R>)`);
-  lines.push(`📝 **Signups:** ${stats.signups}  ·  👥 **Teams:** ${stats.teams}`);
-  lines.push(`**Status:** ${event.status}`);
-  if (event.panelChannelId !== null) lines.push(`Signup panel: <#${event.panelChannelId}>`);
+  if (event.startsAt !== null)
+    lines.push(`🗓️ **${t(locale, 'discord.events.starts')}:** <t:${Math.floor(event.startsAt / 1000)}:F> (<t:${Math.floor(event.startsAt / 1000)}:R>)`);
+  if (event.endsAt !== null)
+    lines.push(`🏁 **${t(locale, 'discord.events.ends')}:** <t:${Math.floor(event.endsAt / 1000)}:F> (<t:${Math.floor(event.endsAt / 1000)}:R>)`);
+  lines.push(t(locale, 'discord.events.signups_line', { signups: stats.signups, teams: stats.teams }));
+  lines.push(t(locale, 'discord.events.status_line', { status: event.status }));
+  if (event.panelChannelId !== null) lines.push(t(locale, 'discord.events.panel_line', { channel: event.panelChannelId }));
   return new EmbedBuilder().setTitle(`🏆 ${event.name}`).setDescription(lines.join('\n')).setColor(0x5865f2);
 }
 
 /** GET /hackathon event — the public event card. */
 export function handleEventInfo(ctx: Ctx): EmbedBuilder {
+  const locale = ctx.botLocale;
   const participants = listParticipants(ctx.db, ctx.eventId, 'active');
   const teams = listTeams(ctx.db, ctx.eventId);
   const event = getEvent(ctx.db, ctx.eventId);
   return eventInfoEmbed(
     event ?? {
       name: ctx.eventName,
-      description: 'No event configured yet — organizers can create one with `/hackathon admin event-create`.',
+      description: t(locale, 'discord.events.no_event_configured'),
       startsAt: null,
       endsAt: null,
       panelChannelId: null,
       status: 'draft',
     },
     { signups: participants.length, teams: teams.length },
+    locale,
   );
 }
 
@@ -75,7 +81,7 @@ export async function handleEventAdminCommand(
   ctx: Ctx,
   sub: string,
 ): Promise<void> {
-  const { db, guildId, actor } = ctx;
+  const { db, guildId, actor, botLocale: locale } = ctx;
 
   switch (sub) {
     case 'event-create': {
@@ -87,9 +93,9 @@ export async function handleEventAdminCommand(
 
       let form: Parameters<typeof createEvent>[3]['form'];
       if (templateId !== null) {
-        const tpl = listTemplates(db, guildId, 'event').find((t) => t.id === templateId);
+        const tpl = listTemplates(db, guildId, 'event').find((tplItem) => tplItem.id === templateId);
         if (tpl === undefined) {
-          await i.reply(eph('Template not found.'));
+          await i.reply(eph(t(locale, 'discord.events.template_not_found')));
           return;
         }
         form = templateToEventInput(tpl.json).form;
@@ -103,15 +109,15 @@ export async function handleEventAdminCommand(
         ...(form !== undefined ? { form } : {}),
       });
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       const activationHint =
         getActiveEvent(db, guildId) === null
-          ? ' It is the first event — activate with `/hackathon admin event-activate`.'
-          : ' Activate it with `/hackathon admin event-activate` when ready (this ends the current event).';
+          ? t(locale, 'discord.events.created_first_hint')
+          : t(locale, 'discord.events.created_activate_hint');
       await i.reply({
-        embeds: [embedOk('Event created 🏆', `**${res.value.name}** (${res.value.id}) is in draft.${activationHint}`)],
+        embeds: [embedOk(t(locale, 'discord.events.created_title'), `${t(locale, 'discord.events.created_body', { name: res.value.name, id: res.value.id })}${activationHint}`)],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -120,7 +126,7 @@ export async function handleEventAdminCommand(
     case 'event-config': {
       const event = getActiveEvent(db, guildId) ?? getEvent(db, ctx.eventId);
       if (event === null) {
-        await i.reply(eph('No event to configure. Create one with `/hackathon admin event-create`.'));
+        await i.reply(eph(t(locale, 'discord.events.none_to_configure')));
         return;
       }
       const name = i.options.getString('name') ?? undefined;
@@ -137,11 +143,11 @@ export async function handleEventAdminCommand(
         ...(cleanupHours !== undefined ? { cleanupDelayHours: cleanupHours } : {}),
       });
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       await i.reply({
-        embeds: [embedOk('Event updated', `**${res.value.name}** saved. Use the admin web UI for panel channel, category and form config.`)],
+        embeds: [embedOk(t(locale, 'discord.events.updated_title'), t(locale, 'discord.events.updated_body', { name: res.value.name }))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -153,14 +159,14 @@ export async function handleEventAdminCommand(
       if (eventId === '') {
         const drafts = listEvents(db, guildId).filter((e) => e.status === 'draft');
         if (drafts.length === 0) {
-          await i.reply(eph('No draft events. Create one with `/hackathon admin event-create`.'));
+          await i.reply(eph(t(locale, 'discord.events.no_drafts')));
           return;
         }
         eventId = drafts[0]!.id;
       }
       const res = activateEvent(db, actor, eventId);
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       // Move the signup panel to the event if the event defines one, else refresh in place.
@@ -170,7 +176,7 @@ export async function handleEventAdminCommand(
         await postOrUpdatePanel(db, ctx.client, guildId, '').catch(() => undefined);
       }
       await i.reply({
-        embeds: [embedOk('Event activated 🚀', `**${res.value.name}** is now live. The signup panel has been refreshed.`)],
+        embeds: [embedOk(t(locale, 'discord.events.activated_title'), t(locale, 'discord.events.activated_body', { name: res.value.name }))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -179,19 +185,19 @@ export async function handleEventAdminCommand(
     case 'event-end': {
       const event = getActiveEvent(db, guildId);
       if (event === null) {
-        await i.reply(eph('No active event.'));
+        await i.reply(eph(t(locale, 'discord.events.no_active')));
         return;
       }
       const res = endEvent(db, actor, event.id);
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       await i.reply({
         embeds: [
           embedOk(
-            'Event ended',
-            `**${event.name}** is over. Team roles/channels will be cleaned up automatically ${event.cleanupDelayHours}h from its end time (or now + ${event.cleanupDelayHours}h if no end date was set).`,
+            t(locale, 'discord.events.ended_title'),
+            t(locale, 'discord.events.ended_body', { name: event.name, hours: event.cleanupDelayHours }),
           ),
         ],
         flags: MessageFlags.Ephemeral,
@@ -209,7 +215,7 @@ export async function handleEventAdminCommand(
       if (clear) {
         const res = setMatchAt(db, actor, event.id, null);
         if (!res.ok) {
-          await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+          await i.reply({ embeds: [displayErr(ctx.botLocale, res.code, res.message)], flags: MessageFlags.Ephemeral });
           return;
         }
         await i.reply({
@@ -237,7 +243,7 @@ export async function handleEventAdminCommand(
       }
       const res = setMatchAt(db, actor, event.id, at);
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(ctx.botLocale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       await i.reply({
@@ -259,7 +265,7 @@ export async function handleEventAdminCommand(
     case 'announce': {
       const event = getActiveEvent(db, guildId);
       if (event === null) {
-        await i.reply(eph('No active event to announce for.'));
+        await i.reply(eph(t(locale, 'discord.events.no_active_to_announce')));
         return;
       }
       const title = i.options.getString('title', true);
@@ -269,8 +275,8 @@ export async function handleEventAdminCommand(
       await i.deferReply({ flags: MessageFlags.Ephemeral });
       const result = await sendAnnouncement({ db, client: ctx.client }, actor, event, title, message, dm);
       await i.editReply({
-        content: `📣 ${result.posted ? 'Posted to the panel channel.' : 'Could not post to the panel channel.'}${
-          dm ? `\nDMs: ${result.dmSent} delivered, ${result.dmFailed} failed (closed DMs).` : ''
+        content: `📣 ${result.posted ? t(locale, 'discord.events.announce_posted') : t(locale, 'discord.events.announce_not_posted')}${
+          dm ? `\n${t(locale, 'discord.events.announce_dms', { sent: result.dmSent, failed: result.dmFailed })}` : ''
         }`,
       });
       return;
@@ -279,7 +285,7 @@ export async function handleEventAdminCommand(
     case 'discord-event': {
       const event = getActiveEvent(db, guildId);
       if (event === null) {
-        await i.reply(eph('No active event.'));
+        await i.reply(eph(t(locale, 'discord.events.no_active')));
         return;
       }
       const days = i.options.getInteger('days') ?? 1;
@@ -287,15 +293,15 @@ export async function handleEventAdminCommand(
       const { createDiscordEvents } = await import('./notify.js');
       const result = await createDiscordEvents({ db, client: ctx.client }, actor, event, days, durationHours);
       if (result.created.length === 0) {
-        await i.reply({ embeds: [displayErr('failed', result.errors.join('; ') || 'Nothing created.')], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, 'failed', result.errors.join('; ') || t(locale, 'discord.events.nothing_created'))], flags: MessageFlags.Ephemeral });
         return;
       }
       await i.reply({
         embeds: [
           embedOk(
-            'Discord events created 📅',
+            t(locale, 'discord.events.discord_events_created'),
             result.created.map((c) => `• **${c.name}** (\`${c.id}\`)`).join('\n') +
-              (result.errors.length > 0 ? `\n\nFailures: ${result.errors.join('; ')}` : ''),
+              (result.errors.length > 0 ? `\n\n${t(locale, 'discord.events.failures', { list: result.errors.join('; ') })}` : ''),
           ),
         ],
         flags: MessageFlags.Ephemeral,
@@ -306,7 +312,7 @@ export async function handleEventAdminCommand(
     case 'template-save': {
       const event = getActiveEvent(db, guildId);
       if (event === null) {
-        await i.reply(eph('No active event to save as a template.'));
+        await i.reply(eph(t(locale, 'discord.events.no_active_to_save')));
         return;
       }
       const name = i.options.getString('name', true);
@@ -318,11 +324,11 @@ export async function handleEventAdminCommand(
       };
       const res = saveTemplate(db, actor, guildId, name, 'event', JSON.stringify(payload));
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       await i.reply({
-        embeds: [embedOk('Template saved 💾', `**${res.value.name}** — reuse it with \`/hackathon admin event-create … template:\`.`)],
+        embeds: [embedOk(t(locale, 'discord.events.template_saved_title'), t(locale, 'discord.events.template_saved_body', { name: res.value.name }))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -331,16 +337,16 @@ export async function handleEventAdminCommand(
     case 'templates': {
       const templates = listTemplates(db, guildId);
       if (templates.length === 0) {
-        await i.reply(eph('No templates yet. Save the current event with `/hackathon admin template-save`.'));
+        await i.reply(eph(t(locale, 'discord.events.no_templates')));
         return;
       }
-      const lines = templates.map((t) => `• **${t.name}** (${t.kind}, \`${t.id}\`)`);
+      const lines = templates.map((tpl) => `• **${tpl.name}** (${tpl.kind}, \`${tpl.id}\`)`);
       await i.reply({ content: lines.join('\n'), flags: MessageFlags.Ephemeral });
       return;
     }
 
     default:
-      await i.reply(eph('Unknown event admin subcommand.'));
+      await i.reply(eph(t(locale, 'discord.admin.unknown_event_admin_sub')));
   }
 }
 

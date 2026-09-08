@@ -10,6 +10,7 @@ import {
   type TooltipContentProps,
 } from 'recharts'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useT } from '@/lib/i18n'
 import { labelFor } from '@/lib/labels'
 import type { FormConfig, Participant } from '@/types'
 
@@ -133,20 +134,21 @@ export function TeamComposition({
   participants: Participant[]
   config: FormConfig
 }) {
+  const t = useT()
   const data = useMemo(() => buildComposition(participants, config), [participants, config])
 
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle>Team composition</CardTitle>
+        <CardTitle>{t('charts.composition')}</CardTitle>
         <CardDescription>
-          Active signups by role track, split by experience · {data.total} active
+          {t('charts.composition_desc', { count: data.total })}
         </CardDescription>
       </CardHeader>
       <CardContent>
         {data.rows.length === 0 ? (
           <div className="grid h-60 place-items-center text-sm text-muted-foreground">
-            No data yet
+            {t('common.no_data_yet')}
           </div>
         ) : (
           <>

@@ -11,7 +11,8 @@ import {
 } from 'discord.js';
 import type { Db } from '../shared/db.js';
 import type { FormConfig } from '../features/form/domain.js';
-import { labelFor } from '../features/form/domain.js';
+import { labelForLocale } from '../features/form/domain.js';
+import { t, type BotLocale } from '../shared/i18n.js';
 import { countMembers, getTeam } from '../features/teams/data.js';
 import type { Participant } from '../features/signup/data.js';
 import type { MatchResult } from '../features/matching/domain.js';
@@ -36,6 +37,8 @@ export const IDS = {
 export interface Ctx {
   db: Db;
   config: FormConfig;
+  /** Bot UI language for all Discord-facing strings (BOT_LANGUAGE, default 'en'). */
+  botLocale: BotLocale;
   /** Active event (or the one the admin explicitly selected). */
   eventId: string;
   eventName: string;
@@ -65,60 +68,64 @@ export function embedInfo(title: string, description: string, color = 0x5865f2):
   return new EmbedBuilder().setTitle(title).setDescription(description).setColor(color);
 }
 
-const FRIENDLY: Record<string, string> = {
-  blocked: 'You are blocked from signing up. Contact an organizer.',
-  already_in_team: 'You are already in a team. Use `/hackathon leave-team` first.',
-  team_full: 'That team is full.',
-  not_found: 'Not found.',
-  no_team: 'You are not in a team.',
-  owner_leave: 'You own this team. Members must leave first, or delete it with a clear-out via organizers.',
-  not_enough: 'Not enough unteamed, matching-opted participants yet.',
-  already_requested: 'There is already a pending request for that.',
-  not_your_decision: 'That request is not yours to decide.',
-  already_decided: 'That request was already handled.',
-  not_active: 'That signup is not active.',
-  no_signup: 'No signup found — use `/hackathon join` first.',
-  not_joinable: 'That team cannot be requested.',
-  matched_team: 'Matched teams are managed by the matching engine.',
+const FRIENDLY: Record<string, { key: string }> = {
+  blocked: { key: 'errors.blocked' },
+  already_in_team: { key: 'errors.already_in_team' },
+  team_full: { key: 'errors.team_full' },
+  not_found: { key: 'errors.not_found' },
+  no_team: { key: 'errors.no_team' },
+  owner_leave: { key: 'errors.owner_leave' },
+  not_enough: { key: 'errors.not_enough' },
+  already_requested: { key: 'errors.already_requested' },
+  not_your_decision: { key: 'errors.not_your_decision' },
+  already_decided: { key: 'errors.already_decided' },
+  not_active: { key: 'errors.not_active' },
+  no_signup: { key: 'errors.no_signup' },
+  not_joinable: { key: 'errors.not_joinable' },
+  matched_team: { key: 'errors.matched_team' },
 };
 
-export function displayErr(code: string, message: string): EmbedBuilder {
-  return embedErr('Something went wrong', FRIENDLY[code] ?? message);
+export function displayErr(locale: BotLocale, code: string, message: string): EmbedBuilder {
+  const entry = FRIENDLY[code];
+  const text = entry !== undefined ? t(locale, entry.key) : message;
+  return embedErr(t(locale, 'discord.admin.something_broke_title'), text);
 }
 
-export function buildParticipantEmbed(db: Db, config: FormConfig, p: Participant): EmbedBuilder {
+export function buildParticipantEmbed(db: Db, config: FormConfig, p: Participant, locale: BotLocale): EmbedBuilder {
   const team = p.teamId === null ? null : getTeam(db, p.teamId);
   const teamLine =
     team === null
-      ? 'No team yet'
-      : `**${team.name}** (${team.kind}, ${countMembers(db, team.id)}/${config.teamSize} members)`;
+      ? t(locale, 'discord.join.no_team_yet')
+      : `**${team.name}** (${team.kind}, ${countMembers(db, team.id)}/${config.teamSize} ${t(locale, 'discord.join.members_suffix')})`;
   return new EmbedBuilder()
-    .setTitle('Your signup')
+    .setTitle(t(locale, 'discord.join.your_signup'))
     .setColor(0x5865f2)
     .addFields(
-      { name: 'Name', value: p.displayName, inline: true },
-      { name: 'Experience', value: labelFor(config, 'experiences', p.experience), inline: true },
-      { name: 'Role', value: labelFor(config, 'roleTracks', p.roleTrack), inline: true },
-      { name: 'Skills', value: p.skills.map((s) => labelFor(config, 'skills', s)).join(', ') || '—', inline: false },
-      { name: 'Team', value: teamLine, inline: false },
+      { name: t(locale, 'discord.join.field_name'), value: p.displayName, inline: true },
+      { name: t(locale, 'discord.join.field_experience'), value: labelForLocale(config, 'experiences', p.experience, locale), inline: true },
+      { name: t(locale, 'discord.join.field_role'), value: labelForLocale(config, 'roleTracks', p.roleTrack, locale), inline: true },
+      { name: t(locale, 'discord.join.field_skills'), value: p.skills.map((s) => labelForLocale(config, 'skills', s, locale)).join(', ') || '—', inline: false },
+      { name: t(locale, 'discord.join.field_team'), value: teamLine, inline: false },
       {
-        name: 'Teammates wanted',
-        value: p.teammates.map((id) => `<@${id}>`).join(', ') || 'none listed',
+        name: t(locale, 'discord.join.field_teammates'),
+        value: p.teammates.map((id) => `<@${id}>`).join(', ') || t(locale, 'discord.join.none_listed'),
         inline: false,
       },
     );
 }
 
-export function matchPreviewEmbed(result: MatchResult, config: FormConfig): EmbedBuilder {
-  const lines = result.teams.map((t) => {
-    const members = t.memberIds.map((id) => `<@${id}>`).join(', ');
-    const notes = t.notes.length > 0 ? ` · ⚠️ ${t.notes.join('; ')}` : '';
-    return `**${t.name}** — score ${t.score}${notes}\n${members}`;
+export function matchPreviewEmbed(result: MatchResult, config: FormConfig, locale: BotLocale): EmbedBuilder {
+  const lines = result.teams.map((team) => {
+    const members = team.memberIds.map((id) => `<@${id}>`).join(', ');
+    const notes = team.notes.length > 0 ? ` · ⚠️ ${team.notes.join('; ')}` : '';
+    return `**${team.name}** — ${t(locale, 'discord.events.score', { score: team.score })}${notes}\n${members}`;
   });
   const conflicts =
-    result.conflicts.length > 0 ? `\n\n**Notes:**\n${result.conflicts.map((c) => `• ${c}`).join('\n')}` : '';
+    result.conflicts.length > 0 ? `\n\n${t(locale, 'discord.events.match_notes')}\n${result.conflicts.map((c) => `• ${c}`).join('\n')}` : '';
   return new EmbedBuilder()
-    .setTitle(`Match preview — ${result.teams.length} teams (team size ${config.teamSize})`)
+    .setTitle(
+      t(locale, 'discord.events.match_preview_title', { count: result.teams.length, size: config.teamSize }),
+    )
     .setDescription(lines.join('\n\n') + conflicts)
     .setColor(0xfee75c);
 }
@@ -127,27 +134,28 @@ export function confirmRow(
   confirmId: string,
   cancelId: string,
   confirmLabel: string,
+  locale: BotLocale,
 ): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(confirmId).setLabel(confirmLabel).setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(cancelId).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(cancelId).setLabel(t(locale, 'discord.teams.cancel_btn_short')).setStyle(ButtonStyle.Secondary),
   );
 }
 
 /** Accept/Decline pair for a specific pending request. */
-export function decideRow(base: string, requestId: number): ActionRowBuilder<ButtonBuilder> {
+export function decideRow(base: string, requestId: number, locale: BotLocale): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`${base}:${requestId}`).setLabel('Accept').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`${base}:${requestId}`).setLabel(t(locale, 'discord.teams.accept_btn')).setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId(`hack:req:decline:${requestId}`)
-      .setLabel('Decline')
+      .setLabel(t(locale, 'discord.teams.decline_btn'))
       .setStyle(ButtonStyle.Secondary),
   );
 }
 
 /** Cancel button for a sent request. */
-export function cancelRow(requestId: number): ActionRowBuilder<ButtonBuilder> {
+export function cancelRow(requestId: number, locale: BotLocale): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`hack:req:cancel:${requestId}`).setLabel('Cancel request').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`hack:req:cancel:${requestId}`).setLabel(t(locale, 'discord.teams.cancel_btn')).setStyle(ButtonStyle.Secondary),
   );
 }

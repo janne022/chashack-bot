@@ -40,6 +40,8 @@ export interface Env {
   auditChannelId: string | undefined;
   /** Fallback category for team channels when the guild has none configured. */
   teamCategoryId: string | undefined;
+  /** Bot UI language for all Discord-facing strings: 'en' (default) or 'sv'. */
+  botLanguage: 'en' | 'sv';
   /** Run the admin panel without the Discord gateway (container smoke tests, UI-only deploys). */
   skipDiscord: boolean;
 }
@@ -56,6 +58,7 @@ export function env(): Env {
   const clientId = get('DISCORD_CLIENT_ID');
   const adminPassword = get('ADMIN_PASSWORD');
   const skipDiscord = get('SKIP_DISCORD') === '1' || process.env.RUN_DRY === '1';
+  const botLanguage = get('BOT_LANGUAGE') === 'sv' ? 'sv' : 'en';
 
   const missing: string[] = [];
   if (!skipDiscord) {
@@ -83,6 +86,7 @@ export function env(): Env {
     announceChannelId: get('ANNOUNCE_CHANNEL_ID') || undefined,
     auditChannelId: get('AUDIT_CHANNEL_ID') || undefined,
     teamCategoryId: get('TEAM_CATEGORY_ID') || undefined,
+    botLanguage,
     skipDiscord,
   };
   return cached;

@@ -3,6 +3,7 @@ import { RotateCcw, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppState, FormConfig } from '@/types'
 import { api } from '@/api'
+import { useT } from '@/lib/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Label, Textarea } from '@/components/ui/input'
@@ -19,6 +20,7 @@ import {
 } from '@/components/ui/alert-dialog'
 
 export function FormPanel({ state, refresh }: { state: AppState; refresh: () => Promise<void> }) {
+  const t = useT()
   const [draft, setDraft] = useState<FormConfig>(state.config)
   const [dirty, setDirty] = useState(false)
 
@@ -36,10 +38,10 @@ export function FormPanel({ state, refresh }: { state: AppState; refresh: () => 
     try {
       await api.updateForm(draft)
       setDirty(false)
-      toast.success('Form updated — the Discord modal now uses it')
+      toast.success(t('form.updated'))
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Save failed')
+      toast.error(e instanceof Error ? e.message : t('form.save_failed'))
     }
   }
 
@@ -47,10 +49,10 @@ export function FormPanel({ state, refresh }: { state: AppState; refresh: () => 
     try {
       await api.resetForm()
       setDirty(false)
-      toast.success('Form reset to defaults')
+      toast.success(t('form.reset_done'))
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Reset failed')
+      toast.error(e instanceof Error ? e.message : t('form.reset_failed'))
     }
   }
 
@@ -58,15 +60,15 @@ export function FormPanel({ state, refresh }: { state: AppState; refresh: () => 
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>Signup form</CardTitle>
+          <CardTitle>{t('form.title')}</CardTitle>
           <CardDescription>
-            Controls the /hackathon join modal: title, intro text, team size and the option lists.
+            {t('form.desc')}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="form-title">Title (Discord modal, max 45 chars)</Label>
+              <Label htmlFor="form-title">{t('form.form_title')}</Label>
               <Input
                 id="form-title"
                 value={draft.title}
@@ -75,7 +77,7 @@ export function FormPanel({ state, refresh }: { state: AppState; refresh: () => 
               />
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="form-size">Team size</Label>
+              <Label htmlFor="form-size">{t('form.team_size')}</Label>
               <Input
                 id="form-size"
                 type="number"
@@ -87,7 +89,7 @@ export function FormPanel({ state, refresh }: { state: AppState; refresh: () => 
             </div>
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="form-desc">Description (shown before signup)</Label>
+            <Label htmlFor="form-desc">{t('form.description')}</Label>
             <Textarea
               id="form-desc"
               value={draft.description}
@@ -99,14 +101,14 @@ export function FormPanel({ state, refresh }: { state: AppState; refresh: () => 
       </Card>
 
       <OptionListEditor
-        title="Role tracks"
-        hint="The main role a person signs up for. IDs: frontend, backend, fullstack, design, devops, flex."
+        title={t('form.role_tracks')}
+        hint={t('form.role_tracks_hint')}
         items={draft.roleTracks}
         onChange={(items) => edit('roleTracks', items)}
       />
       <OptionListEditor
-        title="Skills"
-        hint="Skills within the same group are mutually exclusive (e.g. backend languages). Empty group = freely combinable."
+        title={t('form.skills')}
+        hint={t('form.skills_hint')}
         items={draft.skills.map((s) => ({ id: s.id, label: s.label, group: s.group }))}
         onChange={(items) =>
           edit(
@@ -122,27 +124,26 @@ export function FormPanel({ state, refresh }: { state: AppState; refresh: () => 
           <AlertDialogTrigger asChild>
             <Button variant="outline">
               <RotateCcw />
-              Reset to defaults
+              {t('form.reset')}
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Reset form to defaults?</AlertDialogTitle>
+              <AlertDialogTitle>{t('form.reset_title')}</AlertDialogTitle>
               <AlertDialogDescription>
-                Your custom title, team size and option lists are replaced with the built-in defaults.
-                Existing signups are kept but may reference removed options.
+                {t('form.reset_desc')}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => void resetDefaults()}>Reset form</AlertDialogAction>
+              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void resetDefaults()}>{t('form.reset_action')}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
 
         <Button onClick={() => void save()} disabled={!dirty}>
           <Save />
-          {dirty ? 'Save changes' : 'Saved'}
+          {dirty ? t('form.save_changes') : t('form.saved')}
         </Button>
       </div>
     </div>
@@ -168,6 +169,7 @@ function OptionListEditor({
   onChange: (items: OptionItem[]) => void
   grouped?: boolean
 }) {
+  const t = useT()
   const [newLabel, setNewLabel] = useState('')
   const [newGroup, setNewGroup] = useState('')
 
@@ -207,7 +209,7 @@ function OptionListEditor({
               )}
               <button
                 onClick={() => onChange(items.filter((i) => i.id !== item.id))}
-                aria-label={`Remove ${item.label}`}
+                aria-label={t('form.remove_aria', { label: item.label })}
                 className="text-muted-foreground hover:text-danger"
               >
                 ×
@@ -219,7 +221,7 @@ function OptionListEditor({
           <Input
             value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)}
-            placeholder="New option label"
+            placeholder={t('form.new_option')}
             className="w-52"
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
           />
@@ -227,13 +229,13 @@ function OptionListEditor({
             <Input
               value={newGroup}
               onChange={(e) => setNewGroup(e.target.value)}
-              placeholder="Group (optional)"
+              placeholder={t('form.group_optional')}
               className="w-40"
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
             />
           )}
           <Button variant="secondary" onClick={add} disabled={newLabel.trim() === ''}>
-            Add
+            {t('form.add')}
           </Button>
         </div>
       </CardContent>
