@@ -11,9 +11,13 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const hasBody = init?.body !== undefined
   const res = await fetch(path, {
-    headers: { 'content-type': 'application/json' },
     ...init,
+    headers: {
+      ...(hasBody ? { 'content-type': 'application/json' } : {}),
+      ...init?.headers,
+    },
   })
   if (res.status === 401) {
     throw new ApiError('Not signed in', 'unauthorized', true)
