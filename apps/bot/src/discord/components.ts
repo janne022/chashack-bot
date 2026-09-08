@@ -26,7 +26,7 @@ import {
 } from '../features/teams/data.js';
 import { createJoinRequest, decideRequest, cancelRequest } from '../features/teams/requests-data.js';
 import { applyTeamJoin } from './provision.js';
-import { buildSignupModal, CREATE_TEAM_IDS, TEAM_SETTINGS_IDS } from './modal.js';
+import { buildSignupModal, buildCreateTeamModal, CREATE_TEAM_IDS, TEAM_SETTINGS_IDS } from './modal.js';
 import { IDS, buildParticipantEmbed, displayErr, embedErr, embedOk, eph, type Ctx } from './shared.js';
 import { commitMatchAndAnnounce, resetEventConfirmed } from './admin-commands.js';
 import { t } from '../shared/i18n.js';
@@ -96,11 +96,32 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
         ? t(locale, 'discord.join.hint_join')
         : t(locale, 'discord.join.hint_match');
 
+  // Continuation: act on the team preference right from the reply —
+  // create-team opens its modal, join/browse opens the team picker.
+  const actions = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    ...(result.value.teamPref === 'create_team'
+      ? [
+          new ButtonBuilder()
+            .setCustomId(IDS.followCreateTeam)
+            .setLabel(t(locale, 'discord.join.actions_create'))
+            .setStyle(ButtonStyle.Primary),
+        ]
+      : result.value.teamPref === 'join_team'
+        ? [
+            new ButtonBuilder()
+              .setCustomId(IDS.followBrowseTeams)
+              .setLabel(t(locale, 'discord.join.actions_browse'))
+              .setStyle(ButtonStyle.Primary),
+          ]
+        : []), // random_team: matching is organizer-driven, nothing to do now
+  );
+
   await i.reply({
     embeds: [
       embedOk(t(locale, 'discord.join.saved_title'), t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })),
       buildParticipantEmbed(ctx.db, ctx.config, saved.value, locale),
     ],
+    components: actions.components.length > 0 ? [actions] : [],
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -204,6 +225,10 @@ export async function onComponent(
 
   // ── signup panel buttons ─────────────────────────────────────────────────
   if (id === IDS.signupButton) {
+    if (!ctx.hasActiveEvent) {
+      await i.reply(eph(t(locale, 'discord.gate.no_active')));
+      return;
+    }
     const existing = getParticipant(ctx.db, ctx.eventId, i.user.id);
     if (existing?.status === 'blocked') {
       await i.reply(eph(t(locale, 'errors.blocked')));
@@ -213,6 +238,10 @@ export async function onComponent(
     return;
   }
   if (id === IDS.teamsButton) {
+    if (!ctx.hasActiveEvent) {
+      await i.reply(eph(t(locale, 'discord.gate.no_active')));
+      return;
+    }
     const { teamsBrowser } = await import('./user-commands.js');
     const browser = teamsBrowser(ctx);
     if (browser === null) {
@@ -220,6 +249,38 @@ export async function onComponent(
       return;
     }
     await i.reply({ ...browser, flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  // ── post-signup follow-up actions ────────────────────────────────────────
+  if (id === IDS.followCreateTeam) {
+    if (!ctx.hasActiveEvent) {
+      await i.reply(eph(t(locale, 'discord.gate.no_active')));
+      return;
+    }
+    if (getParticipant(ctx.db, ctx.eventId, i.user.id) === null) {
+      await i.reply(eph(t(locale, 'discord.teams.signup_first')));
+      return;
+    }
+    if (getTeamForUser(ctx.db, ctx.eventId, i.user.id) !== null) {
+      await i.reply(eph(t(locale, 'errors.already_in_team')));
+      return;
+    }
+    await i.showModal(buildCreateTeamModal(locale));
+    return;
+  }
+  if (id === IDS.followBrowseTeams) {
+    if (!ctx.hasActiveEvent) {
+      await i.reply(eph(t(locale, 'discord.gate.no_active')));
+      return;
+    }
+    const { teamsBrowser } = await import('./user-commands.js');
+    const browser = teamsBrowser(ctx);
+    if (browser === null) {
+      await i.reply({ content: t(locale, 'discord.teams.none_open'), embeds: [], components: [] });
+      return;
+    }
+    await i.update({ ...browser });
     return;
   }
 
@@ -291,6 +352,10 @@ export async function onComponent(
 
   // ── team browser → join request ──────────────────────────────────────────
   if (id === IDS.teamsSelect) {
+    if (!ctx.hasActiveEvent) {
+      await i.reply(eph(t(locale, 'discord.gate.no_active')));
+      return;
+    }
     const teamId = (i as StringSelectMenuInteraction).values[0] ?? '';
     const team = getTeam(ctx.db, teamId);
     if (team === null) {

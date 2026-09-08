@@ -33,6 +33,10 @@ function signup(userId: string) {
 
 function freshDb(): void {
   db = openDb(':memory:');
+  // The signup data layer gates on an ACTIVE event row — seed the fixture event.
+  db.prepare(
+    "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES (?, ?, 'Requests Fixture', 'active', 1, 1)",
+  ).run(EV, G);
 }
 
 test('invite flow: wrong decider rejected, invitee accept joins, members updated', () => {

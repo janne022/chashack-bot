@@ -65,6 +65,10 @@ export async function handleUserCommand(
 
   switch (sub) {
     case 'join': {
+      if (!ctx.hasActiveEvent) {
+        await i.reply(eph(t(locale, 'discord.gate.no_active')));
+        return;
+      }
       const existing = getParticipant(db, ctx.eventId, i.user.id);
       if (existing?.status === 'blocked') {
         await i.reply(eph(t(locale, 'errors.blocked')));
@@ -75,6 +79,10 @@ export async function handleUserCommand(
     }
 
     case 'create-team': {
+      if (!ctx.hasActiveEvent) {
+        await i.reply(eph(t(locale, 'discord.gate.no_active')));
+        return;
+      }
       if (getParticipant(db, ctx.eventId, i.user.id) === null) {
         await i.reply(eph(t(locale, 'discord.teams.signup_first')));
         return;
@@ -102,6 +110,10 @@ export async function handleUserCommand(
     }
 
     case 'teams': {
+      if (!ctx.hasActiveEvent) {
+        await i.reply(eph(t(locale, 'discord.gate.no_active')));
+        return;
+      }
       const browser = teamsBrowser(ctx);
       if (browser === null) {
         await i.reply(eph(t(locale, 'discord.teams.none_open')));
