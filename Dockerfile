@@ -22,7 +22,8 @@ RUN pnpm build
 FROM node:24-alpine
 WORKDIR /app
 
-RUN npm install -g pnpm@12.3.4
+RUN npm install -g pnpm@12.3.4 \
+ && apk add --no-cache setpriv
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/bot/package.json apps/bot/package.json
@@ -36,14 +37,17 @@ COPY --from=build /app/apps/bot/scripts apps/bot/scripts
 
 # SQLite lives on a volume; env defaults suit the container layout.
 ENV NODE_ENV=production \
-    DB_PATH=/data/chashack.db
+    DB_PATH=/data/chashack.db \
+    PUID=1000 \
+    PGID=1000
 RUN mkdir -p /data && chown node:node /data
 VOLUME /data
 
-# /app stays root-owned read-only for the process; bot runs unprivileged.
-USER node
+# Entrypoint drops privileges to PUID/PGID (LinuxServer.io convention):
+# starts as root, re-owns the data dir, execs node unprivileged.
+COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 EXPOSE 8420
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:'+(process.env.ADMIN_PORT||8420)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "apps/bot/dist/index.js"]
