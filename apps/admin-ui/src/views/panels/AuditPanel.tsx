@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { History } from 'lucide-react'
 import type { AppState } from '@/types'
+import { useT } from '@/lib/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty-state'
 import { dateTime } from '@/lib/format'
 
 export function AuditPanel({ state }: { state: AppState }) {
+  const t = useT()
   const [query, setQuery] = useState('')
 
   const filtered = state.audit.filter((a) => {
@@ -24,15 +26,15 @@ export function AuditPanel({ state }: { state: AppState }) {
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <CardTitle>Audit log</CardTitle>
-            <CardDescription>Every mutation, newest first (latest 100)</CardDescription>
+            <CardTitle>{t('audit.title')}</CardTitle>
+            <CardDescription>{t('audit.desc')}</CardDescription>
           </div>
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter actions…"
+            placeholder={t('audit.filter_placeholder')}
             className="w-52"
-            aria-label="Filter audit log"
+            aria-label={t('audit.filter_aria')}
           />
         </div>
       </CardHeader>
@@ -40,19 +42,19 @@ export function AuditPanel({ state }: { state: AppState }) {
         {filtered.length === 0 ? (
           <EmptyState
             icon={<History className="size-5" />}
-            title="Nothing logged yet"
-            description="Admin actions, signups and matching runs are recorded here."
+            title={t('audit.none_title')}
+            description={t('audit.none_desc')}
           />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">When</th>
-                  <th className="px-4 py-3 font-medium">Action</th>
-                  <th className="px-4 py-3 font-medium">Actor</th>
-                  <th className="hidden px-4 py-3 font-medium sm:table-cell">Target</th>
-                  <th className="hidden px-4 py-3 font-medium md:table-cell">Details</th>
+                  <th className="px-4 py-3 font-medium">{t('audit.col_when')}</th>
+                  <th className="px-4 py-3 font-medium">{t('audit.col_action')}</th>
+                  <th className="px-4 py-3 font-medium">{t('audit.col_actor')}</th>
+                  <th className="hidden px-4 py-3 font-medium sm:table-cell">{t('audit.col_target')}</th>
+                  <th className="hidden px-4 py-3 font-medium md:table-cell">{t('audit.col_details')}</th>
                 </tr>
               </thead>
               <tbody>

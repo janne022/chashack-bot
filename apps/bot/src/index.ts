@@ -45,6 +45,7 @@ registerInteractionHandlers(client, {
   adminIds: config.adminIds,
   client,
   teamCategoryId: config.teamCategoryId,
+  botLanguage: config.botLanguage,
   announce,
 });
 
