@@ -72,6 +72,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   const { db, config } = deps;
   const guildId = config.guildId ?? 'default';
 
+  /** The event the admin web UI is operating on: the active one. */
+  const activeEventId = (): string => {
+    const row = db
+      .prepare("SELECT id FROM events WHERE guild_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1")
+      .get(guildId) as { id: string } | undefined;
+    return row?.id ?? guildId;
+  };
+
   app.addHook('preHandler', async (req, reply) => {
     const isApi = req.url.startsWith('/api/');
     const isLogin = req.url === '/api/login';
@@ -99,14 +107,15 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.get('/api/state', async () => {
-    const participants = listParticipants(db, guildId);
-    const teams = listTeams(db, guildId);
+    const eventId = activeEventId();
+    const participants = listParticipants(db, eventId);
+    const teams = listTeams(db, eventId);
     return {
       participants,
       teams,
       config: getForm(db),
       audit: auditList(db, 100),
-      lastMatch: lastMatchInfo(db, guildId),
+      lastMatch: lastMatchInfo(db, eventId),
       guildSettings: getGuildSettings(db, guildId),
       stats: {
         signups: participants.filter((p) => p.status !== 'withdrawn').length,
@@ -123,28 +132,30 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const { userId } = req.params as { userId: string };
     const body = req.body as { action?: string; reason?: string } | null;
     const actor = 'web';
+    const eventId = activeEventId();
     let res;
     switch (body?.action) {
       case 'block':
-        res = blockParticipant(db, actor, guildId, userId, body.reason ?? 'No reason given');
+        res = blockParticipant(db, actor, eventId, userId, body.reason ?? 'No reason given');
         break;
       case 'unblock':
-        res = unblockParticipant(db, actor, guildId, userId);
+        res = unblockParticipant(db, actor, eventId, userId);
         break;
       case 'withdraw':
-        res = withdrawParticipant(db, actor, guildId, userId);
+        res = withdrawParticipant(db, actor, eventId, userId);
         break;
       case 'reactivate': {
-        const p = getParticipant(db, guildId, userId);
+        const p = getParticipant(db, eventId, userId);
         if (p === null) {
           res = { ok: false, code: 'not_found', message: 'Participant not found.' };
           break;
         }
-        db.prepare("UPDATE participants SET status = 'active', block_reason = NULL, updated_at = ? WHERE user_id = ?").run(
+        db.prepare("UPDATE participants SET status = 'active', block_reason = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?").run(
           Date.now(),
+          eventId,
           userId,
         );
-        audit(db, actor, 'participant.reactivate', userId, null);
+        audit(db, actor, 'participant.reactivate', eventId, { userId });
         res = { ok: true, value: undefined };
         break;
       }
@@ -161,7 +172,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/participants/:userId/team', async (req, reply) => {
     const { userId } = req.params as { userId: string };
     const body = req.body as { teamId?: string | null } | null;
-    const res = adminAssign(db, 'web', guildId, userId, body?.teamId ?? null);
+    const res = adminAssign(db, 'web', activeEventId(), userId, body?.teamId ?? null);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -175,12 +186,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be public|private' });
       return;
     }
-    if (body.ownerId !== undefined && getParticipant(db, guildId, body.ownerId) === null) {
+    if (body.ownerId !== undefined && getParticipant(db, activeEventId(), body.ownerId) === null) {
       await reply.code(400).send({ ok: false, code: 'not_found', message: 'Owner has no signup.' });
       return;
     }
     const ownerId = body.ownerId ?? `admin-${Date.now()}`;
-    const res = createTeam(db, 'web', guildId, body.name ?? '', body.kind, ownerId);
+    const res = createTeam(db, 'web', activeEventId(), guildId, body.name ?? '', body.kind, ownerId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -233,7 +244,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/match/preview', async (req, reply) => {
-    const res = previewMatch(db, guildId, getForm(db));
+    const res = previewMatch(db, activeEventId(), getForm(db));
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -242,7 +253,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/match/commit', async () => {
-    const res = commitMatch(db, 'web', guildId, getForm(db));
+    const res = commitMatch(db, 'web', activeEventId(), guildId, getForm(db));
     if (!res.ok) {
       return { ok: false, code: res.code, message: res.message };
     }
@@ -273,11 +284,11 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/event/reset', async () => {
-    const participants = listParticipants(db, guildId).length;
-    const teams = listTeams(db, guildId).length;
-    db.prepare('DELETE FROM participants WHERE guild_id = ?').run(guildId);
-    db.prepare('DELETE FROM teams WHERE guild_id = ?').run(guildId);
-    audit(db, 'web', 'event.reset', guildId, { participants, teams });
+    const eventId = activeEventId();
+    const { purgeEventParticipants } = await import('../features/signup/store.js');
+    const { deleteEventTeams } = await import('../features/teams/service.js');
+    const participants = purgeEventParticipants(db, 'web', eventId);
+    const teams = deleteEventTeams(db, 'web', eventId);
     return { ok: true, removed: { participants, teams } };
   });
 

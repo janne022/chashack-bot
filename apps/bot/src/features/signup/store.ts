@@ -1,5 +1,6 @@
 /**
- * Participants: signed-up users, their form answers, status, blocking.
+ * Participants: signed-up users per event, their form answers, status, blocking.
+ * Composite identity: (event_id, user_id).
  */
 import type { Db } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
@@ -9,6 +10,7 @@ import type { ValidatedSignup } from '../form/domain.js';
 export type ParticipantStatus = 'active' | 'blocked' | 'withdrawn';
 
 export interface Participant {
+  eventId: string;
   userId: string;
   guildId: string;
   displayName: string;
@@ -16,7 +18,7 @@ export interface Participant {
   roleTrack: string;
   skills: string[];
   teamPref: string;
-  /** Comma-separated Discord user IDs of friends they signed up with. */
+  /** Discord user IDs of friends they signed up with. */
   teammates: string[];
   teamId: string | null;
   status: ParticipantStatus;
@@ -26,6 +28,7 @@ export interface Participant {
 }
 
 interface ParticipantRow {
+  event_id: string;
   user_id: string;
   guild_id: string;
   display_name: string;
@@ -43,6 +46,7 @@ interface ParticipantRow {
 
 function toParticipant(row: ParticipantRow): Participant {
   return {
+    eventId: row.event_id,
     userId: row.user_id,
     guildId: row.guild_id,
     displayName: row.display_name,
@@ -62,13 +66,14 @@ function toParticipant(row: ParticipantRow): Participant {
 export function upsertParticipant(
   db: Db,
   actor: string,
+  eventId: string,
   guildId: string,
   userId: string,
   signup: ValidatedSignup,
 ): Result<Participant> {
   const blocked = db
-    .prepare("SELECT status, block_reason FROM participants WHERE user_id = ? AND guild_id = ?")
-    .get(userId, guildId) as { status: string; block_reason: string | null } | undefined;
+    .prepare('SELECT status, block_reason FROM participants WHERE event_id = ? AND user_id = ?')
+    .get(eventId, userId) as { status: string; block_reason: string | null } | undefined;
   if (blocked !== undefined && blocked.status === 'blocked') {
     return err('blocked', 'You are blocked from signing up. Contact an organizer.');
   }
@@ -76,9 +81,9 @@ export function upsertParticipant(
   const now = Date.now();
   db.prepare(
     `INSERT INTO participants
-       (user_id, guild_id, display_name, experience, role_track, skills, team_pref, teammates, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
-     ON CONFLICT(user_id) DO UPDATE SET
+       (event_id, user_id, guild_id, display_name, experience, role_track, skills, team_pref, teammates, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+     ON CONFLICT(event_id, user_id) DO UPDATE SET
        display_name = excluded.display_name,
        experience = excluded.experience,
        role_track = excluded.role_track,
@@ -88,6 +93,7 @@ export function upsertParticipant(
        status = 'active',
        updated_at = excluded.updated_at`,
   ).run(
+    eventId,
     userId,
     guildId,
     signup.displayName,
@@ -99,84 +105,88 @@ export function upsertParticipant(
     now,
     now,
   );
-  audit(db, actor, 'participant.upsert', userId, { displayName: signup.displayName, teamPref: signup.teamPref });
-  return ok(getParticipant(db, guildId, userId)!);
+  audit(db, actor, 'participant.upsert', eventId, { userId, displayName: signup.displayName, teamPref: signup.teamPref });
+  return ok(getParticipant(db, eventId, userId)!);
 }
 
-export function getParticipant(db: Db, guildId: string, userId: string): Participant | null {
+export function getParticipant(db: Db, eventId: string, userId: string): Participant | null {
   const row = db
-    .prepare('SELECT * FROM participants WHERE user_id = ? AND guild_id = ?')
-    .get(userId, guildId) as ParticipantRow | undefined;
+    .prepare('SELECT * FROM participants WHERE event_id = ? AND user_id = ?')
+    .get(eventId, userId) as unknown as ParticipantRow | undefined;
   return row === undefined ? null : toParticipant(row);
 }
 
-export function listParticipants(db: Db, guildId: string, status?: ParticipantStatus): Participant[] {
+export function listParticipants(db: Db, eventId: string, status?: ParticipantStatus): Participant[] {
   const rows = (
     status === undefined
-      ? (db.prepare('SELECT * FROM participants WHERE guild_id = ? ORDER BY created_at').all(guildId) as unknown as ParticipantRow[])
-      : (db.prepare('SELECT * FROM participants WHERE guild_id = ? AND status = ? ORDER BY created_at').all(guildId, status) as unknown as ParticipantRow[])
+      ? (db.prepare('SELECT * FROM participants WHERE event_id = ? ORDER BY created_at').all(eventId) as unknown as ParticipantRow[])
+      : (db.prepare('SELECT * FROM participants WHERE event_id = ? AND status = ? ORDER BY created_at').all(eventId, status) as unknown as ParticipantRow[])
   );
   return rows.map(toParticipant);
 }
 
 /** Matchable: active, not already on a team, and opted into random matching. */
-export function listMatchable(db: Db, guildId: string): Participant[] {
+export function listMatchable(db: Db, eventId: string): Participant[] {
   const rows = db
     .prepare(
       `SELECT * FROM participants
-       WHERE guild_id = ? AND status = 'active' AND team_id IS NULL AND team_pref = 'random_team'`,
+       WHERE event_id = ? AND status = 'active' AND team_id IS NULL AND team_pref = 'random_team'`,
     )
-    .all(guildId) as unknown as ParticipantRow[];
+    .all(eventId) as unknown as ParticipantRow[];
   return rows.map(toParticipant);
 }
 
-export function setTeammates(db: Db, actor: string, guildId: string, userId: string, teammateIds: string[]): Result<Participant> {
-  const participant = getParticipant(db, guildId, userId);
+export function setTeammates(db: Db, actor: string, eventId: string, userId: string, teammateIds: string[]): Result<Participant> {
+  const participant = getParticipant(db, eventId, userId);
   if (participant === null) return err('not_found', 'Sign up first with /hackathon join.');
   const clean = [...new Set(teammateIds.map((id) => id.trim()).filter((id) => /^\d{5,25}$/.test(id)))].slice(0, 10);
-  db.prepare('UPDATE participants SET teammates = ?, updated_at = ? WHERE user_id = ? AND guild_id = ?').run(
+  db.prepare('UPDATE participants SET teammates = ?, updated_at = ? WHERE event_id = ? AND user_id = ?').run(
     JSON.stringify(clean),
     Date.now(),
+    eventId,
     userId,
-    guildId,
   );
-  audit(db, actor, 'participant.teammates', userId, { count: clean.length });
-  return ok(getParticipant(db, guildId, userId)!);
+  audit(db, actor, 'participant.teammates', eventId, { userId, count: clean.length });
+  return ok(getParticipant(db, eventId, userId)!);
 }
 
-export function blockParticipant(db: Db, actor: string, guildId: string, userId: string, reason: string): Result<void> {
+export function blockParticipant(db: Db, actor: string, eventId: string, userId: string, reason: string): Result<void> {
   const res = db
-    .prepare("UPDATE participants SET status = 'blocked', block_reason = ?, team_id = NULL, updated_at = ? WHERE user_id = ? AND guild_id = ?")
-    .run(reason.trim().slice(0, 200) || 'No reason given', Date.now(), userId, guildId);
-  if (res.changes === 0) return err('not_found', 'Participant not found.');
-  audit(db, actor, 'participant.block', userId, { reason });
+    .prepare(
+      "UPDATE participants SET status = 'blocked', block_reason = ?, team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?",
+    )
+    .run(reason.trim().slice(0, 200) || 'No reason given', Date.now(), eventId, userId);
+  if (res.changes === 0) return err('not_found', 'Participant not found in this event.');
+  audit(db, actor, 'participant.block', eventId, { userId, reason });
   return ok(undefined);
 }
 
-export function unblockParticipant(db: Db, actor: string, guildId: string, userId: string): Result<void> {
+export function unblockParticipant(db: Db, actor: string, eventId: string, userId: string): Result<void> {
   const res = db
-    .prepare("UPDATE participants SET status = 'active', block_reason = NULL, updated_at = ? WHERE user_id = ? AND guild_id = ? AND status = 'blocked'")
-    .run(Date.now(), userId, guildId);
-  if (res.changes === 0) return err('not_found', 'No blocked participant with that ID.');
-  audit(db, actor, 'participant.unblock', userId, null);
+    .prepare(
+      "UPDATE participants SET status = 'active', block_reason = NULL, updated_at = ? WHERE event_id = ? AND user_id = ? AND status = 'blocked'",
+    )
+    .run(Date.now(), eventId, userId);
+  if (res.changes === 0) return err('not_found', 'No blocked participant with that ID in this event.');
+  audit(db, actor, 'participant.unblock', eventId, { userId });
   return ok(undefined);
 }
 
-export function withdrawParticipant(db: Db, actor: string, guildId: string, userId: string): Result<void> {
+export function withdrawParticipant(db: Db, actor: string, eventId: string, userId: string): Result<void> {
   const res = db
-    .prepare("UPDATE participants SET status = 'withdrawn', team_id = NULL, updated_at = ? WHERE user_id = ? AND guild_id = ? AND status = 'active'")
-    .run(Date.now(), userId, guildId);
-  if (res.changes === 0) return err('not_found', 'No active signup found.');
-  audit(db, actor, 'participant.withdraw', userId, null);
+    .prepare(
+      "UPDATE participants SET status = 'withdrawn', team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ? AND status = 'active'",
+    )
+    .run(Date.now(), eventId, userId);
+  if (res.changes === 0) return err('not_found', 'No active signup found in this event.');
+  audit(db, actor, 'participant.withdraw', eventId, { userId });
   return ok(undefined);
 }
 
-/** Remove everything for a new event (participants + teams + matching). */
-export function resetEvent(db: Db, actor: string, guildId: string): Result<{ participants: number; teams: number }> {
-  const pCount = (db.prepare('SELECT COUNT(*) AS n FROM participants WHERE guild_id = ?').get(guildId) as { n: number }).n;
-  const tCount = (db.prepare('SELECT COUNT(*) AS n FROM teams WHERE guild_id = ?').get(guildId) as { n: number }).n;
-  db.prepare('DELETE FROM participants WHERE guild_id = ?').run(guildId);
-  db.prepare('DELETE FROM teams WHERE guild_id = ?').run(guildId);
-  audit(db, actor, 'event.reset', guildId, { participants: pCount, teams: tCount });
-  return ok({ participants: pCount, teams: tCount });
+/** Purge participants of an event (event reset). */
+export function purgeEventParticipants(db: Db, actor: string, eventId: string): number {
+  const count = (db.prepare('SELECT COUNT(*) AS n FROM participants WHERE event_id = ?').get(eventId) as { n: number }).n;
+  db.prepare('DELETE FROM participants WHERE event_id = ?').run(eventId);
+  audit(db, actor, 'participant.purge', eventId, { count });
+  return count;
 }

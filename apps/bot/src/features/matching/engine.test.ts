@@ -6,6 +6,7 @@ import type { Participant } from '../signup/store.js';
 
 function makeParticipant(overrides: Partial<Participant> & { userId: string }): Participant {
   return {
+    eventId: 'ev1',
     guildId: 'g1',
     displayName: overrides.userId,
     experience: 'some_experience',

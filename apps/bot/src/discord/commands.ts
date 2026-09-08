@@ -22,6 +22,9 @@ export const HACKATHON_COMMAND = new SlashCommandBuilder()
     sub.setName('status').setDescription('Show your signup and team'),
   )
   .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+    sub.setName('event').setDescription('Show info about the current hackathon event'),
+  )
+  .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
     sub.setName('create-team').setDescription('Create your own team — opens a form (name, visibility, color)'),
   )
   .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
@@ -122,6 +125,56 @@ export const HACKATHON_COMMAND = new SlashCommandBuilder()
       )
       .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
         sub.setName('form').setDescription('Show the current signup form configuration'),
-      ),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub
+          .setName('event-create')
+          .setDescription('Create a new event (draft)')
+          .addStringOption((o) => o.setName('name').setDescription('Event name').setRequired(true).setMaxLength(100))
+          .addStringOption((o) => o.setName('description').setDescription('What is this event?').setMaxLength(1000))
+          .addStringOption((o) => o.setName('starts').setDescription('Start (ISO or unix ms)').setRequired(false))
+          .addStringOption((o) => o.setName('ends').setDescription('End (ISO or unix ms)').setRequired(false))
+          .addStringOption((o) => o.setName('template').setDescription('Start from a template').setAutocomplete(true)),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub
+          .setName('event-config')
+          .setDescription('Configure the active event')
+          .addStringOption((o) => o.setName('name').setDescription('Rename').setMaxLength(100))
+          .addStringOption((o) => o.setName('description').setDescription('Description').setMaxLength(1000))
+          .addStringOption((o) => o.setName('starts').setDescription('Start (ISO or unix ms)'))
+          .addStringOption((o) => o.setName('ends').setDescription('End (ISO or unix ms)'))
+          .addIntegerOption((o) => o.setName('cleanup-hours').setDescription('Hours after end to clean up channels/roles').setMinValue(0).setMaxValue(720)),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub.setName('event-activate').setDescription('Activate an event (ends the previous one)').addStringOption((o) => o.setName('id').setDescription('Event id (omit = latest draft)').setAutocomplete(true)),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub.setName('event-end').setDescription('End the active event now (starts the cleanup countdown)'),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub
+          .setName('announce')
+          .setDescription('Announce to the panel channel and (optionally) DM all participants')
+          .addStringOption((o) => o.setName('title').setDescription('Headline').setRequired(true).setMaxLength(100))
+          .addStringOption((o) => o.setName('message').setDescription('What to say').setRequired(true).setMaxLength(800))
+          .addBooleanOption((o) => o.setName('dm').setDescription('Also DM every signed-up user (default false)')),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub
+          .setName('discord-event')
+          .setDescription('Create Discord scheduled events for the hackathon')
+          .addIntegerOption((o) => o.setName('days').setDescription('How many daily events (default 1)').setMinValue(1).setMaxValue(10))
+          .addIntegerOption((o) => o.setName('duration-hours').setDescription('Hours each (default 24)').setMinValue(1).setMaxValue(72)),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub
+          .setName('template-save')
+          .setDescription('Save the active event (settings + form) as a reusable template')
+          .addStringOption((o) => o.setName('name').setDescription('Template name').setRequired(true).setMaxLength(80)),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub.setName('templates').setDescription('List saved templates'),
+      )
   )
   .toJSON();

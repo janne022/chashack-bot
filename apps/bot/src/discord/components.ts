@@ -2,21 +2,19 @@
  * Modal submit + button/select component handling.
  *
  * Modals: signup, create-team, team-settings.
- * Components: team browser (join request), request accept/decline/cancel,
- * admin move select, match/reset confirmations.
+ * Components: signup panel buttons, team browser (join request), request
+ * accept/decline/cancel, admin move select, match/reset confirmations.
  */
 import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
-  StringSelectMenuBuilder,
   type ButtonInteraction,
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
 } from 'discord.js';
-import { MODAL_IDS, labelFor } from '../features/form/domain.js';
-import { validateSignupInput } from '../features/form/domain.js';
+import { MODAL_IDS, validateSignupInput } from '../features/form/domain.js';
 import { upsertParticipant, getParticipant } from '../features/signup/store.js';
 import {
   createTeam,
@@ -28,9 +26,8 @@ import {
 } from '../features/teams/service.js';
 import { createJoinRequest, decideRequest, cancelRequest } from '../features/teams/requests.js';
 import { applyTeamJoin } from './provision.js';
-import { buildSignupModal } from './modal.js';
-import { CREATE_TEAM_IDS, TEAM_SETTINGS_IDS } from './modal.js';
-import { IDS, displayErr, embedErr, embedOk, eph, type Ctx } from './shared.js';
+import { buildSignupModal, CREATE_TEAM_IDS, TEAM_SETTINGS_IDS } from './modal.js';
+import { IDS, buildParticipantEmbed, displayErr, embedErr, embedOk, eph, type Ctx } from './shared.js';
 import { commitMatchAndAnnounce, resetEventConfirmed } from './admin-commands.js';
 
 interface Announcer {
@@ -56,7 +53,7 @@ export async function onModalSubmit(i: ModalSubmitInteraction, ctx: Ctx & Announ
 
 async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<void> {
   // Blocked users must not pass, even with a stale modal open.
-  const existing = getParticipant(ctx.db, ctx.guildId, i.user.id);
+  const existing = getParticipant(ctx.db, ctx.eventId, i.user.id);
   if (existing?.status === 'blocked') {
     await i.reply(eph('You are blocked from signing up. Contact an organizer.'));
     return;
@@ -84,7 +81,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
     return;
   }
 
-  const saved = upsertParticipant(ctx.db, ctx.actor, ctx.guildId, i.user.id, result.value);
+  const saved = upsertParticipant(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, i.user.id, result.value);
   if (!saved.ok) {
     await i.reply({ embeds: [displayErr(saved.code, saved.message)], flags: MessageFlags.Ephemeral });
     return;
@@ -92,14 +89,16 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
 
   const prefHint =
     result.value.teamPref === 'create_team'
-      ? 'Use `/hackathon create-team` to set up your team — you will get invite powers, a private channel and a role.'
+      ? 'Use `/hackathon create-team` to set up your team — you get invite powers, a private channel and a role.'
       : result.value.teamPref === 'join_team'
         ? 'Browse `/hackathon teams` and send join requests — owners decide, you get a DM.'
         : 'Organizers will match you into a team based on compatibility.';
 
-  const { buildParticipantEmbed } = await import('./shared.js');
   await i.reply({
-    embeds: [embedOk('Signup saved ✅', `Thanks, **${result.value.displayName}**! ${prefHint}`), buildParticipantEmbed(ctx.db, ctx.config, saved.value)],
+    embeds: [
+      embedOk('Signup saved ✅', `Thanks, **${result.value.displayName}**! ${prefHint}`),
+      buildParticipantEmbed(ctx.db, ctx.config, saved.value),
+    ],
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -113,21 +112,25 @@ async function handleCreateTeamModal(i: ModalSubmitInteraction, ctx: Ctx & Annou
     return;
   }
 
-  const res = createTeam(ctx.db, ctx.actor, ctx.guildId, name, kind, i.user.id, colorId);
+  const res = createTeam(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, name, kind, i.user.id, colorId);
   if (!res.ok) {
     await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
     return;
   }
 
   // Provision role + channels immediately so the founder lands in their space.
-  const { provisionTeamSpace } = await import('./provision.js');
-  const team = await provisionTeamSpace({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value);
+  const { provisionTeamSpace, sendJoinWelcome } = await import('./provision.js');
+  const provisionDeps = { db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
+  const team = await provisionTeamSpace(provisionDeps, res.value);
 
   const codeLine =
     team.kind === 'private' && team.joinCode !== null
       ? `\n**Join code:** \`${team.joinCode}\` — teammates can use \`/hackathon join-code\` instead of waiting for an invite.`
       : '';
-  const channelLine = team.textChannelId !== null ? `\nYour private space: <#${team.textChannelId}>${team.voiceChannelId !== null ? ` + <#${team.voiceChannelId}>` : ''}` : '';
+  const channelLine =
+    team.textChannelId !== null
+      ? `\nYour private space: <#${team.textChannelId}>${team.voiceChannelId !== null ? ` + <#${team.voiceChannelId}>` : ''}`
+      : '';
 
   await i.reply({
     embeds: [
@@ -139,15 +142,11 @@ async function handleCreateTeamModal(i: ModalSubmitInteraction, ctx: Ctx & Annou
     flags: MessageFlags.Ephemeral,
   });
 
-  // Welcome message with the founder as first roster entry.
-  const { sendJoinWelcome } = await import('./provision.js');
-  await sendJoinWelcome({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, team, i.user.id, [
-    { userId: i.user.id, displayName: i.user.username },
-  ]);
+  await sendJoinWelcome(provisionDeps, team, i.user.id, [{ userId: i.user.id, displayName: i.user.username }]);
 }
 
 async function handleTeamSettingsModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<void> {
-  const team = getTeamForUser(ctx.db, ctx.guildId, i.user.id);
+  const team = getTeamForUser(ctx.db, ctx.eventId, i.user.id);
   if (team === null || team.ownerId !== i.user.id) {
     await i.reply(eph('Only the team owner can change team settings.'));
     return;
@@ -175,14 +174,14 @@ async function handleTeamSettingsModal(i: ModalSubmitInteraction, ctx: Ctx & Ann
     return;
   }
 
-  // Sync the Discord role (name + color); private→public keeps code, public→private mints one.
+  // Sync the Discord role (name + color).
   const { syncRoleColor } = await import('./provision.js');
   await syncRoleColor({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value);
 
   const changed: string[] = [];
   if (res.value.name !== team.name) changed.push('renamed');
   if (res.value.kind !== team.kind) changed.push(`now **${res.value.kind}**`);
-  if (res.value.colorId !== team.colorId) changed.push('recolor');
+  if (res.value.colorId !== team.colorId) changed.push('recolored');
 
   await i.reply({
     embeds: [embedOk('Team updated', `**${res.value.name}**: ${changed.join(', ') || 'no changes'}.`)],
@@ -200,12 +199,11 @@ export async function onComponent(
 
   // ── signup panel buttons ─────────────────────────────────────────────────
   if (id === IDS.signupButton) {
-    const existing = getParticipant(ctx.db, ctx.guildId, i.user.id);
+    const existing = getParticipant(ctx.db, ctx.eventId, i.user.id);
     if (existing?.status === 'blocked') {
       await i.reply(eph('You are blocked from signing up. Contact an organizer.'));
       return;
     }
-    // Buttons can respond with a modal — this is the whole point of the panel.
     await i.showModal(buildSignupModal(ctx.config));
     return;
   }
@@ -247,7 +245,6 @@ export async function onComponent(
     }
 
     if (decision === 'decline') {
-      // Notify the sender (inviter for invites, requester for join requests).
       const isInvite = res.value.request.kind === 'invite';
       await ctx.dm(res.value.request.requesterId, {
         content: isInvite
@@ -289,12 +286,11 @@ export async function onComponent(
       await i.update({ content: '⚠️ That team no longer exists.', embeds: [], components: [] });
       return;
     }
-    const res = createJoinRequest(ctx.db, ctx.actor, ctx.guildId, i.user.id, teamId, ctx.config.teamSize);
+    const res = createJoinRequest(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, i.user.id, teamId, ctx.config.teamSize);
     if (!res.ok) {
       await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
       return;
     }
-    // Notify the owner by DM (falls back to their inbox command).
     const ownerDm =
       team.ownerId !== null
         ? await ctx.dm(team.ownerId, {
@@ -350,7 +346,7 @@ export async function onComponent(
     }
     const userId = id.slice(IDS.adminMoveSelect.length + 1);
     const value = (i as StringSelectMenuInteraction).values[0] ?? '';
-    const res = adminAssign(ctx.db, ctx.actor, ctx.guildId, userId, value === '__none__' ? null : value);
+    const res = adminAssign(ctx.db, ctx.actor, ctx.eventId, userId, value === '__none__' ? null : value);
     await i.update({
       content: res.ok ? `Done — <@${userId}> moved.` : `Failed: ${res.message}`,
       components: [],

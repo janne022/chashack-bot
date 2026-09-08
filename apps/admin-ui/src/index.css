@@ -1,27 +1,45 @@
 @import 'tailwindcss';
 
-@theme {
-  /* Hackathon admin — dark, calm, Discord-adjacent.
-     Accent: blurple; semantic status colors reserved for meaning. */
-  --color-background: #0b0d13;
-  --color-surface: #12141d;
-  --color-surface-2: #1a1d2a;
-  --color-border: #262a3b;
-  --color-foreground: #e7eaf3;
-  --color-muted-foreground: #8f96ad;
-  --color-accent: #5865f2;
-  --color-accent-strong: #4752c4;
-  --color-accent-soft: #5865f221;
+/* ────────────────────────────────────────────────────────────────────────────
+   WORLD: "Honeycomb playtech"
+   Hexagon cells = teams. Near-black comb at night, warm paper by day.
+   Sky blue leads; coral/teal/lilac carry semantics. Rounded, bold, game-y
+   but organized — an ops console for running a hackathon.
+   ──────────────────────────────────────────────────────────────────────────── */
 
-  --color-ok: #3ec46d;
+@theme {
+  /* Brand palette (from the ChasHack marks) */
+  --color-sky: #55bbda;
+  --color-sky-deep: #2e8fb3;
+  --color-coral: #f08080;
+  --color-teal: #4e8780;
+  --color-lilac: #c77fc7;
+  --color-pink: #f4a7b9;
+
+  /* Dark (default) */
+  --color-background: #0a0c10;
+  --color-surface: #11141b;
+  --color-surface-2: #191e28;
+  --color-border: #262c3a;
+  --color-foreground: #eef2f7;
+  --color-muted-foreground: #8e97ab;
+  --color-accent: var(--color-sky);
+  --color-accent-strong: var(--color-sky-deep);
+  --color-accent-soft: rgba(85, 187, 218, 0.14);
+  --color-ok: #4e8780;
   --color-warn: #f0b429;
   --color-danger: #ef4444;
 
   --font-sans:
-    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display:
+    'Nunito', var(--font-sans);
+
+  --radius-hex: 10px;
 
   --animate-fade-in: fade-in 0.25s ease-out;
   --animate-slide-in: slide-in 0.25s ease-out;
+  --animate-pop-in: pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 
   @keyframes fade-in {
     from { opacity: 0; transform: translateY(6px); }
@@ -31,6 +49,25 @@
     from { opacity: 0; transform: translateX(14px); }
     to { opacity: 1; transform: translateX(0); }
   }
+  @keyframes pop-in {
+    from { opacity: 0; transform: scale(0.92); }
+    to { opacity: 1; transform: scale(1); }
+  }
+}
+
+/* Light mode overrides — warm paper, same brand family */
+:root[data-theme='light'] {
+  --color-background: #f7f5f0;
+  --color-surface: #fffdf9;
+  --color-surface-2: #f0ede6;
+  --color-border: #ded9cf;
+  --color-foreground: #1a1d24;
+  --color-muted-foreground: #6b7280;
+  --color-accent: var(--color-sky-deep);
+  --color-accent-soft: rgba(46, 143, 179, 0.12);
+  --color-ok: #2f7a6d;
+  --color-warn: #b47d0e;
+  --color-danger: #dc2626;
 }
 
 body {
@@ -41,13 +78,35 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Consistent focus ring everywhere */
 *:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 
-/* Slim scrollbars for dense tables */
 *::-webkit-scrollbar { height: 8px; width: 8px; }
 *::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
 *::-webkit-scrollbar-track { background: transparent; }
+
+/* ── hex motif utilities ── */
+
+/* Subtle honeycomb background for hero surfaces (login, empty states) */
+.hex-bg {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100' viewBox='0 0 56 100'%3E%3Cg fill='none' stroke='%2355bbda' stroke-opacity='0.07' stroke-width='1'%3E%3Cpath d='M28 0l24 14v28L28 56 4 42V14z'/%3E%3Cpath d='M28 100l-24-14V58l24-14 24 14v28z'/%3E%3C/g%3E%3C/svg%3E");
+}
+:root[data-theme='light'] .hex-bg {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100' viewBox='0 0 56 100'%3E%3Cg fill='none' stroke='%232e8fb3' stroke-opacity='0.08' stroke-width='1'%3E%3Cpath d='M28 0l24 14v28L28 56 4 42V14z'/%3E%3Cpath d='M28 100l-24-14V58l24-14 24 14v28z'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Hexagon badge — for counts, statuses, the brand dot */
+.hex-badge {
+  clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+}
+.hex-card {
+  clip-path: polygon(24px 0, calc(100% - 24px) 0, 100% 50%, calc(100% - 24px) 100%, 24px 100%, 0 50%);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}

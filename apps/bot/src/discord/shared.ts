@@ -36,6 +36,9 @@ export const IDS = {
 export interface Ctx {
   db: Db;
   config: FormConfig;
+  /** Active event (or the one the admin explicitly selected). */
+  eventId: string;
+  eventName: string;
   guildId: string;
   actor: string;
   isAdmin: boolean;

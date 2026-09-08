@@ -1,6 +1,6 @@
 /**
- * Teams: public teams (open to join via listing), private teams (invite/join code only).
- * Matched teams are created by the matching engine, also stored here.
+ * Teams (per event): owner-created public/private teams and matched teams.
+ * Team membership is stored on participants (team_id), scoped by event.
  */
 import type { Db } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
@@ -10,6 +10,7 @@ import type { TeamKind } from '../form/domain.js';
 
 export interface Team {
   id: string;
+  eventId: string;
   guildId: string;
   name: string;
   kind: TeamKind | 'matched';
@@ -28,6 +29,7 @@ export interface TeamWithMembers extends Team {
 
 interface TeamRow {
   id: string;
+  event_id: string | null;
   guild_id: string;
   name: string;
   kind: string;
@@ -43,6 +45,7 @@ interface TeamRow {
 function toTeam(row: TeamRow): Team {
   return {
     id: row.id,
+    eventId: row.event_id ?? '',
     guildId: row.guild_id,
     name: row.name,
     kind: row.kind as Team['kind'],
@@ -59,6 +62,7 @@ function toTeam(row: TeamRow): Team {
 export function createTeam(
   db: Db,
   actor: string,
+  eventId: string,
   guildId: string,
   name: string,
   kind: TeamKind,
@@ -68,56 +72,54 @@ export function createTeam(
   const cleanName = name.trim().replace(/\s+/g, ' ').slice(0, 60);
   if (cleanName.length < 3) return err('bad_name', 'Team name must be at least 3 characters.');
 
-  const existingMembership = getTeamForUser(db, guildId, ownerId);
+  const existingMembership = getTeamForUser(db, eventId, ownerId);
   if (existingMembership !== null) return err('already_in_team', 'You are already in a team. Leave it first.');
 
   const id = newId('team');
   const joinCode = kind === 'private' ? newJoinCode() : null;
   db.prepare(
-    'INSERT INTO teams (id, guild_id, name, kind, owner_id, join_code, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(id, guildId, cleanName, kind, ownerId, joinCode, colorId, Date.now());
-  db.prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE user_id = ? AND guild_id = ?').run(
+    'INSERT INTO teams (id, event_id, guild_id, name, kind, owner_id, join_code, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(id, eventId, guildId, cleanName, kind, ownerId, joinCode, colorId, Date.now());
+  db.prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?').run(
     id,
     Date.now(),
+    eventId,
     ownerId,
-    guildId,
   );
-  audit(db, actor, 'team.create', id, { name: cleanName, kind, colorId });
+  audit(db, actor, 'team.create', eventId, { teamId: id, name: cleanName, kind, colorId });
   const created = db.prepare('SELECT * FROM teams WHERE id = ?').get(id) as unknown as TeamRow;
   return ok(toTeam(created));
 }
 
 export function getTeam(db: Db, teamId: string): Team | null {
-  const row = db
-    .prepare('SELECT * FROM teams WHERE id = ?')
-    .get(teamId) as unknown as TeamRow | undefined;
+  const row = db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as unknown as TeamRow | undefined;
   return row === undefined ? null : toTeam(row);
 }
 
-export function getTeamByJoinCode(db: Db, guildId: string, code: string): Team | null {
+export function getTeamByJoinCode(db: Db, eventId: string, code: string): Team | null {
   const clean = code.trim().toUpperCase();
   if (!/^[A-Z0-9]{6}$/.test(clean)) return null;
   const row = db
-    .prepare('SELECT * FROM teams WHERE join_code = ? AND guild_id = ?')
-    .get(clean, guildId) as unknown as TeamRow | undefined;
+    .prepare('SELECT * FROM teams WHERE join_code = ? AND event_id = ?')
+    .get(clean, eventId) as unknown as TeamRow | undefined;
   return row === undefined ? null : toTeam(row);
 }
 
-export function getTeamForUser(db: Db, guildId: string, userId: string): Team | null {
+export function getTeamForUser(db: Db, eventId: string, userId: string): Team | null {
   const row = db
     .prepare(
       `SELECT t.* FROM teams t JOIN participants p ON p.team_id = t.id
-       WHERE p.user_id = ? AND p.guild_id = ?`,
+       WHERE p.event_id = ? AND p.user_id = ?`,
     )
-    .get(userId, guildId) as TeamRow | undefined;
+    .get(eventId, userId) as TeamRow | undefined;
   return row === undefined ? null : toTeam(row);
 }
 
-export function listTeams(db: Db, guildId: string, kind?: Team['kind']): TeamWithMembers[] {
+export function listTeams(db: Db, eventId: string, kind?: Team['kind']): TeamWithMembers[] {
   const rows = (
     kind === undefined
-      ? (db.prepare('SELECT * FROM teams WHERE guild_id = ? ORDER BY created_at').all(guildId) as unknown as TeamRow[])
-      : (db.prepare('SELECT * FROM teams WHERE guild_id = ? AND kind = ? ORDER BY created_at').all(guildId, kind) as unknown as TeamRow[])
+      ? (db.prepare('SELECT * FROM teams WHERE event_id = ? ORDER BY created_at').all(eventId) as unknown as TeamRow[])
+      : (db.prepare('SELECT * FROM teams WHERE event_id = ? AND kind = ? ORDER BY created_at').all(eventId, kind) as unknown as TeamRow[])
   );
   return rows.map((row) => {
     const team = toTeam(row);
@@ -126,7 +128,7 @@ export function listTeams(db: Db, guildId: string, kind?: Team['kind']): TeamWit
         `SELECT user_id, display_name, role_track, experience, skills FROM participants
          WHERE team_id = ? AND status = 'active' ORDER BY created_at`,
       )
-      .all(team.id) as { user_id: string; display_name: string; role_track: string; experience: string; skills: string }[];
+      .all(team.id) as unknown as { user_id: string; display_name: string; role_track: string; experience: string; skills: string }[];
     return {
       ...team,
       members: members.map((m) => ({
@@ -140,63 +142,144 @@ export function listTeams(db: Db, guildId: string, kind?: Team['kind']): TeamWit
   });
 }
 
-/** Open (not full) public teams, for the join listing. */
-export function listOpenPublicTeams(db: Db, guildId: string, teamSize: number): TeamWithMembers[] {
-  return listTeams(db, guildId, 'public').filter((t) => t.members.length < teamSize);
+/** Open (not full, public) teams for the join browser. */
+export function listOpenPublicTeams(db: Db, eventId: string, teamSize: number): TeamWithMembers[] {
+  return listTeams(db, eventId, 'public').filter((t) => t.members.length < teamSize);
 }
 
-export function joinTeam(db: Db, actor: string, guildId: string, userId: string, teamId: string, teamSize: number): Result<Team> {
+export function joinTeam(db: Db, actor: string, eventId: string, userId: string, teamId: string, teamSize: number): Result<Team> {
   const team = getTeam(db, teamId);
-  if (team === null || team.guildId !== guildId) return err('not_found', 'Team not found.');
-  if (team.kind === 'private') return err('private_team', 'That team is private — a join code is required.');
+  if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
+  if (team.kind === 'private') return err('private_team', 'That team is private — an invite or join code is required.');
 
   const participant = db
-    .prepare("SELECT status FROM participants WHERE user_id = ? AND guild_id = ?")
-    .get(userId, guildId) as { status: string } | undefined;
-  if (participant === undefined) return err('not_found', 'Sign up first with /hackathon join.');
+    .prepare('SELECT status FROM participants WHERE event_id = ? AND user_id = ?')
+    .get(eventId, userId) as { status: string } | undefined;
+  if (participant === undefined) return err('no_signup', 'Sign up first with /hackathon join.');
   if (participant.status !== 'active') return err('not_active', 'Your signup is not active.');
 
-  const current = getTeamForUser(db, guildId, userId);
+  const current = getTeamForUser(db, eventId, userId);
   if (current !== null) return err('already_in_team', 'You are already in a team. Leave it first.');
 
   const members = countMembers(db, teamId);
   if (members >= teamSize) return err('team_full', `Team is full (${teamSize}/${teamSize}).`);
 
-  db.prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE user_id = ? AND guild_id = ?').run(
+  db.prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?').run(
     teamId,
     Date.now(),
+    eventId,
     userId,
-    guildId,
   );
-  audit(db, actor, 'team.join', teamId, { userId });
+  audit(db, actor, 'team.join', eventId, { teamId, userId });
   return ok(team);
 }
 
 export function joinPrivateTeam(
   db: Db,
   actor: string,
-  guildId: string,
+  eventId: string,
   userId: string,
   code: string,
   teamSize: number,
 ): Result<Team> {
-  const team = getTeamByJoinCode(db, guildId, code);
-  if (team === null) return err('not_found', 'No team with that code.');
-  const current = getTeamForUser(db, guildId, userId);
+  const team = getTeamByJoinCode(db, eventId, code);
+  if (team === null) return err('not_found', 'No team with that code in this event.');
+  const current = getTeamForUser(db, eventId, userId);
   if (current !== null) return err('already_in_team', 'You are already in a team. Leave it first.');
   const members = countMembers(db, team.id);
   if (members >= teamSize) return err('team_full', `Team is full (${teamSize}/${teamSize}).`);
-  db.prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE user_id = ? AND guild_id = ?').run(
+  db.prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?').run(
     team.id,
     Date.now(),
+    eventId,
     userId,
-    guildId,
   );
-  audit(db, actor, 'team.join_code', team.id, { userId });
+  audit(db, actor, 'team.join_code', eventId, { teamId: team.id, userId });
   return ok(team);
 }
 
-/** Set Discord provisioning targets after role/channel creation. */
+export function leaveTeam(db: Db, actor: string, eventId: string, userId: string): Result<Team> {
+  const team = getTeamForUser(db, eventId, userId);
+  if (team === null) return err('no_team', 'You are not in a team.');
+  if (team.ownerId === userId) {
+    const members = countMembers(db, team.id);
+    if (members > 1) return err('owner_leave', 'You own this team. Members must leave first, or ask an organizer to delete it.');
+    return deleteTeam(db, actor, team.id);
+  }
+  db.prepare('UPDATE participants SET team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?').run(
+    Date.now(),
+    eventId,
+    userId,
+  );
+  audit(db, actor, 'team.leave', eventId, { teamId: team.id, userId });
+  return ok(team);
+}
+
+export function removeMember(db: Db, actor: string, teamId: string, userId: string): Result<void> {
+  const team = getTeam(db, teamId);
+  if (team === null) return err('not_found', 'Team not found.');
+  db.prepare('UPDATE participants SET team_id = NULL, updated_at = ? WHERE user_id = ? AND team_id = ?').run(
+    Date.now(),
+    userId,
+    teamId,
+  );
+  audit(db, actor, 'team.remove_member', team.eventId, { teamId, userId });
+  return ok(undefined);
+}
+
+/** Admin move: silently assigns a participant to a team (no capacity check — admin override). */
+export function adminAssign(db: Db, actor: string, eventId: string, userId: string, teamId: string | null): Result<void> {
+  if (teamId !== null) {
+    const team = getTeam(db, teamId);
+    if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
+  }
+  const res = db
+    .prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?')
+    .run(teamId, Date.now(), eventId, userId);
+  if (res.changes === 0) return err('not_found', 'Participant not found in this event.');
+  audit(db, actor, 'team.assign', eventId, { userId, teamId });
+  return ok(undefined);
+}
+
+export function deleteTeam(db: Db, actor: string, teamId: string): Result<Team> {
+  const team = getTeam(db, teamId);
+  if (team === null) return err('not_found', 'Team not found.');
+  db.prepare('UPDATE participants SET team_id = NULL WHERE team_id = ?').run(teamId);
+  db.prepare('DELETE FROM team_requests WHERE team_id = ?').run(teamId);
+  db.prepare('DELETE FROM teams WHERE id = ?').run(teamId);
+  audit(db, actor, 'team.delete', team.eventId, { teamId, name: team.name });
+  return ok(team);
+}
+
+export function rotateJoinCode(db: Db, actor: string, teamId: string): Result<string> {
+  const team = getTeam(db, teamId);
+  if (team === null) return err('not_found', 'Team not found.');
+  if (team.kind !== 'private') return err('not_private', 'Only private teams have join codes.');
+  const code = newJoinCode();
+  db.prepare('UPDATE teams SET join_code = ? WHERE id = ?').run(code, teamId);
+  audit(db, actor, 'team.rotate_code', team.eventId, { teamId });
+  return ok(code);
+}
+
+export function countMembers(db: Db, teamId: string): number {
+  const row = db
+    .prepare("SELECT COUNT(*) AS n FROM participants WHERE team_id = ? AND status = 'active'")
+    .get(teamId) as { n: number };
+  return row.n;
+}
+
+/** Delete all teams of an event (event reset / cleanup). Returns count. */
+export function deleteEventTeams(db: Db, actor: string, eventId: string): number {
+  const count = (db.prepare('SELECT COUNT(*) AS n FROM teams WHERE event_id = ?').get(eventId) as { n: number }).n;
+  db.prepare('UPDATE participants SET team_id = NULL WHERE team_id IN (SELECT id FROM teams WHERE event_id = ?)').run(eventId);
+  db.prepare('DELETE FROM team_requests WHERE event_id = ?').run(eventId);
+  db.prepare('DELETE FROM teams WHERE event_id = ?').run(eventId);
+  audit(db, actor, 'team.purge', eventId, { count });
+  return count;
+}
+
+// ─── provisioning persistence ────────────────────────────────────────────────
+
 export function setProvisioning(
   db: Db,
   teamId: string,
@@ -239,12 +322,13 @@ export function updateTeamSettings(
   const colorId = update.colorId !== undefined ? update.colorId : team.colorId;
 
   db.prepare('UPDATE teams SET name = ?, kind = ?, color = ? WHERE id = ?').run(name, kind, colorId, teamId);
-  audit(db, actor, 'team.settings', teamId, { name, kind, colorId });
+  audit(db, actor, 'team.settings', team.eventId, { teamId, name, kind, colorId });
   const row = db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as unknown as TeamRow;
   return ok(toTeam(row));
 }
 
-/** Guild-level settings (channel category for team spaces). */
+// ─── guild-level settings (fallback category etc.) ──────────────────────────
+
 export function getGuildSettings(db: Db, guildId: string): { teamCategoryId: string | null } {
   const row = db.prepare('SELECT team_category_id FROM guild_settings WHERE guild_id = ?').get(guildId) as
     | { team_category_id: string | null }
@@ -258,69 +342,4 @@ export function setGuildCategory(db: Db, actor: string, guildId: string, categor
      ON CONFLICT(guild_id) DO UPDATE SET team_category_id = excluded.team_category_id, updated_at = excluded.updated_at`,
   ).run(guildId, categoryId, Date.now());
   audit(db, actor, 'guild.set_category', guildId, { categoryId });
-}
-
-export function leaveTeam(db: Db, actor: string, guildId: string, userId: string): Result<Team> {
-  const team = getTeamForUser(db, guildId, userId);
-  if (team === null) return err('no_team', 'You are not in a team.');
-  if (team.ownerId === userId) {
-    const members = countMembers(db, team.id);
-    if (members > 1) return err('owner_leave', 'You own this team. Remove other members first, or delete the team.');
-    return deleteTeam(db, actor, team.id);
-  }
-  db.prepare('UPDATE participants SET team_id = NULL, updated_at = ? WHERE user_id = ?').run(Date.now(), userId);
-  audit(db, actor, 'team.leave', team.id, { userId });
-  return ok(team);
-}
-
-export function removeMember(db: Db, actor: string, teamId: string, userId: string): Result<void> {
-  const team = getTeam(db, teamId);
-  if (team === null) return err('not_found', 'Team not found.');
-  db.prepare('UPDATE participants SET team_id = NULL, updated_at = ? WHERE user_id = ? AND team_id = ?').run(
-    Date.now(),
-    userId,
-    teamId,
-  );
-  audit(db, actor, 'team.remove_member', teamId, { userId });
-  return ok(undefined);
-}
-
-/** Admin move: silently assigns a participant to a team (no capacity check — admin override). */
-export function adminAssign(db: Db, actor: string, guildId: string, userId: string, teamId: string | null): Result<void> {
-  if (teamId !== null) {
-    const team = getTeam(db, teamId);
-    if (team === null || team.guildId !== guildId) return err('not_found', 'Team not found in this guild.');
-  }
-  const res = db
-    .prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE user_id = ? AND guild_id = ?')
-    .run(teamId, Date.now(), userId, guildId);
-  if (res.changes === 0) return err('not_found', 'Participant not found.');
-  audit(db, actor, 'team.assign', userId, { teamId });
-  return ok(undefined);
-}
-
-export function deleteTeam(db: Db, actor: string, teamId: string): Result<Team> {
-  const team = getTeam(db, teamId);
-  if (team === null) return err('not_found', 'Team not found.');
-  db.prepare('UPDATE participants SET team_id = NULL WHERE team_id = ?').run(teamId);
-  db.prepare('DELETE FROM teams WHERE id = ?').run(teamId);
-  audit(db, actor, 'team.delete', teamId, { name: team.name });
-  return ok(team);
-}
-
-export function rotateJoinCode(db: Db, actor: string, teamId: string): Result<string> {
-  const team = getTeam(db, teamId);
-  if (team === null) return err('not_found', 'Team not found.');
-  if (team.kind !== 'private') return err('not_private', 'Only private teams have join codes.');
-  const code = newJoinCode();
-  db.prepare('UPDATE teams SET join_code = ? WHERE id = ?').run(code, teamId);
-  audit(db, actor, 'team.rotate_code', teamId, null);
-  return ok(code);
-}
-
-export function countMembers(db: Db, teamId: string): number {
-  const row = db
-    .prepare("SELECT COUNT(*) AS n FROM participants WHERE team_id = ? AND status = 'active'")
-    .get(teamId) as { n: number };
-  return row.n;
 }

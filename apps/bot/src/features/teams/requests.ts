@@ -18,6 +18,7 @@ export type RequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled';
 
 export interface TeamRequest {
   id: number;
+  eventId: string;
   guildId: string;
   teamId: string;
   requesterId: string;
@@ -30,6 +31,7 @@ export interface TeamRequest {
 
 interface RequestRow {
   id: number;
+  event_id: string | null;
   guild_id: string;
   team_id: string;
   requester_id: string;
@@ -43,6 +45,7 @@ interface RequestRow {
 function toRequest(row: RequestRow): TeamRequest {
   return {
     id: row.id,
+    eventId: row.event_id ?? '',
     guildId: row.guild_id,
     teamId: row.team_id,
     requesterId: row.requester_id,
@@ -60,6 +63,7 @@ function actorMatches(actor: string, userId: string): boolean {
 
 function insert(
   db: Db,
+  eventId: string,
   guildId: string,
   teamId: string,
   requesterId: string,
@@ -67,9 +71,9 @@ function insert(
   kind: RequestKind,
 ): Result<TeamRequest> {
   db.prepare(
-    `INSERT INTO team_requests (guild_id, team_id, requester_id, target_id, kind, status, created_at)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-  ).run(guildId, teamId, requesterId, targetId, kind, Date.now());
+    `INSERT INTO team_requests (event_id, guild_id, team_id, requester_id, target_id, kind, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+  ).run(eventId, guildId, teamId, requesterId, targetId, kind, Date.now());
   const row = db
     .prepare('SELECT * FROM team_requests WHERE id = last_insert_rowid()')
     .get() as unknown as RequestRow;
@@ -80,32 +84,33 @@ function insert(
 export function createJoinRequest(
   db: Db,
   actor: string,
+  eventId: string,
   guildId: string,
   userId: string,
   teamId: string,
   teamSize: number,
 ): Result<TeamRequest> {
   const team = getTeam(db, teamId);
-  if (team === null || team.guildId !== guildId) return err('not_found', 'Team not found.');
+  if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
   if (team.kind === 'matched') return err('not_joinable', 'Matched teams cannot be requested.');
 
   const participant = db
-    .prepare('SELECT status FROM participants WHERE user_id = ? AND guild_id = ?')
-    .get(userId, guildId) as { status: string } | undefined;
+    .prepare('SELECT status FROM participants WHERE event_id = ? AND user_id = ?')
+    .get(eventId, userId) as { status: string } | undefined;
   if (participant === undefined) return err('no_signup', 'Sign up first with /hackathon join.');
   if (participant.status !== 'active') return err('not_active', 'Your signup is not active.');
 
-  if (getTeamForUser(db, guildId, userId) !== null) {
+  if (getTeamForUser(db, eventId, userId) !== null) {
     return err('already_in_team', 'You are already in a team. Leave it first.');
   }
-  const pending = listRequestsForUser(db, guildId, userId, 'pending');
+  const pending = listRequestsForUser(db, eventId, userId, 'pending');
   if (pending.outgoing.some((r) => r.teamId === teamId && r.kind === 'join_request')) {
     return err('already_requested', 'You already have a pending request to that team.');
   }
   if (countMembers(db, teamId) >= teamSize) return err('team_full', 'That team is already full.');
 
-  const res = insert(db, guildId, teamId, userId, team.ownerId ?? userId, 'join_request');
-  if (res.ok) audit(db, actor, 'request.create', teamId, { userId, kind: 'join_request' });
+  const res = insert(db, eventId, guildId, teamId, userId, team.ownerId ?? userId, 'join_request');
+  if (res.ok) audit(db, actor, 'request.create', eventId, { teamId, userId, kind: 'join_request' });
   return res;
 }
 
@@ -113,31 +118,32 @@ export function createJoinRequest(
 export function createInvite(
   db: Db,
   actor: string,
+  eventId: string,
   guildId: string,
   teamId: string,
   targetId: string,
   teamSize: number,
 ): Result<TeamRequest> {
   const team = getTeam(db, teamId);
-  if (team === null || team.guildId !== guildId) return err('not_found', 'Team not found.');
+  if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
   if (team.kind === 'matched') return err('not_joinable', 'Matched teams cannot invite.');
 
   const participant = db
-    .prepare('SELECT status FROM participants WHERE user_id = ? AND guild_id = ?')
-    .get(targetId, guildId) as { status: string } | undefined;
-  if (participant === undefined) return err('no_signup', 'They have not signed up yet.');
+    .prepare('SELECT status FROM participants WHERE event_id = ? AND user_id = ?')
+    .get(eventId, targetId) as { status: string } | undefined;
+  if (participant === undefined) return err('no_signup', 'They have not signed up to this event yet.');
   if (participant.status !== 'active') return err('not_active', 'Their signup is not active.');
 
-  if (getTeamForUser(db, guildId, targetId) !== null) {
+  if (getTeamForUser(db, eventId, targetId) !== null) {
     return err('already_in_team', 'They are already on a team.');
   }
   if (countMembers(db, teamId) >= teamSize) return err('team_full', 'Your team is already full.');
-  if (listRequestsForUser(db, guildId, targetId, 'pending').incoming.some((r) => r.teamId === teamId && r.kind === 'invite')) {
+  if (listRequestsForUser(db, eventId, targetId, 'pending').incoming.some((r) => r.teamId === teamId && r.kind === 'invite')) {
     return err('already_requested', 'They already have a pending invite to that team.');
   }
 
-  const res = insert(db, guildId, teamId, actor, targetId, 'invite');
-  if (res.ok) audit(db, actor, 'request.create', teamId, { targetId, kind: 'invite' });
+  const res = insert(db, eventId, guildId, teamId, actor, targetId, 'invite');
+  if (res.ok) audit(db, actor, 'request.create', eventId, { teamId, targetId, kind: 'invite' });
   return res;
 }
 
@@ -169,7 +175,7 @@ export function decideRequest(
       Date.now(),
       requestId,
     );
-    audit(db, actor, 'request.decline', team.id, { requestId, kind: request.kind });
+    audit(db, actor, 'request.decline', request.eventId, { requestId, teamId: team.id, kind: request.kind });
     const joinerId = request.kind === 'invite' ? request.targetId : request.requesterId;
     return ok({ request: { ...request, status: 'declined' }, team, joinerId });
   }
@@ -177,12 +183,12 @@ export function decideRequest(
   // Accept: re-check the moving parts.
   const joinerId = request.kind === 'invite' ? request.targetId : request.requesterId;
   const participant = db
-    .prepare('SELECT status FROM participants WHERE user_id = ? AND guild_id = ?')
-    .get(joinerId, request.guildId) as { status: string } | undefined;
+    .prepare('SELECT status FROM participants WHERE event_id = ? AND user_id = ?')
+    .get(request.eventId, joinerId) as { status: string } | undefined;
   if (participant === undefined || participant.status !== 'active') {
     return err('not_active', 'Signup is no longer active.');
   }
-  if (getTeamForUser(db, request.guildId, joinerId) !== null) {
+  if (getTeamForUser(db, request.eventId, joinerId) !== null) {
     return err('already_in_team', 'They are already on a team.');
   }
   if (countMembers(db, team.id) >= teamSize) {
@@ -193,13 +199,13 @@ export function decideRequest(
     Date.now(),
     requestId,
   );
-  db.prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE user_id = ? AND guild_id = ?').run(
+  db.prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?').run(
     team.id,
     Date.now(),
+    request.eventId,
     joinerId,
-    request.guildId,
   );
-  audit(db, actor, 'request.accept', team.id, { requestId, joinerId, kind: request.kind });
+  audit(db, actor, 'request.accept', request.eventId, { requestId, teamId: team.id, joinerId, kind: request.kind });
   return ok({ request: { ...request, status: 'accepted' }, team, joinerId });
 }
 
@@ -217,14 +223,14 @@ export function cancelRequest(db: Db, actor: string, requestId: number): Result<
     Date.now(),
     requestId,
   );
-  audit(db, actor, 'request.cancel', request.teamId, { requestId });
+  audit(db, actor, 'request.cancel', request.eventId, { requestId, teamId: request.teamId });
   return ok({ ...request, status: 'cancelled' });
 }
 
 /** Everything touching a user: incoming (to decide) and outgoing (sent). */
 export function listRequestsForUser(
   db: Db,
-  guildId: string,
+  eventId: string,
   userId: string,
   status?: RequestStatus,
 ): { incoming: TeamRequest[]; outgoing: TeamRequest[] } {
@@ -232,14 +238,14 @@ export function listRequestsForUser(
     status === undefined
       ? db
           .prepare(
-            'SELECT * FROM team_requests WHERE guild_id = ? AND (target_id = ? OR requester_id = ?) ORDER BY created_at DESC',
+            'SELECT * FROM team_requests WHERE event_id = ? AND (target_id = ? OR requester_id = ?) ORDER BY created_at DESC',
           )
-          .all(guildId, userId, userId)
+          .all(eventId, userId, userId)
       : db
           .prepare(
-            'SELECT * FROM team_requests WHERE guild_id = ? AND status = ? AND (target_id = ? OR requester_id = ?) ORDER BY created_at DESC',
+            'SELECT * FROM team_requests WHERE event_id = ? AND status = ? AND (target_id = ? OR requester_id = ?) ORDER BY created_at DESC',
           )
-          .all(guildId, status, userId, userId);
+          .all(eventId, status, userId, userId);
   const rows = (base as unknown as RequestRow[]).map(toRequest);
 
   return {

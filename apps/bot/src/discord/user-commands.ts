@@ -26,7 +26,7 @@ import { IDS, cancelRow, decideRow, displayErr, embedOk, eph, type Ctx } from '.
 
 /** Browser: pick a public team with space → send join request. Shared with the panel button. */
 export function teamsBrowser(ctx: Ctx): { embeds: EmbedBuilder[]; components: ActionRowBuilder<StringSelectMenuBuilder>[] } | null {
-  const open = listOpenPublicTeams(ctx.db, ctx.guildId, ctx.config.teamSize);
+  const open = listOpenPublicTeams(ctx.db, ctx.eventId, ctx.config.teamSize);
   if (open.length === 0) return null;
   const select = new StringSelectMenuBuilder()
     .setCustomId(IDS.teamsSelect)
@@ -59,7 +59,7 @@ export async function handleUserCommand(
 
   switch (sub) {
     case 'join': {
-      const existing = getParticipant(db, guildId, i.user.id);
+      const existing = getParticipant(db, ctx.eventId, i.user.id);
       if (existing?.status === 'blocked') {
         await i.reply(eph('You are blocked from signing up. Contact an organizer.'));
         return;
@@ -69,11 +69,11 @@ export async function handleUserCommand(
     }
 
     case 'create-team': {
-      if (getParticipant(db, guildId, i.user.id) === null) {
+      if (getParticipant(db, ctx.eventId, i.user.id) === null) {
         await i.reply(eph('Sign up first with `/hackathon join`.'));
         return;
       }
-      if (getTeamForUser(db, guildId, i.user.id) !== null) {
+      if (getTeamForUser(db, ctx.eventId, i.user.id) !== null) {
         await i.reply(eph('You are already in a team. Use `/hackathon leave-team` first.'));
         return;
       }
@@ -82,7 +82,7 @@ export async function handleUserCommand(
     }
 
     case 'team-settings': {
-      const team = getTeamForUser(db, guildId, i.user.id);
+      const team = getTeamForUser(db, ctx.eventId, i.user.id);
       if (team === null) {
         await i.reply(eph('You are not in a team.'));
         return;
@@ -106,7 +106,7 @@ export async function handleUserCommand(
     }
 
     case 'invite': {
-      const team = getTeamForUser(db, guildId, i.user.id);
+      const team = getTeamForUser(db, ctx.eventId, i.user.id);
       if (team === null) {
         await i.reply(eph('You are not in a team. Create one with `/hackathon create-team`.'));
         return;
@@ -125,7 +125,7 @@ export async function handleUserCommand(
         return;
       }
       const { createInvite } = await import('../features/teams/requests.js');
-      const res = createInvite(db, actor, guildId, team.id, target.id, config.teamSize);
+      const res = createInvite(db, actor, ctx.eventId, guildId, team.id, target.id, config.teamSize);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -153,7 +153,7 @@ export async function handleUserCommand(
 
     case 'invitations':
     case 'team-requests': {
-      const { incoming, outgoing } = listRequestsForUser(db, guildId, i.user.id, 'pending');
+      const { incoming, outgoing } = listRequestsForUser(db, ctx.eventId, i.user.id, 'pending');
       if (incoming.length === 0 && outgoing.length === 0) {
         await i.reply(eph('Nothing pending. Invites to you and join requests to your teams show up here.'));
         return;
@@ -179,7 +179,7 @@ export async function handleUserCommand(
     }
 
     case 'leave': {
-      const res = withdrawParticipant(db, actor, guildId, i.user.id);
+      const res = withdrawParticipant(db, actor, ctx.eventId, i.user.id);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -193,7 +193,7 @@ export async function handleUserCommand(
 
     case 'leave-team': {
       const { leaveTeam } = await import('../features/teams/service.js');
-      const res = leaveTeam(db, actor, guildId, i.user.id);
+      const res = leaveTeam(db, actor, ctx.eventId, i.user.id);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -210,7 +210,7 @@ export async function handleUserCommand(
     case 'join-code': {
       const code = i.options.getString('code', true);
       const { joinPrivateTeam } = await import('../features/teams/service.js');
-      const res = joinPrivateTeam(db, actor, guildId, i.user.id, code, config.teamSize);
+      const res = joinPrivateTeam(db, actor, ctx.eventId, i.user.id, code, config.teamSize);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -223,7 +223,7 @@ export async function handleUserCommand(
     }
 
     case 'team-code': {
-      const team = getTeamForUser(db, guildId, i.user.id);
+      const team = getTeamForUser(db, ctx.eventId, i.user.id);
       if (team === null) {
         await i.reply(eph('You are not in a team.'));
         return;
@@ -237,14 +237,14 @@ export async function handleUserCommand(
     }
 
     case 'teammates': {
-      if (getParticipant(db, guildId, i.user.id) === null) {
+      if (getParticipant(db, ctx.eventId, i.user.id) === null) {
         await i.reply(eph('Sign up first with `/hackathon join`.'));
         return;
       }
       const friendIds = [1, 2, 3, 4, 5]
         .map((n) => i.options.getUser(`friend${n}`)?.id)
         .filter((id): id is string => id !== undefined && id !== i.user.id);
-      const res = setTeammates(db, actor, guildId, i.user.id, friendIds);
+      const res = setTeammates(db, actor, ctx.eventId, i.user.id, friendIds);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -263,7 +263,7 @@ export async function handleUserCommand(
     }
 
     case 'status': {
-      const p = getParticipant(db, guildId, i.user.id);
+      const p = getParticipant(db, ctx.eventId, i.user.id);
       if (p === null || p.status === 'withdrawn') {
         await i.reply(eph('You have no signup. Use `/hackathon join` to sign up.'));
         return;
