@@ -51,7 +51,7 @@ if (config.skipDiscord) {
   await client.login(config.discordToken);
 }
 
-const server = await startAdminServer({ db, config, announce });
+const server = await startAdminServer({ db, config, announce, client });
 
 async function shutdown(signal: string): Promise<void> {
   console.log(`${signal} received, shutting down…`);

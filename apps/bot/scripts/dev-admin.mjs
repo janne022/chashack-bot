@@ -49,7 +49,7 @@ if (process.env.BOOT_ADMIN === '1') {
   }
   createTeam(db, 'seed', G, 'Null Pointers', 'private', '101');
 
-  const server = await startAdminServer({ db, config: env(), announce: async () => {} });
+  const server = await startAdminServer({ db, config: env(), announce: async () => {}, client: null });
   console.log('Seeded admin running on http://localhost:8491 (password: smoke-test-pass)');
   process.on('SIGINT', () => {
     void server.stop().then(() => process.exit(0));

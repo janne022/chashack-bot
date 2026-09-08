@@ -13,7 +13,7 @@ const { openDb } = await import('../dist/shared/db.js');
 const { env } = await import('../dist/shared/env.js');
 
 const db = openDb(':memory:');
-const server = await startAdminServer({ db, config: env(), announce: async () => {} });
+const server = await startAdminServer({ db, config: env(), announce: async () => {}, client: null });
 
 const base = 'http://localhost:8491';
 const results = [];

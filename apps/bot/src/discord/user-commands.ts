@@ -24,8 +24,8 @@ import { TEAM_COLORS, labelFor } from '../features/form/domain.js';
 import { buildSignupModal, buildCreateTeamModal, buildTeamSettingsModal } from './modal.js';
 import { IDS, cancelRow, decideRow, displayErr, embedOk, eph, type Ctx } from './shared.js';
 
-/** Browser: pick a public team with space → send join request. */
-function teamsBrowser(ctx: Ctx): { embeds: EmbedBuilder[]; components: ActionRowBuilder<StringSelectMenuBuilder>[] } | null {
+/** Browser: pick a public team with space → send join request. Shared with the panel button. */
+export function teamsBrowser(ctx: Ctx): { embeds: EmbedBuilder[]; components: ActionRowBuilder<StringSelectMenuBuilder>[] } | null {
   const open = listOpenPublicTeams(ctx.db, ctx.guildId, ctx.config.teamSize);
   if (open.length === 0) return null;
   const select = new StringSelectMenuBuilder()

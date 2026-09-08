@@ -28,12 +28,15 @@ import {
 } from '../features/teams/service.js';
 import { previewMatch, commitMatch, lastMatchInfo } from '../features/matching/service.js';
 import { getForm, updateForm, resetForm } from '../features/form/service.js';
+import { refreshSignupPanel } from '../discord/signup-panel.js';
 import type { FormConfig } from '../features/form/domain.js';
 
 export interface WebDeps {
   db: Db;
   config: Env;
   announce: (guildId: string, content: string) => Promise<void>;
+  /** Live Discord client, used to auto-refresh the signup panel on form edits. May be null in SKIP_DISCORD mode. */
+  client: import('discord.js').Client | null;
 }
 
 const COOKIE = 'hacksess';
@@ -256,6 +259,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
+    }
+    // Keep the Discord signup panel in sync with the new form config.
+    if (deps.client !== null && config.guildId !== undefined) {
+      void refreshSignupPanel(db, deps.client, config.guildId).catch(() => undefined);
     }
     return { ok: true, config: res.value };
   });

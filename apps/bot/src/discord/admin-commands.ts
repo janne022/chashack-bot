@@ -12,6 +12,7 @@ import { getParticipant, listParticipants, resetEvent, blockParticipant, unblock
 import { adminAssign, listTeams, setGuildCategory, getTeam } from '../features/teams/service.js';
 import { previewMatch, commitMatch } from '../features/matching/service.js';
 import { getForm } from '../features/form/service.js';
+import { postOrUpdatePanel } from './signup-panel.js';
 import { provisionTeamSpace, grantTeamRole, destroyTeamSpace } from './provision.js';
 import { IDS, confirmRow, displayErr, embedOk, eph, matchPreviewEmbed, type Ctx } from './shared.js';
 
@@ -139,6 +140,39 @@ export async function handleAdminCommand(
       setGuildCategory(db, actor, guildId, category.id);
       await i.reply({
         embeds: [embedOk('Category set', `Team text/voice channels will be created under **${category.name}**.`)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    case 'panel': {
+      const channel = i.options.getChannel('channel');
+      const target = channel !== null ? channel.id : undefined;
+      if (target === undefined) {
+        // Refresh in the stored channel.
+        const res = await postOrUpdatePanel(db, ctx.client, guildId, '');
+        if ('error' in res) {
+          await i.reply(eph(res.error === 'No panel exists yet.' ? 'No panel exists yet — pass a channel.' : res.error));
+          return;
+        }
+        await i.reply({
+          embeds: [embedOk('Panel refreshed', `Updated in <#${res.channelId}>.`)],
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      const res = await postOrUpdatePanel(db, ctx.client, guildId, target);
+      if ('error' in res) {
+        await i.reply(eph(res.error));
+        return;
+      }
+      await i.reply({
+        embeds: [
+          embedOk(
+            res.edited ? 'Panel updated' : 'Panel posted',
+            `${res.edited ? 'Edited the existing panel' : 'Posted a new panel'} in <#${res.channelId}>. It auto-refreshes when the form config changes.`,
+          ),
+        ],
         flags: MessageFlags.Ephemeral,
       });
       return;

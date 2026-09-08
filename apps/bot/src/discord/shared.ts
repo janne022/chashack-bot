@@ -28,6 +28,9 @@ export const IDS = {
   reqAccept: 'hack:req:accept',
   reqDecline: 'hack:req:decline',
   reqCancel: 'hack:req:cancel',
+  // signup panel buttons
+  signupButton: 'hack:panel:signup',
+  teamsButton: 'hack:panel:teams',
 } as const;
 
 export interface Ctx {
