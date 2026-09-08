@@ -35,6 +35,7 @@ import {
   listEvents,
   activateEvent,
   endEvent,
+  updateEvent,
   saveTemplate,
   listTemplates,
   deleteTemplate,
@@ -193,6 +194,29 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     // Refresh the signup panel for the newly active event.
     if (deps.client !== null) {
       await refreshSignupPanel(db, deps.client, guildId).catch(() => undefined);
+    }
+    return { ok: true, event: res.value };
+  });
+
+  app.patch('/api/events/:eventId', async (req, reply) => {
+    const { eventId } = req.params as { eventId: string };
+    const body = req.body as {
+      name?: string;
+      description?: string;
+      startsAt?: number | null;
+      endsAt?: number | null;
+      cleanupDelayHours?: number;
+    } | null;
+    const res = updateEvent(db, 'web', eventId, {
+      ...(body?.name !== undefined ? { name: body.name } : {}),
+      ...(body?.description !== undefined ? { description: body.description } : {}),
+      ...(body?.startsAt !== undefined ? { startsAt: body.startsAt } : {}),
+      ...(body?.endsAt !== undefined ? { endsAt: body.endsAt } : {}),
+      ...(body?.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : {}),
+    });
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
     }
     return { ok: true, event: res.value };
   });

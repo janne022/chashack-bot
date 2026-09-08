@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
 import { api } from '@/api'
+import { createEventSchema, announceSchema, cleanupDelaySchema } from '@/lib/schemas'
 import type { HackathonEvent } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -68,14 +69,21 @@ function NewEventButton() {
   const [busy, setBusy] = useState(false)
 
   async function create() {
+    const starts = startsAt !== '' ? Date.parse(startsAt) || null : null
+    const ends = endsAt !== '' ? Date.parse(endsAt) || null : null
+    const parsed = createEventSchema.safeParse({
+      name: name.trim(),
+      ...(description.trim() !== '' ? { description: description.trim() } : {}),
+      startsAt: starts,
+      endsAt: ends,
+    })
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0]?.message ?? 'Invalid input')
+      return
+    }
     setBusy(true)
     try {
-      await api.createEvent({
-        name: name.trim(),
-        description: description.trim() || undefined,
-        startsAt: startsAt !== '' ? Date.parse(startsAt) || null : null,
-        endsAt: endsAt !== '' ? Date.parse(endsAt) || null : null,
-      })
+      await api.createEvent(parsed.data)
       toast.success(`Event “${name.trim()}” created`)
       setOpen(false)
       setName('')
@@ -239,6 +247,11 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   const [busy, setBusy] = useState(false)
 
   async function send() {
+    const parsed = announceSchema.safeParse({ eventId: event.id, title: title.trim(), message: message.trim(), dm })
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0]?.message ?? 'Invalid input')
+      return
+    }
     setBusy(true)
     try {
       const res = await api.announce(event.id, title.trim(), message.trim(), dm)
@@ -302,7 +315,55 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   )
 }
 
+const updateCleanupPlaceholder = undefined
+
+function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+  const [hours, setHours] = useState(String(event.cleanupDelayHours))
+  const [busy, setBusy] = useState(false)
+  const dirty = Number(hours) !== event.cleanupDelayHours && hours !== ''
+
+  async function save() {
+    const parsed = cleanupDelaySchema.safeParse(Number(hours))
+    if (!parsed.success) {
+      toast.error('Delay must be 0–720 hours')
+      return
+    }
+    setBusy(true)
+    try {
+      await api.updateEvent(event.id, { cleanupDelayHours: parsed.data })
+      toast.success(`Cleanup delay set to ${parsed.data}h after the event ends`)
+      await refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+      Cleanup delay
+      <input
+        type="number"
+        min={0}
+        max={720}
+        value={hours}
+        onChange={(e) => setHours(e.target.value)}
+        className="h-7 w-16 rounded-md border border-border bg-surface-2 px-2 text-foreground"
+        aria-label="Cleanup delay in hours after the event ends"
+      />
+      h
+      {dirty && (
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => void save()}>
+          Save
+        </Button>
+      )}
+    </label>
+  )
+}
+
 function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+  void updateCleanupPlaceholder
   const [confirming, setConfirming] = useState(false)
 
   async function end() {
@@ -317,6 +378,7 @@ function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: ()
 
   return (
     <>
+      <CleanupDelayConfig event={event} refresh={refresh} />
       <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>
         <Trash2 />
         End event
@@ -327,7 +389,10 @@ function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: ()
             <CardHeader>
               <CardTitle>End “{event.name}”?</CardTitle>
               <CardDescription>
-                Team roles, channels and Discord events are cleaned up automatically {event.cleanupDelayHours}h after the end time. Data is kept for archive.
+                Team roles, channels and Discord events are cleaned up automatically{' '}
+                <strong>{event.cleanupDelayHours}h</strong> after the end time — people keep a grace window to
+                grab photos and screenshots (warnings go out at 72h and 24h before removal). Data is kept for archive.
+                Change the delay in the event config below.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex justify-end gap-2">
