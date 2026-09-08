@@ -104,6 +104,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
           'event-config',
           'event-activate',
           'event-end',
+          'auto-match',
           'announce',
           'discord-event',
           'template-save',

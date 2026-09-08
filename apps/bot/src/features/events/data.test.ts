@@ -19,6 +19,8 @@ function ev(overrides: Partial<HackathonEvent>): HackathonEvent {
     cleanupWarned72h: false,
     cleanupWarned24h: false,
     reminded24h: false,
+    matchAt: null,
+    matchLocked: false,
     discordEventIds: [],
     createdAt: 0,
     updatedAt: 0,
@@ -70,4 +72,48 @@ test('planner: auto-end after end time', () => {
   const e = ev({ status: 'active', startsAt: starts, endsAt: starts + 48 * H, id: 'evB' });
   const actions = planMaintenance([e], starts + 49 * H);
   assert.deepEqual(actions, [{ type: 'end_event', eventId: 'evB' }]);
+});
+
+test('planner: auto_match fires when match_at passed and not locked', () => {
+  const now = 5000 * H;
+  const e = ev({ status: 'active', matchAt: now - 1, id: 'evM' });
+  assert.deepEqual(planMaintenance([e], now), [{ type: 'auto_match', eventId: 'evM' }]);
+  // due exactly at `now` counts as due
+  const eExact = ev({ status: 'active', matchAt: now, id: 'evM' });
+  assert.deepEqual(planMaintenance([eExact], now), [{ type: 'auto_match', eventId: 'evM' }]);
+});
+
+test('planner: auto_match does not fire before match_at', () => {
+  const now = 5000 * H;
+  const e = ev({ status: 'active', matchAt: now + 60 * 1000, id: 'evM' });
+  assert.deepEqual(planMaintenance([e], now), []);
+});
+
+test('planner: auto_match skipped when locked or not active', () => {
+  const now = 5000 * H;
+  const locked = ev({ status: 'active', matchAt: now - 1, matchLocked: true, id: 'evM' });
+  assert.deepEqual(planMaintenance([locked], now), []);
+  // draft with a stale match_at never fires
+  const draft = ev({ status: 'draft', matchAt: now - 1, id: 'evM' });
+  assert.deepEqual(planMaintenance([draft], now), []);
+  // ended events only plan cleanup, never auto_match
+  const ended = ev({ status: 'ended', matchAt: now - 1, id: 'evM', endsAt: now - 10 * H, cleanupDelayHours: 1 });
+  const actions = planMaintenance([ended], now);
+  assert.ok(!actions.some((a) => a.type === 'auto_match'));
+});
+
+test('planner: no auto_match scheduled when match_at is unset', () => {
+  const now = 5000 * H;
+  const e = ev({ status: 'active', matchAt: null, id: 'evM' });
+  assert.deepEqual(planMaintenance([e], now), []);
+});
+
+test('planner: auto_match fires alongside other active-event actions', () => {
+  const now = 5000 * H;
+  const e = ev({ status: 'active', matchAt: now - 1, endsAt: now - 1, id: 'evM' });
+  const actions = planMaintenance([e], now);
+  assert.deepEqual(actions, [
+    { type: 'auto_match', eventId: 'evM' },
+    { type: 'end_event', eventId: 'evM' },
+  ]);
 });

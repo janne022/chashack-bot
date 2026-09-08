@@ -77,6 +77,12 @@ export interface MatchResult {
   conflicts: string[]
 }
 
+export interface TeamSuggestion {
+  teamId: string
+  teamName: string
+  score: number
+}
+
 export interface Stats {
   signups: number
   active: number
@@ -100,6 +106,8 @@ export interface HackathonEvent {
   cleanupDelayHours: number
   cleanupDone: boolean
   reminded24h: boolean
+  matchAt: number | null
+  matchLocked: boolean
   discordEventIds: string[]
   createdAt: number
   updatedAt: number
