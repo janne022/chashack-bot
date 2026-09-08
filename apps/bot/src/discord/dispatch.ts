@@ -8,9 +8,9 @@ import {
   type Interaction,
 } from 'discord.js';
 import type { Db } from '../shared/db.js';
-import { getForm } from '../features/form/service.js';
-import { listTeams, getGuildSettings } from '../features/teams/service.js';
-import { getActiveEvent, getEvent, getEventForm } from '../features/events/service.js';
+import { getForm } from '../features/form/data.js';
+import { listTeams, getGuildSettings } from '../features/teams/data.js';
+import { getActiveEvent, getEvent, getEventForm } from '../features/events/data.js';
 import { handleUserCommand } from './user-commands.js';
 import { handleAdminCommand } from './admin-commands.js';
 import { handleEventAdminCommand, handleEventInfo } from './event-commands.js';
@@ -156,7 +156,7 @@ async function handleAutocomplete(interaction: AutocompleteInteraction, deps: Ro
     return;
   }
   const focused = interaction.options.getFocused(true);
-  const { listEvents, listTemplates } = await import('../features/events/service.js');
+  const { listEvents, listTemplates } = await import('../features/events/data.js');
   if (focused.name === 'team') {
     const activeEvent = getActiveEvent(deps.db, interaction.guildId);
     if (activeEvent === null) {

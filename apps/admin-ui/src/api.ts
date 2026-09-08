@@ -1,4 +1,4 @@
-import type { AppState, FormConfig, MatchResult, Team } from './types'
+import type { AppState, FormConfig, HackathonEvent, MatchResult, Team } from './types'
 
 class ApiError extends Error {
   constructor(
@@ -123,6 +123,58 @@ export const api = {
 
   async resetEvent(): Promise<void> {
     await request('/api/event/reset', { method: 'POST' })
+  },
+
+  async createEvent(input: {
+    name: string
+    description?: string
+    startsAt?: number | null
+    endsAt?: number | null
+    templateId?: string
+  }): Promise<HackathonEvent> {
+    const res = await request<{ event: HackathonEvent }>('/api/events', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+    return res.event
+  },
+
+  async activateEvent(eventId: string): Promise<void> {
+    await request(`/api/events/${eventId}/activate`, { method: 'POST' })
+  },
+
+  async endEvent(eventId: string): Promise<void> {
+    await request(`/api/events/${eventId}/end`, { method: 'POST' })
+  },
+
+  async announce(
+    eventId: string,
+    title: string,
+    message: string,
+    dm: boolean,
+  ): Promise<{ posted: boolean; dmSent: number; dmFailed: number }> {
+    return request('/api/events/announce', {
+      method: 'POST',
+      body: JSON.stringify({ eventId, title, message, dm }),
+    })
+  },
+
+  async createDiscordEvents(eventId: string, days: number, durationHours: number): Promise<void> {
+    await request(`/api/events/${eventId}/discord-events`, {
+      method: 'POST',
+      body: JSON.stringify({ days, durationHours }),
+    })
+  },
+
+  async saveTemplate(eventId: string, name: string): Promise<void> {
+    await request('/api/templates', {
+      method: 'POST',
+      body: JSON.stringify({ eventId, name, kind: 'event' }),
+    })
+  },
+
+  async deleteTemplate(templateId: string): Promise<void> {
+    await request(`/api/templates/${templateId}`, { method: 'DELETE' })
   },
 }
 

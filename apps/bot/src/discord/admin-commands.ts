@@ -8,11 +8,11 @@ import {
   StringSelectMenuOptionBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { getParticipant, listParticipants, purgeEventParticipants, blockParticipant, unblockParticipant, withdrawParticipant } from '../features/signup/store.js';
-import { deleteEventTeams } from '../features/teams/service.js';
-import { adminAssign, listTeams, setGuildCategory, getTeam } from '../features/teams/service.js';
-import { previewMatch, commitMatch } from '../features/matching/service.js';
-import { getForm } from '../features/form/service.js';
+import { getParticipant, listParticipants, purgeEventParticipants, blockParticipant, unblockParticipant, withdrawParticipant } from '../features/signup/data.js';
+import { deleteEventTeams } from '../features/teams/data.js';
+import { adminAssign, listTeams, setGuildCategory, getTeam } from '../features/teams/data.js';
+import { previewMatch, commitMatch } from '../features/matching/data.js';
+import { getForm } from '../features/form/data.js';
 import { postOrUpdatePanel } from './signup-panel.js';
 import { provisionTeamSpace, grantTeamRole, destroyTeamSpace } from './provision.js';
 import {
@@ -29,7 +29,7 @@ import {
   listTemplates,
   deleteTemplate,
   templateToEventInput,
-} from '../features/events/service.js';
+} from '../features/events/data.js';
 import { IDS, confirmRow, displayErr, embedOk, eph, matchPreviewEmbed, type Ctx } from './shared.js';
 
 export async function handleAdminCommand(
@@ -252,11 +252,11 @@ export async function commitMatchAndAnnounce(
 
   // Provision every matched team space and grant roles to all members.
   const provisionDeps = { db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
-  const { getTeam } = await import('../features/teams/service.js');
-  const { listParticipants } = await import('../features/signup/store.js');
+  const { getTeam } = await import('../features/teams/data.js');
+  const { listParticipants } = await import('../features/signup/data.js');
   const allParticipants = listParticipants(ctx.db, ctx.eventId);
   for (const matchTeam of res.value.teams) {
-    const stored = (await import('../features/teams/service.js')).listTeams(ctx.db, ctx.eventId).find((t) => t.name === matchTeam.name);
+    const stored = (await import('../features/teams/data.js')).listTeams(ctx.db, ctx.eventId).find((t) => t.name === matchTeam.name);
     if (stored === undefined) continue;
     const provisioned = await provisionTeamSpace(provisionDeps, stored);
     for (const memberId of matchTeam.memberIds) {

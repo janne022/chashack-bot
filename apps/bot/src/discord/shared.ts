@@ -12,9 +12,9 @@ import {
 import type { Db } from '../shared/db.js';
 import type { FormConfig } from '../features/form/domain.js';
 import { labelFor } from '../features/form/domain.js';
-import { countMembers, getTeam } from '../features/teams/service.js';
-import type { Participant } from '../features/signup/store.js';
-import type { MatchResult } from '../features/matching/engine.js';
+import { countMembers, getTeam } from '../features/teams/data.js';
+import type { Participant } from '../features/signup/data.js';
+import type { MatchResult } from '../features/matching/domain.js';
 
 /** Component customIds for buttons/selects attached to bot replies. */
 export const IDS = {

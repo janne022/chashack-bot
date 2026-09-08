@@ -9,7 +9,7 @@ import {
   StringSelectMenuOptionBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { getParticipant, withdrawParticipant, setTeammates } from '../features/signup/store.js';
+import { getParticipant, withdrawParticipant, setTeammates } from '../features/signup/data.js';
 import {
   createTeam,
   getTeamForUser,
@@ -18,8 +18,8 @@ import {
   updateTeamSettings,
   rotateJoinCode,
   countMembers,
-} from '../features/teams/service.js';
-import { createJoinRequest, listRequestsForUser } from '../features/teams/requests.js';
+} from '../features/teams/data.js';
+import { createJoinRequest, listRequestsForUser } from '../features/teams/requests-data.js';
 import { TEAM_COLORS, labelFor } from '../features/form/domain.js';
 import { buildSignupModal, buildCreateTeamModal, buildTeamSettingsModal } from './modal.js';
 import { IDS, cancelRow, decideRow, displayErr, embedOk, eph, type Ctx } from './shared.js';
@@ -124,7 +124,7 @@ export async function handleUserCommand(
         await i.reply(eph('Bots cannot join teams.'));
         return;
       }
-      const { createInvite } = await import('../features/teams/requests.js');
+      const { createInvite } = await import('../features/teams/requests-data.js');
       const res = createInvite(db, actor, ctx.eventId, guildId, team.id, target.id, config.teamSize);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
@@ -192,7 +192,7 @@ export async function handleUserCommand(
     }
 
     case 'leave-team': {
-      const { leaveTeam } = await import('../features/teams/service.js');
+      const { leaveTeam } = await import('../features/teams/data.js');
       const res = leaveTeam(db, actor, ctx.eventId, i.user.id);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
@@ -209,7 +209,7 @@ export async function handleUserCommand(
 
     case 'join-code': {
       const code = i.options.getString('code', true);
-      const { joinPrivateTeam } = await import('../features/teams/service.js');
+      const { joinPrivateTeam } = await import('../features/teams/data.js');
       const res = joinPrivateTeam(db, actor, ctx.eventId, i.user.id, code, config.teamSize);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });

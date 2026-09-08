@@ -20,10 +20,10 @@ import {
   listTemplates,
   deleteTemplate,
   templateToEventInput,
-} from '../features/events/service.js';
+} from '../features/events/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
-import { listParticipants } from '../features/signup/store.js';
-import { listTeams } from '../features/teams/service.js';
+import { listParticipants } from '../features/signup/data.js';
+import { listTeams } from '../features/teams/data.js';
 import { postOrUpdatePanel } from './signup-panel.js';
 import { displayErr, embedOk, eph, type Ctx } from './shared.js';
 

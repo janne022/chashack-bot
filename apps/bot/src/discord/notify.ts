@@ -15,9 +15,9 @@ import {
   updateEvent,
   endEvent,
   type HackathonEvent,
-} from '../features/events/service.js';
-import { listParticipants } from '../features/signup/store.js';
-import { listTeams, deleteEventTeams } from '../features/teams/service.js';
+} from '../features/events/data.js';
+import { listParticipants } from '../features/signup/data.js';
+import { listTeams, deleteEventTeams } from '../features/teams/data.js';
 import { destroyTeamSpace } from './provision.js';
 import { postOrUpdatePanel } from './signup-panel.js';
 
