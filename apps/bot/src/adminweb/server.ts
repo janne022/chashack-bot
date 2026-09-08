@@ -19,6 +19,7 @@ export async function startAdminServer(deps: {
   db: Db;
   config: Env;
   announce: (guildId: string, content: string) => Promise<void>;
+  client: import('discord.js').Client | null;
 }): Promise<AdminServerHandle> {
   const app = Fastify({ logger: false });
 

@@ -101,6 +101,17 @@ export const HACKATHON_COMMAND = new SlashCommandBuilder()
           ),
       )
       .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub
+          .setName('panel')
+          .setDescription('Post or refresh the signup panel (embed + buttons) in a channel')
+          .addChannelOption((o) =>
+            o
+              .setName('channel')
+              .setDescription('Channel for the panel; omit to refresh in its current channel')
+              .addChannelTypes(0),
+          ),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
         sub.setName('match-preview').setDescription('Preview team matching without changing anything'),
       )
       .addSubcommand((sub: SlashCommandSubcommandBuilder) =>

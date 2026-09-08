@@ -198,6 +198,28 @@ export async function onComponent(
 ): Promise<void> {
   const id = i.customId;
 
+  // ── signup panel buttons ─────────────────────────────────────────────────
+  if (id === IDS.signupButton) {
+    const existing = getParticipant(ctx.db, ctx.guildId, i.user.id);
+    if (existing?.status === 'blocked') {
+      await i.reply(eph('You are blocked from signing up. Contact an organizer.'));
+      return;
+    }
+    // Buttons can respond with a modal — this is the whole point of the panel.
+    await i.showModal(buildSignupModal(ctx.config));
+    return;
+  }
+  if (id === IDS.teamsButton) {
+    const { teamsBrowser } = await import('./user-commands.js');
+    const browser = teamsBrowser(ctx);
+    if (browser === null) {
+      await i.reply(eph('No teams with open space right now. Create one with `/hackathon create-team`!'));
+      return;
+    }
+    await i.reply({ ...browser, flags: MessageFlags.Ephemeral });
+    return;
+  }
+
   // ── request accept/decline/cancel ────────────────────────────────────────
   for (const base of [IDS.reqAccept, IDS.reqDecline, IDS.reqCancel]) {
     if (!id.startsWith(`${base}:`)) continue;
