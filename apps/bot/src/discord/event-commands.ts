@@ -208,18 +208,26 @@ export async function handleEventAdminCommand(
     case 'auto-match': {
       const event = getActiveEvent(db, guildId);
       if (event === null) {
-        await i.reply(eph('No active event.'));
+        await i.reply(eph(t(locale, 'discord.match.no_active')));
         return;
       }
       const clear = i.options.getBoolean('clear') ?? false;
       if (clear) {
         const res = setMatchAt(db, actor, event.id, null);
         if (!res.ok) {
-          await i.reply({ embeds: [displayErr(ctx.botLocale, res.code, res.message)], flags: MessageFlags.Ephemeral });
+          await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
           return;
         }
         await i.reply({
-          embeds: [embedOk('Auto-match cancelled', `**${event.name}** is back to manual matching (locked: ${event.matchLocked ? 'yes' : 'no'}).`)],
+          embeds: [
+            embedOk(
+              t(locale, 'discord.match.schedule_cleared_title'),
+              t(locale, 'discord.match.schedule_cleared_body', {
+                name: event.name,
+                locked: event.matchLocked ? t(locale, 'discord.match.schedule_locked_yes') : t(locale, 'discord.match.schedule_locked_no'),
+              }),
+            ),
+          ],
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -228,34 +236,34 @@ export async function handleEventAdminCommand(
       if (raw === null) {
         // Inspect: show current schedule.
         const lines = [
-          `**Scheduled:** ${event.matchAt !== null ? `<t:${Math.floor(event.matchAt / 1000)}:F> (<t:${Math.floor(event.matchAt / 1000)}:R>)` : 'not scheduled'}`,
-          `**Locked:** ${event.matchLocked ? 'yes — auto-match will not run again' : 'no'}`,
+          t(locale, 'discord.match.schedule_scheduled_line', {
+            when:
+              event.matchAt !== null
+                ? `<t:${Math.floor(event.matchAt / 1000)}:F> (<t:${Math.floor(event.matchAt / 1000)}:R>)`
+                : t(locale, 'discord.match.schedule_not_scheduled'),
+          }),
+          t(locale, 'discord.match.schedule_locked_line', {
+            locked: event.matchLocked ? t(locale, 'discord.match.schedule_locked_yes') : t(locale, 'discord.match.schedule_locked_no'),
+          }),
           '',
-          'Schedule one with `/hackathon admin auto-match at:<time>`. It runs at the next maintenance tick (≤5 min after the scheduled time) and locks the teams in.',
+          t(locale, 'discord.match.schedule_hint'),
         ];
-        await i.reply({ embeds: [embedOk('Auto-match schedule', lines.join('\n'))], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [embedOk(t(locale, 'discord.match.schedule_title'), lines.join('\n'))], flags: MessageFlags.Ephemeral });
         return;
       }
       const at = parseDate(raw);
       if (at === null || at === undefined) {
-        await i.reply(eph('Could not parse the time. Use ISO (2026-09-12T18:00) or unix milliseconds.'));
+        await i.reply(eph(t(locale, 'discord.match.schedule_bad_time')));
         return;
       }
       const res = setMatchAt(db, actor, event.id, at);
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(ctx.botLocale, res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       await i.reply({
         embeds: [
-          embedOk(
-            'Auto-match scheduled ⏱️',
-            [
-              `**${event.name}** will auto-match unteamed participants <t:${Math.floor(at / 1000)}:F> (<t:${Math.floor(at / 1000)}:R>).`,
-              '',
-              'It runs at the next maintenance tick — up to 5 minutes after that time — then teams are locked in and announced. Late signups afterwards need manual placement.',
-            ].join('\n'),
-          ),
+          embedOk(t(locale, 'discord.match.schedule_done_title'), t(locale, 'discord.match.schedule_done_body', { name: event.name, at: Math.floor(at / 1000) })),
         ],
         flags: MessageFlags.Ephemeral,
       });

@@ -321,6 +321,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             const guild = await client.guilds.fetch(event.guildId).catch(() => null);
             const channel = guild !== null ? await guild.channels.fetch(autoChannelId).catch(() => null) : null;
             if (channel !== null && channel.isTextBased()) {
+              const locale = botLocale();
               const lines =
                 preview.ok
                   ? preview.value.teams
@@ -331,12 +332,12 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 .send({
                   embeds: [
                     new EmbedBuilder()
-                      .setTitle(`🔒 Teams are locked in for **${event.name}**`)
+                      .setTitle(t(locale, 'discord.notify.auto_match_locked_title', { name: event.name }))
                       .setDescription(
                         [
-                          lines !== '' ? lines : 'Automatic matching could not build teams (not enough eligible participants) — organizers will place people manually.',
+                          lines !== '' ? lines : t(locale, 'discord.notify.auto_match_failed_body'),
                           '',
-                          'Late signups now need manual placement by an organizer.',
+                          t(locale, 'discord.notify.auto_match_late_body'),
                         ]
                           .filter((l) => l !== '')
                           .join('\n'),
