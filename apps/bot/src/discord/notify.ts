@@ -20,8 +20,9 @@ import type { KyselyDb } from '../shared/kysely.js';
 import { listParticipants } from '../features/signup/data.js';
 import { listTeams, deleteEventTeams } from '../features/teams/data.js';
 import { markCleanupWarned } from '../features/events/data.js';
-import { destroyTeamSpace } from './provision.js';
+import { destroyTeamSpace, botLocale } from './provision.js';
 import { postOrUpdatePanel } from './signup-panel.js';
+import { t } from '../shared/i18n.js';
 
 export interface NotifyDeps {
   db: Db;
@@ -30,11 +31,12 @@ export interface NotifyDeps {
 }
 
 function buildAnnouncementEmbed(event: HackathonEvent, title: string, message: string): EmbedBuilder {
+  const locale = botLocale();
   const lines: string[] = [message, ''];
-  if (event.startsAt !== null) lines.push(`🗓️ **Starts:** <t:${Math.floor(event.startsAt / 1000)}:F> (<t:${Math.floor(event.startsAt / 1000)}:R>)`);
-  if (event.endsAt !== null) lines.push(`🏁 **Ends:** <t:${Math.floor(event.endsAt / 1000)}:F>`);
-  lines.push('', `Sign up in <#${event.panelChannelId ?? ''}> when it is live — or with \`/hackathon join\`.`);
-  return new EmbedBuilder().setTitle(`📣 ${title}`).setDescription(lines.join('\n')).setColor(0x5865f2);
+  if (event.startsAt !== null) lines.push(`🗓️ **${t(locale, 'discord.events.starts')}:** <t:${Math.floor(event.startsAt / 1000)}:F> (<t:${Math.floor(event.startsAt / 1000)}:R>)`);
+  if (event.endsAt !== null) lines.push(`🏁 **${t(locale, 'discord.events.ends')}:** <t:${Math.floor(event.endsAt / 1000)}:F>`);
+  lines.push('', t(locale, 'discord.notify.sign_up_in', { channel: event.panelChannelId ?? '' }));
+  return new EmbedBuilder().setTitle(t(locale, 'discord.notify.announce_title_prefix', { title })).setDescription(lines.join('\n')).setColor(0x5865f2);
 }
 
 /**
@@ -111,25 +113,26 @@ export async function createDiscordEvents(
 ): Promise<{ created: { id: string; name: string }[]; errors: string[] }> {
   const { client, db } = deps;
   const guild = await client.guilds.fetch(event.guildId).catch(() => null);
-  if (guild === null) return { created: [], errors: ['Guild not found.'] };
+  if (guild === null) return { created: [], errors: [t(botLocale(), 'discord.events.guild_not_found')] };
 
   const created: { id: string; name: string }[] = [];
   const errors: string[] = [];
   const baseStart = event.startsAt ?? Date.now() + 24 * 3600 * 1000;
   const day = 24 * 3600 * 1000;
+  const locale = botLocale();
 
   for (let i = 0; i < Math.min(Math.max(count, 1), 10); i++) {
     const start = baseStart + i * day;
-    const name = count > 1 ? `${event.name} — Day ${i + 1}` : event.name;
+    const name = count > 1 ? t(locale, 'discord.notify.day_n', { name: event.name, n: i + 1 }) : event.name;
     try {
       const scheduled = await guild.scheduledEvents.create({
         name: name.slice(0, 100),
-        description: event.description.slice(0, 1000) || 'Hackathon event',
+        description: event.description.slice(0, 1000) || t(locale, 'discord.notify.scheduled_desc_fallback'),
         scheduledStartTime: start,
         scheduledEndTime: start + durationHours * 3600 * 1000,
         entityType: 3, // External
         privacyLevel: 2, // Guild only
-        entityMetadata: { location: 'Discord — see the event channels' },
+        entityMetadata: { location: t(locale, 'discord.notify.location_line') },
       });
       created.push({ id: scheduled.id, name });
     } catch (error) {
@@ -155,6 +158,7 @@ export async function createDiscordEvents(
  */
 export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
   const { db, client, kysely } = deps;
+  const locale = botLocale();
   const now = Date.now();
   const summary: string[] = [];
 
@@ -180,12 +184,12 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
       switch (action.type) {
         case 'remind_24h': {
           const embed = new EmbedBuilder()
-            .setTitle('⏰ Starts in less than 24 hours!')
+            .setTitle(t(locale, 'discord.notify.remind_title'))
             .setDescription(
               [
-                `**${event.name}** kicks off <t:${event.startsAt !== null ? Math.floor(event.startsAt / 1000) : 0}:R>.`,
-                event.panelChannelId !== null ? `Sign up in <#${event.panelChannelId}> if you have not yet.` : '',
-                'Teams get their private channels as soon as they are created or matched.',
+                t(locale, 'discord.notify.remind_kickoff', { name: event.name, ts: event.startsAt !== null ? Math.floor(event.startsAt / 1000) : 0 }),
+                event.panelChannelId !== null ? t(locale, 'discord.notify.remind_signup', { channel: event.panelChannelId }) : '',
+                t(locale, 'discord.notify.remind_teams_line'),
               ]
                 .filter((l) => l !== '')
                 .join('\n'),
@@ -221,9 +225,9 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
               await channel.send({
                 embeds: [
                   new EmbedBuilder()
-                    .setTitle(`🏁 **${event.name}** has ended!`)
+                    .setTitle(t(locale, 'discord.notify.ended_title', { name: event.name }))
                     .setDescription(
-                      `Thanks for hacking with us. Team channels and roles will be cleaned up ${event.cleanupDelayHours}h after the end — export anything you want to keep.`,
+                      t(locale, 'discord.notify.ended_body', { hours: event.cleanupDelayHours }),
                     )
                     .setColor(0xed4245),
                 ],
@@ -247,13 +251,13 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 await ch.send({
                   embeds: [
                     new EmbedBuilder()
-                      .setTitle(`🧹 This channel will be deleted in ~${hoursLeft}h`)
+                      .setTitle(t(locale, 'discord.notify.cleanup_title', { hours: hoursLeft }))
                       .setDescription(
                         [
-                          `**${event.name}** is over — team spaces (this channel, the voice channel and the team role) are scheduled for removal.`,
+                          t(locale, 'discord.notify.cleanup_body', { name: event.name }),
                           '',
-                          'Grab your screenshots, photos and anything else you want to keep.',
-                          `Need more time? Ask an organizer to extend the cleanup delay (currently ${event.cleanupDelayHours}h after the event end).`,
+                          t(locale, 'discord.notify.cleanup_grab'),
+                          t(locale, 'discord.notify.cleanup_extend', { hours: event.cleanupDelayHours }),
                         ].join('\n'),
                       )
                       .setColor(0xf0b429),

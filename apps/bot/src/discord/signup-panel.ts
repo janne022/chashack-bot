@@ -18,8 +18,8 @@ import {
 import type { Db } from '../shared/db.js';
 import { getForm } from '../features/form/data.js';
 import type { FormConfig } from '../features/form/domain.js';
-import { labelFor } from '../features/form/domain.js';
 import { IDS } from './shared.js';
+import { t, type BotLocale } from '../shared/i18n.js';
 
 interface PanelRef {
   channelId: string;
@@ -47,36 +47,36 @@ function setPanelRef(db: Db, guildId: string, ref: PanelRef): void {
   ).run(key(guildId), JSON.stringify(ref));
 }
 
-export function buildPanelPayload(config: FormConfig): {
+export function buildPanelPayload(config: FormConfig, locale: BotLocale = 'en'): {
   embeds: EmbedBuilder[];
   components: ActionRowBuilder<ButtonBuilder>[];
 } {
-  const experienceList = config.experiences.map((e) => e.label).join(' · ');
-  const tracks = config.roleTracks.map((r) => r.label).join(' · ');
+  const experienceList = config.experiences.map((e) => e.label_sv ?? e.label).join(' · ');
+  const tracks = config.roleTracks.map((r) => r.label_sv ?? r.label).join(' · ');
   const embed = new EmbedBuilder()
     .setTitle(`🏁 ${config.title}`)
     .setDescription(
       [
         config.description,
         '',
-        '**How teams happen here:**',
-        '🛠️ **Create your own team** — get a colored role, private text + voice channels and invite links.',
-        '🤝 **Ask to join a team** — browse open teams, owners accept from their DMs.',
-        '🎲 **Get matched** — we build a balanced team around your skills.',
+        t(locale, 'discord.panel.how_title'),
+        t(locale, 'discord.panel.how_create'),
+        t(locale, 'discord.panel.how_join'),
+        t(locale, 'discord.panel.how_match'),
         '',
-        `**Team size:** up to ${config.teamSize}`,
-        `**Roles people sign up for:** ${tracks}`,
-        `**Experience levels:** ${experienceList}`,
+        t(locale, 'discord.panel.team_size', { size: config.teamSize }),
+        t(locale, 'discord.panel.roles_line', { tracks }),
+        t(locale, 'discord.panel.experience_line', { list: experienceList }),
       ].join('\n'),
     )
     .setColor(0x5865f2)
-    .setFooter({ text: `Form v${config.version} · updates apply instantly` });
+    .setFooter({ text: t(locale, 'discord.panel.footer', { version: config.version }) });
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(IDS.signupButton).setLabel('Sign up').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(IDS.signupButton).setLabel(t(locale, 'discord.panel.signup_btn')).setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(IDS.teamsButton)
-      .setLabel('Browse teams')
+      .setLabel(t(locale, 'discord.panel.browse_btn'))
       .setStyle(ButtonStyle.Secondary),
   );
   return { embeds: [embed], components: [row] };
@@ -91,21 +91,22 @@ export async function postOrUpdatePanel(
   client: Client,
   guildId: string,
   channelId: string,
+  locale: BotLocale = 'en',
 ): Promise<{ channelId: string; messageId: string; edited: boolean } | { error: string }> {
   if (channelId === '') {
     const ref = getPanelRef(db, guildId);
-    if (ref === null) return { error: 'No panel exists yet.' };
+    if (ref === null) return { error: t(locale, 'discord.events.no_panel_yet') };
     channelId = ref.channelId;
   }
   const guild = await client.guilds.fetch(guildId).catch(() => null);
-  if (guild === null) return { error: 'Guild not found.' };
+  if (guild === null) return { error: t(locale, 'discord.events.guild_not_found') };
 
   const channel = await guild.channels.fetch(channelId).catch(() => null);
   if (channel === null || !channel.isTextBased()) {
-    return { error: 'That channel is not a text channel.' };
+    return { error: t(locale, 'discord.events.not_text_channel') };
   }
 
-  const payload = buildPanelPayload(getForm(db));
+  const payload = buildPanelPayload(getForm(db), locale);
   const existing = getPanelRef(db, guildId);
 
   try {
@@ -121,17 +122,16 @@ export async function postOrUpdatePanel(
     return { channelId, messageId: sent.id, edited: false };
   } catch (error) {
     console.error('signup panel post failed:', error);
-    return { error: 'Could not post the panel — check my permissions there.' };
+    return { error: t(locale, 'discord.events.panel_post_failed') };
   }
 }
 
 /** Refresh after form edits (fire-and-forget friendly; silent when no panel exists). */
-export async function refreshSignupPanel(db: Db, client: Client, guildId: string): Promise<void> {
+export async function refreshSignupPanel(db: Db, client: Client, guildId: string, locale: BotLocale = 'en'): Promise<void> {
   const ref = getPanelRef(db, guildId);
   if (ref === null) return;
-  await postOrUpdatePanel(db, client, guildId, ref.channelId);
+  await postOrUpdatePanel(db, client, guildId, ref.channelId, locale);
 }
 
 /** Ephemeral status reply content for the panel's status button, if used later. */
 export const PANEL_BUTTON_FLAG = MessageFlags.Ephemeral;
-export { labelFor };

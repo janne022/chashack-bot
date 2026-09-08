@@ -2,6 +2,7 @@
  * Form config domain: what the signup form asks, admin-editable.
  * Stored as JSON in form_config (single row). Pure data + validation.
  */
+import { t } from '../../shared/i18n.js';
 
 export type Experience = 'first_timer' | 'some_experience' | 'veteran';
 /** How the participant wants to find their team. */
@@ -11,6 +12,8 @@ export type TeamKind = 'public' | 'private';
 export interface SkillOption {
   id: string;
   label: string;
+  /** Optional Swedish label; the bot uses it when BOT_LANGUAGE=sv. */
+  label_sv?: string;
   /** Stack group: skills within a group are mutually exclusive (e.g. backend languages). */
   group: string;
 }
@@ -21,21 +24,21 @@ export interface FormConfig {
   description: string;
   /** Max members per matched or joined team. */
   teamSize: number;
-  experiences: { id: Experience; label: string }[];
-  roleTracks: { id: string; label: string }[];
+  experiences: { id: Experience; label: string; label_sv?: string }[];
+  roleTracks: { id: string; label: string; label_sv?: string }[];
   skills: SkillOption[];
-  teamPrefs: { id: TeamPref; label: string }[];
+  teamPrefs: { id: TeamPref; label: string; label_sv?: string }[];
 }
 
 export const DEFAULT_SKILLS: SkillOption[] = [
   // group "" = freely combinable (multi-select)
   { id: 'frontend_react', label: 'Frontend — React', group: 'frontend' },
   { id: 'frontend_vue', label: 'Frontend — Vue', group: 'frontend' },
-  { id: 'frontend_mobile', label: 'Frontend — Mobile', group: 'frontend' },
+  { id: 'frontend_mobile', label: 'Frontend — Mobile', label_sv: 'Frontend — Mobil', group: 'frontend' },
   { id: 'ui_design', label: 'UI/UX Design', group: '' },
   { id: 'devops', label: 'DevOps / Infra', group: '' },
   { id: 'data_ml', label: 'Data / ML', group: '' },
-  { id: 'ai_integrations', label: 'AI integrations', group: '' },
+  { id: 'ai_integrations', label: 'AI integrations', label_sv: 'AI-integrationer', group: '' },
   { id: 'pm_pitch', label: 'PM / Pitching', group: '' },
   { id: 'backend_node', label: 'Backend — Node/TypeScript', group: 'backend' },
   { id: 'backend_python', label: 'Backend — Python', group: 'backend' },
@@ -50,7 +53,7 @@ export const DEFAULT_ROLE_TRACKS = [
   { id: 'fullstack', label: 'Fullstack' },
   { id: 'design', label: 'Design' },
   { id: 'devops', label: 'DevOps' },
-  { id: 'flex', label: 'Flex / wherever needed' },
+  { id: 'flex', label: 'Flex / wherever needed', label_sv: 'Flex / där det behövs' },
 ];
 
 export const DEFAULT_FORM: FormConfig = {
@@ -59,16 +62,16 @@ export const DEFAULT_FORM: FormConfig = {
   description: 'Tell us how you work and we will build a team around you.',
   teamSize: 4,
   experiences: [
-    { id: 'first_timer', label: 'First hackathon' },
-    { id: 'some_experience', label: '1–3 hackathons' },
-    { id: 'veteran', label: 'Veteran (4+)' },
+    { id: 'first_timer', label: 'First hackathon', label_sv: 'Första hackathonet' },
+    { id: 'some_experience', label: '1–3 hackathons', label_sv: '1–3 hackathons' },
+    { id: 'veteran', label: 'Veteran (4+)', label_sv: 'Veteran (4+)' },
   ],
   roleTracks: DEFAULT_ROLE_TRACKS,
   skills: DEFAULT_SKILLS,
   teamPrefs: [
-    { id: 'create_team', label: 'Create my own team and invite people' },
-    { id: 'join_team', label: 'Ask to join an existing team' },
-    { id: 'random_team', label: 'Get matched into a random team' },
+    { id: 'create_team', label: 'Create my own team and invite people', label_sv: 'Skapa mitt eget team och bjuda in folk' },
+    { id: 'join_team', label: 'Ask to join an existing team', label_sv: 'Be om att få gå med i ett befintligt team' },
+    { id: 'random_team', label: 'Get matched into a random team', label_sv: 'Bli matchad till ett slumpmässigt team' },
   ],
 };
 
@@ -123,17 +126,18 @@ function slug(s: string): string {
 export function validateSignupInput(
   config: FormConfig,
   raw: { displayName: string; experience: string; roleTrack: string; skills: string[]; teamPref: string },
+  locale: 'en' | 'sv' = 'en',
 ): { ok: true; value: ValidatedSignup } | { ok: false; errors: string[] } {
   const errors: string[] = [];
   const displayName = raw.displayName.trim().replace(/\s+/g, ' ').slice(0, 60);
-  if (displayName.length < 2) errors.push('Name must be at least 2 characters.');
+  if (displayName.length < 2) errors.push(t(locale, 'form.err_name_short'));
 
-  if (!EXPERIENCE_IDS.includes(raw.experience as Experience)) errors.push('Pick an experience level.');
-  if (!TEAM_PREF_IDS.includes(raw.teamPref as TeamPref)) errors.push('Pick a team preference.');
+  if (!EXPERIENCE_IDS.includes(raw.experience as Experience)) errors.push(t(locale, 'form.err_experience'));
+  if (!TEAM_PREF_IDS.includes(raw.teamPref as TeamPref)) errors.push(t(locale, 'form.err_teampref'));
 
   const roleTrackIds = config.roleTracks.map((r) => r.id);
   const roleTrack = roleTrackIds.includes(raw.roleTrack) ? raw.roleTrack : '';
-  if (roleTrack === '') errors.push('Pick a role track.');
+  if (roleTrack === '') errors.push(t(locale, 'form.err_role'));
 
   const validSkills = new Set(config.skills.map((s) => s.id));
   const skills = [...new Set(raw.skills)].filter((s) => validSkills.has(s));
@@ -217,4 +221,17 @@ export function normalizeFormUpdate(current: FormConfig, update: Partial<FormCon
 export function labelFor(config: FormConfig, list: 'experiences' | 'roleTracks' | 'skills' | 'teamPrefs', id: string): string {
   const found = config[list].find((item) => item.id === id);
   return found?.label ?? id;
+}
+
+/** Like labelFor but prefers the Swedish label when one exists (bot locale sv). */
+export function labelForLocale(
+  config: FormConfig,
+  list: 'experiences' | 'roleTracks' | 'skills' | 'teamPrefs',
+  id: string,
+  locale: 'en' | 'sv' = 'en',
+): string {
+  const found = config[list].find((item) => item.id === id);
+  if (found === undefined) return id;
+  if (locale === 'sv') return found.label_sv ?? found.label;
+  return found.label;
 }

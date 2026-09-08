@@ -11,24 +11,27 @@ import {
   RefreshCw,
   Sun,
   Moon,
+  Globe,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { useLocale, useT, setLocale } from '@/lib/i18n'
 import type { AppState } from '@/types'
 import brandMark from '@/assets/brand/1.png'
 
-const NAV = [
-  { to: '/events', label: 'Events', icon: CalendarDays },
-  { to: '/participants', label: 'Participants', icon: Users },
-  { to: '/teams', label: 'Teams', icon: UsersRound },
-  { to: '/matching', label: 'Matching', icon: Sparkles },
-  { to: '/form', label: 'Form', icon: ClipboardList },
-  { to: '/audit', label: 'Audit log', icon: History },
+const NAV_KEYS = [
+  { to: '/events', key: 'nav.events', icon: CalendarDays },
+  { to: '/participants', key: 'nav.participants', icon: Users },
+  { to: '/teams', key: 'nav.teams', icon: UsersRound },
+  { to: '/matching', key: 'nav.matching', icon: Sparkles },
+  { to: '/form', key: 'nav.form', icon: ClipboardList },
+  { to: '/audit', key: 'nav.audit', icon: History },
 ] as const
 
 /**
  * App shell — "Honeycomb playtech" world.
- * Router-aware sidebar; theme toggle persists in localStorage.
+ * Router-aware sidebar; theme toggle persists in localStorage;
+ * language toggle cycles en/sv and persists in localStorage.
  */
 export function AppShell({
   state,
@@ -43,6 +46,9 @@ export function AppShell({
   const pathname = router.state.location.pathname
   const isActive = (to: string) => pathname === to || pathname.startsWith(`${to}/`)
 
+  const t = useT()
+  const locale = useLocale()
+
   const [theme, setTheme] = useState<'dark' | 'light'>(
     () => (localStorage.getItem('chas-theme') as 'dark' | 'light') ?? 'dark',
   )
@@ -53,6 +59,11 @@ export function AppShell({
     localStorage.setItem('chas-theme', next)
     document.documentElement.dataset.theme = next
   }
+
+  function toggleLocale() {
+    setLocale(locale === 'en' ? 'sv' : 'en')
+  }
+
   if (document.documentElement.dataset.theme !== theme) {
     document.documentElement.dataset.theme = theme
   }
@@ -64,12 +75,12 @@ export function AppShell({
         <div className="mb-6 flex items-center gap-3 px-1 pt-1">
           <img src={brandMark} alt="" className="hex-badge size-9 object-cover" />
           <div>
-            <div className="font-display text-base leading-tight">ChasHack</div>
-            <div className="text-xs text-muted-foreground">Organizer console</div>
+            <div className="font-display text-base leading-tight">{t('common.app_name')}</div>
+            <div className="text-xs text-muted-foreground">{t('common.organizer_console')}</div>
           </div>
         </div>
-        <nav className="flex flex-col gap-1" aria-label="Sections">
-          {NAV.map(({ to, label, icon: Icon }) => (
+        <nav className="flex flex-col gap-1" aria-label={t('common.sections')}>
+          {NAV_KEYS.map(({ to, key, icon: Icon }) => (
             <Link
               key={to}
               to={to}
@@ -83,26 +94,32 @@ export function AppShell({
             >
               {isActive(to) && <span className="hex-badge absolute -left-2 size-2.5 bg-accent" aria-hidden />}
               <Icon className="size-4 shrink-0" />
-              {label}
+              {t(key)}
             </Link>
           ))}
         </nav>
         <div className="mt-auto flex flex-col gap-2 pb-1">
           <div className="hex-bg rounded-xl border border-border p-3">
             <div className="font-display text-2xl text-accent">{state.stats.active}</div>
-            <div className="text-xs text-muted-foreground">active signups</div>
+            <div className="text-xs text-muted-foreground">{t('common.active_signups')}</div>
           </div>
           <div className="flex gap-1">
-            <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label="Refresh data">
+            <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label={t('common.refresh_data')}>
               <RefreshCw />
             </Button>
             <Button
               variant="ghost"
               size="icon"
               onClick={toggleTheme}
-              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              aria-label={t('common.switch_theme', { mode: theme === 'dark' ? t('common.theme_light') : t('common.theme_dark') })}
             >
               {theme === 'dark' ? <Sun /> : <Moon />}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={toggleLocale} aria-label={t('common.language', { locale: locale.toUpperCase() })}>
+              <span className="flex items-center gap-0.5 text-[10px] font-bold">
+                <Globe className="size-4" />
+                {locale.toUpperCase()}
+              </span>
             </Button>
           </div>
         </div>
@@ -112,19 +129,25 @@ export function AppShell({
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface px-4 py-3 lg:hidden">
         <div className="flex items-center gap-2">
           <img src={brandMark} alt="" className="hex-badge size-7 object-cover" />
-          <span className="font-display text-sm">ChasHack</span>
+          <span className="font-display text-sm">{t('common.app_name')}</span>
         </div>
         <div className="flex gap-1">
-          <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label="Refresh data">
+          <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label={t('common.refresh_data')}>
             <RefreshCw />
           </Button>
           <Button
             variant="ghost"
             size="icon"
             onClick={toggleTheme}
-            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            aria-label={t('common.switch_theme', { mode: theme === 'dark' ? t('common.theme_light') : t('common.theme_dark') })}
           >
             {theme === 'dark' ? <Sun /> : <Moon />}
+          </Button>
+          <Button variant="ghost" size="icon" onClick={toggleLocale} aria-label={t('common.language', { locale: locale.toUpperCase() })}>
+            <span className="flex items-center gap-0.5 text-[10px] font-bold">
+              <Globe className="size-4" />
+              {locale.toUpperCase()}
+            </span>
           </Button>
         </div>
       </div>
@@ -144,10 +167,10 @@ export function AppShell({
       {/* Mobile bottom tabs */}
       <nav
         className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface/95 backdrop-blur lg:hidden"
-        aria-label="Sections"
+        aria-label={t('common.sections')}
       >
         <div className="mx-auto flex max-w-lg items-stretch justify-around">
-          {NAV.map(({ to, label, icon: Icon }) => (
+          {NAV_KEYS.map(({ to, key, icon: Icon }) => (
             <Link
               key={to}
               to={to}
@@ -158,7 +181,7 @@ export function AppShell({
               )}
             >
               <Icon className="size-5" />
-              {label}
+              {t(key)}
             </Link>
           ))}
         </div>

@@ -29,6 +29,7 @@ import { applyTeamJoin } from './provision.js';
 import { buildSignupModal, CREATE_TEAM_IDS, TEAM_SETTINGS_IDS } from './modal.js';
 import { IDS, buildParticipantEmbed, displayErr, embedErr, embedOk, eph, type Ctx } from './shared.js';
 import { commitMatchAndAnnounce, resetEventConfirmed } from './admin-commands.js';
+import { t } from '../shared/i18n.js';
 
 interface Announcer {
   announce: (guildId: string, content: string) => Promise<void>;
@@ -52,10 +53,11 @@ export async function onModalSubmit(i: ModalSubmitInteraction, ctx: Ctx & Announ
 }
 
 async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<void> {
+  const locale = ctx.botLocale;
   // Blocked users must not pass, even with a stale modal open.
   const existing = getParticipant(ctx.db, ctx.eventId, i.user.id);
   if (existing?.status === 'blocked') {
-    await i.reply(eph('You are blocked from signing up. Contact an organizer.'));
+    await i.reply(eph(t(locale, 'errors.blocked')));
     return;
   }
 
@@ -67,13 +69,13 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
     teamPref: i.fields.getStringSelectValues(MODAL_IDS.teamPref)[0] ?? '',
   };
 
-  const result = validateSignupInput(ctx.config, raw);
+  const result = validateSignupInput(ctx.config, raw, locale);
   if (!result.ok) {
     await i.reply({
       embeds: [
         embedErr(
-          'Fix these and try again',
-          `${result.errors.map((e) => `• ${e}`).join('\n')}\n\nUse \`/hackathon join\` to open the form again.`,
+          t(locale, 'discord.join.fix_title'),
+          `${result.errors.map((e) => `• ${e}`).join('\n')}\n\n${t(locale, 'discord.join.fix_hint')}`,
         ),
       ],
       flags: MessageFlags.Ephemeral,
@@ -83,38 +85,39 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
 
   const saved = upsertParticipant(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, i.user.id, result.value);
   if (!saved.ok) {
-    await i.reply({ embeds: [displayErr(saved.code, saved.message)], flags: MessageFlags.Ephemeral });
+    await i.reply({ embeds: [displayErr(locale, saved.code, saved.message)], flags: MessageFlags.Ephemeral });
     return;
   }
 
   const prefHint =
     result.value.teamPref === 'create_team'
-      ? 'Use `/hackathon create-team` to set up your team — you get invite powers, a private channel and a role.'
+      ? t(locale, 'discord.join.hint_create')
       : result.value.teamPref === 'join_team'
-        ? 'Browse `/hackathon teams` and send join requests — owners decide, you get a DM.'
-        : 'Organizers will match you into a team based on compatibility.';
+        ? t(locale, 'discord.join.hint_join')
+        : t(locale, 'discord.join.hint_match');
 
   await i.reply({
     embeds: [
-      embedOk('Signup saved ✅', `Thanks, **${result.value.displayName}**! ${prefHint}`),
-      buildParticipantEmbed(ctx.db, ctx.config, saved.value),
+      embedOk(t(locale, 'discord.join.saved_title'), t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })),
+      buildParticipantEmbed(ctx.db, ctx.config, saved.value, locale),
     ],
     flags: MessageFlags.Ephemeral,
   });
 }
 
 async function handleCreateTeamModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<void> {
+  const locale = ctx.botLocale;
   const name = i.fields.getTextInputValue(CREATE_TEAM_IDS.name);
   const kind = i.fields.getStringSelectValues(CREATE_TEAM_IDS.kind)[0] as 'public' | 'private' | undefined;
   const colorId = i.fields.getStringSelectValues(CREATE_TEAM_IDS.color)[0] ?? null;
   if (kind === undefined) {
-    await i.reply(eph('Pick a visibility option.'));
+    await i.reply(eph(t(locale, 'discord.join.pick_visibility')));
     return;
   }
 
   const res = createTeam(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, name, kind, i.user.id, colorId);
   if (!res.ok) {
-    await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+    await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -125,18 +128,18 @@ async function handleCreateTeamModal(i: ModalSubmitInteraction, ctx: Ctx & Annou
 
   const codeLine =
     team.kind === 'private' && team.joinCode !== null
-      ? `\n**Join code:** \`${team.joinCode}\` — teammates can use \`/hackathon join-code\` instead of waiting for an invite.`
+      ? `\n${t(locale, 'discord.teams.join_code_line', { code: team.joinCode })}`
       : '';
   const channelLine =
     team.textChannelId !== null
-      ? `\nYour private space: <#${team.textChannelId}>${team.voiceChannelId !== null ? ` + <#${team.voiceChannelId}>` : ''}`
+      ? `\n${t(locale, 'discord.teams.your_space')} <#${team.textChannelId}>${team.voiceChannelId !== null ? ` + <#${team.voiceChannelId}>` : ''}`
       : '';
 
   await i.reply({
     embeds: [
       embedOk(
-        'Team created 🏁',
-        `**${team.name}** is live.${channelLine}${codeLine}\n\nNext: \`/hackathon invite @someone\` — they get a DM with accept/decline.`,
+        t(locale, 'discord.teams.created_title'),
+        `${t(locale, 'discord.teams.created_body', { name: team.name })}${channelLine}${codeLine}\n\n${t(locale, 'discord.teams.created_next')}`,
       ),
     ],
     flags: MessageFlags.Ephemeral,
@@ -146,13 +149,14 @@ async function handleCreateTeamModal(i: ModalSubmitInteraction, ctx: Ctx & Annou
 }
 
 async function handleTeamSettingsModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<void> {
+  const locale = ctx.botLocale;
   const team = getTeamForUser(ctx.db, ctx.eventId, i.user.id);
   if (team === null || team.ownerId !== i.user.id) {
-    await i.reply(eph('Only the team owner can change team settings.'));
+    await i.reply(eph(t(locale, 'discord.teams.not_owner')));
     return;
   }
   if (team.kind === 'matched') {
-    await i.reply(eph('Matched teams are managed by the matching engine.'));
+    await i.reply(eph(t(locale, 'errors.matched_team')));
     return;
   }
 
@@ -160,7 +164,7 @@ async function handleTeamSettingsModal(i: ModalSubmitInteraction, ctx: Ctx & Ann
   const kind = i.fields.getStringSelectValues(TEAM_SETTINGS_IDS.kind)[0] as 'public' | 'private' | undefined;
   const colorId = i.fields.getStringSelectValues(TEAM_SETTINGS_IDS.color)[0] ?? null;
   if (kind === undefined) {
-    await i.reply(eph('Pick a visibility option.'));
+    await i.reply(eph(t(locale, 'discord.join.pick_visibility')));
     return;
   }
 
@@ -170,7 +174,7 @@ async function handleTeamSettingsModal(i: ModalSubmitInteraction, ctx: Ctx & Ann
     colorId: colorId !== null ? colorId : undefined,
   });
   if (!res.ok) {
-    await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+    await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -179,12 +183,12 @@ async function handleTeamSettingsModal(i: ModalSubmitInteraction, ctx: Ctx & Ann
   await syncRoleColor({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value);
 
   const changed: string[] = [];
-  if (res.value.name !== team.name) changed.push('renamed');
-  if (res.value.kind !== team.kind) changed.push(`now **${res.value.kind}**`);
-  if (res.value.colorId !== team.colorId) changed.push('recolored');
+  if (res.value.name !== team.name) changed.push(t(locale, 'discord.teams.changed_renamed'));
+  if (res.value.kind !== team.kind) changed.push(t(locale, 'discord.teams.changed_kind', { kind: res.value.kind }));
+  if (res.value.colorId !== team.colorId) changed.push(t(locale, 'discord.teams.changed_recolored'));
 
   await i.reply({
-    embeds: [embedOk('Team updated', `**${res.value.name}**: ${changed.join(', ') || 'no changes'}.`)],
+    embeds: [embedOk(t(locale, 'discord.teams.updated_title'), t(locale, 'discord.teams.updated_body', { name: res.value.name, changes: changed.join(', ') || t(locale, 'discord.teams.no_changes') }))],
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -196,22 +200,23 @@ export async function onComponent(
   ctx: Ctx & Announcer,
 ): Promise<void> {
   const id = i.customId;
+  const locale = ctx.botLocale;
 
   // ── signup panel buttons ─────────────────────────────────────────────────
   if (id === IDS.signupButton) {
     const existing = getParticipant(ctx.db, ctx.eventId, i.user.id);
     if (existing?.status === 'blocked') {
-      await i.reply(eph('You are blocked from signing up. Contact an organizer.'));
+      await i.reply(eph(t(locale, 'errors.blocked')));
       return;
     }
-    await i.showModal(buildSignupModal(ctx.config));
+    await i.showModal(buildSignupModal(ctx.config, locale));
     return;
   }
   if (id === IDS.teamsButton) {
     const { teamsBrowser } = await import('./user-commands.js');
     const browser = teamsBrowser(ctx);
     if (browser === null) {
-      await i.reply(eph('No teams with open space right now. Create one with `/hackathon create-team`!'));
+      await i.reply(eph(t(locale, 'discord.teams.none_open')));
       return;
     }
     await i.reply({ ...browser, flags: MessageFlags.Ephemeral });
@@ -223,14 +228,14 @@ export async function onComponent(
     if (!id.startsWith(`${base}:`)) continue;
     const requestId = Number(id.slice(base.length + 1));
     if (!Number.isInteger(requestId)) {
-      await i.reply(eph('That request looks malformed — use `/hackathon invitations`.'));
+      await i.reply(eph(t(locale, 'discord.teams.malformed')));
       return;
     }
 
     if (base === IDS.reqCancel) {
       const res = cancelRequest(ctx.db, ctx.actor, requestId);
       await i.update({
-        content: res.ok ? 'Request cancelled.' : `Could not cancel: ${res.message}`,
+        content: res.ok ? t(locale, 'discord.teams.cancelled') : t(locale, 'discord.teams.cancel_failed', { message: res.message }),
         embeds: [],
         components: [],
       });
@@ -248,10 +253,10 @@ export async function onComponent(
       const isInvite = res.value.request.kind === 'invite';
       await ctx.dm(res.value.request.requesterId, {
         content: isInvite
-          ? `<@${res.value.joinerId}> declined your invite to **${res.value.team.name}**.`
-          : `Your request to join **${res.value.team.name}** was declined.`,
+          ? t(locale, 'discord.teams.invite_declined_dm', { user: res.value.joinerId, team: res.value.team.name })
+          : t(locale, 'discord.teams.request_declined_dm', { team: res.value.team.name }),
       });
-      await i.update({ content: 'Declined. They have been notified.', embeds: [], components: [] });
+      await i.update({ content: t(locale, 'discord.teams.declined_reply'), embeds: [], components: [] });
       return;
     }
 
@@ -264,17 +269,23 @@ export async function onComponent(
 
     if (res.value.request.kind === 'invite') {
       await ctx.dm(res.value.joinerId, {
-        content: `🎉 You joined **${res.value.team.name}**!${provisioned.textChannelId !== null ? `\nYour team space: <#${provisioned.textChannelId}>` : ''}`,
+        content: t(locale, 'discord.teams.accepted_invite_dm', {
+          team: res.value.team.name,
+          space: provisioned.textChannelId !== null ? `\n${t(locale, 'discord.teams.your_space')} <#${provisioned.textChannelId}>` : '',
+        }),
       });
       await ctx.dm(res.value.request.requesterId, {
-        content: `✅ <@${res.value.joinerId}> accepted your invite and joined **${res.value.team.name}**!`,
+        content: t(locale, 'discord.teams.accepted_invite_owner_dm', { user: res.value.joinerId, team: res.value.team.name }),
       });
     } else {
       await ctx.dm(res.value.request.requesterId, {
-        content: `✅ Your request was accepted — you are now on **${res.value.team.name}**!${provisioned.textChannelId !== null ? `\nTeam space: <#${provisioned.textChannelId}>` : ''}`,
+        content: t(locale, 'discord.teams.accepted_request_dm', {
+          team: res.value.team.name,
+          space: provisioned.textChannelId !== null ? `\n${t(locale, 'discord.teams.team_space')} <#${provisioned.textChannelId}>` : '',
+        }),
       });
     }
-    await i.update({ content: `✅ Done — **${res.value.team.name}** has a new member.`, embeds: [], components: [] });
+    await i.update({ content: t(locale, 'discord.teams.accepted_reply', { team: res.value.team.name }), embeds: [], components: [] });
     return;
   }
 
@@ -283,28 +294,28 @@ export async function onComponent(
     const teamId = (i as StringSelectMenuInteraction).values[0] ?? '';
     const team = getTeam(ctx.db, teamId);
     if (team === null) {
-      await i.update({ content: '⚠️ That team no longer exists.', embeds: [], components: [] });
+      await i.update({ content: t(locale, 'discord.teams.gone'), embeds: [], components: [] });
       return;
     }
     const res = createJoinRequest(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, i.user.id, teamId, ctx.config.teamSize);
     if (!res.ok) {
-      await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+      await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
       return;
     }
     const ownerDm =
       team.ownerId !== null
         ? await ctx.dm(team.ownerId, {
-            content: `📨 <@${i.user.id}> asked to join **${team.name}**.`,
-            components: [decideRowFor(res.value.id)],
+            content: t(locale, 'discord.teams.owner_dm_new_request', { user: i.user.id, team: team.name }),
+            components: [decideRowFor(res.value.id, locale)],
           })
         : false;
     await i.update({
       embeds: [
         embedOk(
-          'Request sent 📨',
+          t(locale, 'discord.teams.request_sent_title'),
           ownerDm
-            ? `The owner of **${team.name}** got your request by DM. You will get a DM with the decision.`
-            : `Request saved. The owner can review it with \`/hackathon team-requests\`.`,
+            ? t(locale, 'discord.teams.request_sent_body', { team: team.name })
+            : t(locale, 'discord.teams.request_saved_body'),
         ),
       ],
       components: [],
@@ -315,11 +326,11 @@ export async function onComponent(
   // ── admin confirm buttons (require admin) ────────────────────────────────
   if (id === IDS.matchConfirm || id === IDS.matchCancel) {
     if (!ctx.isAdmin) {
-      await i.reply(eph('Organizer only.'));
+      await i.reply(eph(t(locale, 'discord.admin.organizer_only_short')));
       return;
     }
     if (id === IDS.matchCancel) {
-      await i.update({ content: 'Match cancelled — nothing was changed.', embeds: [], components: [] });
+      await i.update({ content: t(locale, 'discord.admin.match_cancelled'), embeds: [], components: [] });
       return;
     }
     await commitMatchAndAnnounce(i, ctx, ctx.announce);
@@ -327,11 +338,11 @@ export async function onComponent(
   }
   if (id === IDS.resetConfirm || id === IDS.resetCancel) {
     if (!ctx.isAdmin) {
-      await i.reply(eph('Organizer only.'));
+      await i.reply(eph(t(locale, 'discord.admin.organizer_only_short')));
       return;
     }
     if (id === IDS.resetCancel) {
-      await i.update({ content: 'Reset cancelled.', components: [] });
+      await i.update({ content: t(locale, 'discord.admin.reset_cancelled'), components: [] });
       return;
     }
     await resetEventConfirmed(i, ctx);
@@ -341,27 +352,27 @@ export async function onComponent(
   // ── admin move select ────────────────────────────────────────────────────
   if (id.startsWith(`${IDS.adminMoveSelect}:`)) {
     if (!ctx.isAdmin) {
-      await i.reply(eph('Organizer only.'));
+      await i.reply(eph(t(locale, 'discord.admin.organizer_only_short')));
       return;
     }
     const userId = id.slice(IDS.adminMoveSelect.length + 1);
     const value = (i as StringSelectMenuInteraction).values[0] ?? '';
     const res = adminAssign(ctx.db, ctx.actor, ctx.eventId, userId, value === '__none__' ? null : value);
     await i.update({
-      content: res.ok ? `Done — <@${userId}> moved.` : `Failed: ${res.message}`,
+      content: res.ok ? t(locale, 'discord.admin.moved_done', { user: userId }) : t(locale, 'discord.admin.failed_label', { message: res.message }),
       components: [],
     });
     return;
   }
 
   await i
-    .reply({ content: 'That control is stale — run the command again.', flags: MessageFlags.Ephemeral })
+    .reply({ content: t(locale, 'discord.admin.stale_control'), flags: MessageFlags.Ephemeral })
     .catch(() => undefined);
 }
 
-function decideRowFor(requestId: number): ActionRowBuilder<ButtonBuilder> {
+function decideRowFor(requestId: number, locale: import('../shared/i18n.js').BotLocale): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`${IDS.reqAccept}:${requestId}`).setLabel('Accept').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`${IDS.reqDecline}:${requestId}`).setLabel('Decline').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`${IDS.reqAccept}:${requestId}`).setLabel(t(locale, 'discord.teams.accept_btn')).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`${IDS.reqDecline}:${requestId}`).setLabel(t(locale, 'discord.teams.decline_btn')).setStyle(ButtonStyle.Secondary),
   );
 }

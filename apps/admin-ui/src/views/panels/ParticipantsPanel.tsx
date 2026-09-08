@@ -3,6 +3,7 @@ import { MoreHorizontal, Search, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppState, Participant } from '@/types'
 import { api } from '@/api'
+import { useT } from '@/lib/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -38,6 +39,7 @@ import { timeAgo } from '@/lib/format'
 type StatusFilter = 'all' | 'active' | 'blocked' | 'withdrawn' | 'unteamed'
 
 export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh: () => Promise<void> }) {
+  const t = useT()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [confirmBlock, setConfirmBlock] = useState<Participant | null>(null)
@@ -62,7 +64,7 @@ export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh
       toast.success(okMsg)
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed')
+      toast.error(e instanceof Error ? e.message : t('common.action_failed'))
     }
   }
 
@@ -72,8 +74,8 @@ export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh
         <CardContent>
           <EmptyState
             icon={<Users className="size-5" />}
-            title="No signups yet"
-            description="Once people use /hackathon join in Discord, they appear here."
+            title={t('participants.none_title')}
+            description={t('participants.none_desc')}
           />
         </CardContent>
       </Card>
@@ -89,45 +91,45 @@ export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search name, id or skill…"
+              placeholder={t('participants.search_placeholder')}
               className="pl-9"
-              aria-label="Search participants"
+              aria-label={t('participants.search_aria')}
             />
           </div>
           <Select value={filter} onValueChange={(v) => setFilter(v as StatusFilter)}>
-            <SelectTrigger className="w-44" aria-label="Filter by status">
+            <SelectTrigger className="w-44" aria-label={t('participants.filter_aria')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="blocked">Blocked</SelectItem>
-              <SelectItem value="withdrawn">Withdrawn</SelectItem>
-              <SelectItem value="unteamed">Unteamed only</SelectItem>
+              <SelectItem value="all">{t('participants.filter_all')}</SelectItem>
+              <SelectItem value="active">{t('participants.filter_active')}</SelectItem>
+              <SelectItem value="blocked">{t('participants.filter_blocked')}</SelectItem>
+              <SelectItem value="withdrawn">{t('participants.filter_withdrawn')}</SelectItem>
+              <SelectItem value="unteamed">{t('participants.filter_unteamed')}</SelectItem>
             </SelectContent>
           </Select>
           <span className="text-sm text-muted-foreground">
-            {filtered.length} of {state.participants.length}
+            {t('participants.showing', { shown: filtered.length, total: state.participants.length })}
           </span>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Participants</CardTitle>
-          <CardDescription>Move people between teams, block or remove signups</CardDescription>
+          <CardTitle>{t('participants.title')}</CardTitle>
+          <CardDescription>{t('participants.desc')}</CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Role</th>
-                <th className="hidden px-4 py-3 font-medium md:table-cell">Skills</th>
-                <th className="hidden px-4 py-3 font-medium lg:table-cell">Pref</th>
-                <th className="px-4 py-3 font-medium">Team</th>
-                <th className="px-4 py-3" aria-label="Actions" />
+                <th className="px-4 py-3 font-medium">{t('participants.col_name')}</th>
+                <th className="px-4 py-3 font-medium">{t('participants.col_status')}</th>
+                <th className="px-4 py-3 font-medium">{t('participants.col_role')}</th>
+                <th className="hidden px-4 py-3 font-medium md:table-cell">{t('participants.col_skills')}</th>
+                <th className="hidden px-4 py-3 font-medium lg:table-cell">{t('participants.col_pref')}</th>
+                <th className="px-4 py-3 font-medium">{t('participants.col_team')}</th>
+                <th className="px-4 py-3" aria-label={t('common.actions_for', { name: '' }).replace(/ $/, '')} />
               </tr>
             </thead>
             <tbody>
@@ -167,18 +169,18 @@ export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh
                         onValueChange={(teamId) =>
                           void act(
                             () => api.assignTeam(p.userId, teamId === '__none__' ? null : teamId),
-                            'Team updated',
+                            t('participants.team_updated'),
                           )
                         }
                       >
-                        <SelectTrigger className="h-8 w-40 text-xs" aria-label={`Team for ${p.displayName}`}>
+                        <SelectTrigger className="h-8 w-40 text-xs" aria-label={t('participants.team_for_aria', { name: p.displayName })}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none__">No team</SelectItem>
-                          {state.teams.map((t) => (
-                            <SelectItem key={t.id} value={t.id}>
-                              {t.name}
+                          <SelectItem value="__none__">{t('common.no_team')}</SelectItem>
+                          {state.teams.map((team) => (
+                            <SelectItem key={team.id} value={team.id}>
+                              {team.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -190,7 +192,7 @@ export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh
                   <td className="px-4 py-3 text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" aria-label={`Actions for ${p.displayName}`}>
+                        <Button variant="ghost" size="icon" aria-label={t('common.actions_for', { name: p.displayName })}>
                           <MoreHorizontal className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -200,15 +202,15 @@ export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh
                             className="text-danger data-[highlighted]:bg-danger/10"
                             onSelect={() => setConfirmBlock(p)}
                           >
-                            Block from signing up
+                            {t('participants.block')}
                           </DropdownMenuItem>
                         ) : (
                           <DropdownMenuItem
                             onSelect={() =>
-                              void act(() => api.participantAction(p.userId, 'unblock'), 'Unblocked')
+                              void act(() => api.participantAction(p.userId, 'unblock'), t('participants.unblocked'))
                             }
                           >
-                            Unblock
+                            {t('participants.unblock')}
                           </DropdownMenuItem>
                         )}
                         {p.status === 'active' && (
@@ -216,11 +218,11 @@ export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh
                             onSelect={() =>
                               void act(
                                 () => api.participantAction(p.userId, 'withdraw'),
-                                'Signup removed',
+                                t('participants.signup_removed'),
                               )
                             }
                           >
-                            Remove signup
+                            {t('participants.remove_signup')}
                           </DropdownMenuItem>
                         )}
                         {p.status === 'withdrawn' && (
@@ -228,11 +230,11 @@ export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh
                             onSelect={() =>
                               void act(
                                 () => api.participantAction(p.userId, 'reactivate'),
-                                'Reactivated',
+                                t('participants.reactivated'),
                               )
                             }
                           >
-                            Reactivate
+                            {t('participants.reactivate')}
                           </DropdownMenuItem>
                         )}
                         {p.teamId !== null && (
@@ -242,11 +244,11 @@ export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh
                               onSelect={() =>
                                 void act(
                                   () => api.assignTeam(p.userId, null),
-                                  'Removed from team',
+                                  t('participants.removed_from_team'),
                                 )
                               }
                             >
-                              Kick off team
+                              {t('participants.kick_off_team')}
                             </DropdownMenuItem>
                           </>
                         )}
@@ -263,24 +265,23 @@ export function ParticipantsPanel({ state, refresh }: { state: AppState; refresh
       <AlertDialog open={confirmBlock !== null} onOpenChange={(o) => !o && setConfirmBlock(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Block {confirmBlock?.displayName}?</AlertDialogTitle>
+            <AlertDialogTitle>{t('participants.block_title', { name: confirmBlock?.displayName ?? '' })}</AlertDialogTitle>
             <AlertDialogDescription>
-              They can no longer sign up or update their signup, and they are removed from any team.
-              You can unblock them later.
+              {t('participants.block_desc')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 const p = confirmBlock
                 setConfirmBlock(null)
                 if (p !== null) {
-                  void act(() => api.participantAction(p.userId, 'block'), 'Blocked')
+                  void act(() => api.participantAction(p.userId, 'block'), t('participants.blocked'))
                 }
               }}
             >
-              Block
+              {t('participants.blocked')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

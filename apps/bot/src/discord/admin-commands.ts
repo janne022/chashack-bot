@@ -31,42 +31,43 @@ import {
   templateToEventInput,
 } from '../features/events/data.js';
 import { IDS, confirmRow, displayErr, embedOk, eph, matchPreviewEmbed, type Ctx } from './shared.js';
+import { t } from '../shared/i18n.js';
 
 export async function handleAdminCommand(
   i: ChatInputCommandInteraction,
   ctx: Ctx,
   sub: string,
 ): Promise<void> {
-  const { db, config, guildId, actor } = ctx;
+  const { db, config, guildId, actor, botLocale: locale } = ctx;
 
   switch (sub) {
     case 'form': {
       const c = getForm(db);
       const lines = [
-        `**Title:** ${c.title}`,
-        `**Team size:** ${c.teamSize}`,
-        `**Experience options:** ${c.experiences.map((e) => e.label).join(', ')}`,
-        `**Role tracks:** ${c.roleTracks.map((r) => r.label).join(', ')}`,
-        `**Skills:** ${c.skills.map((s) => s.label).join(', ')}`,
-        `**Team prefs:** ${c.teamPrefs.map((t) => t.label).join(', ')}`,
+        t(locale, 'discord.admin.form_title_line', { title: c.title }),
+        t(locale, 'discord.admin.form_team_size', { size: c.teamSize }),
+        t(locale, 'discord.admin.form_experiences', { list: c.experiences.map((e) => e.label).join(', ') }),
+        t(locale, 'discord.admin.form_role_tracks', { list: c.roleTracks.map((r) => r.label).join(', ') }),
+        t(locale, 'discord.admin.form_skills', { list: c.skills.map((s) => s.label).join(', ') }),
+        t(locale, 'discord.admin.form_team_prefs', { list: c.teamPrefs.map((tp) => tp.label).join(', ') }),
         ``,
-        `Edit this in the admin web UI (Form tab).`,
+        t(locale, 'discord.admin.form_edit_hint'),
       ];
-      await i.reply({ embeds: [embedOk('Current form config', lines.join('\n'))], flags: MessageFlags.Ephemeral });
+      await i.reply({ embeds: [embedOk(t(locale, 'discord.admin.form_title'), lines.join('\n'))], flags: MessageFlags.Ephemeral });
       return;
     }
 
     case 'block': {
       const user = i.options.getUser('user', true);
-      const reason = i.options.getString('reason') ?? 'No reason given';
+      const reason = i.options.getString('reason') ?? t(locale, 'discord.admin.no_reason');
       const res = blockParticipant(db, actor, ctx.eventId, user.id, reason);
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       await i.reply({
         content: `<@${user.id}>`,
-        embeds: [embedOk('Blocked', `**${user.username}** can no longer sign up. Reason: ${reason}`)],
+        embeds: [embedOk(t(locale, 'discord.admin.blocked_title'), t(locale, 'discord.admin.blocked_body', { name: user.username, reason }))],
       });
       return;
     }
@@ -75,10 +76,10 @@ export async function handleAdminCommand(
       const user = i.options.getUser('user', true);
       const res = unblockParticipant(db, actor, ctx.eventId, user.id);
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
-      await i.reply({ embeds: [embedOk('Unblocked', `**${user.username}** can sign up again.`)], flags: MessageFlags.Ephemeral });
+      await i.reply({ embeds: [embedOk(t(locale, 'discord.admin.unblocked_title'), t(locale, 'discord.admin.unblocked_body', { name: user.username }))], flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -86,12 +87,12 @@ export async function handleAdminCommand(
       const user = i.options.getUser('user', true);
       const p = getParticipant(db, ctx.eventId, user.id);
       if (p === null) {
-        await i.reply(eph('They have no signup.'));
+        await i.reply(eph(t(locale, 'discord.admin.they_have_no_signup')));
         return;
       }
       await withdrawParticipant(db, actor, ctx.eventId, user.id);
       await i.reply({
-        embeds: [embedOk('Signup removed', `Removed **${p.displayName}**'s signup and took them off any team.`)],
+        embeds: [embedOk(t(locale, 'discord.admin.removed_title'), t(locale, 'discord.admin.removed_body', { name: p.displayName }))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -104,31 +105,31 @@ export async function handleAdminCommand(
         // No team argument: show a team picker select.
         const teams = listTeams(db, ctx.eventId);
         if (teams.length === 0) {
-          await i.reply(eph('No teams exist yet. Run matching or let users create teams first.'));
+          await i.reply(eph(t(locale, 'discord.admin.no_teams_yet')));
           return;
         }
         const select = new StringSelectMenuBuilder()
           .setCustomId(`${IDS.adminMoveSelect}:${user.id}`)
-          .setPlaceholder(`Move ${user.username} to…`)
+          .setPlaceholder(t(locale, 'discord.admin.move_placeholder', { name: user.username }))
           .addOptions(
-            new StringSelectMenuOptionBuilder().setLabel('🚫 No team (unassign)').setValue('__none__'),
-            ...teams.slice(0, 24).map((t) =>
-              new StringSelectMenuOptionBuilder().setLabel(`${t.name} (${t.kind})`).setValue(t.id),
+            new StringSelectMenuOptionBuilder().setLabel(t(locale, 'discord.admin.move_no_team_opt')).setValue('__none__'),
+            ...teams.slice(0, 24).map((team) =>
+              new StringSelectMenuOptionBuilder().setLabel(`${team.name} (${team.kind})`).setValue(team.id),
             ),
           );
         const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
-        await i.reply({ content: `Which team for **${user.username}**?`, components: [row], flags: MessageFlags.Ephemeral });
+        await i.reply({ content: t(locale, 'discord.admin.move_which', { name: user.username }), components: [row], flags: MessageFlags.Ephemeral });
         return;
       }
       const teams = listTeams(db, ctx.eventId);
-      const found = teams.find((t) => t.id === teamArg || t.name.toLowerCase() === teamArg.toLowerCase());
+      const found = teams.find((team) => team.id === teamArg || team.name.toLowerCase() === teamArg.toLowerCase());
       if (found === undefined) {
-        await i.reply(eph(`No team named "${teamArg}". Use /hackathon admin move with no team to get a picker.`));
+        await i.reply(eph(t(locale, 'discord.admin.no_such_team', { arg: teamArg })));
         return;
       }
       const res = adminAssign(db, actor, ctx.eventId, user.id, found.id);
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       // Provision + role + welcome, best effort (never block the reply).
@@ -136,11 +137,11 @@ export async function handleAdminCommand(
       if (moved !== null) {
         const provisionDeps = { db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
         void provisionTeamSpace(provisionDeps, moved)
-          .then((t) => grantTeamRole(provisionDeps, t, user.id))
+          .then((team) => grantTeamRole(provisionDeps, team, user.id))
           .catch((err) => console.warn('admin move provisioning failed:', err));
       }
       await i.reply({
-        embeds: [embedOk('Moved', `**${user.username}** → **${found.name}**.`)],
+        embeds: [embedOk(t(locale, 'discord.admin.moved_title'), t(locale, 'discord.admin.moved_body', { user: user.username, team: found.name }))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -150,12 +151,13 @@ export async function handleAdminCommand(
       const category = i.options.getChannel('category');
       if (category === null) {
         setGuildCategory(db, actor, guildId, null);
-        await i.reply({ embeds: [embedOk('Category cleared', 'Team channels will be created at the server top level (or TEAM_CATEGORY_ID env fallback).')], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [embedOk(t(locale, 'discord.admin.category_cleared_title'), t(locale, 'discord.admin.category_cleared_body'))], flags: MessageFlags.Ephemeral });
         return;
       }
       setGuildCategory(db, actor, guildId, category.id);
+      const categoryName = category.name ?? category.id;
       await i.reply({
-        embeds: [embedOk('Category set', `Team text/voice channels will be created under **${category.name}**.`)],
+        embeds: [embedOk(t(locale, 'discord.admin.category_set_title'), t(locale, 'discord.admin.category_set_body', { name: categoryName }))],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -168,11 +170,11 @@ export async function handleAdminCommand(
         // Refresh in the stored channel.
         const res = await postOrUpdatePanel(db, ctx.client, guildId, '');
         if ('error' in res) {
-          await i.reply(eph(res.error === 'No panel exists yet.' ? 'No panel exists yet — pass a channel.' : res.error));
+          await i.reply(eph(res.error === 'No panel exists yet.' ? t(locale, 'discord.admin.panel_no_panel_yet') : res.error));
           return;
         }
         await i.reply({
-          embeds: [embedOk('Panel refreshed', `Updated in <#${res.channelId}>.`)],
+          embeds: [embedOk(t(locale, 'discord.admin.panel_refreshed_title'), t(locale, 'discord.admin.panel_refreshed_body', { channel: res.channelId }))],
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -185,8 +187,8 @@ export async function handleAdminCommand(
       await i.reply({
         embeds: [
           embedOk(
-            res.edited ? 'Panel updated' : 'Panel posted',
-            `${res.edited ? 'Edited the existing panel' : 'Posted a new panel'} in <#${res.channelId}>. It auto-refreshes when the form config changes.`,
+            res.edited ? t(locale, 'discord.admin.panel_updated_title') : t(locale, 'discord.admin.panel_posted_title'),
+            `${res.edited ? t(locale, 'discord.admin.panel_edited_prefix') : t(locale, 'discord.admin.panel_posted_prefix')} ${t(locale, 'discord.admin.panel_suffix', { channel: res.channelId })}`,
           ),
         ],
         flags: MessageFlags.Ephemeral,
@@ -197,12 +199,12 @@ export async function handleAdminCommand(
     case 'match-preview': {
       const res = previewMatch(db, ctx.eventId, config);
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       await i.reply({
-        embeds: [matchPreviewEmbed(res.value, config)],
-        components: [confirmRow(IDS.matchConfirm, IDS.matchCancel, 'Commit these teams')],
+        embeds: [matchPreviewEmbed(res.value, config, locale)],
+        components: [confirmRow(IDS.matchConfirm, IDS.matchCancel, t(locale, 'discord.admin.match_confirm_btn'), locale)],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -211,12 +213,12 @@ export async function handleAdminCommand(
     case 'match-run': {
       const res = previewMatch(db, ctx.eventId, config);
       if (!res.ok) {
-        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       await i.reply({
-        embeds: [matchPreviewEmbed(res.value, config)],
-        components: [confirmRow(IDS.matchConfirm, IDS.matchCancel, 'Commit these teams')],
+        embeds: [matchPreviewEmbed(res.value, config, locale)],
+        components: [confirmRow(IDS.matchConfirm, IDS.matchCancel, t(locale, 'discord.admin.match_confirm_btn'), locale)],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -226,15 +228,15 @@ export async function handleAdminCommand(
       const counts = listParticipants(db, ctx.eventId).length;
       const teams = listTeams(db, ctx.eventId).length;
       await i.reply({
-        content: `⚠️ **Reset the event?** This permanently deletes **${counts} signups** and **${teams} teams**. The form config is kept.`,
-        components: [confirmRow(IDS.resetConfirm, IDS.resetCancel, 'Yes, reset everything')],
+        content: t(locale, 'discord.admin.reset_warning', { signups: counts, teams }),
+        components: [confirmRow(IDS.resetConfirm, IDS.resetCancel, t(locale, 'discord.admin.reset_confirm_btn'), locale)],
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     default:
-      await i.reply(eph('Unknown admin subcommand.'));
+      await i.reply(eph(t(locale, 'discord.admin.unknown_admin_sub')));
   }
 }
 
@@ -244,9 +246,10 @@ export async function commitMatchAndAnnounce(
   ctx: Ctx,
   announce: (guildId: string, content: string) => Promise<void>,
 ): Promise<void> {
+  const locale = ctx.botLocale;
   const res = commitMatch(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, ctx.config);
   if (!res.ok) {
-    await i.update({ embeds: [displayErr(res.code, res.message)], components: [] });
+    await i.update({ embeds: [displayErr(locale, res.code, res.message)], components: [] });
     return;
   }
 
@@ -256,7 +259,7 @@ export async function commitMatchAndAnnounce(
   const { listParticipants } = await import('../features/signup/data.js');
   const allParticipants = listParticipants(ctx.db, ctx.eventId);
   for (const matchTeam of res.value.teams) {
-    const stored = (await import('../features/teams/data.js')).listTeams(ctx.db, ctx.eventId).find((t) => t.name === matchTeam.name);
+    const stored = (await import('../features/teams/data.js')).listTeams(ctx.db, ctx.eventId).find((team) => team.name === matchTeam.name);
     if (stored === undefined) continue;
     const provisioned = await provisionTeamSpace(provisionDeps, stored);
     for (const memberId of matchTeam.memberIds) {
@@ -273,14 +276,14 @@ export async function commitMatchAndAnnounce(
   }
 
   await i.update({
-    embeds: [embedOk('Teams committed', `${res.value.teams.length} teams created, provisioned and announced.`)],
+    embeds: [embedOk(t(locale, 'discord.admin.committed_title'), t(locale, 'discord.admin.committed_body', { count: res.value.teams.length }))],
     components: [],
   });
-  const lines = res.value.teams.map((t) => {
-    const members = t.memberIds.map((id) => `<@${id}>`).join(', ');
-    return `**${t.name}** — compatibility ${t.score}\n${members}`;
+  const lines = res.value.teams.map((team) => {
+    const members = team.memberIds.map((id) => `<@${id}>`).join(', ');
+    return `**${team.name}** — ${t(locale, 'discord.admin.compatibility')} ${team.score}\n${members}`;
   });
-  await announce(ctx.guildId, `🏁 **Teams are locked in!**\n\n${lines.join('\n\n')}`);
+  await announce(ctx.guildId, `${t(locale, 'discord.admin.teams_locked_title')}\n\n${lines.join('\n\n')}`);
 }
 
 /** Reset handler shared with the confirm-button flow. */
@@ -288,6 +291,7 @@ export async function resetEventConfirmed(
   i: import('discord.js').ButtonInteraction | import('discord.js').StringSelectMenuInteraction,
   ctx: Ctx,
 ): Promise<void> {
+  const locale = ctx.botLocale;
   // Tear down Discord spaces for all teams first (we lose the ids after reset).
   const teams = listTeams(ctx.db, ctx.guildId);
   const provisionDeps = { db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
@@ -297,7 +301,7 @@ export async function resetEventConfirmed(
   const participants = purgeEventParticipants(ctx.db, ctx.actor, ctx.eventId);
   const teamCount = deleteEventTeams(ctx.db, ctx.actor, ctx.eventId);
   await i.update({
-    content: `✅ Event data cleared: ${participants} signups, ${teamCount} teams and their channels/roles removed. Event settings kept — signups reopen.`,
+    content: t(locale, 'discord.admin.reset_done', { signups: participants, teams: teamCount }),
     components: [],
   });
 }

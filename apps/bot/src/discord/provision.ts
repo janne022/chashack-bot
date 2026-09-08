@@ -18,6 +18,8 @@ import type { Db } from '../shared/db.js';
 import { setProvisioning, setRole, setTextChannel, setVoiceChannel } from '../features/teams/data.js';
 import type { Team } from '../features/teams/data.js';
 import { teamColor } from '../features/form/domain.js';
+import { t } from '../shared/i18n.js';
+import { env } from '../shared/env.js';
 
 const MANAGE_FLAGS = [
   PermissionFlagsBits.ViewChannel,
@@ -48,11 +50,21 @@ async function ensureCategory(guild: Guild, categoryId: string | undefined): Pro
   return undefined;
 }
 
+/** Bot locale from env, read lazily so tests without env setup still work. */
+export function botLocale(): 'en' | 'sv' {
+  try {
+    return env().botLanguage;
+  } catch {
+    return 'en';
+  }
+}
+
 /**
  * Create role + text/voice channels for a team and persist the ids.
  * Skips parts that already exist (idempotent, also used after partial failures).
  */
 export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promise<Team> {
+  const locale = botLocale();
   const guild = await deps.client.guilds.fetch(team.guildId).catch(() => null);
   if (guild === null) return team;
 
@@ -68,7 +80,7 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
         name: team.name.slice(0, 100),
         color: color.int,
         mentionable: true,
-        reason: `Hackathon team: ${team.name}`,
+        reason: t(locale, 'discord.provision.reason_create_role', { team: team.name }),
       });
       roleId = role.id;
       setRole(deps.db, team.id, roleId);
@@ -103,7 +115,7 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
       const channel = await guild.channels.create({
         name: team.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 90) || 'team',
         type: ChannelType.GuildText,
-        topic: `Private space for ${team.name} — hackathon team`,
+        topic: t(locale, 'discord.provision.channel_topic', { team: team.name }),
         parent: category ?? null,
         permissionOverwrites: overwrites,
       });
@@ -150,7 +162,7 @@ export async function grantTeamRole(deps: ProvisionDeps, team: Team, userId: str
     const guild = await deps.client.guilds.fetch(team.guildId);
     const member = await guild.members.fetch(userId);
     if (!member.roles.cache.has(team.roleId)) {
-      await member.roles.add(team.roleId, 'Joined hackathon team');
+      await member.roles.add(team.roleId, t(botLocale(), 'discord.provision.reason_grant'));
     }
   } catch (error) {
     console.warn(`grant role failed:`, error);
@@ -164,7 +176,7 @@ export async function revokeTeamRole(deps: ProvisionDeps, team: Team, userId: st
     const guild = await deps.client.guilds.fetch(team.guildId);
     const member = await guild.members.fetch(userId).catch(() => null);
     if (member !== null && member.roles.cache.has(team.roleId)) {
-      await member.roles.remove(team.roleId, 'Left hackathon team');
+      await member.roles.remove(team.roleId, t(botLocale(), 'discord.provision.reason_revoke'));
     }
   } catch (error) {
     console.warn(`revoke role failed:`, error);
@@ -179,6 +191,7 @@ export async function sendJoinWelcome(
   roster: { userId: string; displayName: string }[],
 ): Promise<void> {
   if (team.textChannelId === null) return;
+  const locale = botLocale();
   try {
     const guild = await deps.client.guilds.fetch(team.guildId);
     const channel = await guild.channels.fetch(team.textChannelId);
@@ -187,13 +200,13 @@ export async function sendJoinWelcome(
     const names = roster.map((m) => `<@${m.userId}>`).join(', ');
     const isFounder = team.ownerId === joinerId;
     const lines = isFounder
-      ? [`🏁 **${team.name}** is live!`, ``, `Founder: <@${joinerId}>`, `Roster: ${names}`]
-      : [`👋 <@${joinerId}> joined **${team.name}**!`, ``, `Roster: ${names}`];
+      ? [t(locale, 'discord.provision.welcome_live', { team: team.name }), ``, t(locale, 'discord.provision.welcome_founder', { user: joinerId }), t(locale, 'discord.provision.welcome_roster', { names })]
+      : [t(locale, 'discord.provision.welcome_joined', { user: joinerId, team: team.name }), ``, t(locale, 'discord.provision.welcome_roster', { names })];
     if (isFounder) {
       lines.push(
         ``,
-        `Use \`/hackathon invite\` to bring teammates here — they get a DM with accept/decline.`,
-        `\`/hackathon team-settings\` renames the team, flips public/private or changes the role color.`,
+        t(locale, 'discord.provision.welcome_invite_hint'),
+        t(locale, 'discord.provision.welcome_settings_hint'),
       );
     }
     await channel.send({ content: lines.join('\n') });
@@ -204,28 +217,30 @@ export async function sendJoinWelcome(
 
 /** Delete role and channels when a team is deleted or the event resets. */
 export async function destroyTeamSpace(deps: ProvisionDeps, team: Team): Promise<void> {
+  const locale = botLocale();
   const guild = await deps.client.guilds.fetch(team.guildId).catch(() => null);
   if (guild === null) return;
 
   for (const channelId of [team.textChannelId, team.voiceChannelId]) {
     if (channelId === null) continue;
-    await guild.channels.delete(channelId, 'Hackathon team removed').catch(() => undefined);
+    await guild.channels.delete(channelId, t(locale, 'discord.provision.reason_delete')).catch(() => undefined);
   }
   if (team.roleId !== null) {
     const role = await guild.roles.fetch(team.roleId).catch(() => null);
-    if (role !== null) await role.delete('Hackathon team removed').catch(() => undefined);
+    if (role !== null) await role.delete(t(locale, 'discord.provision.reason_delete')).catch(() => undefined);
   }
 }
 
 /** Update the role color after team-settings changes. */
 export async function syncRoleColor(deps: ProvisionDeps, team: Team): Promise<void> {
   if (team.roleId === null) return;
+  const locale = botLocale();
   try {
     const guild = await deps.client.guilds.fetch(team.guildId);
     const role = await guild.roles.fetch(team.roleId);
     if (role !== null) {
-      await role.setColor(teamColor(team.colorId).int, 'Team color updated');
-      await role.setName(team.name.slice(0, 100), 'Team renamed').catch(() => undefined);
+      await role.setColor(teamColor(team.colorId).int, t(locale, 'discord.provision.reason_color'));
+      await role.setName(team.name.slice(0, 100), t(locale, 'discord.provision.reason_rename')).catch(() => undefined);
     }
   } catch (error) {
     console.warn('role color sync failed:', error);
