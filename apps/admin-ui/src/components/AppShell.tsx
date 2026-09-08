@@ -67,6 +67,13 @@ export function AppShell({
   if (document.documentElement.dataset.theme !== theme) {
     document.documentElement.dataset.theme = theme
   }
+  // shadcn's dark variant is class-based (@custom-variant dark) — keep the
+  // class in sync with data-theme so registry components follow the toggle.
+  if (theme === 'dark') {
+    document.documentElement.classList.add('dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+  }
 
   return (
     <div className="min-h-screen lg:flex">

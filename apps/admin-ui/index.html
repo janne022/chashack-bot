@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hackathon Admin</title>
+    <script>
+      // Set theme before first paint: dark Honeycomb by default, or the
+      // stored choice. Syncs BOTH data-theme (our world) and the .dark class
+      // (shadcn's class-based dark variant) so text/bg never mismatch.
+      try {
+        var t = localStorage.getItem('chas-theme') === 'light' ? 'light' : 'dark'
+        document.documentElement.dataset.theme = t
+        if (t === 'dark') document.documentElement.classList.add('dark')
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
