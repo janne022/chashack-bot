@@ -6,7 +6,8 @@ import { api } from '@/api'
 import { useT } from '@/lib/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input, Label, Textarea } from '@/components/ui/input'
+import { Input } from '@/components/ui/input'
+import { Label, Textarea } from '@/components/ui/textarea-label'
 import {
   AlertDialog,
   AlertDialogAction,
