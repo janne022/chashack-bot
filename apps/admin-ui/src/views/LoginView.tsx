@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { LogIn } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Input, Label } from '@/components/ui/input'
+import { HexHero } from '@/components/HexHero'
 import brandMark from '@/assets/brand/1.png'
 import wordmark from '@/assets/brand/4.png'
 
@@ -24,8 +26,14 @@ export function LoginView({ onLogin }: { onLogin: (password: string) => Promise<
   }
 
   return (
-    <div className="hex-bg grid min-h-screen place-items-center p-6">
-      <div className="w-full max-w-sm animate-pop-in">
+    <div className="hex-bg relative grid min-h-screen place-items-center overflow-hidden p-6">
+      <HexHero />
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+        className="relative w-full max-w-sm"
+      >
         <div className="mb-6 flex flex-col items-center text-center">
           <img src={brandMark} alt="ChasHack" className="size-20 drop-shadow-[0_0_24px_rgba(85,187,218,0.35)]" />
           <img src={wordmark} alt="ChasHack" className="-mt-2 max-w-56 mix-blend-screen" />
@@ -50,7 +58,7 @@ export function LoginView({ onLogin }: { onLogin: (password: string) => Promise<
             {busy ? 'Signing in…' : 'Enter the hive'}
           </Button>
         </form>
-      </div>
+      </motion.div>
     </div>
   )
 }
