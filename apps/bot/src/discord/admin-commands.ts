@@ -9,9 +9,10 @@ import {
   type ChatInputCommandInteraction,
 } from 'discord.js';
 import { getParticipant, listParticipants, resetEvent, blockParticipant, unblockParticipant, withdrawParticipant } from '../features/signup/store.js';
-import { adminAssign, listTeams } from '../features/teams/service.js';
+import { adminAssign, listTeams, setGuildCategory, getTeam } from '../features/teams/service.js';
 import { previewMatch, commitMatch } from '../features/matching/service.js';
 import { getForm } from '../features/form/service.js';
+import { provisionTeamSpace, grantTeamRole, destroyTeamSpace } from './provision.js';
 import { IDS, confirmRow, displayErr, embedOk, eph, matchPreviewEmbed, type Ctx } from './shared.js';
 
 export async function handleAdminCommand(
@@ -113,8 +114,31 @@ export async function handleAdminCommand(
         await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
+      // Provision + role + welcome, best effort (never block the reply).
+      const moved = getTeam(db, found.id);
+      if (moved !== null) {
+        const provisionDeps = { db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
+        void provisionTeamSpace(provisionDeps, moved)
+          .then((t) => grantTeamRole(provisionDeps, t, user.id))
+          .catch((err) => console.warn('admin move provisioning failed:', err));
+      }
       await i.reply({
         embeds: [embedOk('Moved', `**${user.username}** → **${found.name}**.`)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    case 'team-category': {
+      const category = i.options.getChannel('category');
+      if (category === null) {
+        setGuildCategory(db, actor, guildId, null);
+        await i.reply({ embeds: [embedOk('Category cleared', 'Team channels will be created at the server top level (or TEAM_CATEGORY_ID env fallback).')], flags: MessageFlags.Ephemeral });
+        return;
+      }
+      setGuildCategory(db, actor, guildId, category.id);
+      await i.reply({
+        embeds: [embedOk('Category set', `Team text/voice channels will be created under **${category.name}**.`)],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -175,8 +199,31 @@ export async function commitMatchAndAnnounce(
     await i.update({ embeds: [displayErr(res.code, res.message)], components: [] });
     return;
   }
+
+  // Provision every matched team space and grant roles to all members.
+  const provisionDeps = { db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
+  const { getTeam } = await import('../features/teams/service.js');
+  const { listParticipants } = await import('../features/signup/store.js');
+  const allParticipants = listParticipants(ctx.db, ctx.guildId);
+  for (const matchTeam of res.value.teams) {
+    const stored = (await import('../features/teams/service.js')).listTeams(ctx.db, ctx.guildId).find((t) => t.name === matchTeam.name);
+    if (stored === undefined) continue;
+    const provisioned = await provisionTeamSpace(provisionDeps, stored);
+    for (const memberId of matchTeam.memberIds) {
+      await grantTeamRole(provisionDeps, provisioned, memberId);
+    }
+    const roster = matchTeam.memberIds.map((id) => ({
+      userId: id,
+      displayName: allParticipants.find((p) => p.userId === id)?.displayName ?? id,
+    }));
+    const first = matchTeam.memberIds[0];
+    if (first !== undefined) {
+      await (await import('./provision.js')).sendJoinWelcome(provisionDeps, provisioned, first, roster);
+    }
+  }
+
   await i.update({
-    embeds: [embedOk('Teams committed', `${res.value.teams.length} teams created and announced.`)],
+    embeds: [embedOk('Teams committed', `${res.value.teams.length} teams created, provisioned and announced.`)],
     components: [],
   });
   const lines = res.value.teams.map((t) => {
@@ -191,13 +238,19 @@ export async function resetEventConfirmed(
   i: import('discord.js').ButtonInteraction | import('discord.js').StringSelectMenuInteraction,
   ctx: Ctx,
 ): Promise<void> {
+  // Tear down Discord spaces for all teams first (we lose the ids after reset).
+  const teams = listTeams(ctx.db, ctx.guildId);
+  const provisionDeps = { db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
+  for (const team of teams) {
+    await destroyTeamSpace(provisionDeps, team);
+  }
   const res = resetEvent(ctx.db, ctx.actor, ctx.guildId);
   if (!res.ok) {
     await i.update({ content: `Reset failed: ${res.message}`, components: [] });
     return;
   }
   await i.update({
-    content: `✅ Event reset. Removed ${res.value.participants} signups and ${res.value.teams} teams. Ready for a new event.`,
+    content: `✅ Event reset. Removed ${res.value.participants} signups, ${res.value.teams} teams and their channels/roles. Ready for a new event.`,
     components: [],
   });
 }

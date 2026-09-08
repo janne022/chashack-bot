@@ -31,6 +31,10 @@ export interface Team {
   kind: 'public' | 'private' | 'matched'
   ownerId: string | null
   joinCode: string | null
+  roleId: string | null
+  textChannelId: string | null
+  voiceChannelId: string | null
+  colorId: string | null
   createdAt: number
   members: TeamMember[]
 }
@@ -88,5 +92,16 @@ export interface AppState {
   config: FormConfig
   audit: AuditEntry[]
   lastMatch: { at: number; teams: number } | null
+  guildSettings: { teamCategoryId: string | null }
   stats: Stats
 }
+
+export const TEAM_COLOR_SWATCHES: { id: string; label: string; hex: string }[] = [
+  { id: 'blurple', label: 'Blurple', hex: '#5865F2' },
+  { id: 'green', label: 'Green', hex: '#3EC46D' },
+  { id: 'orange', label: 'Orange', hex: '#F0B429' },
+  { id: 'red', label: 'Red', hex: '#EF4444' },
+  { id: 'purple', label: 'Purple', hex: '#9B59B6' },
+  { id: 'cyan', label: 'Cyan', hex: '#1ABC9C' },
+  { id: 'pink', label: 'Pink', hex: '#E91E63' },
+]

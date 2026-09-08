@@ -40,6 +40,8 @@ async function announce(guildId: string, content: string): Promise<void> {
 registerInteractionHandlers(client, {
   db,
   adminIds: config.adminIds,
+  client,
+  teamCategoryId: config.teamCategoryId,
   announce,
 });
 

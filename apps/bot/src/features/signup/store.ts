@@ -119,12 +119,12 @@ export function listParticipants(db: Db, guildId: string, status?: ParticipantSt
   return rows.map(toParticipant);
 }
 
+/** Matchable: active, not already on a team, and opted into random matching. */
 export function listMatchable(db: Db, guildId: string): Participant[] {
-  // Matchable: active, not already on a team, and opted into matching.
   const rows = db
     .prepare(
       `SELECT * FROM participants
-       WHERE guild_id = ? AND status = 'active' AND team_id IS NULL AND team_pref = 'private_team'`,
+       WHERE guild_id = ? AND status = 'active' AND team_id IS NULL AND team_pref = 'random_team'`,
     )
     .all(guildId) as unknown as ParticipantRow[];
   return rows.map(toParticipant);

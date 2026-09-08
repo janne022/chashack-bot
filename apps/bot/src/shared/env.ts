@@ -38,6 +38,8 @@ export interface Env {
   dbPath: string;
   announceChannelId: string | undefined;
   auditChannelId: string | undefined;
+  /** Fallback category for team channels when the guild has none configured. */
+  teamCategoryId: string | undefined;
   /** Run the admin panel without the Discord gateway (container smoke tests, UI-only deploys). */
   skipDiscord: boolean;
 }
@@ -80,6 +82,7 @@ export function env(): Env {
     dbPath: get('DB_PATH') || 'data/chashack.db',
     announceChannelId: get('ANNOUNCE_CHANNEL_ID') || undefined,
     auditChannelId: get('AUDIT_CHANNEL_ID') || undefined,
+    teamCategoryId: get('TEAM_CATEGORY_ID') || undefined,
     skipDiscord,
   };
   return cached;

@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2, UsersRound } from 'lucide-react'
+import { KeyRound, MoreHorizontal, Palette, Plus, RefreshCw, Settings2, Trash2, UsersRound } from 'lucide-react'
 import { toast } from 'sonner'
-import type { AppState } from '@/types'
+import type { AppState, Team } from '@/types'
+import { TEAM_COLOR_SWATCHES } from '@/types'
 import { api } from '@/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -47,6 +48,7 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
   const [newName, setNewName] = useState('')
   const [newKind, setNewKind] = useState<'public' | 'private'>('public')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [settingsTeam, setSettingsTeam] = useState<Team | null>(null)
 
   const teamSize = state.config.teamSize
 
@@ -120,20 +122,27 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
         {state.teams.map((team) => (
           <Card key={team.id} className="animate-fade-in">
             <CardHeader className="flex-row items-start justify-between space-y-0">
-              <div className="min-w-0">
-                <CardTitle className="truncate">{team.name}</CardTitle>
-                <CardDescription className="flex items-center gap-2 pt-1">
-                  <TeamKindBadge kind={team.kind} />
-                  <span>
-                    {team.members.length}/{teamSize} members
-                  </span>
-                  {team.joinCode !== null && (
-                    <span className="flex items-center gap-1 font-mono text-xs">
-                      <KeyRound className="size-3" />
-                      {team.joinCode}
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  className="mt-1 size-3.5 shrink-0 rounded-full border border-border"
+                  style={{ backgroundColor: TEAM_COLOR_SWATCHES.find((c) => c.id === team.colorId)?.hex ?? '#5865F2' }}
+                  aria-hidden
+                />
+                <div className="min-w-0">
+                  <CardTitle className="truncate">{team.name}</CardTitle>
+                  <CardDescription className="flex items-center gap-2 pt-1">
+                    <TeamKindBadge kind={team.kind} />
+                    <span>
+                      {team.members.length}/{teamSize} members
                     </span>
-                  )}
-                </CardDescription>
+                    {team.joinCode !== null && (
+                      <span className="flex items-center gap-1 font-mono text-xs">
+                        <KeyRound className="size-3" />
+                        {team.joinCode}
+                      </span>
+                    )}
+                  </CardDescription>
+                </div>
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -142,6 +151,12 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {team.kind !== 'matched' && (
+                    <DropdownMenuItem onSelect={() => setSettingsTeam(team)}>
+                      <Settings2 />
+                      Rename / visibility / color
+                    </DropdownMenuItem>
+                  )}
                   {team.kind === 'private' && (
                     <DropdownMenuItem
                       onSelect={() =>
@@ -241,6 +256,22 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {settingsTeam !== null && (
+        <TeamSettingsDialog
+          team={settingsTeam}
+          onClose={() => setSettingsTeam(null)}
+          onSave={async (update) => {
+            await act(
+              async () => {
+                await api.updateTeamSettings(settingsTeam.id, update)
+              },
+              'Team updated',
+            )
+            setSettingsTeam(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -289,8 +320,8 @@ function CreateTeamDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="public">Public — listed for others</SelectItem>
-                <SelectItem value="private">Private — join code only</SelectItem>
+                <SelectItem value="public">Public — anyone can ask to join</SelectItem>
+                <SelectItem value="private">Private — invite or join code only</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -301,6 +332,88 @@ function CreateTeamDialog({
           </Button>
           <Button onClick={() => void onCreate()} disabled={newName.trim().length < 3}>
             Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function TeamSettingsDialog({
+  team,
+  onClose,
+  onSave,
+}: {
+  team: Team
+  onClose: () => void
+  onSave: (update: { name?: string; kind?: 'public' | 'private'; colorId?: string | null }) => Promise<void>
+}) {
+  const [name, setName] = useState(team.name)
+  const [kind, setKind] = useState<'public' | 'private'>(team.kind === 'private' ? 'private' : 'public')
+  const [colorId, setColorId] = useState<string | null>(team.colorId)
+  const [busy, setBusy] = useState(false)
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Team settings</DialogTitle>
+          <DialogDescription>
+            Rename, flip visibility or recolor the Discord role. Changes apply immediately.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="settings-name">Team name</Label>
+            <Input id="settings-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Visibility</Label>
+            <Select value={kind} onValueChange={(v) => setKind(v as 'public' | 'private')}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="public">Public — anyone can ask to join</SelectItem>
+                <SelectItem value="private">Private — invite or join code only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>
+              <Palette className="mr-1 inline size-3.5" />
+              Role color
+            </Label>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Role color">
+              {TEAM_COLOR_SWATCHES.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={colorId === c.id}
+                  aria-label={c.label}
+                  onClick={() => setColorId(c.id)}
+                  className={`size-7 rounded-full border-2 transition-transform hover:scale-110 ${
+                    colorId === c.id ? 'border-foreground ring-2 ring-accent' : 'border-transparent'
+                  }`}
+                  style={{ backgroundColor: c.hex }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={busy || name.trim().length < 3}
+            onClick={() => {
+              setBusy(true)
+              void onSave({ name: name.trim(), kind, colorId }).finally(() => setBusy(false))
+            }}
+          >
+            Save changes
           </Button>
         </DialogFooter>
       </DialogContent>

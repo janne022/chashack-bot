@@ -1,8 +1,9 @@
-import { Activity, Filter, RefreshCw, UserPlus, Users, UsersRound, Zap } from 'lucide-react'
+import { useState } from 'react'
+import { Activity, FolderTree, Filter, RefreshCw, UserPlus, Users, UsersRound, Zap } from 'lucide-react'
+import { toast } from 'sonner'
 import type { TabId } from '@/types-dashboard'
 import type { AppState } from '@/types'
 import { api } from '@/api'
-import { toast } from 'sonner'
 import {
   Card,
   CardContent,
@@ -23,6 +24,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Input, Label } from '@/components/ui/input'
 import { dateTime, timeAgo } from '@/lib/format'
 
 export function OverviewPanel({
@@ -35,6 +37,17 @@ export function OverviewPanel({
   go: (tab: TabId) => void
 }) {
   const { stats, audit } = state
+  const [categoryId, setCategoryId] = useState(state.guildSettings.teamCategoryId ?? '')
+
+  async function saveCategory() {
+    try {
+      await api.setGuildCategory(categoryId.trim() === '' ? null : categoryId.trim())
+      toast.success('Team channel category saved')
+      await refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Save failed')
+    }
+  }
 
   async function resetEvent() {
     try {
@@ -121,9 +134,29 @@ export function OverviewPanel({
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Event</CardTitle>
-            <CardDescription>Danger zone — resets everything</CardDescription>
+            <CardDescription>Team space category & danger zone</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="team-category" className="flex items-center gap-1.5 text-sm">
+                <FolderTree className="size-3.5" />
+                Team channel category ID
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="team-category"
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  placeholder="Discord category ID (empty = top level)"
+                />
+                <Button variant="secondary" onClick={() => void saveCategory()}>
+                  Save
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                New teams get a private text + voice channel under this category.
+              </p>
+            </div>
             {state.lastMatch !== null ? (
               <p className="text-sm text-muted-foreground">
                 Last match: {state.lastMatch.teams} teams, {timeAgo(state.lastMatch.at)} ({dateTime(state.lastMatch.at)})
