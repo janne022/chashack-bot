@@ -1,4 +1,4 @@
-import type { AppState, FormConfig, HackathonEvent, MatchResult, Team } from './types'
+import type { AppState, FormConfig, HackathonEvent, MatchResult, Team, TeamSuggestion } from './types'
 
 class ApiError extends Error {
   constructor(
@@ -108,6 +108,22 @@ export const api = {
     return res.result
   },
 
+  async matchSuggestions(participantId: string): Promise<TeamSuggestion[]> {
+    const res = await request<{ suggestions: TeamSuggestion[] }>('/api/match/suggestions', {
+      method: 'POST',
+      body: JSON.stringify({ participantId }),
+    })
+    return res.suggestions
+  },
+
+  async matchLock(): Promise<void> {
+    await request('/api/match/lock', { method: 'POST' })
+  },
+
+  async matchUnlock(): Promise<void> {
+    await request('/api/match/unlock', { method: 'POST' })
+  },
+
   async updateForm(config: Partial<FormConfig>): Promise<FormConfig> {
     const res = await request<{ config: FormConfig }>('/api/form', {
       method: 'POST',
@@ -145,7 +161,14 @@ export const api = {
 
   async updateEvent(
     eventId: string,
-    update: { name?: string; description?: string; startsAt?: number | null; endsAt?: number | null; cleanupDelayHours?: number },
+    update: {
+      name?: string
+      description?: string
+      startsAt?: number | null
+      endsAt?: number | null
+      cleanupDelayHours?: number
+      matchAt?: number | null
+    },
   ): Promise<void> {
     await request(`/api/events/${eventId}`, {
       method: 'PATCH',

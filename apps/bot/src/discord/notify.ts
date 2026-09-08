@@ -10,16 +10,20 @@ import { audit } from '../shared/audit.js';
 import {
   getActiveEvent,
   getEvent,
+  getEventForm,
   listEvents,
   planMaintenance,
   updateEvent,
   endEvent,
+  markCleanupWarned,
+  markMatchLocked,
   type HackathonEvent,
 } from '../features/events/data.js';
 import type { KyselyDb } from '../shared/kysely.js';
 import { listParticipants } from '../features/signup/data.js';
 import { listTeams, deleteEventTeams } from '../features/teams/data.js';
-import { markCleanupWarned } from '../features/events/data.js';
+import { previewMatch, commitMatch } from '../features/matching/data.js';
+import { DEFAULT_FORM } from '../features/form/domain.js';
 import { destroyTeamSpace } from './provision.js';
 import { postOrUpdatePanel } from './signup-panel.js';
 
@@ -293,6 +297,54 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           summary.push(`cleaned up: ${event.name} (${teams.length} team spaces)`);
           break;
         }
+        case 'auto_match': {
+          // Scheduled auto-match: run matching, lock teams, announce. If the
+          // match itself fails (e.g. not enough opt-ins) we still lock so a
+          // broken schedule can't re-fire every tick — check the logs.
+          const config = getEventFormLocal(db, event);
+          const preview = previewMatch(db, event.id, config);
+          if (!preview.ok) {
+            console.warn(`auto_match for ${event.name} failed: ${preview.code} — ${preview.message} (marking locked anyway)`);
+            summary.push(`auto-match failed (${preview.code}), locked anyway: ${event.name}`);
+          } else {
+            commitMatch(db, 'system', event.id, event.guildId, config);
+            summary.push(`auto-matched: ${event.name} (${preview.value.teams.length} teams)`);
+          }
+          markMatchLocked(db, event.id);
+          audit(db, 'system', 'event.auto_match', event.id, { ok: preview.ok, code: preview.ok ? undefined : preview.code });
+          const autoChannelId = event.panelChannelId ?? readGuildPanel(db, event.guildId);
+          if (autoChannelId !== null) {
+            const guild = await client.guilds.fetch(event.guildId).catch(() => null);
+            const channel = guild !== null ? await guild.channels.fetch(autoChannelId).catch(() => null) : null;
+            if (channel !== null && channel.isTextBased()) {
+              const lines =
+                preview.ok
+                  ? preview.value.teams
+                      .map((t) => `**${t.name}** — ${t.memberIds.map((id) => `<@${id}>`).join(', ')}`)
+                      .join('\n')
+                  : '';
+              await channel
+                .send({
+                  embeds: [
+                    new EmbedBuilder()
+                      .setTitle(`🔒 Teams are locked in for **${event.name}**`)
+                      .setDescription(
+                        [
+                          lines !== '' ? lines : 'Automatic matching could not build teams (not enough eligible participants) — organizers will place people manually.',
+                          '',
+                          'Late signups now need manual placement by an organizer.',
+                        ]
+                          .filter((l) => l !== '')
+                          .join('\n'),
+                      )
+                      .setColor(0x57f287),
+                  ],
+                })
+                .catch((err2) => console.warn('auto_match announcement failed:', err2));
+            }
+          }
+          break;
+        }
       }
     } catch (error) {
       console.error(`maintenance ${action.type} failed for ${action.eventId}:`, error);
@@ -303,6 +355,11 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
 
 function getEventRef(db: Db, eventId: string): HackathonEvent | null {
   return getEvent(db, eventId);
+}
+
+/** The event's form config (falls back to the guild default). */
+function getEventFormLocal(db: Db, event: { id: string; formJson: string | null }): import('../features/form/domain.js').FormConfig {
+  return getEventForm(db, { id: event.id, formJson: event.formJson } as never, DEFAULT_FORM);
 }
 
 /** Panel helper re-export for index.ts wiring. */

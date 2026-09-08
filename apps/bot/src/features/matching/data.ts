@@ -8,7 +8,13 @@ import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import type { FormConfig } from '../form/domain.js';
 import { listMatchable } from '../signup/data.js';
+import { listTeams, type TeamWithMembers } from '../teams/data.js';
 import { buildTeams, type MatchResult } from './domain.js';
+
+/** Teams for an event with their active members — input for placement suggestions. */
+export function listTeamsWithMembers(db: Db, eventId: string): TeamWithMembers[] {
+  return listTeams(db, eventId);
+}
 
 export function previewMatch(db: Db, eventId: string, config: FormConfig): Result<MatchResult> {
   const participants = listMatchable(db, eventId);

@@ -19,6 +19,7 @@ import {
   saveTemplate,
   listTemplates,
   deleteTemplate,
+  setMatchAt,
   templateToEventInput,
 } from '../features/events/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
@@ -191,6 +192,63 @@ export async function handleEventAdminCommand(
           embedOk(
             'Event ended',
             `**${event.name}** is over. Team roles/channels will be cleaned up automatically ${event.cleanupDelayHours}h from its end time (or now + ${event.cleanupDelayHours}h if no end date was set).`,
+          ),
+        ],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    case 'auto-match': {
+      const event = getActiveEvent(db, guildId);
+      if (event === null) {
+        await i.reply(eph('No active event.'));
+        return;
+      }
+      const clear = i.options.getBoolean('clear') ?? false;
+      if (clear) {
+        const res = setMatchAt(db, actor, event.id, null);
+        if (!res.ok) {
+          await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+          return;
+        }
+        await i.reply({
+          embeds: [embedOk('Auto-match cancelled', `**${event.name}** is back to manual matching (locked: ${event.matchLocked ? 'yes' : 'no'}).`)],
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      const raw = i.options.getString('at');
+      if (raw === null) {
+        // Inspect: show current schedule.
+        const lines = [
+          `**Scheduled:** ${event.matchAt !== null ? `<t:${Math.floor(event.matchAt / 1000)}:F> (<t:${Math.floor(event.matchAt / 1000)}:R>)` : 'not scheduled'}`,
+          `**Locked:** ${event.matchLocked ? 'yes — auto-match will not run again' : 'no'}`,
+          '',
+          'Schedule one with `/hackathon admin auto-match at:<time>`. It runs at the next maintenance tick (≤5 min after the scheduled time) and locks the teams in.',
+        ];
+        await i.reply({ embeds: [embedOk('Auto-match schedule', lines.join('\n'))], flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const at = parseDate(raw);
+      if (at === null || at === undefined) {
+        await i.reply(eph('Could not parse the time. Use ISO (2026-09-12T18:00) or unix milliseconds.'));
+        return;
+      }
+      const res = setMatchAt(db, actor, event.id, at);
+      if (!res.ok) {
+        await i.reply({ embeds: [displayErr(res.code, res.message)], flags: MessageFlags.Ephemeral });
+        return;
+      }
+      await i.reply({
+        embeds: [
+          embedOk(
+            'Auto-match scheduled ⏱️',
+            [
+              `**${event.name}** will auto-match unteamed participants <t:${Math.floor(at / 1000)}:F> (<t:${Math.floor(at / 1000)}:R>).`,
+              '',
+              'It runs at the next maintenance tick — up to 5 minutes after that time — then teams are locked in and announced. Late signups afterwards need manual placement.',
+            ].join('\n'),
           ),
         ],
         flags: MessageFlags.Ephemeral,

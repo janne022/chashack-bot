@@ -30,5 +30,8 @@ export const announceSchema = z.object({
 
 export const cleanupDelaySchema = z.number().int().min(0).max(720)
 
+/** Auto-match time: an epoch-ms value; callers decide whether null (clear) is allowed. */
+export const matchAtSchema = z.number().int().positive()
+
 export type CreateEventInput = z.infer<typeof createEventSchema>
 export type AnnounceInput = z.infer<typeof announceSchema>

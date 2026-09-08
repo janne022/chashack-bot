@@ -32,6 +32,10 @@ export interface HackathonEvent {
   cleanupWarned72h: boolean;
   cleanupWarned24h: boolean;
   reminded24h: boolean;
+  /** When set (status=active), maintenance auto-runs matching at this time. */
+  matchAt: number | null;
+  /** Set once auto-match ran (or manually locked) — skips future auto-match. */
+  matchLocked: boolean;
   /** Discord scheduled-event ids created for this hackathon event. */
   discordEventIds: string[];
   createdAt: number;
@@ -54,6 +58,8 @@ interface EventRow {
   cleanup_warned_72h: number;
   cleanup_warned_24h: number;
   reminded_24h: number;
+  match_at: number | null;
+  match_locked: number;
   discord_event_ids: string;
   created_at: number;
   updated_at: number;
@@ -82,6 +88,8 @@ function toEvent(row: EventRow): HackathonEvent {
     cleanupWarned72h: row.cleanup_warned_72h === 1,
     cleanupWarned24h: row.cleanup_warned_24h === 1,
     reminded24h: row.reminded_24h === 1,
+    matchAt: row.match_at,
+    matchLocked: row.match_locked === 1,
     discordEventIds,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -154,7 +162,7 @@ export function updateEvent(
   db: Db,
   actor: string,
   eventId: string,
-  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'categoryId' | 'cleanupDelayHours' | 'discordEventIds'>>,
+  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds'>>,
 ): Result<HackathonEvent> {
   const event = getEvent(db, eventId);
   if (event === null) return err('not_found', 'Event not found.');
@@ -172,7 +180,7 @@ export function updateEvent(
       : event.cleanupDelayHours;
 
   db.prepare(
-    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, discord_event_ids = ?, updated_at = ?
+    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, updated_at = ?
      WHERE id = ?`,
   ).run(
     name,
@@ -182,11 +190,12 @@ export function updateEvent(
     update.panelChannelId !== undefined ? update.panelChannelId : event.panelChannelId,
     update.categoryId !== undefined ? update.categoryId : event.categoryId,
     cleanupDelayHours,
+    update.matchAt !== undefined ? update.matchAt : event.matchAt,
     update.discordEventIds !== undefined ? JSON.stringify(update.discordEventIds) : JSON.stringify(event.discordEventIds),
     Date.now(),
     eventId,
   );
-  audit(db, actor, 'event.update', eventId, { name, startsAt, endsAt });
+  audit(db, actor, 'event.update', eventId, { name, startsAt, endsAt, matchAt: update.matchAt !== undefined ? update.matchAt : undefined });
   return ok(getEvent(db, eventId)!);
 }
 
@@ -319,7 +328,8 @@ export type MaintenanceAction =
   | { type: 'remind_24h'; eventId: string }
   | { type: 'end_event'; eventId: string }
   | { type: 'cleanup_warn'; eventId: string; hoursLeft: number }
-  | { type: 'cleanup'; eventId: string };
+  | { type: 'cleanup'; eventId: string }
+  | { type: 'auto_match'; eventId: string };
 
 /** Decide what should happen now, given the current time. Pure. */
 export function planMaintenance(events: HackathonEvent[], now: number): MaintenanceAction[] {
@@ -333,6 +343,9 @@ export function planMaintenance(events: HackathonEvent[], now: number): Maintena
         event.startsAt > now
       ) {
         actions.push({ type: 'remind_24h', eventId: event.id });
+      }
+      if (event.matchAt !== null && event.matchAt <= now && !event.matchLocked) {
+        actions.push({ type: 'auto_match', eventId: event.id });
       }
       if (event.endsAt !== null && event.endsAt <= now) {
         actions.push({ type: 'end_event', eventId: event.id });
@@ -395,4 +408,24 @@ export async function markCleanupDone(kysely: KyselyDb, eventId: string): Promis
 export function markCleanupWarned(db: import('../../shared/db.js').Db, eventId: string, tier: '72h' | '24h'): void {
   const column = tier === '72h' ? 'cleanup_warned_72h' : 'cleanup_warned_24h';
   db.prepare(`UPDATE events SET ${column} = 1, updated_at = ? WHERE id = ?`).run(Date.now(), eventId);
+}
+
+/**
+ * Mark the event's teams as locked in (auto-match done, or manually locked).
+ * Skips future auto-match; never blocks manual match runs.
+ */
+export function markMatchLocked(db: import('../../shared/db.js').Db, eventId: string): void {
+  db.prepare('UPDATE events SET match_locked = 1, updated_at = ? WHERE id = ?').run(Date.now(), eventId);
+}
+
+/** Clear the lock so a future auto-match can fire again. */
+export function markMatchUnlocked(db: import('../../shared/db.js').Db, eventId: string): void {
+  db.prepare('UPDATE events SET match_locked = 0, updated_at = ? WHERE id = ?').run(Date.now(), eventId);
+}
+
+/** Set or clear the scheduled auto-match time (null clears it). */
+export function setMatchAt(db: import('../../shared/db.js').Db, actor: string, eventId: string, matchAt: number | null): Result<HackathonEvent> {
+  const res = updateEvent(db, actor, eventId, { matchAt });
+  if (res.ok) audit(db, actor, 'event.match_schedule', eventId, { matchAt });
+  return res;
 }
