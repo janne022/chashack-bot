@@ -8,16 +8,43 @@ web admin panel for organizers.
 **Discord bot** (`/hackathon`)
 
 - `join` — modern Discord modal (labels + select menus, discord.js ≥ 14.23):
-  name, experience level, role track, skills (multi-select), team preference.
-  The form is admin-configurable and changes apply immediately.
-- `status` — your signup + team
-- `teammates` — declare up to 5 friends you want on a team (mutual mentions are
-  kept together during matching)
-- `create-team` — public (listed) or private (join code) teams
-- `teams` / `join-code` / `team-code` / `leave-team` — browse and manage teams
-- `leave` — withdraw your signup
-- `admin …` — organizer subcommands: block/unblock/remove signups, move people
-  between teams (with a picker), preview/commit matching, reset the event
+  name, experience level, role track, skills (multi-select), and how you want
+  to find your team: **create your own**, **ask to join one**, or **get
+  matched into a random team**. The form is admin-configurable and changes
+  apply immediately.
+- `create-team` — modal: team name, **public or private**, and the **role
+  color** (preset palette). Creating a team instantly provisions a colored
+  Discord role plus a **private text + voice channel** under the configured
+  category, and the bot DMs you nothing — you get the space right away and an
+  owner's welcome message in the channel.
+- `invite @user` — the invited person gets a **DM with Accept / Decline
+  buttons** (with a `/hackathon invitations` inbox fallback if their DMs are
+  closed). Accepting puts them on the team, grants the role and posts a
+  welcome message in the team channel.
+- `teams` — browse teams with open space and **send a join request**; the
+  owner gets it as a DM with Accept/Decline (or via `/hackathon team-requests`).
+- `team-settings` — owners rename the team, flip public/private or change the
+  role color; the Discord role updates live.
+- `invitations` / `team-requests` — pending queues for invitees and owners.
+- `join-code` — private teams also get a 6-char code as a "share link"
+  equivalent; `team-code` shows yours.
+- `status`, `teammates` (mutual mentions kept together in matching), `leave`,
+  `leave-team`.
+- `admin …` — organizers: block/unblock/remove signups, move people between
+  teams (with provisioning), **team-category** (where team channels are
+  created), preview/commit matching (matched teams get spaces + roles too),
+  reset the event (tears down all team spaces).
+
+**Team spaces**
+
+Every team (created or matched) gets:
+
+- a Discord role in the team's color,
+- a private text channel + voice channel under a category chosen by server
+  admins (`/hackathon admin team-category`, the admin web UI, or the
+  `TEAM_CATEGORY_ID` env fallback),
+- join/leave role management, welcome messages on every new member, and full
+  teardown on team delete or event reset.
 
 **Matching engine**
 

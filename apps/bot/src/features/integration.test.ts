@@ -29,7 +29,7 @@ function signup(
     experience: 'some_experience',
     roleTrack: 'fullstack',
     skills: ['devops'],
-    teamPref: 'private_team',
+    teamPref: 'random_team',
     ...opts,
   });
   if (!validated.ok) throw new Error(`bad fixture: ${validated.errors.join('; ')}`);
@@ -80,7 +80,7 @@ test('blocked users cannot re-signup and are excluded from matching', () => {
     experience: 'some_experience',
     roleTrack: 'fullstack',
     skills: ['devops'],
-    teamPref: 'private_team',
+    teamPref: 'random_team',
   });
   if (!validated.ok) throw new Error('fixture broken');
   const res = upsertParticipant(db, 'test', G, '1', validated.value);

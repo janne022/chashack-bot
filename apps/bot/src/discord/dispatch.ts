@@ -9,7 +9,7 @@ import {
 } from 'discord.js';
 import type { Db } from '../shared/db.js';
 import { getForm } from '../features/form/service.js';
-import { listTeams } from '../features/teams/service.js';
+import { listTeams, getGuildSettings } from '../features/teams/service.js';
 import { handleUserCommand } from './user-commands.js';
 import { handleAdminCommand } from './admin-commands.js';
 import { onComponent, onModalSubmit } from './components.js';
@@ -18,6 +18,9 @@ import { eph, type Ctx } from './shared.js';
 export interface RouterDeps {
   db: Db;
   adminIds: string[];
+  client: Client;
+  /** Env fallback for the team channel category (guild setting wins). */
+  teamCategoryId: string | undefined;
   announce: (guildId: string, content: string) => Promise<void>;
 }
 
@@ -32,7 +35,23 @@ export function isAdminMember(interaction: Interaction, adminIds: string[]): boo
   return false;
 }
 
+export function makeDm(client: Client): Ctx['dm'] {
+  return async (userId, payload) => {
+    try {
+      const user = await client.users.fetch(userId);
+      await user.send(payload);
+      return true;
+    } catch {
+      return false; // DMs closed / unknown user
+    }
+  };
+}
+
 export function registerInteractionHandlers(client: Client, deps: RouterDeps): void {
+  const categoryIdFor = (guildId: string): string | undefined =>
+    getGuildSettings(deps.db, guildId).teamCategoryId ?? deps.teamCategoryId;
+  const dm = makeDm(client);
+
   client.on('interactionCreate', async (interaction: Interaction) => {
     try {
       if (interaction.isAutocomplete()) {
@@ -61,6 +80,9 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         guildId,
         actor: `discord:${interaction.user.id}`,
         isAdmin: isAdminMember(interaction, deps.adminIds),
+        client,
+        categoryIdFor,
+        dm,
       };
 
       if (interaction.isChatInputCommand()) {

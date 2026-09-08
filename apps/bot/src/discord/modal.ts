@@ -1,7 +1,7 @@
 /**
- * Signup modal: a single modern modal with labels + select menus
- * (discord.js >= 14.23). Rebuilt from the live form config on every open,
- * so admin edits take effect immediately.
+ * Signup + create-team modals. Modern labels + select menus (discord.js 14.23+).
+ * Signup modal rebuilds from the live form config on every open, so admin
+ * edits apply immediately.
  */
 import {
   LabelBuilder,
@@ -11,7 +11,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import { MODAL_IDS, type FormConfig } from '../features/form/domain.js';
+import { MODAL_IDS, TEAM_COLORS, type FormConfig } from '../features/form/domain.js';
 
 export function buildSignupModal(config: FormConfig): ModalBuilder {
   const modal = new ModalBuilder().setCustomId(MODAL_IDS.signup).setTitle(config.title.slice(0, 45));
@@ -65,3 +65,108 @@ export function buildSignupModal(config: FormConfig): ModalBuilder {
 
   return modal;
 }
+
+const CREATE_IDS = {
+  modal: 'hack:create:modal',
+  name: 'hack:create:name',
+  kind: 'hack:create:kind',
+  color: 'hack:create:color',
+} as const;
+
+const SETTINGS_IDS = {
+  modal: 'hack:settings:modal',
+  name: 'hack:settings:name',
+  kind: 'hack:settings:kind',
+  color: 'hack:settings:color',
+} as const;
+
+/** Create-team modal: name + visibility + role color in one shot. */
+export function buildCreateTeamModal(): ModalBuilder {
+  const modal = new ModalBuilder().setCustomId(CREATE_IDS.modal).setTitle('Create your team');
+
+  modal.addLabelComponents(
+    new LabelBuilder()
+      .setLabel('Team name')
+      .setTextInputComponent(
+        new TextInputBuilder()
+          .setCustomId(CREATE_IDS.name)
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('e.g. Compiler Crashers')
+          .setMinLength(3)
+          .setMaxLength(60)
+          .setRequired(true),
+      ),
+    new LabelBuilder()
+      .setLabel('Visibility')
+      .setStringSelectMenuComponent(
+        new StringSelectMenuBuilder()
+          .setCustomId(CREATE_IDS.kind)
+          .setOptions(
+            new StringSelectMenuOptionBuilder()
+              .setLabel('Public — anyone can ask to join from the team browser')
+              .setValue('public'),
+            new StringSelectMenuOptionBuilder()
+              .setLabel('Private — only people you invite (or with the join code)')
+              .setValue('private'),
+          )
+          .setRequired(true),
+      ),
+    new LabelBuilder()
+      .setLabel('Role color')
+      .setStringSelectMenuComponent(
+        new StringSelectMenuBuilder()
+          .setCustomId(CREATE_IDS.color)
+          .setOptions(TEAM_COLORS.map((c) => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.id)))
+          .setRequired(true),
+      ),
+  );
+
+  return modal;
+}
+
+/** Owner settings modal (kind/color can't be preselected — Discord limitation). */
+export function buildTeamSettingsModal(currentName: string, kind: string, colorId: string | null): ModalBuilder {
+  const modal = new ModalBuilder().setCustomId(SETTINGS_IDS.modal).setTitle('Team settings');
+
+  modal.addLabelComponents(
+    new LabelBuilder()
+      .setLabel('Team name')
+      .setTextInputComponent(
+        new TextInputBuilder()
+          .setCustomId(SETTINGS_IDS.name)
+          .setStyle(TextInputStyle.Short)
+          .setValue(currentName.slice(0, 60))
+          .setMinLength(3)
+          .setMaxLength(60)
+          .setRequired(true),
+      ),
+    new LabelBuilder()
+      .setLabel(`Visibility (currently: ${kind})`)
+      .setStringSelectMenuComponent(
+        new StringSelectMenuBuilder()
+          .setCustomId(SETTINGS_IDS.kind)
+          .setOptions(
+            new StringSelectMenuOptionBuilder()
+              .setLabel('Public — anyone can ask to join from the team browser')
+              .setValue('public'),
+            new StringSelectMenuOptionBuilder()
+              .setLabel('Private — only people you invite (or with the join code)')
+              .setValue('private'),
+          )
+          .setRequired(true),
+      ),
+    new LabelBuilder()
+      .setLabel(`Role color (currently: ${colorId ?? 'default'})`)
+      .setStringSelectMenuComponent(
+        new StringSelectMenuBuilder()
+          .setCustomId(SETTINGS_IDS.color)
+          .setOptions(TEAM_COLORS.map((c) => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.id)))
+          .setRequired(true),
+      ),
+  );
+
+  return modal;
+}
+
+export const CREATE_TEAM_IDS = CREATE_IDS;
+export const TEAM_SETTINGS_IDS = SETTINGS_IDS;

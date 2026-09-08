@@ -1,5 +1,6 @@
 /**
- * Slash command definitions for /hackathon. Handlers live in handlers.ts.
+ * Slash command definitions for /hackathon. Handlers live in user-commands.ts,
+ * admin-commands.ts and components.ts.
  */
 import {
   SlashCommandBuilder,
@@ -21,23 +22,28 @@ export const HACKATHON_COMMAND = new SlashCommandBuilder()
     sub.setName('status').setDescription('Show your signup and team'),
   )
   .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
-    sub.setName('teams').setDescription('Browse public teams and join one'),
+    sub.setName('create-team').setDescription('Create your own team — opens a form (name, visibility, color)'),
   )
   .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
-    sub.setName('leave-team').setDescription('Leave your current team (keeps your signup)'),
+    sub.setName('teams').setDescription('Browse teams and send a join request'),
   )
   .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
     sub
-      .setName('create-team')
-      .setDescription('Create your own team')
-      .addStringOption((o) => o.setName('name').setDescription('Team name').setRequired(true).setMaxLength(60))
-      .addStringOption((o) =>
-        o
-          .setName('kind')
-          .setDescription('Public teams are listed for anyone to join; private need a code')
-          .setRequired(true)
-          .addChoices({ name: 'Public — listed for others', value: 'public' }, { name: 'Private — join code only', value: 'private' }),
-      ),
+      .setName('invite')
+      .setDescription('Invite someone to your team (they get a DM with accept/decline)')
+      .addUserOption((o) => o.setName('user').setDescription('Who to invite').setRequired(true)),
+  )
+  .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+    sub.setName('team-settings').setDescription('Rename your team, flip public/private or change the role color'),
+  )
+  .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+    sub.setName('invitations').setDescription('Your pending invites and join requests'),
+  )
+  .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+    sub.setName('team-requests').setDescription('Team owners: review join requests and sent invites'),
+  )
+  .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+    sub.setName('leave-team').setDescription('Leave your current team (keeps your signup)'),
   )
   .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
     sub
@@ -82,6 +88,17 @@ export const HACKATHON_COMMAND = new SlashCommandBuilder()
           .setDescription('Move a user into a team (or out of one)')
           .addUserOption((o) => o.setName('user').setDescription('Who').setRequired(true))
           .addStringOption((o) => o.setName('team').setDescription('Team name or id; leave empty to unassign').setAutocomplete(true)),
+      )
+      .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
+        sub
+          .setName('team-category')
+          .setDescription('Set the category where team text/voice channels are created')
+          .addChannelOption((o) =>
+            o
+              .setName('category')
+              .setDescription('Leave empty to use the server default / unset')
+              .addChannelTypes(4),
+          ),
       )
       .addSubcommand((sub: SlashCommandSubcommandBuilder) =>
         sub.setName('match-preview').setDescription('Preview team matching without changing anything'),

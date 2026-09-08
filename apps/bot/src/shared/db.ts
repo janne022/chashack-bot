@@ -1,5 +1,5 @@
 /**
- * SQLite bootstrap + idempotent migrations via node:sqlite (built into Node 22+).
+ * SQLite bootstrap + idempotent migrations via node:sqlite (built into Node 24).
  * No native deps, nothing to compile.
  */
 import { mkdirSync } from 'node:fs';
@@ -19,6 +19,13 @@ export function openDb(dbPath: string): Db {
   db.exec('PRAGMA foreign_keys = ON;');
   migrate(db);
   return db;
+}
+
+function addColumnIfMissing(db: Db, table: string, column: string, definition: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 function migrate(db: Db): void {
@@ -60,6 +67,26 @@ function migrate(db: Db): void {
       created_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS team_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id TEXT NOT NULL,
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      requester_id TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      decided_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_requests_team ON team_requests(team_id, status);
+    CREATE INDEX IF NOT EXISTS idx_requests_target ON team_requests(target_id, status);
+
+    CREATE TABLE IF NOT EXISTS guild_settings (
+      guild_id TEXT PRIMARY KEY,
+      team_category_id TEXT,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS audit_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ts INTEGER NOT NULL,
@@ -70,6 +97,22 @@ function migrate(db: Db): void {
     );
     CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
     CREATE INDEX IF NOT EXISTS idx_participants_team ON participants(team_id);
+  `);
+
+  // Team Discord provisioning targets + branding.
+  addColumnIfMissing(db, 'teams', 'role_id', 'TEXT');
+  addColumnIfMissing(db, 'teams', 'text_channel_id', 'TEXT');
+  addColumnIfMissing(db, 'teams', 'voice_channel_id', 'TEXT');
+  addColumnIfMissing(db, 'teams', 'color', 'TEXT');
+
+  // Migrate pre-redesign team preference ids to the new flow.
+  db.exec(`
+    UPDATE participants SET team_pref = CASE team_pref
+      WHEN 'private_team' THEN 'random_team'
+      WHEN 'public_team'  THEN 'join_team'
+      WHEN 'with_friends' THEN 'create_team'
+      ELSE team_pref
+    END;
   `);
 }
 

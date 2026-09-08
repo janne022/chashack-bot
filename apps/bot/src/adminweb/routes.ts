@@ -22,6 +22,9 @@ import {
   adminAssign,
   listTeams,
   removeMember,
+  updateTeamSettings,
+  setGuildCategory,
+  getGuildSettings,
 } from '../features/teams/service.js';
 import { previewMatch, commitMatch, lastMatchInfo } from '../features/matching/service.js';
 import { getForm, updateForm, resetForm } from '../features/form/service.js';
@@ -101,12 +104,13 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       config: getForm(db),
       audit: auditList(db, 100),
       lastMatch: lastMatchInfo(db, guildId),
+      guildSettings: getGuildSettings(db, guildId),
       stats: {
         signups: participants.filter((p) => p.status !== 'withdrawn').length,
         active: participants.filter((p) => p.status === 'active').length,
         blocked: participants.filter((p) => p.status === 'blocked').length,
         unteamed: participants.filter((p) => p.status === 'active' && p.teamId === null).length,
-        matchingOptIn: participants.filter((p) => p.status === 'active' && p.teamId === null && p.teamPref === 'private_team').length,
+        matchingOptIn: participants.filter((p) => p.status === 'active' && p.teamId === null && p.teamPref === 'random_team').length,
         teams: teams.length,
       },
     };
@@ -190,6 +194,21 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return { ok: true };
   });
 
+  app.post('/api/teams/:teamId/settings', async (req, reply) => {
+    const { teamId } = req.params as { teamId: string };
+    const body = req.body as { name?: string; kind?: string; colorId?: string | null } | null;
+    const res = updateTeamSettings(db, 'web', teamId, {
+      ...(body?.name !== undefined ? { name: body.name } : {}),
+      ...(body?.kind === 'public' || body?.kind === 'private' ? { kind: body.kind } : {}),
+      ...(body?.colorId !== undefined ? { colorId: body.colorId } : {}),
+    });
+    if (!res.ok) {
+      await reply.code(400).send(res);
+      return;
+    }
+    return { ok: true, team: res.value };
+  });
+
   app.post('/api/teams/:teamId/rotate-code', async (req, reply) => {
     const res = rotateJoinCode(db, 'web', (req.params as { teamId: string }).teamId);
     if (!res.ok) {
@@ -253,5 +272,11 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     db.prepare('DELETE FROM teams WHERE guild_id = ?').run(guildId);
     audit(db, 'web', 'event.reset', guildId, { participants, teams });
     return { ok: true, removed: { participants, teams } };
+  });
+
+  app.post('/api/guild/category', async (req) => {
+    const body = req.body as { categoryId?: string | null } | null;
+    setGuildCategory(db, 'web', guildId, body?.categoryId ?? null);
+    return { ok: true };
   });
 }

@@ -15,6 +15,10 @@ export interface Team {
   kind: TeamKind | 'matched';
   ownerId: string | null;
   joinCode: string | null;
+  roleId: string | null;
+  textChannelId: string | null;
+  voiceChannelId: string | null;
+  colorId: string | null;
   createdAt: number;
 }
 
@@ -29,6 +33,10 @@ interface TeamRow {
   kind: string;
   owner_id: string | null;
   join_code: string | null;
+  role_id: string | null;
+  text_channel_id: string | null;
+  voice_channel_id: string | null;
+  color: string | null;
   created_at: number;
 }
 
@@ -40,6 +48,10 @@ function toTeam(row: TeamRow): Team {
     kind: row.kind as Team['kind'],
     ownerId: row.owner_id,
     joinCode: row.join_code,
+    roleId: row.role_id,
+    textChannelId: row.text_channel_id,
+    voiceChannelId: row.voice_channel_id,
+    colorId: row.color,
     createdAt: row.created_at,
   };
 }
@@ -51,6 +63,7 @@ export function createTeam(
   name: string,
   kind: TeamKind,
   ownerId: string,
+  colorId: string | null = null,
 ): Result<Team> {
   const cleanName = name.trim().replace(/\s+/g, ' ').slice(0, 60);
   if (cleanName.length < 3) return err('bad_name', 'Team name must be at least 3 characters.');
@@ -58,19 +71,18 @@ export function createTeam(
   const existingMembership = getTeamForUser(db, guildId, ownerId);
   if (existingMembership !== null) return err('already_in_team', 'You are already in a team. Leave it first.');
 
-  // Private teams get a join code; public teams are joinable from the listing.
   const id = newId('team');
   const joinCode = kind === 'private' ? newJoinCode() : null;
   db.prepare(
-    'INSERT INTO teams (id, guild_id, name, kind, owner_id, join_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  ).run(id, guildId, cleanName, kind, ownerId, joinCode, Date.now());
+    'INSERT INTO teams (id, guild_id, name, kind, owner_id, join_code, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(id, guildId, cleanName, kind, ownerId, joinCode, colorId, Date.now());
   db.prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE user_id = ? AND guild_id = ?').run(
     id,
     Date.now(),
     ownerId,
     guildId,
   );
-  audit(db, actor, 'team.create', id, { name: cleanName, kind });
+  audit(db, actor, 'team.create', id, { name: cleanName, kind, colorId });
   const created = db.prepare('SELECT * FROM teams WHERE id = ?').get(id) as unknown as TeamRow;
   return ok(toTeam(created));
 }
@@ -182,6 +194,70 @@ export function joinPrivateTeam(
   );
   audit(db, actor, 'team.join_code', team.id, { userId });
   return ok(team);
+}
+
+/** Set Discord provisioning targets after role/channel creation. */
+export function setProvisioning(
+  db: Db,
+  teamId: string,
+  ids: { roleId: string; textChannelId: string; voiceChannelId: string },
+): void {
+  db.prepare('UPDATE teams SET role_id = ?, text_channel_id = ?, voice_channel_id = ? WHERE id = ?').run(
+    ids.roleId,
+    ids.textChannelId,
+    ids.voiceChannelId,
+    teamId,
+  );
+}
+
+export function setTextChannel(db: Db, teamId: string, channelId: string | null): void {
+  db.prepare('UPDATE teams SET text_channel_id = ? WHERE id = ?').run(channelId, teamId);
+}
+
+export function setVoiceChannel(db: Db, teamId: string, channelId: string | null): void {
+  db.prepare('UPDATE teams SET voice_channel_id = ? WHERE id = ?').run(channelId, teamId);
+}
+
+export function setRole(db: Db, teamId: string, roleId: string | null): void {
+  db.prepare('UPDATE teams SET role_id = ? WHERE id = ?').run(roleId, teamId);
+}
+
+/** Owner settings: visibility (public/private), name, color. */
+export function updateTeamSettings(
+  db: Db,
+  actor: string,
+  teamId: string,
+  update: { name?: string; kind?: TeamKind; colorId?: string | null | undefined },
+): Result<Team> {
+  const team = getTeam(db, teamId);
+  if (team === null) return err('not_found', 'Team not found.');
+  if (team.kind === 'matched') return err('matched_team', 'Matched teams cannot be edited here.');
+
+  const name = update.name !== undefined ? update.name.trim().replace(/\s+/g, ' ').slice(0, 60) : team.name;
+  if (name.length < 3) return err('bad_name', 'Team name must be at least 3 characters.');
+  const kind = update.kind ?? (team.kind as TeamKind);
+  const colorId = update.colorId !== undefined ? update.colorId : team.colorId;
+
+  db.prepare('UPDATE teams SET name = ?, kind = ?, color = ? WHERE id = ?').run(name, kind, colorId, teamId);
+  audit(db, actor, 'team.settings', teamId, { name, kind, colorId });
+  const row = db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as unknown as TeamRow;
+  return ok(toTeam(row));
+}
+
+/** Guild-level settings (channel category for team spaces). */
+export function getGuildSettings(db: Db, guildId: string): { teamCategoryId: string | null } {
+  const row = db.prepare('SELECT team_category_id FROM guild_settings WHERE guild_id = ?').get(guildId) as
+    | { team_category_id: string | null }
+    | undefined;
+  return { teamCategoryId: row?.team_category_id ?? null };
+}
+
+export function setGuildCategory(db: Db, actor: string, guildId: string, categoryId: string | null): void {
+  db.prepare(
+    `INSERT INTO guild_settings (guild_id, team_category_id, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(guild_id) DO UPDATE SET team_category_id = excluded.team_category_id, updated_at = excluded.updated_at`,
+  ).run(guildId, categoryId, Date.now());
+  audit(db, actor, 'guild.set_category', guildId, { categoryId });
 }
 
 export function leaveTeam(db: Db, actor: string, guildId: string, userId: string): Result<Team> {

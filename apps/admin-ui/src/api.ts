@@ -73,6 +73,24 @@ export const api = {
     return res.code
   },
 
+  async updateTeamSettings(
+    teamId: string,
+    update: { name?: string; kind?: 'public' | 'private'; colorId?: string | null },
+  ): Promise<Team> {
+    const res = await request<{ team: Team }>(`/api/teams/${teamId}/settings`, {
+      method: 'POST',
+      body: JSON.stringify(update),
+    })
+    return res.team
+  },
+
+  async setGuildCategory(categoryId: string | null): Promise<void> {
+    await request('/api/guild/category', {
+      method: 'POST',
+      body: JSON.stringify({ categoryId }),
+    })
+  },
+
   async removeMember(teamId: string, userId: string): Promise<void> {
     await request(`/api/teams/${teamId}/remove-member`, {
       method: 'POST',

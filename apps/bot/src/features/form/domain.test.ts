@@ -10,7 +10,7 @@ test('accepts a valid signup payload', () => {
     experience: 'some_experience',
     roleTrack: 'frontend',
     skills: ['frontend_react', 'ui_design', 'backend_node'],
-    teamPref: 'private_team',
+    teamPref: 'random_team',
   });
   assert.equal(res.ok, true);
   if (res.ok) {
@@ -39,7 +39,7 @@ test('enforces group exclusivity — only one backend language survives', () => 
     experience: 'veteran',
     roleTrack: 'backend',
     skills: ['backend_node', 'backend_python', 'backend_csharp', 'devops'],
-    teamPref: 'with_friends',
+    teamPref: 'create_team',
   });
   assert.equal(res.ok, true);
   if (res.ok) {
@@ -55,7 +55,7 @@ test('drops unknown skills silently', () => {
     experience: 'first_timer',
     roleTrack: 'design',
     skills: ['ui_design', 'made_up_skill'],
-    teamPref: 'public_team',
+    teamPref: 'join_team',
   });
   assert.equal(res.ok, true);
   if (res.ok) assert.deepEqual(res.value.skills, ['ui_design']);

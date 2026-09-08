@@ -11,7 +11,7 @@ function makeParticipant(overrides: Partial<Participant> & { userId: string }): 
     experience: 'some_experience',
     roleTrack: 'fullstack',
     skills: [],
-    teamPref: 'private_team',
+    teamPref: 'random_team',
     teammates: [],
     teamId: null,
     status: 'active',

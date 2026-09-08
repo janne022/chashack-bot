@@ -4,7 +4,8 @@
  */
 
 export type Experience = 'first_timer' | 'some_experience' | 'veteran';
-export type TeamPref = 'private_team' | 'public_team' | 'with_friends';
+/** How the participant wants to find their team. */
+export type TeamPref = 'create_team' | 'join_team' | 'random_team';
 export type TeamKind = 'public' | 'private';
 
 export interface SkillOption {
@@ -65,14 +66,30 @@ export const DEFAULT_FORM: FormConfig = {
   roleTracks: DEFAULT_ROLE_TRACKS,
   skills: DEFAULT_SKILLS,
   teamPrefs: [
-    { id: 'private_team', label: 'Match me into a team (public matching)' },
-    { id: 'public_team', label: 'Create / join a public team others can join' },
-    { id: 'with_friends', label: 'I already have teammate(s) signed up' },
+    { id: 'create_team', label: 'Create my own team and invite people' },
+    { id: 'join_team', label: 'Ask to join an existing team' },
+    { id: 'random_team', label: 'Get matched into a random team' },
   ],
 };
 
 export const EXPERIENCE_IDS: Experience[] = ['first_timer', 'some_experience', 'veteran'];
-export const TEAM_PREF_IDS: TeamPref[] = ['private_team', 'public_team', 'with_friends'];
+export const TEAM_PREF_IDS: TeamPref[] = ['create_team', 'join_team', 'random_team'];
+
+/** Role color palette for team creation (Discord modals have no color picker). */
+export const TEAM_COLORS: { id: string; label: string; hex: string; int: number }[] = [
+  { id: 'blurple', label: 'Blurple', hex: '#5865F2', int: 0x5865f2 },
+  { id: 'green', label: 'Green', hex: '#3EC46D', int: 0x3ec46d },
+  { id: 'orange', label: 'Orange', hex: '#F0B429', int: 0xf0b429 },
+  { id: 'red', label: 'Red', hex: '#EF4444', int: 0xef4444 },
+  { id: 'purple', label: 'Purple', hex: '#9B59B6', int: 0x9b59b6 },
+  { id: 'cyan', label: 'Cyan', hex: '#1ABC9C', int: 0x1abc9c },
+  { id: 'pink', label: 'Pink', hex: '#E91E63', int: 0xe91e63 },
+];
+
+export function teamColor(colorId: string | null): { hex: string; int: number } {
+  const found = TEAM_COLORS.find((c) => c.id === colorId);
+  return found ?? TEAM_COLORS[0]!;
+}
 
 /** Discord component custom_id, kept stable for the collector. */
 export const MODAL_IDS = {
