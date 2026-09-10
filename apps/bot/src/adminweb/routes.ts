@@ -86,9 +86,15 @@ function sessionFrom(req: FastifyRequest, config: Env): string | null {
   return verifyToken(config.adminSessionSecret, decodeURIComponent(m[1]!)) ? m[1]! : null;
 }
 
+const SNOWFLAKE_RE = /^[0-9]{17,20}$/;
+function isSnowflake(id: string): boolean { return SNOWFLAKE_RE.test(id); }
+
 export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   const { db, config } = deps;
   const guildId = config.guildId ?? 'default';
+  if (!isSnowflake(guildId)) {
+    console.warn(`[adminweb] DISCORD_GUILD_ID is not set or not a snowflake (got "${guildId}"). Discord features (announce, panel, guild channels) will fail until you set it in .env and restart. Admin UI still works.`);
+  }
 
   /** The event the admin web UI is operating on: the active one. */
   const activeEventId = (): string => {
@@ -126,6 +132,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/guild/channels', async () => {
     if (deps.client === null) return { channels: [], categories: [] };
+    if (!isSnowflake(guildId)) {
+      console.warn(`GET /api/guild/channels: DISCORD_GUILD_ID not set or invalid ("${guildId}") — returning empty. Set it in .env.`);
+      return { channels: [], categories: [] };
+    }
     try {
       const guild = await deps.client.guilds.fetch(guildId);
       const channels = await guild.channels.fetch();
@@ -143,12 +153,17 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
   });
 
-  app.get('/api/state', async () => {
+  app.get('/api/state', async (_req, reply) => {
     const eventId = activeEventId();
     const participants = listParticipants(db, eventId);
     const teams = listTeams(db, eventId);
     const events = listEvents(db, guildId);
     const active = events.find((e) => e.status === 'active') ?? null;
+    // surface guild mis-config so UI can warn
+    const guildOk = isSnowflake(guildId);
+    if (!guildOk) {
+      reply.header('x-guild-warning', 'DISCORD_GUILD_ID not set');
+    }
     return {
       participants,
       teams,
@@ -156,6 +171,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       audit: auditList(db, 100),
       lastMatch: lastMatchInfo(db, eventId),
       guildSettings: getGuildSettings(db, guildId),
+      guildConfigured: guildOk,
+      guildId,
       events,
       templates: listTemplates(db, guildId),
       activeEventId: active?.id ?? null,
@@ -173,6 +190,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   // ── events ────────────────────────────────────────────────────────────────
 
   app.post('/api/events', async (req, reply) => {
+    if (!isSnowflake(guildId)) {
+      await reply.code(400).send({ ok: false, code: 'guild_not_configured', message: 'DISCORD_GUILD_ID is not set or not a snowflake. Set it in .env and restart the bot.' });
+      return;
+    }
     const body = req.body as {
       name?: string;
       description?: string;
@@ -296,6 +317,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/events/announce', async (req, reply) => {
+    if (!isSnowflake(guildId)) {
+      await reply.code(400).send({ ok: false, code: 'guild_not_configured', message: 'DISCORD_GUILD_ID is not set or not a snowflake. Configure it in .env or Config → Guild defaults.' });
+      return;
+    }
     const body = req.body as { eventId?: string; title?: string; message?: string; dm?: boolean; channelId?: string } | null
     const event = body?.eventId !== undefined ? getEvent(db, body.eventId) : getActiveEvent(db, guildId)
     if (event === null) {

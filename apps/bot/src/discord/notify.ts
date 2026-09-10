@@ -34,6 +34,18 @@ export interface NotifyDeps {
   kysely?: KyselyDb;
 }
 
+const SNOWFLAKE_RE = /^[0-9]{17,20}$/;
+function isSnowflake(id: string): boolean {
+  return SNOWFLAKE_RE.test(id);
+}
+function warnInvalidGuild(guildId: string, scope: string): boolean {
+  if (!isSnowflake(guildId)) {
+    console.warn(`${scope}: skipped — DISCORD_GUILD_ID is not set or not a snowflake (got "${guildId}"). Set it in .env.`);
+    return true;
+  }
+  return false;
+}
+
 function buildAnnouncementEmbed(event: HackathonEvent, title: string, message: string): EmbedBuilder {
   const locale = botLocale();
   const lines: string[] = [message, ''];
@@ -62,15 +74,19 @@ export async function sendAnnouncement(
   // 1) Announcement channel (override → event ann channel → panel → guild panel).
   const channelId = overrideChannelId ?? event.announcementChannelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
   if (channelId !== null) {
-    try {
-      const guild = await client.guilds.fetch(event.guildId);
-      const channel = await guild.channels.fetch(channelId);
-      if (channel !== null && channel.isTextBased()) {
-        await channel.send({ embeds: [buildAnnouncementEmbed(event, title, message)] });
-        posted = true;
+    if (warnInvalidGuild(event.guildId, 'announcement post')) {
+      // don't even try the Discord API — will stay posted=false, caller shows "channel unreachable"
+    } else {
+      try {
+        const guild = await client.guilds.fetch(event.guildId);
+        const channel = await guild.channels.fetch(channelId);
+        if (channel !== null && channel.isTextBased()) {
+          await channel.send({ embeds: [buildAnnouncementEmbed(event, title, message)] });
+          posted = true;
+        }
+      } catch (error) {
+        console.warn('announcement post failed:', error);
       }
-    } catch (error) {
-      console.warn('announcement post failed:', error);
     }
   }
 
@@ -117,6 +133,9 @@ export async function createDiscordEvents(
   durationHours: number,
 ): Promise<{ created: { id: string; name: string }[]; errors: string[] }> {
   const { client, db } = deps;
+  if (warnInvalidGuild(event.guildId, 'createDiscordEvents')) {
+    return { created: [], errors: ['DISCORD_GUILD_ID not set — set it in .env'] };
+  }
   const guild = await client.guilds.fetch(event.guildId).catch(() => null);
   if (guild === null) return { created: [], errors: [t(botLocale(), 'discord.events.guild_not_found')] };
 
@@ -201,10 +220,12 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             )
             .setColor(0xfaa61a);
           const channelId = event.panelChannelId ?? readGuildPanel(db, event.guildId);
-          if (channelId !== null) {
+          if (channelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId);
             const channel = await guild.channels.fetch(channelId).catch(() => null);
             if (channel !== null && channel.isTextBased()) await channel.send({ embeds: [embed] });
+          } else if (channelId !== null) {
+            warnInvalidGuild(event.guildId, 'remind_24h');
           }
           // DM participants
           for (const p of listParticipants(db, event.id, 'active')) {
@@ -223,7 +244,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
         case 'end_event': {
           await endEvent(db, 'system', event.id);
           const channelId = event.panelChannelId ?? readGuildPanel(db, event.guildId);
-          if (channelId !== null) {
+          if (channelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId);
             const channel = await guild.channels.fetch(channelId).catch(() => null);
             if (channel !== null && channel.isTextBased()) {
@@ -238,6 +259,8 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 ],
               });
             }
+          } else if (channelId !== null) {
+            warnInvalidGuild(event.guildId, 'end_event');
           }
           summary.push(`ended: ${event.name}`);
           break;
@@ -246,31 +269,35 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           // Grace-window notice: channels stay up so people can grab photos.
           const hoursLeft = action.hoursLeft;
           const teams2 = listTeams(db, event.id);
-          const provisionDepsW = { db, client, categoryIdFor: () => event.categoryId ?? undefined };
-          for (const team of teams2) {
-            if (team.textChannelId === null) continue;
-            try {
-              const g = await client.guilds.fetch(event.guildId);
-              const ch = await g.channels.fetch(team.textChannelId).catch(() => null);
-              if (ch !== null && ch.isTextBased()) {
-                await ch.send({
-                  embeds: [
-                    new EmbedBuilder()
-                      .setTitle(t(locale, 'discord.notify.cleanup_title', { hours: hoursLeft }))
-                      .setDescription(
-                        [
-                          t(locale, 'discord.notify.cleanup_body', { name: event.name }),
-                          '',
-                          t(locale, 'discord.notify.cleanup_grab'),
-                          t(locale, 'discord.notify.cleanup_extend', { hours: event.cleanupDelayHours }),
-                        ].join('\n'),
-                      )
-                      .setColor(0xf0b429),
-                  ],
-                });
+          if (!isSnowflake(event.guildId)) {
+            warnInvalidGuild(event.guildId, 'cleanup_warn');
+          } else {
+            const provisionDepsW = { db, client, categoryIdFor: () => event.categoryId ?? undefined };
+            for (const team of teams2) {
+              if (team.textChannelId === null) continue;
+              try {
+                const g = await client.guilds.fetch(event.guildId);
+                const ch = await g.channels.fetch(team.textChannelId).catch(() => null);
+                if (ch !== null && ch.isTextBased()) {
+                  await ch.send({
+                    embeds: [
+                      new EmbedBuilder()
+                        .setTitle(t(locale, 'discord.notify.cleanup_title', { hours: hoursLeft }))
+                        .setDescription(
+                          [
+                            t(locale, 'discord.notify.cleanup_body', { name: event.name }),
+                            '',
+                            t(locale, 'discord.notify.cleanup_grab'),
+                            t(locale, 'discord.notify.cleanup_extend', { hours: event.cleanupDelayHours }),
+                          ].join('\n'),
+                        )
+                        .setColor(0xf0b429),
+                    ],
+                  });
+                }
+              } catch (err2) {
+                console.warn('cleanup warn post failed:', err2);
               }
-            } catch (err2) {
-              console.warn('cleanup warn post failed:', err2);
             }
           }
           markCleanupWarned(db, event.id, hoursLeft > 24 ? '72h' : '24h');
@@ -285,11 +312,15 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             await destroyTeamSpace(provisionDeps, team);
           }
           // Cancel linked Discord scheduled events.
-          const guild = await client.guilds.fetch(event.guildId).catch(() => null);
-          if (guild !== null) {
-            for (const seId of event.discordEventIds) {
-              await guild.scheduledEvents.delete(seId).catch(() => undefined);
+          if (isSnowflake(event.guildId)) {
+            const guild = await client.guilds.fetch(event.guildId).catch(() => null);
+            if (guild !== null) {
+              for (const seId of event.discordEventIds) {
+                await guild.scheduledEvents.delete(seId).catch(() => undefined);
+              }
             }
+          } else {
+            warnInvalidGuild(event.guildId, 'cleanup');
           }
           deleteEventTeams(db, 'system', event.id);
           if (kysely !== undefined) {
@@ -318,7 +349,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           markMatchLocked(db, event.id);
           audit(db, 'system', 'event.auto_match', event.id, { ok: preview.ok, code: preview.ok ? undefined : preview.code });
           const autoChannelId = event.panelChannelId ?? readGuildPanel(db, event.guildId);
-          if (autoChannelId !== null) {
+          if (autoChannelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId).catch(() => null);
             const channel = guild !== null ? await guild.channels.fetch(autoChannelId).catch(() => null) : null;
             if (channel !== null && channel.isTextBased()) {

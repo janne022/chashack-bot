@@ -145,6 +145,8 @@ export interface AppState {
     defaultCategoryId: string | null
     defaultCleanupDelayHours: number | null
   }
+  guildConfigured: boolean
+  guildId: string
   events: HackathonEvent[]
   templates: EventTemplate[]
   activeEventId: string | null

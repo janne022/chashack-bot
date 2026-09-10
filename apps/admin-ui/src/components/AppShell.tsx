@@ -11,6 +11,7 @@ import {
   Settings,
   LayoutTemplate,
   Briefcase,
+  TriangleAlert,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -166,6 +167,24 @@ export function AppShell({
 
       {/* Content */}
       <main className="min-w-0 flex-1 px-4 pb-20 pt-6 lg:px-8 lg:pb-10 lg:pt-8">
+        {state.guildConfigured === false && (
+          <div className="mx-auto mb-4 flex w-full max-w-6xl items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
+            <div className="flex-1">
+              <div className="font-semibold text-amber-600 dark:text-amber-400">
+                Discord not configured — <code className="rounded bg-amber-500/20 px-1 py-0.5">DISCORD_GUILD_ID</code> is missing or invalid (got &quot;{state.guildId}&quot;).
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                Announce, panel, and guild channels will fail. Set <code>DISCORD_GUILD_ID</code> to your guild&apos;s snowflake (right-click server → Copy ID) in <code>.env</code> and restart the bot. Invite link is in <Link to="/config" className="underline decoration-dotted underline-offset-2">Config</Link>.
+              </div>
+            </div>
+            <Link to="/config">
+              <Button size="sm" variant="outline" className="shrink-0 border-amber-500/40">
+                Open Config
+              </Button>
+            </Link>
+          </div>
+        )}
         <motion.div
           key={pathname}
           initial={{ opacity: 0, x: 12 }}
