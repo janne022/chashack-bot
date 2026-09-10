@@ -249,10 +249,7 @@ function NewEventButton() {
                 <span className="font-medium">{t('events.description')}</span>
                 <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('events.desc_placeholder')} maxLength={1000} />
               </label>
-              <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-medium">{t('events.when')}</span>
-                <DateRangePicker from={startsAt} to={endsAt} onChange={({ from, to }) => { setStartsAt(from); setEndsAt(to) }} />
-              </div>
+              <DateRangePicker from={startsAt} to={endsAt} onChange={({ from, to }) => { setStartsAt(from); setEndsAt(to) }} label={t('events.when')} />
 
               <ScheduleEditor value={schedule} onChange={setSchedule} />
 
