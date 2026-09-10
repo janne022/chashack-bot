@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScheduleEditor } from '@/components/ui/schedule-editor'
 import { EmptyState } from '@/components/ui/empty-state'
+import { TagPill, TagHelpButton } from '@/components/TagHelp'
 import { dateTime, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { SignupsTimeline } from '@/views/panels/charts/SignupsTimeline'
@@ -714,8 +715,16 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
               </label>
               <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('events.headline_placeholder') + " — tags: {event} {everyone}"} maxLength={100} />
               <Textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('events.message_placeholder') + " — e.g. Listen up {everyone} {event} starts {timer} — {panel}"} maxLength={2000} />
-              <div className="rounded-md border border-dashed border-border bg-surface-2/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                <b>Tags:</b> {"{event}"} {"{panel}"} {"{everyone}"} {"{here}"} {"{timer}"} {"{startsAt}"} {"{endsAt}"} {"{schedule}"} {"{schedule_title}"} {"{schedule_desc}"} {"{schedule_time}"} — see Templates → Event → Discord announcements for full guide + preview.
+              <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-border bg-surface-2/40 px-3 py-2">
+                <span className="text-xs font-medium">Tags — hover for meaning</span>
+                <TagPill tag="{event}" />
+                <TagPill tag="{panel}" />
+                <TagPill tag="{everyone}" />
+                <TagPill tag="{here}" />
+                <TagPill tag="{timer}" />
+                <TagPill tag="{schedule_title}" />
+                <TagPill tag="{schedule_desc}" />
+                <TagHelpButton />
               </div>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={dm} onCheckedChange={setDm} />

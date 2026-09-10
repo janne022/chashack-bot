@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FormConfigEditor } from "@/components/FormConfigEditor"
 import { EventTemplateEditor, type EventTemplateDraft } from "@/components/EventTemplateEditor"
+import { TagCheatSheet, TagHelpButton, TagPill } from "@/components/TagHelp"
 import type { FormConfig } from "@/types"
 import { dateTime } from "@/lib/format"
 import { DEFAULT_FORM } from "@/lib/default-form"
@@ -109,12 +110,22 @@ export function TemplatesPage() {
 
         <TabsContent value="announcement" className="flex flex-col gap-4 mt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-muted-foreground">Reusable Discord messages with tags like {"{everyone}"} {"{event}"} {"{timer}"}. Use in schedule actions or manual announces.</p>
-            <Button onClick={()=>setCreatingAnnouncement(true)}><Plus className="size-4" /> New announcement</Button>
+            <p className="text-sm text-muted-foreground">Reusable Discord messages — hover tags for meaning.</p>
+            <div className="flex items-center gap-2">
+              <TagHelpButton />
+              <Button onClick={()=>setCreatingAnnouncement(true)}><Plus className="size-4" /> New announcement</Button>
+            </div>
           </div>
-          <p className="rounded-md border border-dashed border-border bg-surface-2/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-            <b>Tags:</b> {"{event}"} {"{panel}"} {"{everyone}"} {"{here}"} {"{timer}"} {"{startsAt}"} {"{endsAt}"} {"{schedule_title}"} {"{schedule_desc}"} — full guide in any announcement editor.
-          </p>
+          <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-border bg-surface-2/40 px-3 py-2">
+            <span className="text-xs font-medium">Tags — hover</span>
+            <TagPill tag="{event}" />
+            <TagPill tag="{panel}" />
+            <TagPill tag="{everyone}" />
+            <TagPill tag="{timer}" />
+            <TagPill tag="{schedule_title}" />
+            <TagPill tag="{schedule_desc}" />
+          </div>
+          <TagCheatSheet compact />
           {announcementTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">No announcement templates yet — create one.</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {announcementTemplates.map(tpl=>{
@@ -294,13 +305,20 @@ function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: 
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">Message</label>
             <Textarea value={data.message} onChange={e=>setData({ ...data, message: e.target.value })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
-            <div className="rounded-md border border-dashed border-border bg-surface-2/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-              <b>Tags:</b> {"{event}"} {"{panel}"} {"{everyone}"} {"{here}"} {"{timer}"} {"{startsAt}"} {"{schedule_title}"} {"{schedule_desc}"} {"{schedule_time}"} {"{timer_schedule}"}
+            <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-border bg-surface-2/40 px-3 py-2">
+              <span className="text-xs font-medium">Tags — hover</span>
+              <TagPill tag="{event}" />
+              <TagPill tag="{panel}" />
+              <TagPill tag="{everyone}" />
+              <TagPill tag="{timer}" />
+              <TagPill tag="{schedule_title}" />
+              <TagHelpButton />
             </div>
             <div className="flex flex-wrap gap-1">
               {["{everyone}","{event}","{panel}","{timer}","{schedule_title}","{schedule_desc}"].map(tag=>(
-                <button key={tag} onClick={()=>setData({ ...data, message: data.message ? `${data.message} ${tag}` : tag })} className="rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[11px] hover:bg-accent-soft">{tag}</button>
+                <button key={tag} type="button" onClick={()=>setData({ ...data, message: data.message ? `${data.message} ${tag}` : tag })} className="rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[11px] hover:bg-accent-soft">{tag}</button>
               ))}
+              <span className="self-center text-[11px] text-muted-foreground">click to insert</span>
             </div>
           </div>
         </div>

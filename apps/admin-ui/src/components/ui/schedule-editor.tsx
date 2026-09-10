@@ -11,6 +11,7 @@ import { DateTimePicker } from "@/components/ui/datetime-picker"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { TagPill } from "@/components/TagHelp"
 import type { ScheduleItem, ScheduleAction } from "@/types"
 import { useT } from "@/lib/i18n"
 
@@ -249,8 +250,9 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {["{everyone}","{here}","{schedule_title}","{schedule_desc}","{panel}","{timer_schedule}"].map(tag=>(
-                    <button key={tag} onClick={()=>updateAction(a.id, { message: a.message ? `${a.message} ${tag}` : tag })} className="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] hover:bg-accent-soft">{tag}</button>
+                    <button key={tag} type="button" onClick={()=>updateAction(a.id, { message: a.message ? `${a.message} ${tag}` : tag })}><TagPill tag={tag} /></button>
                   ))}
+                  <span className="self-center text-[11px] text-muted-foreground">hover for meaning — click to insert</span>
                 </div>
               </CardContent>
             </Card>
