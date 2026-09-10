@@ -39,6 +39,7 @@ export interface HackathonEvent {
   /** Discord scheduled-event ids created for this hackathon event. */
   discordEventIds: string[];
   announcementChannelId: string | null;
+  scheduleChannelId: string | null;
   schedule: ScheduleItem[];
   announcements: AnnouncementTemplate[];
   announcedScheduleIds: string[];
@@ -91,6 +92,7 @@ interface EventRow {
   match_locked: number;
   discord_event_ids: string;
   announcement_channel_id: string | null;
+  schedule_channel_id: string | null;
   schedule_json: string | null;
   announcements_json: string | null;
   announced_schedule_ids: string | null;
@@ -146,6 +148,7 @@ function toEvent(row: EventRow): HackathonEvent {
     matchLocked: row.match_locked === 1,
     discordEventIds,
     announcementChannelId: row.announcement_channel_id ?? null,
+    scheduleChannelId: row.schedule_channel_id ?? null,
     schedule,
     announcements,
     announcedScheduleIds,
@@ -165,6 +168,7 @@ export interface CreateEventInput {
   form?: Partial<FormConfig>;
   panelChannelId?: string | null;
   announcementChannelId?: string | null;
+  scheduleChannelId?: string | null;
   categoryId?: string | null;
   cleanupDelayHours?: number;
   schedule?: ScheduleItem[];
@@ -189,8 +193,8 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
   // seed defaults if none provided — at least on_activate + schedule
   const seededAnnouncements = announcements.length > 0 ? announcements : defaultAnnouncements(name);
   db.prepare(
-    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, status, form_json, panel_channel_id, announcement_channel_id, category_id, cleanup_delay_hours, schedule_json, announcements_json, announced_schedule_ids, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, status, form_json, panel_channel_id, announcement_channel_id, schedule_channel_id, category_id, cleanup_delay_hours, schedule_json, announcements_json, announced_schedule_ids, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     guildId,
@@ -201,6 +205,7 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
     JSON.stringify(form),
     input.panelChannelId ?? null,
     input.announcementChannelId ?? null,
+    input.scheduleChannelId ?? null,
     input.categoryId ?? null,
     input.cleanupDelayHours ?? 48,
     JSON.stringify(schedule),
@@ -235,7 +240,7 @@ export function updateEvent(
   db: Db,
   actor: string,
   eventId: string,
-  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'announcementChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds' | 'schedule' | 'announcements'>>,
+  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'announcementChannelId' | 'scheduleChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds' | 'schedule' | 'announcements'>>,
 ): Result<HackathonEvent> {
   const event = getEvent(db, eventId);
   if (event === null) return err('not_found', 'Event not found.');
@@ -257,7 +262,7 @@ export function updateEvent(
       : event.cleanupDelayHours;
 
   db.prepare(
-    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, announcements_json = ?, updated_at = ?
+    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, schedule_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, announcements_json = ?, updated_at = ?
      WHERE id = ?`,
   ).run(
     name,
@@ -266,6 +271,7 @@ export function updateEvent(
     endsAt,
     update.panelChannelId !== undefined ? update.panelChannelId : event.panelChannelId,
     update.announcementChannelId !== undefined ? update.announcementChannelId : event.announcementChannelId,
+    update.scheduleChannelId !== undefined ? update.scheduleChannelId : event.scheduleChannelId,
     update.categoryId !== undefined ? update.categoryId : event.categoryId,
     cleanupDelayHours,
     update.matchAt !== undefined ? update.matchAt : event.matchAt,

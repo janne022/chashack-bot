@@ -90,6 +90,7 @@ function NewEventButton() {
   const [schedule, setSchedule] = useState<import('@/types').ScheduleItem[]>([])
   const [panelChannelId, setPanelChannelId] = useState('')
   const [announceChannelId, setAnnounceChannelId] = useState('')
+  const [scheduleChannelId, setScheduleChannelId] = useState('')
   const [announceTitle, setAnnounceTitle] = useState('')
   const [announceMessage, setAnnounceMessage] = useState('')
   const [dmOnAnnounce, setDmOnAnnounce] = useState(false)
@@ -111,6 +112,7 @@ function NewEventButton() {
     setOpen(true)
     if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
     if (!announceChannelId && defaults.defaultAnnouncementChannelId) setAnnounceChannelId(defaults.defaultAnnouncementChannelId)
+    if (!scheduleChannelId && (defaults as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId) setScheduleChannelId((defaults as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId ?? '')
   }
 
   function openFromTemplate() {
@@ -120,6 +122,7 @@ function NewEventButton() {
     setOpen(true)
     if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
     if (!announceChannelId && defaults.defaultAnnouncementChannelId) setAnnounceChannelId(defaults.defaultAnnouncementChannelId)
+    if (!scheduleChannelId && (defaults as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId) setScheduleChannelId((defaults as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId ?? '')
   }
 
   function applyTemplate(id: string) {
@@ -159,6 +162,7 @@ function NewEventButton() {
         ...(formTemplateId ? { formTemplateId } : {}),
         panelChannelId: panelChannelId || null,
         announcementChannelId: announceChannelId || null,
+        scheduleChannelId: scheduleChannelId || null,
         ...(schedule.length > 0 ? { schedule } : {}),
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
@@ -176,6 +180,7 @@ function NewEventButton() {
       setSchedule([])
       setPanelChannelId('')
       setAnnounceChannelId('')
+      setScheduleChannelId('')
       setAnnounceTitle('')
       setAnnounceMessage('')
       setDmOnAnnounce(false)
@@ -347,6 +352,11 @@ function NewEventButton() {
                 <span className="font-medium">{t('events.announce_channel')}</span>
                 <Input value={announceChannelId} onChange={(e) => setAnnounceChannelId(e.target.value)} placeholder="Discord channel ID (defaults to panel)" maxLength={30} />
               </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">Schedule / itinerary channel</span>
+                <Input value={scheduleChannelId} onChange={(e) => setScheduleChannelId(e.target.value)} placeholder="Discord channel for full itinerary with timers (e.g. #schedule)" maxLength={30} />
+                <span className="text-xs text-muted-foreground">The whole schedule (+ live <span className="font-mono">&lt;t:…&gt;</span> timers) is posted here as one message — auto-updated on Activate.</span>
+              </label>
 
               <fieldset className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2 p-3">
                 <legend className="text-xs font-medium text-muted-foreground px-1">{t('events.announce_at_create')}</legend>
@@ -503,6 +513,7 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
           </Button>
           <EventFormPicker event={event} refresh={refresh} />
           <NotificationButtons event={event} refresh={refresh} />
+          <ScheduleItineraryButton event={event} />
           <EndEventButton event={event} refresh={refresh} />
         </div>
       </CardContent>
@@ -756,6 +767,66 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
 }
 
 const updateCleanupPlaceholder = undefined
+
+function ScheduleItineraryButton({ event }: { event: HackathonEvent }) {
+  const { state } = useAppContext()
+  const t = useT()
+  const defaultChan = event.scheduleChannelId ?? (state.guildSettings as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId ?? ''
+  const [channelId, setChannelId] = useState(defaultChan)
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (!open) setChannelId(defaultChan) }, [defaultChan, open])
+
+  async function post() {
+    const cid = channelId.trim()
+    if (!cid) { toast.error('Pick a schedule channel first — set it in Config → Default schedule channel or on the event.'); return }
+    setBusy(true)
+    try {
+      const res = await api.postScheduleItinerary(event.id, cid)
+      if (cid !== (event.scheduleChannelId ?? '')) {
+        await api.updateEvent(event.id, { scheduleChannelId: cid }).catch(()=>undefined)
+      }
+      toast.success(res.edited ? `Itinerary updated in <#${res.channelId}>` : `Itinerary posted to <#${res.channelId}> — live <t:…> timers included`)
+      setOpen(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to post itinerary')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <>
+      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
+        <CalendarDays />
+        Post itinerary
+      </Button>
+      {open && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
+          <Card className="w-full max-w-md animate-pop-in" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle>Post schedule itinerary</CardTitle>
+              <CardDescription>One message with the whole schedule — Discord shows live <span className="font-mono">&lt;t:unix:F&gt;</span> + <span className="font-mono">&lt;t:unix:R&gt;</span> timers (e.g. in 2 hours, Tomorrow at 18:00). Auto-updated when you Activate or edit the schedule.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <div className="rounded-md bg-surface-2 p-2 text-xs font-mono">Starts &lt;t:…:F&gt; → live · Each block → &lt;t:…:R&gt; (“in 10 min”)</div>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">Schedule channel ID</span>
+                <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="123456789012345678" maxLength={30} />
+                <span className="text-xs text-muted-foreground">Defaults to event’s scheduleChannelId → Config default. The same message is edited in place so the channel doesn’t fill with duplicates.</span>
+              </label>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+                <Button disabled={busy || channelId.trim()===''} onClick={() => void post()}>
+                  <CalendarDays className="size-4" />
+                  {busy ? 'Posting…' : defaultChan ? 'Update itinerary' : 'Post itinerary'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </>
+  )
+}
 
 function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
   const t = useT()

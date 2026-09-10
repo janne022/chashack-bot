@@ -64,6 +64,7 @@ function migrate(db: Db): void {
       match_locked INTEGER NOT NULL DEFAULT 0,
       discord_event_ids TEXT NOT NULL DEFAULT '[]',
       announcement_channel_id TEXT,
+      schedule_channel_id TEXT,
       schedule_json TEXT NOT NULL DEFAULT '[]',
       announcements_json TEXT NOT NULL DEFAULT '[]',
       announced_schedule_ids TEXT NOT NULL DEFAULT '[]',
@@ -143,6 +144,7 @@ function migrate(db: Db): void {
       default_category_id TEXT,
       default_cleanup_delay_hours INTEGER,
       default_form_template_id TEXT,
+      default_schedule_channel_id TEXT,
       mod_role_ids TEXT NOT NULL DEFAULT '[]',
       updated_at INTEGER NOT NULL
     );
@@ -164,6 +166,7 @@ function migrate(db: Db): void {
   addColumnIfMissing(db, 'guild_settings', 'default_category_id', 'TEXT');
   addColumnIfMissing(db, 'guild_settings', 'default_cleanup_delay_hours', 'INTEGER');
   addColumnIfMissing(db, 'guild_settings', 'default_form_template_id', 'TEXT');
+  addColumnIfMissing(db, 'guild_settings', 'default_schedule_channel_id', 'TEXT');
   addColumnIfMissing(db, 'guild_settings', 'mod_role_ids', `TEXT NOT NULL DEFAULT '[]'`);
   addColumnIfMissing(db, 'teams', 'event_id', 'TEXT');
   addColumnIfMissing(db, 'team_requests', 'event_id', 'TEXT');
@@ -176,6 +179,7 @@ function migrate(db: Db): void {
   addColumnIfMissing(db, 'events', 'cleanup_warned_24h', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'events', 'match_at', 'INTEGER');
   addColumnIfMissing(db, 'events', 'match_locked', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'events', 'schedule_channel_id', 'TEXT');
   addColumnIfMissing(db, 'events', 'schedule_json', 'TEXT NOT NULL DEFAULT \'[]\'');
   addColumnIfMissing(db, 'events', 'announcements_json', 'TEXT NOT NULL DEFAULT \'[]\'');
   addColumnIfMissing(db, 'events', 'announced_schedule_ids', 'TEXT NOT NULL DEFAULT \'[]\'');

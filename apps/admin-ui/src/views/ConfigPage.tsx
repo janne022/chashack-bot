@@ -16,6 +16,7 @@ export function ConfigPage() {
   const gs = state.guildSettings
   const [panel, setPanel] = useState(gs.defaultPanelChannelId ?? '')
   const [announce, setAnnounce] = useState(gs.defaultAnnouncementChannelId ?? '')
+  const [scheduleChannel, setScheduleChannel] = useState((gs as unknown as { defaultScheduleChannelId?: string | null }).defaultScheduleChannelId ?? '')
   const [category, setCategory] = useState(gs.defaultCategoryId ?? gs.teamCategoryId ?? '')
   const [cleanup, setCleanup] = useState(gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '')
   const [defaultForm, setDefaultForm] = useState(gs.defaultFormTemplateId ?? '')
@@ -23,6 +24,7 @@ export function ConfigPage() {
   const [busy, setBusy] = useState(false)
   const [testingPanel, setTestingPanel] = useState(false)
   const [testingAnnounce, setTestingAnnounce] = useState(false)
+  const [testingSchedule, setTestingSchedule] = useState(false)
   const [channels, setChannels] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
   const [roles, setRoles] = useState<{ id: string; name: string; color: string }[]>([])
@@ -42,15 +44,17 @@ export function ConfigPage() {
   useEffect(() => {
     setPanel(gs.defaultPanelChannelId ?? '')
     setAnnounce(gs.defaultAnnouncementChannelId ?? '')
+    setScheduleChannel((gs as unknown as { defaultScheduleChannelId?: string | null }).defaultScheduleChannelId ?? '')
     setCategory(gs.defaultCategoryId ?? gs.teamCategoryId ?? '')
     setCleanup(gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '')
     setDefaultForm(gs.defaultFormTemplateId ?? '')
     setModRoles(gs.modRoleIds ?? [])
-  }, [gs.defaultPanelChannelId, gs.defaultAnnouncementChannelId, gs.defaultCategoryId, gs.teamCategoryId, gs.defaultCleanupDelayHours, gs.defaultFormTemplateId, gs.modRoleIds])
+  }, [gs.defaultPanelChannelId, gs.defaultAnnouncementChannelId, (gs as unknown as { defaultScheduleChannelId?: string | null }).defaultScheduleChannelId, gs.defaultCategoryId, gs.teamCategoryId, gs.defaultCleanupDelayHours, gs.defaultFormTemplateId, gs.modRoleIds])
 
   const dirty =
     panel !== (gs.defaultPanelChannelId ?? '') ||
     announce !== (gs.defaultAnnouncementChannelId ?? '') ||
+    scheduleChannel !== ((gs as unknown as { defaultScheduleChannelId?: string | null }).defaultScheduleChannelId ?? '') ||
     category !== (gs.defaultCategoryId ?? gs.teamCategoryId ?? '') ||
     cleanup !== (gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '') ||
     defaultForm !== (gs.defaultFormTemplateId ?? '') ||
@@ -60,6 +64,7 @@ export function ConfigPage() {
     const payload: Record<string, unknown> = {}
     payload.defaultPanelChannelId = panel.trim() === '' ? null : panel.trim()
     payload.defaultAnnouncementChannelId = announce.trim() === '' ? null : announce.trim()
+    payload.defaultScheduleChannelId = scheduleChannel.trim() === '' ? null : scheduleChannel.trim()
     // category: keep both legacy teamCategoryId and new defaultCategoryId in sync
     const catVal = category.trim() === '' ? null : category.trim()
     payload.defaultCategoryId = catVal
@@ -83,10 +88,10 @@ export function ConfigPage() {
     } finally { setBusy(false) }
   }
 
-  async function testChannel(which: 'panel' | 'announce') {
-    const id = which === 'panel' ? panel.trim() : announce.trim()
+  async function testChannel(which: 'panel' | 'announce' | 'schedule') {
+    const id = which === 'panel' ? panel.trim() : which === 'announce' ? announce.trim() : scheduleChannel.trim()
     if (!id) { toast.error('Pick a channel first'); return }
-    const setTesting = which === 'panel' ? setTestingPanel : setTestingAnnounce
+    const setTesting = which === 'panel' ? setTestingPanel : which === 'announce' ? setTestingAnnounce : setTestingSchedule
     setTesting(true)
     try {
       const res = await api.testChannel(id)
@@ -168,6 +173,34 @@ export function ConfigPage() {
                   {testingAnnounce ? 'Testing…' : 'Test'}
                 </Button>
               </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label>Default schedule channel</Label>
+            {channels.length > 0 ? (
+              <Select value={scheduleChannel || '__none'} onValueChange={(v) => setScheduleChannel(v === '__none' ? '' : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder={t('config.pick_channel')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">{t('common.not_set')}</SelectItem>
+                  {channels.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      #{c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input value={scheduleChannel} onChange={(e) => setScheduleChannel(e.target.value)} placeholder="123456789012345678" />
+            )}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground flex-1">Where the full itinerary with Discord timers (&lt;t:…&gt;) is posted. Auto-updated on Activate and whenever you edit the schedule.</span>
+              <Button variant="outline" size="sm" disabled={!scheduleChannel || testingSchedule} onClick={() => void testChannel('schedule')}>
+                <Send className="size-3.5" />
+                {testingSchedule ? 'Testing…' : 'Test'}
+              </Button>
             </div>
           </div>
 

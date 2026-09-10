@@ -103,6 +103,7 @@ export interface HackathonEvent {
   formJson: string | null
   panelChannelId: string | null
   announcementChannelId: string | null
+  scheduleChannelId: string | null
   categoryId: string | null
   cleanupDelayHours: number
   cleanupDone: boolean
@@ -164,6 +165,7 @@ export interface AppState {
     defaultCategoryId: string | null
     defaultCleanupDelayHours: number | null
     defaultFormTemplateId: string | null
+    defaultScheduleChannelId: string | null
     modRoleIds: string[]
   }
   guildConfigured: boolean

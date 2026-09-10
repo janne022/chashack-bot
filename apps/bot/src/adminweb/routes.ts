@@ -265,9 +265,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       endsAt?: number | null;
       panelChannelId?: string | null;
       announcementChannelId?: string | null;
+      scheduleChannelId?: string | null;
       templateId?: string;
       formTemplateId?: string;
-      schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[];
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; title: string; message: string }[] }[];
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
       saveAsTemplate?: boolean;
       saveTemplateName?: string;
@@ -334,6 +335,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body.endsAt != null ? { endsAt: body.endsAt } : {}),
       ...(body.panelChannelId !== undefined ? { panelChannelId: body.panelChannelId } : gs.defaultPanelChannelId ? { panelChannelId: gs.defaultPanelChannelId } : {}),
       ...(body.announcementChannelId !== undefined ? { announcementChannelId: body.announcementChannelId } : gs.defaultAnnouncementChannelId ? { announcementChannelId: gs.defaultAnnouncementChannelId } : {}),
+      ...(body.scheduleChannelId !== undefined ? { scheduleChannelId: body.scheduleChannelId } : (gs as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId ? { scheduleChannelId: (gs as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId } : {}),
       ...(gs.defaultCategoryId && body.panelChannelId === undefined ? { categoryId: gs.defaultCategoryId } : {}),
       ...(gs.defaultCleanupDelayHours != null ? { cleanupDelayHours: gs.defaultCleanupDelayHours } : {}),
       ...(form !== undefined ? { form } : {}),
@@ -374,6 +376,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const event = res.value
     let panelResult: { ok: boolean; channelId?: string; edited?: boolean; reason?: string } = { ok: true }
     let announceResult: { posted: boolean; reason: string; channelId: string | null } | null = null
+    let itineraryResult: { ok: boolean; channelId?: string; messageId?: string; edited?: boolean; reason?: string } | null = null
 
     // Publish the join/signup panel to the event's panel channel (or guild default as fallback).
     if (deps.client !== null) {
@@ -429,9 +432,18 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       } else {
         announceResult = { posted: false, reason: 'no_channel_configured: set Announcement channel in event or Config', channelId: null }
       }
+      // Post/update the full itinerary with Discord timers to the schedule channel (if set)
+      try {
+        const { postOrUpdateScheduleItinerary } = await import('../discord/schedule-itinerary.js')
+        const r = await postOrUpdateScheduleItinerary(db, deps.client, event)
+        if ('error' in r) itineraryResult = { ok: false, reason: r.error }
+        else itineraryResult = { ok: true, channelId: r.channelId, messageId: r.messageId, edited: r.edited }
+      } catch (e) { itineraryResult = { ok: false, reason: e instanceof Error ? e.message : String(e) } }
+      // keep it optional: don't fail activation if no schedule channel
+      if (itineraryResult && !itineraryResult.ok && itineraryResult.reason?.includes('No schedule channel')) itineraryResult = null
     }
 
-    return { ok: true, event, panel: panelResult, announce: announceResult };
+    return { ok: true, event, panel: panelResult, announce: announceResult, itinerary: itineraryResult };
   });
 
   app.patch('/api/events/:eventId', async (req, reply) => {
@@ -443,9 +455,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       endsAt?: number | null;
       panelChannelId?: string | null;
       announcementChannelId?: string | null;
+      scheduleChannelId?: string | null;
       cleanupDelayHours?: number;
       matchAt?: number | null;
-      schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[];
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; title: string; message: string }[] }[];
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
     } | null;
     const res = updateEvent(db, 'web', eventId, {
@@ -455,6 +468,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body?.endsAt !== undefined ? { endsAt: body.endsAt } : {}),
       ...(body?.panelChannelId !== undefined ? { panelChannelId: body.panelChannelId } : {}),
       ...(body?.announcementChannelId !== undefined ? { announcementChannelId: body.announcementChannelId } : {}),
+      ...(body?.scheduleChannelId !== undefined ? { scheduleChannelId: body.scheduleChannelId } : {}),
       ...(body?.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : {}),
       ...(body?.matchAt !== undefined ? { matchAt: body.matchAt } : {}),
       ...(body?.schedule !== undefined ? { schedule: body.schedule as never } : {}),
@@ -464,7 +478,23 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send(res);
       return;
     }
+    // Auto-refresh schedule itinerary if schedule or schedule channel changed and event is active
+    if ((body?.schedule !== undefined || body?.scheduleChannelId !== undefined) && res.value.status === 'active' && deps.client) {
+      const { postOrUpdateScheduleItinerary } = await import('../discord/schedule-itinerary.js')
+      await postOrUpdateScheduleItinerary(db, deps.client, res.value).catch(()=>undefined)
+    }
     return { ok: true, event: res.value };
+  });
+
+  app.post('/api/events/:eventId/schedule-itinerary', async (req, reply) => {
+    const event = getEvent(db, (req.params as { eventId: string }).eventId)
+    if (!event) { await reply.code(404).send({ ok: false, code: 'not_found', message: 'Event not found.' }); return }
+    if (!deps.client) { await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot not connected.' }); return }
+    const body = req.body as { channelId?: string } | null
+    const { postOrUpdateScheduleItinerary } = await import('../discord/schedule-itinerary.js')
+    const res = await postOrUpdateScheduleItinerary(db, deps.client, event, body?.channelId ?? null)
+    if ('error' in res) { await reply.code(400).send({ ok: false, code: 'schedule_error', message: res.error }); return }
+    return { ok: true, ...res }
   });
 
   app.post('/api/events/:eventId/end', async (req, reply) => {
@@ -701,6 +731,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       defaultCategoryId?: string | null
       defaultCleanupDelayHours?: number | null
       defaultFormTemplateId?: string | null
+      defaultScheduleChannelId?: string | null
       modRoleIds?: string[] | null
     } | null
     if (!body) {
@@ -712,6 +743,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if ('defaultAnnouncementChannelId' in body) cleaned.defaultAnnouncementChannelId = body.defaultAnnouncementChannelId ?? null
     if ('defaultPanelChannelId' in body) cleaned.defaultPanelChannelId = body.defaultPanelChannelId ?? null
     if ('defaultCategoryId' in body) cleaned.defaultCategoryId = body.defaultCategoryId ?? null
+    if ('defaultScheduleChannelId' in body) cleaned.defaultScheduleChannelId = (body as unknown as { defaultScheduleChannelId?: string | null }).defaultScheduleChannelId ?? null
     if ('modRoleIds' in body) {
       const arr = body.modRoleIds
       if (arr !== null && (!Array.isArray(arr) || arr.some(v=>typeof v !== 'string' || !isSnowflake(v)))) {

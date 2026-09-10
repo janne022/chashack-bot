@@ -102,6 +102,7 @@ export const api = {
     defaultCategoryId?: string | null
     defaultCleanupDelayHours?: number | null
     defaultFormTemplateId?: string | null
+    defaultScheduleChannelId?: string | null
     modRoleIds?: string[] | null
   }): Promise<{ settings: AppState['guildSettings'] }> {
     return request('/api/guild/settings', {
@@ -176,7 +177,8 @@ export const api = {
     formTemplateId?: string
     panelChannelId?: string | null
     announcementChannelId?: string | null
-    schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[]
+    scheduleChannelId?: string | null
+    schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; title: string; message: string }[] }[]
     saveAsTemplate?: boolean
     saveTemplateName?: string
   }): Promise<HackathonEvent> {
@@ -187,9 +189,9 @@ export const api = {
     return res.event
   },
 
-  async activateEvent(eventId: string): Promise<{ event: HackathonEvent; panel: { ok: boolean; channelId?: string; reason?: string; edited?: boolean }; announce: { posted: boolean; reason: string; channelId: string | null } | null }> {
-    const res = await request<{ ok: true; event: HackathonEvent; panel: { ok: boolean; channelId?: string; reason?: string; edited?: boolean }; announce: { posted: boolean; reason: string; channelId: string | null } | null }>(`/api/events/${eventId}/activate`, { method: 'POST' })
-    return { event: res.event, panel: res.panel, announce: res.announce }
+  async activateEvent(eventId: string): Promise<{ event: HackathonEvent; panel: { ok: boolean; channelId?: string; reason?: string; edited?: boolean }; announce: { posted: boolean; reason: string; channelId: string | null } | null; itinerary?: { ok: boolean; channelId?: string; reason?: string; edited?: boolean } | null }> {
+    const res = await request<{ ok: true; event: HackathonEvent; panel: { ok: boolean; channelId?: string; reason?: string; edited?: boolean }; announce: { posted: boolean; reason: string; channelId: string | null } | null; itinerary?: { ok: boolean; channelId?: string; reason?: string; edited?: boolean } | null }>(`/api/events/${eventId}/activate`, { method: 'POST' })
+    return { event: res.event, panel: res.panel, announce: res.announce, itinerary: (res as unknown as { itinerary?: { ok: boolean; channelId?: string; reason?: string; edited?: boolean } | null }).itinerary ?? null }
   },
 
   async updateEvent(
@@ -201,8 +203,9 @@ export const api = {
       endsAt?: number | null
       cleanupDelayHours?: number
       matchAt?: number | null
-      schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[]
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; title: string; message: string }[] }[]
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[]
+      scheduleChannelId?: string | null
     },
   ): Promise<void> {
     await request(`/api/events/${eventId}`, {
@@ -232,6 +235,13 @@ export const api = {
     return request('/api/diag/channel-test', {
       method: 'POST',
       body: JSON.stringify({ channelId }),
+    })
+  },
+
+  async postScheduleItinerary(eventId: string, channelId?: string): Promise<{ ok: true; channelId: string; messageId: string; edited: boolean }> {
+    return request(`/api/events/${eventId}/schedule-itinerary`, {
+      method: 'POST',
+      body: JSON.stringify(channelId ? { channelId } : {}),
     })
   },
 
