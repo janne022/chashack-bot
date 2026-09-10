@@ -19,6 +19,7 @@
   "common.no_data_yet": "No data yet",
 
   "nav.events": "Events",
+  "nav.operations": "Operations",
   "nav.participants": "Participants",
   "nav.teams": "Teams",
   "nav.matching": "Matching",
@@ -270,6 +271,9 @@
   "form.delete_template": "Delete",
   "form.template_deleted": "Template deleted",
   "form.template_delete_failed": "Could not delete template",
+
+  "operate.title": "Operations",
+  "operate.subtitle": "Participants, teams and matching — one flow.",
 
   "templates.title": "Templates",
   "templates.subtitle": "Form and event templates — create once, reuse everywhere. Events can pick a specific form.",

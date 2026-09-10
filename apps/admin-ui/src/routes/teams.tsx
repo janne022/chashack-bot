@@ -1,6 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { TeamsPage } from '@/views/TeamsPage'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/teams')({
-  component: TeamsPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/operations', search: { tab: 'teams' } as never })
+  },
 })

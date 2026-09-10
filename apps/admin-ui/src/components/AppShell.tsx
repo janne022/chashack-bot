@@ -3,9 +3,6 @@ import { Link, useLocation } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import {
   CalendarDays,
-  Users,
-  UsersRound,
-  Sparkles,
   History,
   RefreshCw,
   Sun,
@@ -13,6 +10,7 @@ import {
   Globe,
   Settings,
   LayoutTemplate,
+  Briefcase,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -22,9 +20,7 @@ import brandMark from '@/assets/brand/1.png'
 
 const NAV_KEYS = [
   { to: '/events', key: 'nav.events', icon: CalendarDays },
-  { to: '/participants', key: 'nav.participants', icon: Users },
-  { to: '/teams', key: 'nav.teams', icon: UsersRound },
-  { to: '/matching', key: 'nav.matching', icon: Sparkles },
+  { to: '/operations', key: 'nav.operations', icon: Briefcase },
   { to: '/templates', key: 'nav.templates', icon: LayoutTemplate },
   { to: '/config', key: 'nav.config', icon: Settings },
   { to: '/audit', key: 'nav.audit', icon: History },

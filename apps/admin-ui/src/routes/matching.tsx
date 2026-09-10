@@ -1,6 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { MatchingPage } from '@/views/MatchingPage'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/matching')({
-  component: MatchingPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/operations', search: { tab: 'matching' } as never })
+  },
 })

@@ -19,6 +19,7 @@
   "common.no_data_yet": "Ingen data än",
 
   "nav.events": "Events",
+  "nav.operations": "Hantera",
   "nav.participants": "Deltagare",
   "nav.teams": "Team",
   "nav.matching": "Matchning",
@@ -270,6 +271,9 @@
   "form.delete_template": "Ta bort",
   "form.template_deleted": "Mallen borttagen",
   "form.template_delete_failed": "Kunde inte ta bort mallen",
+
+  "operate.title": "Operations",
+  "operate.subtitle": "Deltagare, team och matchning — ett flöde.",
 
   "templates.title": "Mallar",
   "templates.subtitle": "Formulär- och eventmallar — skapa en gång, återanvänd överallt. Events kan välja specifikt formulär.",

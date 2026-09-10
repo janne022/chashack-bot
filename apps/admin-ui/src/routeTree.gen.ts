@@ -15,6 +15,7 @@ import { Route as ConfigRouteImport } from './routes/config'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as FormRouteImport } from './routes/form'
 import { Route as MatchingRouteImport } from './routes/matching'
+import { Route as OperationsRouteImport } from './routes/operations'
 import { Route as ParticipantsRouteImport } from './routes/participants'
 import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as TemplatesRouteImport } from './routes/templates'
@@ -49,6 +50,11 @@ const MatchingRoute = MatchingRouteImport.update({
   path: '/matching',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OperationsRoute = OperationsRouteImport.update({
+  id: '/operations',
+  path: '/operations',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ParticipantsRoute = ParticipantsRouteImport.update({
   id: '/participants',
   path: '/participants',
@@ -72,6 +78,7 @@ export interface FileRoutesByFullPath {
   '/events': typeof EventsRoute
   '/form': typeof FormRoute
   '/matching': typeof MatchingRoute
+  '/operations': typeof OperationsRoute
   '/participants': typeof ParticipantsRoute
   '/teams': typeof TeamsRoute
   '/templates': typeof TemplatesRoute
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/events': typeof EventsRoute
   '/form': typeof FormRoute
   '/matching': typeof MatchingRoute
+  '/operations': typeof OperationsRoute
   '/participants': typeof ParticipantsRoute
   '/teams': typeof TeamsRoute
   '/templates': typeof TemplatesRoute
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/events': typeof EventsRoute
   '/form': typeof FormRoute
   '/matching': typeof MatchingRoute
+  '/operations': typeof OperationsRoute
   '/participants': typeof ParticipantsRoute
   '/teams': typeof TeamsRoute
   '/templates': typeof TemplatesRoute
@@ -108,6 +117,7 @@ export interface FileRouteTypes {
     | '/events'
     | '/form'
     | '/matching'
+    | '/operations'
     | '/participants'
     | '/teams'
     | '/templates'
@@ -119,6 +129,7 @@ export interface FileRouteTypes {
     | '/events'
     | '/form'
     | '/matching'
+    | '/operations'
     | '/participants'
     | '/teams'
     | '/templates'
@@ -130,6 +141,7 @@ export interface FileRouteTypes {
     | '/events'
     | '/form'
     | '/matching'
+    | '/operations'
     | '/participants'
     | '/teams'
     | '/templates'
@@ -142,6 +154,7 @@ export interface RootRouteChildren {
   EventsRoute: typeof EventsRoute
   FormRoute: typeof FormRoute
   MatchingRoute: typeof MatchingRoute
+  OperationsRoute: typeof OperationsRoute
   ParticipantsRoute: typeof ParticipantsRoute
   TeamsRoute: typeof TeamsRoute
   TemplatesRoute: typeof TemplatesRoute
@@ -191,6 +204,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MatchingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/operations': {
+      id: '/operations'
+      path: '/operations'
+      fullPath: '/operations'
+      preLoaderRoute: typeof OperationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/participants': {
       id: '/participants'
       path: '/participants'
@@ -222,6 +242,7 @@ const rootRouteChildren: RootRouteChildren = {
   EventsRoute: EventsRoute,
   FormRoute: FormRoute,
   MatchingRoute: MatchingRoute,
+  OperationsRoute: OperationsRoute,
   ParticipantsRoute: ParticipantsRoute,
   TeamsRoute: TeamsRoute,
   TemplatesRoute: TemplatesRoute,
