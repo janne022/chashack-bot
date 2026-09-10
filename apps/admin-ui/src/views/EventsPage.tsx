@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock } from 'lucide-react'
+import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
@@ -10,6 +10,9 @@ import type { FormConfig, HackathonEvent, Participant } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea-label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { EmptyState } from '@/components/ui/empty-state'
 import { dateTime, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -73,6 +76,11 @@ function NewEventButton() {
   const [description, setDescription] = useState('')
   const [startsAt, setStartsAt] = useState('')
   const [endsAt, setEndsAt] = useState('')
+  const [panelChannelId, setPanelChannelId] = useState('')
+  const [announceChannelId, setAnnounceChannelId] = useState('')
+  const [announceTitle, setAnnounceTitle] = useState('')
+  const [announceMessage, setAnnounceMessage] = useState('')
+  const [dmOnAnnounce, setDmOnAnnounce] = useState(false)
   const [busy, setBusy] = useState(false)
 
   async function create() {
@@ -90,13 +98,23 @@ function NewEventButton() {
     }
     setBusy(true)
     try {
-      await api.createEvent(parsed.data)
+      await api.createEvent({
+        ...parsed.data,
+        panelChannelId: panelChannelId || null,
+        announcementChannelId: announceChannelId || null,
+      })
       toast.success(t('events.created', { name: name.trim() }))
+
       setOpen(false)
       setName('')
       setDescription('')
       setStartsAt('')
       setEndsAt('')
+      setPanelChannelId('')
+      setAnnounceChannelId('')
+      setAnnounceTitle('')
+      setAnnounceMessage('')
+      setDmOnAnnounce(false)
       await refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('events.create_failed'))
@@ -114,7 +132,7 @@ function NewEventButton() {
       {open && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
           <Card
-            className="w-full max-w-md animate-pop-in"
+            className="w-full max-w-lg animate-pop-in overflow-y-auto max-h-[85vh]"
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
             <CardHeader>
@@ -124,37 +142,54 @@ function NewEventButton() {
             <CardContent className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.name')}</span>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={t('events.name_placeholder')}
-                  className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm"
-                  maxLength={100}
-                />
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('events.name_placeholder')} maxLength={100} />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.description')}</span>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder={t('events.desc_placeholder')}
-                  className="min-h-16 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm"
-                  maxLength={1000}
-                />
+                <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('events.desc_placeholder')} maxLength={1000} />
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1.5 text-sm">
                   <span className="font-medium">{t('events.starts')}</span>
-                  <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm" />
+                  <Input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
                 </label>
                 <label className="flex flex-col gap-1.5 text-sm">
                   <span className="font-medium">{t('events.ends')}</span>
-                  <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm" />
+                  <Input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
                 </label>
               </div>
+
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('events.panel_channel')}</span>
+                <Input value={panelChannelId} onChange={(e) => setPanelChannelId(e.target.value)} placeholder="Discord channel ID" maxLength={30} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('events.announce_channel')}</span>
+                <Input value={announceChannelId} onChange={(e) => setAnnounceChannelId(e.target.value)} placeholder="Discord channel ID (defaults to panel)" maxLength={30} />
+              </label>
+
+              <fieldset className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2 p-3">
+                <legend className="text-xs font-medium text-muted-foreground px-1">{t('events.announce_at_create')}</legend>
+                <label className="flex flex-col gap-1.5 text-sm">
+                  <span className="font-medium">{t('events.headline_placeholder')}</span>
+                  <Input value={announceTitle} onChange={(e) => setAnnounceTitle(e.target.value)} placeholder="Event is live!" maxLength={100} />
+                </label>
+                <label className="flex flex-col gap-1.5 text-sm">
+                  <span className="font-medium">{t('events.message_placeholder')}</span>
+                  <Textarea value={announceMessage} onChange={(e) => setAnnounceMessage(e.target.value)} placeholder="The signup panel is ready..." maxLength={800} />
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={dmOnAnnounce} onCheckedChange={setDmOnAnnounce} />
+                  {t('events.also_dm')}
+                </label>
+              </fieldset>
+
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-                <Button disabled={busy || name.trim().length < 3} onClick={() => void create()}>{t('common.create')}</Button>
+                <Button disabled={busy || name.trim().length < 3} onClick={() => void create()}>
+                  <Send />
+                  {t('common.create')}
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -268,6 +303,7 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
   const [dm, setDm] = useState(false)
+  const [channelId, setChannelId] = useState('')
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -279,12 +315,14 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
     }
     setBusy(true)
     try {
-      const res = await api.announce(event.id, title.trim(), message.trim(), dm)
+      const targetChannel = channelId.trim() || undefined
+      const res = await api.announce(event.id, title.trim(), message.trim(), dm, targetChannel)
       toast.success(res.posted ? (dm ? t('events.posted_with_dms', { count: res.dmSent }) : t('events.posted')) : t('events.posted_unreachable'))
       if (res.dmFailed > 0) toast.info(t('events.dms_failed', { count: res.dmFailed }))
       setOpen(false)
       setTitle('')
       setMessage('')
+      setChannelId('')
       await refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('events.announce_failed'))
@@ -307,22 +345,14 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
               <CardDescription>{t('events.announce_desc')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={t('events.headline_placeholder')}
-                className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm"
-                maxLength={100}
-              />
-              <textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder={t('events.message_placeholder')}
-                className="min-h-24 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm"
-                maxLength={800}
-              />
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('events.channel')}</span>
+                <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="Override channel ID (optional)" maxLength={30} />
+              </label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('events.headline_placeholder')} maxLength={100} />
+              <Textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('events.message_placeholder')} maxLength={800} />
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={dm} onChange={(e) => setDm(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+                <Checkbox checked={dm} onCheckedChange={setDm} />
                 {t('events.also_dm')}
               </label>
               <div className="flex justify-end gap-2">
@@ -369,15 +399,7 @@ function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh
   return (
     <label className="flex items-center gap-2 text-xs text-muted-foreground">
       {t('events.cleanup_delay')}
-      <input
-        type="number"
-        min={0}
-        max={720}
-        value={hours}
-        onChange={(e) => setHours(e.target.value)}
-        className="h-7 w-16 rounded-md border border-border bg-surface-2 px-2 text-foreground"
-        aria-label={t('events.cleanup_delay_aria')}
-      />
+      <Input type="number" min={0} max={720} value={hours} onChange={(e) => setHours(e.target.value)} className="h-7 w-16" aria-label={t('events.cleanup_delay_aria')} />
       h
       {dirty && (
         <Button size="sm" variant="secondary" disabled={busy} onClick={() => void save()}>

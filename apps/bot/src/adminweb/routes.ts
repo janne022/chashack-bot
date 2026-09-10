@@ -123,6 +123,25 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return { ok: true };
   });
 
+  app.get('/api/guild/channels', async () => {
+    if (deps.client === null) return { channels: [], categories: [] };
+    try {
+      const guild = await deps.client.guilds.fetch(guildId);
+      const channels = await guild.channels.fetch();
+      const textChannels = channels
+        .filter((c) => c !== null && c.type === 0) // GUILD_TEXT
+        .map((c) => ({ id: c!.id, name: c!.name, position: c!.position }))
+        .sort((a, b) => a.position - b.position);
+      const categories = channels
+        .filter((c) => c !== null && c.type === 4) // GUILD_CATEGORY
+        .map((c) => ({ id: c!.id, name: c!.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { channels: textChannels, categories };
+    } catch {
+      return { channels: [], categories: [] };
+    }
+  });
+
   app.get('/api/state', async () => {
     const eventId = activeEventId();
     const participants = listParticipants(db, eventId);
@@ -158,6 +177,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       description?: string;
       startsAt?: number | null;
       endsAt?: number | null;
+      panelChannelId?: string | null;
+      announcementChannelId?: string | null;
       templateId?: string;
     } | null;
     if (body?.name === undefined || body.name.trim().length < 3) {
@@ -179,6 +200,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body.description !== undefined ? { description: body.description } : {}),
       ...(body.startsAt != null ? { startsAt: body.startsAt } : {}),
       ...(body.endsAt != null ? { endsAt: body.endsAt } : {}),
+      ...(body.panelChannelId != null ? { panelChannelId: body.panelChannelId } : {}),
+      ...(body.announcementChannelId != null ? { announcementChannelId: body.announcementChannelId } : {}),
       ...(form !== undefined ? { form } : {}),
     });
     if (!res.ok) {
@@ -208,6 +231,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       description?: string;
       startsAt?: number | null;
       endsAt?: number | null;
+      panelChannelId?: string | null;
+      announcementChannelId?: string | null;
       cleanupDelayHours?: number;
       matchAt?: number | null;
     } | null;
@@ -216,6 +241,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body?.description !== undefined ? { description: body.description } : {}),
       ...(body?.startsAt !== undefined ? { startsAt: body.startsAt } : {}),
       ...(body?.endsAt !== undefined ? { endsAt: body.endsAt } : {}),
+      ...(body?.panelChannelId !== undefined ? { panelChannelId: body.panelChannelId } : {}),
+      ...(body?.announcementChannelId !== undefined ? { announcementChannelId: body.announcementChannelId } : {}),
       ...(body?.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : {}),
       ...(body?.matchAt !== undefined ? { matchAt: body.matchAt } : {}),
     });
@@ -236,22 +263,50 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/events/announce', async (req, reply) => {
-    const body = req.body as { eventId?: string; title?: string; message?: string; dm?: boolean } | null;
-    const event = body?.eventId !== undefined ? getEvent(db, body.eventId) : getActiveEvent(db, guildId);
+    const body = req.body as { eventId?: string; title?: string; message?: string; dm?: boolean; channelId?: string } | null
+    const event = body?.eventId !== undefined ? getEvent(db, body.eventId) : getActiveEvent(db, guildId)
     if (event === null) {
-      await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found.' });
+      await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found.' })
+      return
+    }
+    if (deps.client === null) {
+      await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' })
+      return
+    }
+    if (body?.title === undefined || body.message === undefined) {
+      await reply.code(400).send({ ok: false, code: 'bad_input', message: 'title and message are required.' })
+      return
+    }
+    const result = await sendAnnouncement({ db, client: deps.client }, 'web', event, body.title, body.message, body.dm ?? false, body.channelId)
+    return { ok: true, ...result }
+  })
+
+  app.post('/api/events/:eventId/panel', async (req, reply) => {
+    const event = getEvent(db, (req.params as { eventId: string }).eventId);
+    if (event === null) {
+      await reply.code(404).send({ ok: false, code: 'not_found', message: 'Event not found.' });
+      return;
+    }
+    const body = req.body as { channelId?: string } | null;
+    const channelId = body?.channelId ?? '';
+    if (channelId === '') {
+      await reply.code(400).send({ ok: false, code: 'bad_input', message: 'channelId is required.' });
       return;
     }
     if (deps.client === null) {
       await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' });
       return;
     }
-    if (body?.title === undefined || body.message === undefined) {
-      await reply.code(400).send({ ok: false, code: 'bad_input', message: 'title and message are required.' });
+    const res = await postOrUpdatePanel(db, deps.client, guildId, channelId).catch((e) => ({
+      error: e instanceof Error ? e.message : 'Unknown error',
+    }));
+    if ('error' in res) {
+      await reply.code(400).send({ ok: false, code: 'panel_error', message: res.error });
       return;
     }
-    const result = await sendAnnouncement({ db, client: deps.client }, 'web', event, body.title, body.message, body.dm ?? false);
-    return { ok: true, ...result };
+    // Persist the channel on the event.
+    updateEvent(db, 'web', event.id, { panelChannelId: channelId });
+    return { ok: true, channelId: res.channelId, edited: res.edited };
   });
 
   app.post('/api/events/:eventId/discord-events', async (req, reply) => {

@@ -54,12 +54,13 @@ export async function sendAnnouncement(
   title: string,
   message: string,
   dmParticipants: boolean,
+  overrideChannelId?: string,
 ): Promise<{ posted: boolean; dmSent: number; dmFailed: number }> {
-  const { client, db } = deps;
-  let posted = false;
+  const { client, db } = deps
+  let posted = false
 
-  // 1) Panel channel post (event panel channel, falling back to the guild panel).
-  const channelId = event.panelChannelId ?? readGuildPanel(db, event.guildId);
+  // 1) Announcement channel (override → event ann channel → panel → guild panel).
+  const channelId = overrideChannelId ?? event.announcementChannelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
   if (channelId !== null) {
     try {
       const guild = await client.guilds.fetch(event.guildId);

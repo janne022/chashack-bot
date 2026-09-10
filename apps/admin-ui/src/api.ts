@@ -151,6 +151,8 @@ export const api = {
     startsAt?: number | null
     endsAt?: number | null
     templateId?: string
+    panelChannelId?: string | null
+    announcementChannelId?: string | null
   }): Promise<HackathonEvent> {
     const res = await request<{ event: HackathonEvent }>('/api/events', {
       method: 'POST',
@@ -189,10 +191,11 @@ export const api = {
     title: string,
     message: string,
     dm: boolean,
+    channelId?: string,
   ): Promise<{ posted: boolean; dmSent: number; dmFailed: number }> {
     return request('/api/events/announce', {
       method: 'POST',
-      body: JSON.stringify({ eventId, title, message, dm }),
+      body: JSON.stringify({ eventId, title, message, dm, channelId }),
     })
   },
 

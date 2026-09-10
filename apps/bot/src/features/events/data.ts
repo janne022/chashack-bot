@@ -38,6 +38,7 @@ export interface HackathonEvent {
   matchLocked: boolean;
   /** Discord scheduled-event ids created for this hackathon event. */
   discordEventIds: string[];
+  announcementChannelId: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -61,6 +62,7 @@ interface EventRow {
   match_at: number | null;
   match_locked: number;
   discord_event_ids: string;
+  announcement_channel_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -91,6 +93,7 @@ function toEvent(row: EventRow): HackathonEvent {
     matchAt: row.match_at,
     matchLocked: row.match_locked === 1,
     discordEventIds,
+    announcementChannelId: row.announcement_channel_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -106,6 +109,7 @@ export interface CreateEventInput {
   /** Optional form config to seed the event with (defaults to DEFAULT_FORM). */
   form?: Partial<FormConfig>;
   panelChannelId?: string | null;
+  announcementChannelId?: string | null;
   categoryId?: string | null;
   cleanupDelayHours?: number;
 }
@@ -120,8 +124,8 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
   const id = newId('ev');
   const form: FormConfig = normalizeFormUpdate({ ...DEFAULT_FORM, ...(input.form ?? {}) }, {});
   db.prepare(
-    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, status, form_json, panel_channel_id, category_id, cleanup_delay_hours, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, status, form_json, panel_channel_id, announcement_channel_id, category_id, cleanup_delay_hours, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     guildId,
@@ -131,6 +135,7 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
     input.endsAt ?? null,
     JSON.stringify(form),
     input.panelChannelId ?? null,
+    input.announcementChannelId ?? null,
     input.categoryId ?? null,
     input.cleanupDelayHours ?? 48,
     Date.now(),
@@ -162,7 +167,7 @@ export function updateEvent(
   db: Db,
   actor: string,
   eventId: string,
-  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds'>>,
+  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'announcementChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds'>>,
 ): Result<HackathonEvent> {
   const event = getEvent(db, eventId);
   if (event === null) return err('not_found', 'Event not found.');
@@ -180,7 +185,7 @@ export function updateEvent(
       : event.cleanupDelayHours;
 
   db.prepare(
-    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, updated_at = ?
+    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, updated_at = ?
      WHERE id = ?`,
   ).run(
     name,
@@ -188,6 +193,7 @@ export function updateEvent(
     startsAt,
     endsAt,
     update.panelChannelId !== undefined ? update.panelChannelId : event.panelChannelId,
+    update.announcementChannelId !== undefined ? update.announcementChannelId : event.announcementChannelId,
     update.categoryId !== undefined ? update.categoryId : event.categoryId,
     cleanupDelayHours,
     update.matchAt !== undefined ? update.matchAt : event.matchAt,
@@ -207,12 +213,7 @@ export function activateEvent(db: Db, actor: string, eventId: string): Result<Ha
   if (event.status === 'active') return ok(event);
   if (event.status === 'ended') return err('already_ended', 'Ended events cannot be reactivated — clone it instead.');
 
-  // One active event per guild: end the previous one.
-  const current = getActiveEvent(db, event.guildId);
-  if (current !== null && current.id !== eventId) {
-    db.prepare("UPDATE events SET status = 'ended', updated_at = ? WHERE id = ?").run(Date.now(), current.id);
-    audit(db, actor, 'event.auto_end', current.id, { replacedBy: eventId });
-  }
+  // Multiple events can be active simultaneously.
   db.prepare("UPDATE events SET status = 'active', updated_at = ? WHERE id = ?").run(Date.now(), eventId);
   audit(db, actor, 'event.activate', eventId, null);
   return ok(getEvent(db, eventId)!);

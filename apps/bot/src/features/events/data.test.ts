@@ -22,6 +22,7 @@ function ev(overrides: Partial<HackathonEvent>): HackathonEvent {
     matchAt: null,
     matchLocked: false,
     discordEventIds: [],
+    announcementChannelId: null,
     createdAt: 0,
     updatedAt: 0,
     ...overrides,

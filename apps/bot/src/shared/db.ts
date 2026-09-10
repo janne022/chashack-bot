@@ -63,6 +63,7 @@ function migrate(db: Db): void {
       match_at INTEGER,
       match_locked INTEGER NOT NULL DEFAULT 0,
       discord_event_ids TEXT NOT NULL DEFAULT '[]',
+      announcement_channel_id TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -162,6 +163,7 @@ function migrate(db: Db): void {
   addColumnIfMissing(db, 'events', 'match_locked', 'INTEGER NOT NULL DEFAULT 0');
 
   backfillLegacyEvents(db);
+  addEventColumns(db);
   recreateParticipantsTable(db);
   migrateTeamPrefs(db);
 }
@@ -206,6 +208,10 @@ function backfillLegacyEvents(db: Db): void {
  * Participants become per-event: composite PK (event_id, user_id) so the same
  * person can sign up to multiple events.
  */
+function addEventColumns(db: Db): void {
+  addColumnIfMissing(db, 'events', 'announcement_channel_id', 'TEXT');
+}
+
 function recreateParticipantsTable(db: Db): void {
   const participantsTable = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'participants'")
