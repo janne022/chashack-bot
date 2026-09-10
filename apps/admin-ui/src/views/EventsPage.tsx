@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
+import { DateTimePicker } from '@/components/ui/datetime-picker'
 import { EmptyState } from '@/components/ui/empty-state'
 import { dateTime, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -218,14 +219,14 @@ function NewEventButton() {
                 <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('events.desc_placeholder')} maxLength={1000} />
               </label>
               <div className="grid grid-cols-2 gap-3">
-                <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="font-medium">{t('events.starts')}</span>
-                  <Input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
-                </label>
-                <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="font-medium">{t('events.ends')}</span>
-                  <Input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
-                </label>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-sm font-medium">{t('events.starts')}</span>
+                  <DateTimePicker value={startsAt} onChange={setStartsAt} placeholder="Start date & time" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-sm font-medium">{t('events.ends')}</span>
+                  <DateTimePicker value={endsAt} onChange={setEndsAt} placeholder="End date & time" />
+                </div>
               </div>
 
               <label className="flex flex-col gap-1.5 text-sm">

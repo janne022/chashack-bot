@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { DateTimePicker } from '@/components/ui/datetime-picker'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   AlertDialog,
@@ -705,13 +706,7 @@ function SchedulerCard({ event, refresh }: { event: HackathonEvent | null; refre
           <Badge variant={ev.matchLocked ? 'secondary' : 'default'}>{countdown}</Badge>
         )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Input
-            type="datetime-local"
-            value={when}
-            onChange={(e) => setWhen(e.target.value)}
-            className="h-9 w-56"
-            aria-label="Auto-match time"
-          />
+          <DateTimePicker value={when} onChange={setWhen} placeholder="Pick match time" className="h-9 w-56" />
           <Button size="sm" disabled={busy || when === ''} onClick={() => void schedule()}>
             <CalendarClock />
             Schedule auto-match
