@@ -206,10 +206,17 @@ export const api = {
     })
   },
 
-  async saveTemplate(eventId: string, name: string): Promise<void> {
-    await request('/api/templates', {
+  async listTemplates(kind?: 'event' | 'form'): Promise<{ templates: { id: string; name: string; kind: string; createdAt: number }[] }> {
+    const url = kind ? `/api/templates?kind=${kind}` : '/api/templates'
+    return request(url)
+  },
+
+  async saveTemplate(eventId: string, name: string, kind: 'event' | 'form' = 'event', formJson?: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
+    const body: Record<string, unknown> = { eventId, name, kind }
+    if (formJson !== undefined) body.formJson = formJson
+    return request('/api/templates', {
       method: 'POST',
-      body: JSON.stringify({ eventId, name, kind: 'event' }),
+      body: JSON.stringify(body),
     })
   },
 

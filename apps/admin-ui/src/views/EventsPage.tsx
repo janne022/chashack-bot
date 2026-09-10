@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea-label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { EmptyState } from '@/components/ui/empty-state'
 import { dateTime, timeAgo } from '@/lib/format'
@@ -69,9 +70,10 @@ export function EventsPage() {
 }
 
 function NewEventButton() {
-  const { refresh } = useAppContext()
+  const { state, refresh } = useAppContext()
   const t = useT()
   const [open, setOpen] = useState(false)
+  const [templateId, setTemplateId] = useState<string>('')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [startsAt, setStartsAt] = useState('')
@@ -82,6 +84,23 @@ function NewEventButton() {
   const [announceMessage, setAnnounceMessage] = useState('')
   const [dmOnAnnounce, setDmOnAnnounce] = useState(false)
   const [busy, setBusy] = useState(false)
+
+  const eventTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'event')
+
+  function applyTemplate(id: string) {
+    setTemplateId(id)
+    if (id === '') return
+    const tpl = eventTemplates.find((x) => x.id === id)
+    if (!tpl) return
+    try {
+      const parsed = JSON.parse(tpl.json) as { name?: string; description?: string; cleanupDelayHours?: number }
+      if (parsed.name) setName(parsed.name)
+      if (parsed.description) setDescription(parsed.description)
+      toast.info(t('events.template_applied', { name: tpl.name }))
+    } catch {
+      // ignore parse errors, still send templateId to server
+    }
+  }
 
   async function create() {
     const starts = startsAt !== '' ? Date.parse(startsAt) || null : null
@@ -100,12 +119,14 @@ function NewEventButton() {
     try {
       await api.createEvent({
         ...parsed.data,
+        ...(templateId ? { templateId } : {}),
         panelChannelId: panelChannelId || null,
         announcementChannelId: announceChannelId || null,
       })
       toast.success(t('events.created', { name: name.trim() }))
 
       setOpen(false)
+      setTemplateId('')
       setName('')
       setDescription('')
       setStartsAt('')
@@ -140,6 +161,24 @@ function NewEventButton() {
               <CardDescription>{t('events.create_desc')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('events.template')}</span>
+                <Select value={templateId || '__none'} onValueChange={(v) => applyTemplate(v === '__none' ? '' : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('events.template_none')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">{t('events.template_none')}</SelectItem>
+                    {eventTemplates.map((tpl) => (
+                      <SelectItem key={tpl.id} value={tpl.id}>
+                        {tpl.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground">{t('events.template_hint')}</span>
+              </div>
+
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.name')}</span>
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('events.name_placeholder')} maxLength={100} />

@@ -44,7 +44,7 @@ import {
   deleteTemplate,
 } from '../features/events/data.js';
 import { getForm, updateForm, resetForm } from '../features/form/data.js';
-import { refreshSignupPanel } from '../discord/signup-panel.js';
+import { refreshSignupPanel, postOrUpdatePanel } from '../discord/signup-panel.js';
 import { sendAnnouncement, createDiscordEvents } from '../discord/notify.js';
 import type { FormConfig } from '../features/form/domain.js';
 
@@ -297,7 +297,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' });
       return;
     }
-    const res = await postOrUpdatePanel(db, deps.client, guildId, channelId).catch((e) => ({
+    const res = await postOrUpdatePanel(db, deps.client, guildId, channelId).catch((e: unknown) => ({
       error: e instanceof Error ? e.message : 'Unknown error',
     }));
     if ('error' in res) {
@@ -330,28 +330,49 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   // ── templates ─────────────────────────────────────────────────────────────
 
+  app.get('/api/templates', async (req) => {
+    const kind = (req.query as { kind?: string } | undefined)?.kind
+    const templates = listTemplates(db, guildId, kind as 'event' | 'form' | undefined)
+    return { templates }
+  })
+
   app.post('/api/templates', async (req, reply) => {
-    const body = req.body as { eventId?: string; name?: string; kind?: string } | null;
-    const event = body?.eventId !== undefined ? getEvent(db, body.eventId) : getActiveEvent(db, guildId);
-    if (event === null) {
-      await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found.' });
-      return;
+    const body = req.body as { eventId?: string; name?: string; kind?: string; formJson?: string } | null
+    const kind = body?.kind ?? 'event'
+    if (kind !== 'event' && kind !== 'form') {
+      await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be event|form' })
+      return
     }
-    const { getEventForm } = await import('../features/events/data.js');
-    const { DEFAULT_FORM } = await import('../features/form/domain.js');
-    const payload = {
-      name: event.name,
-      description: event.description,
-      cleanupDelayHours: event.cleanupDelayHours,
-      form: getEventForm(db, event, DEFAULT_FORM),
-    };
-    const res = saveTemplate(db, 'web', guildId, body?.name ?? event.name, 'event', JSON.stringify(payload));
+    let json: string
+    if (kind === 'form') {
+      if (body?.formJson === undefined) {
+        await reply.code(400).send({ ok: false, code: 'bad_input', message: 'formJson is required for form templates.' })
+        return
+      }
+      json = body.formJson
+    } else {
+      const event = body?.eventId !== undefined ? getEvent(db, body.eventId) : getActiveEvent(db, guildId)
+      if (event === null) {
+        await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found.' })
+        return
+      }
+      const { getEventForm } = await import('../features/events/data.js')
+      const { DEFAULT_FORM } = await import('../features/form/domain.js')
+      const payload = {
+        name: event.name,
+        description: event.description,
+        cleanupDelayHours: event.cleanupDelayHours,
+        form: getEventForm(db, event, DEFAULT_FORM),
+      }
+      json = JSON.stringify(payload)
+    }
+    const res = saveTemplate(db, 'web', guildId, body?.name ?? '', kind, json)
     if (!res.ok) {
-      await reply.code(400).send(res);
-      return;
+      await reply.code(400).send(res)
+      return
     }
-    return { ok: true, template: res.value };
-  });
+    return { ok: true, template: res.value }
+  })
 
   app.delete('/api/templates/:templateId', async (req, reply) => {
     const res = deleteTemplate(db, 'web', (req.params as { templateId: string }).templateId);
