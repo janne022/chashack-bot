@@ -63,8 +63,7 @@ export function ScheduleEditor({
   })
 
   const add = (preset?: Partial<ScheduleItem>) => {
-    const base = new Date()
-    base.setMinutes(0, 0, 0)
+    const base = (()=>{ if (startValue) { const d = new Date(startValue); if (!isNaN(d.getTime())) { d.setMinutes(0,0,0); return d } } const b = new Date(); b.setMinutes(0,0,0); return b })()
     const time = preset?.time ?? base.getTime()
     const title = preset?.title ?? ""
     const kind = preset?.kind ?? "custom"
@@ -202,7 +201,8 @@ export function ScheduleEditor({
             variant="outline"
             size="sm"
             onClick={() => {
-              const d = new Date()
+              const base = (()=>{ if (startValue) { const d = new Date(startValue); if (!isNaN(d.getTime())) return d; } return new Date() })()
+              const d = new Date(base)
               d.setHours(q.hour, 0, 0, 0)
               add({ title: q.title, kind: q.kind, time: d.getTime() })
             }}
