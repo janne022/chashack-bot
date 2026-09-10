@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers, Clock } from 'lucide-react'
+import { CalendarDays, Plus, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers, Clock, ClipboardList } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
@@ -87,6 +87,8 @@ function NewEventButton() {
   const [description, setDescription] = useState('')
   const [startsAt, setStartsAt] = useState('')
   const [endsAt, setEndsAt] = useState('')
+  const [signupStartsAt, setSignupStartsAt] = useState('')
+  const [signupEndsAt, setSignupEndsAt] = useState('')
   const [schedule, setSchedule] = useState<import('@/types').ScheduleItem[]>([])
   const [panelChannelId, setPanelChannelId] = useState('')
   const [announceChannelId, setAnnounceChannelId] = useState('')
@@ -99,6 +101,20 @@ function NewEventButton() {
   useEffect(() => {
     api.getGuildChannels().then(r=>setGuildChannels(r.channels ?? [])).catch(()=>undefined)
   }, [])
+
+  // Default signup window: 7 days before hackathon start → hackathon start, if user hasn't touched it
+  useEffect(()=>{
+    if (startsAt && !signupStartsAt && !signupEndsAt) {
+      const s = new Date(startsAt)
+      if (!isNaN(s.getTime())) {
+        const ends = new Date(s)
+        const starts = new Date(s)
+        starts.setDate(starts.getDate() - 7)
+        setSignupStartsAt(toLocalIso(starts))
+        setSignupEndsAt(toLocalIso(ends))
+      }
+    }
+  }, [startsAt])
 
   const eventTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'event')
   const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
@@ -147,11 +163,15 @@ function NewEventButton() {
   async function create() {
     const starts = startsAt !== '' ? Date.parse(startsAt) || null : null
     const ends = endsAt !== '' ? Date.parse(endsAt) || null : null
+    const signupStarts = signupStartsAt !== '' ? Date.parse(signupStartsAt) || null : null
+    const signupEnds = signupEndsAt !== '' ? Date.parse(signupEndsAt) || null : null
     const parsed = createEventSchema.safeParse({
       name: name.trim(),
       ...(description.trim() !== '' ? { description: description.trim() } : {}),
       startsAt: starts,
       endsAt: ends,
+      signupStartsAt: signupStarts,
+      signupEndsAt: signupEnds,
     })
     if (!parsed.success) {
       toast.error(parsed.error.issues[0]?.message ?? t('events.invalid_input'))
@@ -197,6 +217,8 @@ function NewEventButton() {
       setPanelChannelId('')
       setAnnounceChannelId('')
       setScheduleChannelId('')
+      setSignupStartsAt('')
+      setSignupEndsAt('')
       setStartActions([])
       setEndActions([])
       setSaveAsTemplate(false)
@@ -304,6 +326,10 @@ function NewEventButton() {
                 endValue={endsAt}
                 onStartChange={setStartsAt}
                 onEndChange={setEndsAt}
+                signupStartValue={signupStartsAt}
+                signupEndValue={signupEndsAt}
+                onSignupStartChange={setSignupStartsAt}
+                onSignupEndChange={setSignupEndsAt}
                 startActions={startActions}
                 endActions={endActions}
                 onStartActionsChange={setStartActions}
@@ -488,17 +514,34 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
           </div>
         )}
         <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
+          {event.signupStartsAt !== null || event.signupEndsAt !== null ? (
+            <div className="flex items-center gap-2">
+              <ClipboardList className="size-4 text-primary" />
+              <div>
+                <div className="text-muted-foreground text-xs">Signup window</div>
+                <div>
+                  {event.signupStartsAt !== null && event.signupEndsAt !== null
+                    ? `${dateTime(event.signupStartsAt)} → ${dateTime(event.signupEndsAt)}`
+                    : event.signupStartsAt !== null
+                      ? `from ${dateTime(event.signupStartsAt)}`
+                      : event.signupEndsAt !== null
+                        ? `until ${dateTime(event.signupEndsAt)}`
+                        : t('common.not_set')}
+                </div>
+              </div>
+            </div>
+          ) : null}
           <div className="flex items-center gap-2">
             <CalendarDays className="size-4 text-accent" />
             <div>
-              <div className="text-muted-foreground text-xs">{t('events.starts')}</div>
+              <div className="text-muted-foreground text-xs">Hackathon Starts</div>
               <div>{event.startsAt !== null ? `${dateTime(event.startsAt)} (${timeAgo(event.startsAt)})` : t('common.not_set')}</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <CalendarDays className="size-4 text-danger" />
             <div>
-              <div className="text-muted-foreground text-xs">{t('events.ends')}</div>
+              <div className="text-muted-foreground text-xs">Hackathon Ends</div>
               <div>{event.endsAt !== null ? `${dateTime(event.endsAt)}` : t('common.not_set')}</div>
             </div>
           </div>
@@ -575,12 +618,14 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
   const [items, setItems] = useState(()=>deriveItems(event))
   const [start, setStart] = useState(event.startsAt ? toLocalIso(new Date(event.startsAt)) : "")
   const [end, setEnd] = useState(event.endsAt ? toLocalIso(new Date(event.endsAt)) : "")
+  const [signupStart, setSignupStart] = useState(event.signupStartsAt ? toLocalIso(new Date(event.signupStartsAt)) : "")
+  const [signupEnd, setSignupEnd] = useState(event.signupEndsAt ? toLocalIso(new Date(event.signupEndsAt)) : "")
   const [startActions, setStartActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveStart(event))
   const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveEnd(event))
   const [busy, setBusy] = useState(false)
 
   // sync when event changes (after save)
-  useEffect(() => { if (!open) { setItems(deriveItems(event)); setStart(event.startsAt ? toLocalIso(new Date(event.startsAt)) : ""); setEnd(event.endsAt ? toLocalIso(new Date(event.endsAt)) : ""); setStartActions(deriveStart(event)); setEndActions(deriveEnd(event)) } }, [event.schedule, event.startsAt, event.endsAt, event.announcements, open])
+  useEffect(() => { if (!open) { setItems(deriveItems(event)); setStart(event.startsAt ? toLocalIso(new Date(event.startsAt)) : ""); setEnd(event.endsAt ? toLocalIso(new Date(event.endsAt)) : ""); setSignupStart(event.signupStartsAt ? toLocalIso(new Date(event.signupStartsAt)) : ""); setSignupEnd(event.signupEndsAt ? toLocalIso(new Date(event.signupEndsAt)) : ""); setStartActions(deriveStart(event)); setEndActions(deriveEnd(event)) } }, [event.schedule, event.startsAt, event.endsAt, event.signupStartsAt, event.signupEndsAt, event.announcements, open])
 
   async function save() {
     setBusy(true)
@@ -601,6 +646,8 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
         schedule: merged,
         startsAt: start ? Date.parse(start) : null,
         endsAt: end ? Date.parse(end) : null,
+        signupStartsAt: signupStart ? Date.parse(signupStart) : null,
+        signupEndsAt: signupEnd ? Date.parse(signupEnd) : null,
         announcements: nextAnnouncements as never,
       })
       toast.success(t('events.schedule_saved'))
@@ -632,6 +679,10 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
                 endValue={end}
                 onStartChange={setStart}
                 onEndChange={setEnd}
+                signupStartValue={signupStart}
+                signupEndValue={signupEnd}
+                onSignupStartChange={setSignupStart}
+                onSignupEndChange={setSignupEnd}
                 startActions={startActions}
                 endActions={endActions}
                 onStartActionsChange={setStartActions}

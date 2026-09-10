@@ -10,6 +10,8 @@ function ev(overrides: Partial<HackathonEvent>): HackathonEvent {
     description: '',
     startsAt: null,
     endsAt: null,
+    signupStartsAt: null,
+    signupEndsAt: null,
     status: 'ended',
     formJson: null,
     panelChannelId: null,

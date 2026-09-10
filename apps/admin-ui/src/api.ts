@@ -173,6 +173,8 @@ export const api = {
     description?: string
     startsAt?: number | null
     endsAt?: number | null
+    signupStartsAt?: number | null
+    signupEndsAt?: number | null
     templateId?: string
     formTemplateId?: string
     panelChannelId?: string | null
@@ -202,6 +204,8 @@ export const api = {
       description?: string
       startsAt?: number | null
       endsAt?: number | null
+      signupStartsAt?: number | null
+      signupEndsAt?: number | null
       cleanupDelayHours?: number
       matchAt?: number | null
       schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null }[] }[]

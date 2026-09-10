@@ -14,11 +14,21 @@ export const createEventSchema = z
     description: z.string().trim().max(1000).optional(),
     startsAt: z.number().int().positive().nullable().optional(),
     endsAt: z.number().int().positive().nullable().optional(),
+    signupStartsAt: z.number().int().positive().nullable().optional(),
+    signupEndsAt: z.number().int().positive().nullable().optional(),
     templateId: z.string().optional(),
   })
   .refine(
     (v) => v.startsAt == null || v.endsAt == null || v.endsAt > v.startsAt,
     { message: 'The event must end after it starts', path: ['endsAt'] },
+  )
+  .refine(
+    (v) => v.signupStartsAt == null || v.signupEndsAt == null || v.signupEndsAt > v.signupStartsAt,
+    { message: 'Signup must end after it starts', path: ['signupEndsAt'] },
+  )
+  .refine(
+    (v) => v.signupEndsAt == null || v.startsAt == null || v.signupEndsAt <= v.startsAt,
+    { message: 'Signup must end before the hackathon starts', path: ['signupEndsAt'] },
   )
 
 export const announceSchema = z.object({

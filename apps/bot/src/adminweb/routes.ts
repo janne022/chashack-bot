@@ -263,12 +263,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       description?: string;
       startsAt?: number | null;
       endsAt?: number | null;
+      signupStartsAt?: number | null;
+      signupEndsAt?: number | null;
       panelChannelId?: string | null;
       announcementChannelId?: string | null;
       scheduleChannelId?: string | null;
       templateId?: string;
       formTemplateId?: string;
-      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; title: string; message: string }[] }[];
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null }[] }[];
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
       saveAsTemplate?: boolean;
       saveTemplateName?: string;
@@ -333,6 +335,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body.description !== undefined ? { description: body.description } : {}),
       ...(body.startsAt != null ? { startsAt: body.startsAt } : {}),
       ...(body.endsAt != null ? { endsAt: body.endsAt } : {}),
+      ...(body.signupStartsAt !== undefined ? { signupStartsAt: body.signupStartsAt } : {}),
+      ...(body.signupEndsAt !== undefined ? { signupEndsAt: body.signupEndsAt } : {}),
       ...(body.panelChannelId !== undefined ? { panelChannelId: body.panelChannelId } : gs.defaultPanelChannelId ? { panelChannelId: gs.defaultPanelChannelId } : {}),
       ...(body.announcementChannelId !== undefined ? { announcementChannelId: body.announcementChannelId } : gs.defaultAnnouncementChannelId ? { announcementChannelId: gs.defaultAnnouncementChannelId } : {}),
       ...(body.scheduleChannelId !== undefined ? { scheduleChannelId: body.scheduleChannelId } : (gs as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId ? { scheduleChannelId: (gs as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId } : {}),
@@ -391,12 +395,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       description?: string;
       startsAt?: number | null;
       endsAt?: number | null;
+      signupStartsAt?: number | null;
+      signupEndsAt?: number | null;
       panelChannelId?: string | null;
       announcementChannelId?: string | null;
       scheduleChannelId?: string | null;
       cleanupDelayHours?: number;
       matchAt?: number | null;
-      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; title: string; message: string }[] }[];
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null }[] }[];
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
     } | null;
     const res = updateEvent(db, 'web', eventId, {
@@ -404,6 +410,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body?.description !== undefined ? { description: body.description } : {}),
       ...(body?.startsAt !== undefined ? { startsAt: body.startsAt } : {}),
       ...(body?.endsAt !== undefined ? { endsAt: body.endsAt } : {}),
+      ...(body?.signupStartsAt !== undefined ? { signupStartsAt: body.signupStartsAt } : {}),
+      ...(body?.signupEndsAt !== undefined ? { signupEndsAt: body.signupEndsAt } : {}),
       ...(body?.panelChannelId !== undefined ? { panelChannelId: body.panelChannelId } : {}),
       ...(body?.announcementChannelId !== undefined ? { announcementChannelId: body.announcementChannelId } : {}),
       ...(body?.scheduleChannelId !== undefined ? { scheduleChannelId: body.scheduleChannelId } : {}),

@@ -22,6 +22,8 @@ export interface HackathonEvent {
   description: string;
   startsAt: number | null;
   endsAt: number | null;
+  signupStartsAt: number | null;
+  signupEndsAt: number | null;
   status: EventStatus;
   formJson: string | null;
   panelChannelId: string | null;
@@ -79,6 +81,8 @@ interface EventRow {
   description: string;
   starts_at: number | null;
   ends_at: number | null;
+  signup_starts_at: number | null;
+  signup_ends_at: number | null;
   status: string;
   form_json: string | null;
   panel_channel_id: string | null;
@@ -135,6 +139,8 @@ function toEvent(row: EventRow): HackathonEvent {
     description: row.description,
     startsAt: row.starts_at,
     endsAt: row.ends_at,
+    signupStartsAt: row.signup_starts_at,
+    signupEndsAt: row.signup_ends_at,
     status: row.status as EventStatus,
     formJson: row.form_json,
     panelChannelId: row.panel_channel_id,
@@ -164,6 +170,8 @@ export interface CreateEventInput {
   description?: string;
   startsAt?: number | null;
   endsAt?: number | null;
+  signupStartsAt?: number | null;
+  signupEndsAt?: number | null;
   /** Optional form config to seed the event with (defaults to DEFAULT_FORM). */
   form?: Partial<FormConfig>;
   panelChannelId?: string | null;
@@ -185,6 +193,12 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     if (input.startsAt < todayStart.getTime()) return err('bad_dates', 'Event cannot start in the past.');
   }
+  if (input.signupStartsAt !== null && input.signupStartsAt !== undefined && input.signupEndsAt !== null && input.signupEndsAt !== undefined) {
+    if (input.signupEndsAt <= input.signupStartsAt) return err('bad_dates', 'Signup must end after it starts.');
+  }
+  if (input.signupEndsAt !== null && input.signupEndsAt !== undefined && input.startsAt !== null && input.startsAt !== undefined) {
+    if (input.signupEndsAt > input.startsAt) return err('bad_dates', 'Signup must end before the hackathon starts.');
+  }
 
   const id = newId('ev');
   const form: FormConfig = normalizeFormUpdate({ ...DEFAULT_FORM, ...(input.form ?? {}) }, {});
@@ -193,8 +207,8 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
   // seed defaults if none provided — at least on_activate + schedule
   const seededAnnouncements = announcements.length > 0 ? announcements : defaultAnnouncements(name);
   db.prepare(
-    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, status, form_json, panel_channel_id, announcement_channel_id, schedule_channel_id, category_id, cleanup_delay_hours, schedule_json, announcements_json, announced_schedule_ids, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, signup_starts_at, signup_ends_at, status, form_json, panel_channel_id, announcement_channel_id, schedule_channel_id, category_id, cleanup_delay_hours, schedule_json, announcements_json, announced_schedule_ids, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     guildId,
@@ -202,6 +216,8 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
     (input.description ?? '').slice(0, 1000),
     input.startsAt ?? null,
     input.endsAt ?? null,
+    input.signupStartsAt ?? null,
+    input.signupEndsAt ?? null,
     JSON.stringify(form),
     input.panelChannelId ?? null,
     input.announcementChannelId ?? null,
@@ -240,7 +256,7 @@ export function updateEvent(
   db: Db,
   actor: string,
   eventId: string,
-  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'announcementChannelId' | 'scheduleChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds' | 'schedule' | 'announcements'>>,
+  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'signupStartsAt' | 'signupEndsAt' | 'panelChannelId' | 'announcementChannelId' | 'scheduleChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds' | 'schedule' | 'announcements'>>,
 ): Result<HackathonEvent> {
   const event = getEvent(db, eventId);
   if (event === null) return err('not_found', 'Event not found.');
@@ -249,8 +265,16 @@ export function updateEvent(
   const description = update.description !== undefined ? update.description.slice(0, 1000) : event.description;
   const startsAt = update.startsAt !== undefined ? update.startsAt : event.startsAt;
   const endsAt = update.endsAt !== undefined ? update.endsAt : event.endsAt;
+  const signupStartsAt = update.signupStartsAt !== undefined ? update.signupStartsAt : event.signupStartsAt;
+  const signupEndsAt = update.signupEndsAt !== undefined ? update.signupEndsAt : event.signupEndsAt;
   if (startsAt !== null && endsAt !== null && endsAt <= startsAt) {
     return err('bad_dates', 'The event must end after it starts.');
+  }
+  if (signupStartsAt !== null && signupEndsAt !== null && signupEndsAt <= signupStartsAt) {
+    return err('bad_dates', 'Signup must end after it starts.');
+  }
+  if (signupEndsAt !== null && startsAt !== null && signupEndsAt > startsAt) {
+    return err('bad_dates', 'Signup must end before the hackathon starts.');
   }
   if (update.startsAt !== undefined && startsAt !== null) {
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
@@ -262,13 +286,15 @@ export function updateEvent(
       : event.cleanupDelayHours;
 
   db.prepare(
-    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, schedule_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, announcements_json = ?, updated_at = ?
+    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, signup_starts_at = ?, signup_ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, schedule_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, announcements_json = ?, updated_at = ?
      WHERE id = ?`,
   ).run(
     name,
     description,
     startsAt,
     endsAt,
+    signupStartsAt,
+    signupEndsAt,
     update.panelChannelId !== undefined ? update.panelChannelId : event.panelChannelId,
     update.announcementChannelId !== undefined ? update.announcementChannelId : event.announcementChannelId,
     update.scheduleChannelId !== undefined ? update.scheduleChannelId : event.scheduleChannelId,

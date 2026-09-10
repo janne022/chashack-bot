@@ -99,6 +99,8 @@ export interface HackathonEvent {
   description: string
   startsAt: number | null
   endsAt: number | null
+  signupStartsAt: number | null
+  signupEndsAt: number | null
   status: 'draft' | 'active' | 'ended'
   formJson: string | null
   panelChannelId: string | null

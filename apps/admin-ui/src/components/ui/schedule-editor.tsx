@@ -35,6 +35,10 @@ export function ScheduleEditor({
   endValue,
   onStartChange,
   onEndChange,
+  signupStartValue,
+  signupEndValue,
+  onSignupStartChange,
+  onSignupEndChange,
   startActions,
   endActions,
   onStartActionsChange,
@@ -47,6 +51,10 @@ export function ScheduleEditor({
   endValue?: string
   onStartChange?: (v: string) => void
   onEndChange?: (v: string) => void
+  signupStartValue?: string
+  signupEndValue?: string
+  onSignupStartChange?: (v: string) => void
+  onSignupEndChange?: (v: string) => void
   startActions?: ScheduleAction[]
   endActions?: ScheduleAction[]
   onStartActionsChange?: (a: ScheduleAction[]) => void
@@ -56,6 +64,7 @@ export function ScheduleEditor({
   const t = useT()
   const sorted = [...value].sort((a, b) => a.time - b.time)
   const hasRange = onStartChange !== undefined && onEndChange !== undefined && startValue !== undefined && endValue !== undefined
+  const hasSignup = onSignupStartChange !== undefined && onSignupEndChange !== undefined && signupStartValue !== undefined && signupEndValue !== undefined
   const [expanded, setExpanded] = useState<Set<string>>(()=>new Set())
   const toggle = (id: string) => setExpanded(prev=>{
     const n = new Set(prev)
@@ -93,21 +102,44 @@ export function ScheduleEditor({
         <span className="text-xs text-muted-foreground">{value.length} {t("events.items" as never) ?? "items"}</span>
       </div>
 
+      {hasSignup && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <ClipboardList className="size-4 text-primary" />
+            <span className="text-sm font-semibold">Signup window</span>
+            <span className="hidden text-xs text-muted-foreground sm:inline">— people can sign up during this period, before the hackathon</span>
+            <Badge variant="secondary" className="ml-auto text-[10px]">before hackathon</Badge>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs">Signup opens</Label>
+              <DateTimePicker value={signupStartValue!} onChange={(v) => onSignupStartChange!(v)} disablePast={disablePast} className="h-8" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs">Signup closes</Label>
+              <DateTimePicker value={signupEndValue!} onChange={(v) => onSignupEndChange!(v)} disablePast={disablePast} minDate={signupStartValue ? new Date(signupStartValue) : undefined} className="h-8" />
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">Schedule blocks below must be after signup closes. They’re for the hackathon itself.</p>
+        </div>
+      )}
+
       {hasRange && (
         <PinnedBlock
-          label={t("events.starts" as never) ?? "Starts"}
+          label="Hackathon Starts"
           hint={t("events.schedule_start_hint" as never) ?? "first block"}
           value={startValue!}
           onChange={onStartChange!}
           actions={startActions ?? []}
           onActionsChange={onStartActionsChange}
           disablePast={disablePast}
+          minDate={hasSignup && signupEndValue ? new Date(signupEndValue) : undefined}
           iconBg="bg-accent"
           border="border-accent/40"
           bg="bg-accent-soft"
           expanded={expanded.has("__start__")}
           onToggle={()=>toggle("__start__")}
-          emptyHint="When the event starts — add an announcement or post the signup panel to open signups on a timer."
+          emptyHint="When the hackathon starts — add an announcement or post the signup panel to open signups on a timer."
         />
       )}
 
@@ -150,7 +182,12 @@ export function ScheduleEditor({
                         value={toLocalIso(dt)}
                         onChange={(v) => update(item.id, { time: v ? Date.parse(v) : item.time })}
                         disablePast={disablePast}
-                        minDate={disablePast && startValue ? (() => { const d = new Date(startValue); d.setHours(0,0,0,0); return d })() : undefined}
+                        minDate={(() => {
+                          const signupMin = hasSignup && signupEndValue ? new Date(signupEndValue) : null
+                          const hackMin = disablePast && startValue ? (() => { const d = new Date(startValue); d.setHours(0,0,0,0); return d })() : null
+                          if (signupMin && hackMin) return signupMin > hackMin ? signupMin : hackMin
+                          return signupMin ?? hackMin ?? undefined
+                        })()}
                         className="h-8 w-44"
                       />
                       <Input
@@ -215,20 +252,20 @@ export function ScheduleEditor({
 
       {hasRange && (
         <PinnedBlock
-          label={t("events.ends" as never) ?? "Ends"}
+          label="Hackathon Ends"
           hint={t("events.schedule_end_hint" as never) ?? "last block"}
           value={endValue!}
           onChange={onEndChange!}
           actions={endActions ?? []}
           onActionsChange={onEndActionsChange}
           disablePast={disablePast}
-          minDate={disablePast && startValue ? new Date(startValue) : undefined}
+          minDate={hasSignup && signupEndValue ? new Date(signupEndValue) : disablePast && startValue ? new Date(startValue) : undefined}
           iconBg="bg-danger"
           border="border-danger/30"
           bg="bg-danger/5"
           expanded={expanded.has("__end__")}
           onToggle={()=>toggle("__end__")}
-          emptyHint="When the event ends — add a wrap-up announcement if you want."
+          emptyHint="When the hackathon ends — add a wrap-up announcement if you want."
         />
       )}
     </div>

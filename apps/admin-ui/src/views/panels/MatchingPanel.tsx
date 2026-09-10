@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarClock, Check, ExternalLink, Lock, LockOpen, Pencil, Sparkles, Trash2, TriangleAlert, UserMinus, Users } from 'lucide-react'
+import { Check, ExternalLink, Pencil, Sparkles, Trash2, TriangleAlert, UserMinus, Users } from 'lucide-react'
 import { toast } from 'sonner'
-import type { AppState, HackathonEvent, MatchResult, Team, TeamSuggestion } from '@/types'
+import type { AppState, MatchResult, Team, TeamSuggestion } from '@/types'
 import { api } from '@/api'
 import { useT } from '@/lib/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { DateTimePicker } from '@/components/ui/datetime-picker'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   AlertDialog,
@@ -40,8 +39,7 @@ import {
 } from '@/components/ui/context-menu'
 import { EmptyState } from '@/components/ui/empty-state'
 import { labelFor } from '@/lib/labels'
-import { dateTime, timeAgo } from '@/lib/format'
-import { matchAtSchema } from '@/lib/schemas'
+import { timeAgo } from '@/lib/format'
 
 export function MatchingPanel({ state, refresh }: { state: AppState; refresh: () => Promise<void> }) {
   const t = useT()
@@ -143,8 +141,6 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
 
   return (
     <div className="flex flex-col gap-4">
-      <SchedulerCard event={activeEvent} refresh={refresh} />
-
       <Card>
         <CardHeader>
           <CardTitle>{t('matching.title')}</CardTitle>
@@ -593,153 +589,4 @@ export function TeamCardWithMenu({
       </Dialog>
     </>
   )
-}
-
-// ─── auto-match scheduler ─────────────────────────────────────────────────────
-
-function SchedulerCard({ event, refresh }: { event: HackathonEvent | null; refresh: () => Promise<void> }) {
-  const [when, setWhen] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [, setTick] = useState(0)
-
-  // Re-render every 30s so the countdown stays fresh.
-  useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 30_000)
-    return () => clearInterval(t)
-  }, [])
-
-  if (event === null) {
-    return null
-  }
-  const ev = event
-
-  async function schedule() {
-    if (when === '') return
-    const ms = Date.parse(when)
-    if (Number.isNaN(ms)) {
-      toast.error('Invalid time')
-      return
-    }
-    const parsed = matchAtSchema.safeParse(ms)
-    if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? 'Invalid time')
-      return
-    }
-    if (parsed.data <= Date.now() - 60 * 60 * 1000) {
-      toast.error('Pick a time in the future (or now)')
-      return
-    }
-    const matchAt: number = parsed.data
-    setBusy(true)
-    try {
-      await api.updateEvent(ev.id, { matchAt })
-      toast.success(`Auto-match scheduled for ${dateTime(matchAt)}`)
-      setWhen('')
-      await refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Scheduling failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function cancelSchedule() {
-    setBusy(true)
-    try {
-      await api.updateEvent(ev.id, { matchAt: null })
-      toast.info('Auto-match schedule cleared')
-      await refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Cancel failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function lockNow() {
-    setBusy(true)
-    try {
-      await api.matchLock()
-      toast.success('Teams locked — auto-match will not run again')
-      await refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Lock failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function unlock() {
-    setBusy(true)
-    try {
-      await api.matchUnlock()
-      toast.info('Lock cleared — auto-match can run again')
-      await refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Unlock failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const countdown = countdownLabel(ev.matchAt)
-
-  return (
-    <Card className={ev.matchLocked ? 'border-ok/40' : undefined}>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CalendarClock className="size-4 text-accent" />
-          Auto-match
-          {ev.matchLocked && <Badge variant="success"><Lock className="size-3" /> locked</Badge>}
-        </CardTitle>
-        <CardDescription>
-          Schedule matching to run itself, then lock the lineups. Runs at the next maintenance tick —
-          up to 5 minutes after the scheduled time.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-wrap items-center gap-3">
-        <div className="text-sm">
-          <div className="text-xs text-muted-foreground">Scheduled</div>
-          <div>{ev.matchAt !== null ? dateTime(ev.matchAt) : 'manual'}</div>
-        </div>
-        {ev.matchAt !== null && countdown !== null && (
-          <Badge variant={ev.matchLocked ? 'secondary' : 'default'}>{countdown}</Badge>
-        )}
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <DateTimePicker value={when} onChange={setWhen} placeholder="Pick match time" className="h-9 w-56" />
-          <Button size="sm" disabled={busy || when === ''} onClick={() => void schedule()}>
-            <CalendarClock />
-            Schedule auto-match
-          </Button>
-          {ev.matchAt !== null && (
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void cancelSchedule()}>
-              Cancel schedule
-            </Button>
-          )}
-          {ev.matchLocked ? (
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void unlock()}>
-              <LockOpen />
-              Unlock
-            </Button>
-          ) : (
-            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void lockNow()}>
-              <Lock />
-              Lock now
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function countdownLabel(matchAt: number | null): string | null {
-  if (matchAt === null) return null
-  const diff = matchAt - Date.now()
-  if (diff <= 0) return 'due — runs at next tick'
-  const m = Math.floor(diff / 60_000)
-  if (m < 60) return `in ${m}m`
-  const h = Math.floor(m / 60)
-  if (h < 48) return `in ${h}h ${m % 60}m`
-  return `in ${Math.floor(h / 24)}d`
 }

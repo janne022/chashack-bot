@@ -51,6 +51,8 @@ function migrate(db: Db): void {
       description TEXT NOT NULL DEFAULT '',
       starts_at INTEGER,
       ends_at INTEGER,
+      signup_starts_at INTEGER,
+      signup_ends_at INTEGER,
       status TEXT NOT NULL DEFAULT 'draft',
       form_json TEXT,
       panel_channel_id TEXT,
@@ -180,6 +182,8 @@ function migrate(db: Db): void {
   addColumnIfMissing(db, 'events', 'match_at', 'INTEGER');
   addColumnIfMissing(db, 'events', 'match_locked', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'events', 'schedule_channel_id', 'TEXT');
+  addColumnIfMissing(db, 'events', 'signup_starts_at', 'INTEGER');
+  addColumnIfMissing(db, 'events', 'signup_ends_at', 'INTEGER');
   addColumnIfMissing(db, 'events', 'schedule_json', 'TEXT NOT NULL DEFAULT \'[]\'');
   addColumnIfMissing(db, 'events', 'announcements_json', 'TEXT NOT NULL DEFAULT \'[]\'');
   addColumnIfMissing(db, 'events', 'announced_schedule_ids', 'TEXT NOT NULL DEFAULT \'[]\'');
