@@ -14,13 +14,17 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { ScheduleEditor } from '@/components/ui/schedule-editor'
 import { EmptyState } from '@/components/ui/empty-state'
 import { dateTime, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { SignupsTimeline } from '@/views/panels/charts/SignupsTimeline'
 import { TeamComposition } from '@/views/panels/charts/TeamComposition'
+
+function toLocalIso(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 export function EventsPage() {
   const { state, refresh } = useAppContext()
@@ -271,9 +275,14 @@ function NewEventButton() {
                 <span className="font-medium">{t('events.description')}</span>
                 <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('events.desc_placeholder')} maxLength={1000} />
               </label>
-              <DateRangePicker from={startsAt} to={endsAt} onChange={({ from, to }) => { setStartsAt(from); setEndsAt(to) }} label={t('events.when')} />
-
-              <ScheduleEditor value={schedule} onChange={setSchedule} />
+              <ScheduleEditor
+                value={schedule}
+                onChange={setSchedule}
+                startValue={startsAt}
+                endValue={endsAt}
+                onStartChange={setStartsAt}
+                onEndChange={setEndsAt}
+              />
 
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
                 <span className="text-sm font-medium">{t('events.form_section')}</span>
@@ -494,15 +503,21 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
   const t = useT()
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState(event.schedule ?? [])
+  const [start, setStart] = useState(event.startsAt ? toLocalIso(new Date(event.startsAt)) : "")
+  const [end, setEnd] = useState(event.endsAt ? toLocalIso(new Date(event.endsAt)) : "")
   const [busy, setBusy] = useState(false)
 
   // sync when event changes (after save)
-  useEffect(() => { if (!open) setItems(event.schedule ?? []) }, [event.schedule, open])
+  useEffect(() => { if (!open) { setItems(event.schedule ?? []); setStart(event.startsAt ? toLocalIso(new Date(event.startsAt)) : ""); setEnd(event.endsAt ? toLocalIso(new Date(event.endsAt)) : "") } }, [event.schedule, event.startsAt, event.endsAt, open])
 
   async function save() {
     setBusy(true)
     try {
-      await api.updateEvent(event.id, { schedule: items })
+      await api.updateEvent(event.id, {
+        schedule: items,
+        startsAt: start ? Date.parse(start) : null,
+        endsAt: end ? Date.parse(end) : null,
+      })
       toast.success(t('events.schedule_saved'))
       setOpen(false)
       await refresh()
@@ -525,7 +540,14 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
               <CardDescription>{t('events.edit_schedule_desc')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <ScheduleEditor value={items} onChange={setItems} />
+              <ScheduleEditor
+                value={items}
+                onChange={setItems}
+                startValue={start}
+                endValue={end}
+                onStartChange={setStart}
+                onEndChange={setEnd}
+              />
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
                 <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>

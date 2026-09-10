@@ -25,12 +25,21 @@ function toLocalIso(date: Date): string {
 export function ScheduleEditor({
   value,
   onChange,
+  startValue,
+  endValue,
+  onStartChange,
+  onEndChange,
 }: {
   value: ScheduleItem[]
   onChange: (next: ScheduleItem[]) => void
+  startValue?: string
+  endValue?: string
+  onStartChange?: (v: string) => void
+  onEndChange?: (v: string) => void
 }) {
   const t = useT()
   const sorted = [...value].sort((a, b) => a.time - b.time)
+  const hasRange = onStartChange !== undefined && onEndChange !== undefined && startValue !== undefined && endValue !== undefined
 
   const add = (preset?: Partial<ScheduleItem>) => {
     const base = new Date()
@@ -62,6 +71,17 @@ export function ScheduleEditor({
         <span className="text-sm font-medium">{t("events.schedule") as string ?? "Schedule"}</span>
         <span className="text-xs text-muted-foreground">{value.length} {t("events.items" as never) ?? "items"}</span>
       </div>
+
+      {hasRange && (
+        <div className="flex items-center gap-2 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2">
+          <span className="flex size-7 items-center justify-center rounded-md bg-accent text-accent-foreground">
+            <Clock className="size-3.5" />
+          </span>
+          <span className="text-sm font-semibold">{t("events.starts" as never) ?? "Starts"}</span>
+          <span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{t("events.schedule_start_hint" as never) ?? "first block"}</span>
+          <DateTimePicker value={startValue!} onChange={(v) => onStartChange!(v)} className="ml-auto h-8 w-48" />
+        </div>
+      )}
 
       {sorted.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("events.schedule_empty" as never) ?? "No schedule yet — add dinner, breaks, voting etc."}</p>
@@ -122,6 +142,17 @@ export function ScheduleEditor({
           </Button>
         ))}
       </div>
+
+      {hasRange && (
+        <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
+          <span className="flex size-7 items-center justify-center rounded-md bg-danger text-danger-foreground">
+            <Clock className="size-3.5" />
+          </span>
+          <span className="text-sm font-semibold">{t("events.ends" as never) ?? "Ends"}</span>
+          <span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{t("events.schedule_end_hint" as never) ?? "last block"}</span>
+          <DateTimePicker value={endValue!} onChange={(v) => onEndChange!(v)} className="ml-auto h-8 w-48" />
+        </div>
+      )}
     </div>
   )
 }

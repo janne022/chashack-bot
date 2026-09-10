@@ -115,6 +115,8 @@
   "events.when": "När",
   "events.schedule": "Schema",
   "events.schedule_empty": "Inget schema än — lägg till middag, fika, röstning osv.",
+  "events.schedule_start_hint": "första blocket — eventstart",
+  "events.schedule_end_hint": "sista blocket — eventslut",
   "events.add_schedule": "Lägg till",
   "events.edit_schedule": "Redigera schema",
   "events.edit_schedule_title": "Redigera schema",

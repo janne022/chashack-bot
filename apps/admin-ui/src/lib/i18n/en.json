@@ -115,6 +115,8 @@
   "events.when": "When",
   "events.schedule": "Schedule",
   "events.schedule_empty": "No schedule yet — add dinner, breaks, voting etc.",
+  "events.schedule_start_hint": "first block — event start",
+  "events.schedule_end_hint": "last block — event end",
   "events.add_schedule": "Add item",
   "events.edit_schedule": "Edit schedule",
   "events.edit_schedule_title": "Edit schedule",
