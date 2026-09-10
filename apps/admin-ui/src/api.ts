@@ -101,6 +101,7 @@ export const api = {
     defaultPanelChannelId?: string | null
     defaultCategoryId?: string | null
     defaultCleanupDelayHours?: number | null
+    defaultFormTemplateId?: string | null
   }): Promise<{ settings: AppState['guildSettings'] }> {
     return request('/api/guild/settings', {
       method: 'POST',
@@ -175,6 +176,8 @@ export const api = {
     panelChannelId?: string | null
     announcementChannelId?: string | null
     schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[]
+    saveAsTemplate?: boolean
+    saveTemplateName?: string
   }): Promise<HackathonEvent> {
     const res = await request<{ event: HackathonEvent }>('/api/events', {
       method: 'POST',
@@ -245,9 +248,29 @@ export const api = {
   async saveTemplate(eventId: string, name: string, kind: 'event' | 'form' = 'event', formJson?: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
     const body: Record<string, unknown> = { eventId, name, kind }
     if (formJson !== undefined) body.formJson = formJson
+    // also allow raw json for event templates from editor
+    if (kind === 'event' && eventId === '__json__' && formJson !== undefined) {
+      body.json = formJson
+      delete body.eventId
+      delete body.formJson
+    }
     return request('/api/templates', {
       method: 'POST',
       body: JSON.stringify(body),
+    })
+  },
+
+  async createTemplateRaw(name: string, kind: 'event' | 'form', json: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
+    return request('/api/templates', {
+      method: 'POST',
+      body: JSON.stringify({ name, kind, json }),
+    })
+  },
+
+  async updateTemplate(templateId: string, update: { name?: string; json?: string }): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
+    return request(`/api/templates/${templateId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(update),
     })
   },
 

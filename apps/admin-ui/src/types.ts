@@ -144,6 +144,7 @@ export interface AppState {
     defaultPanelChannelId: string | null
     defaultCategoryId: string | null
     defaultCleanupDelayHours: number | null
+    defaultFormTemplateId: string | null
   }
   guildConfigured: boolean
   guildId: string

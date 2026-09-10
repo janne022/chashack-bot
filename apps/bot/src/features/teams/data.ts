@@ -335,11 +335,12 @@ export interface GuildSettings {
   defaultPanelChannelId: string | null
   defaultCategoryId: string | null
   defaultCleanupDelayHours: number | null
+  defaultFormTemplateId: string | null
 }
 
 export function getGuildSettings(db: Db, guildId: string): GuildSettings {
-  const row = db.prepare('SELECT team_category_id, default_announcement_channel_id, default_panel_channel_id, default_category_id, default_cleanup_delay_hours FROM guild_settings WHERE guild_id = ?').get(guildId) as
-    | { team_category_id: string | null; default_announcement_channel_id: string | null; default_panel_channel_id: string | null; default_category_id: string | null; default_cleanup_delay_hours: number | null }
+  const row = db.prepare('SELECT team_category_id, default_announcement_channel_id, default_panel_channel_id, default_category_id, default_cleanup_delay_hours, default_form_template_id FROM guild_settings WHERE guild_id = ?').get(guildId) as
+    | { team_category_id: string | null; default_announcement_channel_id: string | null; default_panel_channel_id: string | null; default_category_id: string | null; default_cleanup_delay_hours: number | null; default_form_template_id: string | null }
     | undefined;
   return {
     teamCategoryId: row?.team_category_id ?? null,
@@ -347,6 +348,7 @@ export function getGuildSettings(db: Db, guildId: string): GuildSettings {
     defaultPanelChannelId: row?.default_panel_channel_id ?? null,
     defaultCategoryId: row?.default_category_id ?? null,
     defaultCleanupDelayHours: row?.default_cleanup_delay_hours ?? null,
+    defaultFormTemplateId: row?.default_form_template_id ?? null,
   };
 }
 
@@ -362,7 +364,7 @@ export function updateGuildSettings(
   db: Db,
   actor: string,
   guildId: string,
-  update: Partial<Pick<GuildSettings, 'teamCategoryId' | 'defaultAnnouncementChannelId' | 'defaultPanelChannelId' | 'defaultCategoryId' | 'defaultCleanupDelayHours'>>,
+  update: Partial<Pick<GuildSettings, 'teamCategoryId' | 'defaultAnnouncementChannelId' | 'defaultPanelChannelId' | 'defaultCategoryId' | 'defaultCleanupDelayHours' | 'defaultFormTemplateId'>>,
 ): GuildSettings {
   const cur = getGuildSettings(db, guildId)
   const next: GuildSettings = {
@@ -371,18 +373,20 @@ export function updateGuildSettings(
     defaultPanelChannelId: update.defaultPanelChannelId !== undefined ? update.defaultPanelChannelId : cur.defaultPanelChannelId,
     defaultCategoryId: update.defaultCategoryId !== undefined ? update.defaultCategoryId : cur.defaultCategoryId,
     defaultCleanupDelayHours: update.defaultCleanupDelayHours !== undefined ? update.defaultCleanupDelayHours : cur.defaultCleanupDelayHours,
+    defaultFormTemplateId: update.defaultFormTemplateId !== undefined ? update.defaultFormTemplateId : cur.defaultFormTemplateId,
   }
   db.prepare(
-    `INSERT INTO guild_settings (guild_id, team_category_id, default_announcement_channel_id, default_panel_channel_id, default_category_id, default_cleanup_delay_hours, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO guild_settings (guild_id, team_category_id, default_announcement_channel_id, default_panel_channel_id, default_category_id, default_cleanup_delay_hours, default_form_template_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(guild_id) DO UPDATE SET
        team_category_id = excluded.team_category_id,
        default_announcement_channel_id = excluded.default_announcement_channel_id,
        default_panel_channel_id = excluded.default_panel_channel_id,
        default_category_id = excluded.default_category_id,
        default_cleanup_delay_hours = excluded.default_cleanup_delay_hours,
+       default_form_template_id = excluded.default_form_template_id,
        updated_at = excluded.updated_at`,
-  ).run(guildId, next.teamCategoryId, next.defaultAnnouncementChannelId, next.defaultPanelChannelId, next.defaultCategoryId, next.defaultCleanupDelayHours, Date.now())
+  ).run(guildId, next.teamCategoryId, next.defaultAnnouncementChannelId, next.defaultPanelChannelId, next.defaultCategoryId, next.defaultCleanupDelayHours, next.defaultFormTemplateId, Date.now())
   audit(db, actor, 'guild.update_settings', guildId, update as Record<string, unknown>)
   return next
 }

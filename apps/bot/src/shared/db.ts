@@ -140,6 +140,7 @@ function migrate(db: Db): void {
       default_panel_channel_id TEXT,
       default_category_id TEXT,
       default_cleanup_delay_hours INTEGER,
+      default_form_template_id TEXT,
       updated_at INTEGER NOT NULL
     );
 
@@ -159,6 +160,7 @@ function migrate(db: Db): void {
   addColumnIfMissing(db, 'guild_settings', 'default_panel_channel_id', 'TEXT');
   addColumnIfMissing(db, 'guild_settings', 'default_category_id', 'TEXT');
   addColumnIfMissing(db, 'guild_settings', 'default_cleanup_delay_hours', 'INTEGER');
+  addColumnIfMissing(db, 'guild_settings', 'default_form_template_id', 'TEXT');
   addColumnIfMissing(db, 'teams', 'event_id', 'TEXT');
   addColumnIfMissing(db, 'team_requests', 'event_id', 'TEXT');
   addColumnIfMissing(db, 'participants', 'event_id', 'TEXT');

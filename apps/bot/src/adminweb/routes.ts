@@ -251,6 +251,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       templateId?: string;
       formTemplateId?: string;
       schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[];
+      saveAsTemplate?: boolean;
+      saveTemplateName?: string;
     } | null;
     if (body?.name === undefined || body.name.trim().length < 3) {
       await reply.code(400).send({ ok: false, code: 'bad_name', message: 'Event name must be at least 3 characters.' });
@@ -277,6 +279,16 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       } catch {
         await reply.code(400).send({ ok: false, code: 'bad_template', message: 'Form template JSON is invalid.' });
         return;
+      }
+    }
+    // Default form fallback: guild default form template → else global form_config fallback is handled inside createEvent
+    if (form === undefined && body.formTemplateId === undefined) {
+      const gs2 = getGuildSettings(db, guildId)
+      if (gs2.defaultFormTemplateId) {
+        const tpl = listTemplates(db, guildId, 'form').find(t => t.id === gs2.defaultFormTemplateId)
+        if (tpl) {
+          try { form = JSON.parse(tpl.json) as Parameters<typeof createEvent>[3]['form'] } catch { /* ignore */ }
+        }
       }
     }
     // Fall back to guild defaults when not explicitly provided
@@ -306,6 +318,23 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
+    }
+    // Optional: save as event template via checkbox in create dialog
+    if (body.saveAsTemplate) {
+      const tplName = (body.saveTemplateName ?? body.name).trim().slice(0, 80)
+      if (tplName.length >= 2) {
+        const { getEventForm } = await import('../features/events/data.js')
+        const { DEFAULT_FORM } = await import('../features/form/domain.js')
+        const savedEvent = res.value
+        const payload = {
+          name: savedEvent.name,
+          description: savedEvent.description,
+          cleanupDelayHours: savedEvent.cleanupDelayHours,
+          form: getEventForm(db, savedEvent, DEFAULT_FORM),
+          schedule: savedEvent.schedule,
+        }
+        saveTemplate(db, 'web', guildId, tplName, 'event', JSON.stringify(payload))
+      }
     }
     return { ok: true, event: res.value };
   });
@@ -484,7 +513,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   })
 
   app.post('/api/templates', async (req, reply) => {
-    const body = req.body as { eventId?: string; name?: string; kind?: string; formJson?: string } | null
+    const body = req.body as { eventId?: string; name?: string; kind?: string; formJson?: string; json?: string } | null
     const kind = body?.kind ?? 'event'
     if (kind !== 'event' && kind !== 'form') {
       await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be event|form' })
@@ -492,27 +521,43 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
     let json: string
     if (kind === 'form') {
-      if (body?.formJson === undefined) {
+      if (body?.formJson === undefined && body?.json === undefined) {
         await reply.code(400).send({ ok: false, code: 'bad_input', message: 'formJson is required for form templates.' })
         return
       }
-      json = body.formJson
-    } else {
-      const event = body?.eventId !== undefined ? getEvent(db, body.eventId) : getActiveEvent(db, guildId)
-      if (event === null) {
-        await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found.' })
+      json = (body.formJson ?? body.json)!
+      // validate form shape
+      try {
+        const parsed = JSON.parse(json) as Record<string, unknown>
+        const { normalizeFormUpdate } = await import('../features/form/domain.js')
+        const { DEFAULT_FORM } = await import('../features/form/domain.js')
+        const normalized = normalizeFormUpdate(DEFAULT_FORM as never, parsed as never)
+        json = JSON.stringify(normalized)
+      } catch (e) {
+        await reply.code(400).send({ ok: false, code: 'bad_json', message: e instanceof Error ? e.message : 'Invalid form JSON' })
         return
       }
-      const { getEventForm } = await import('../features/events/data.js')
-      const { DEFAULT_FORM } = await import('../features/form/domain.js')
-      const payload = {
-        name: event.name,
-        description: event.description,
-        cleanupDelayHours: event.cleanupDelayHours,
-        form: getEventForm(db, event, DEFAULT_FORM),
-        schedule: event.schedule,
+    } else {
+      // event template: allow direct json (from editor) or clone an existing event
+      if (body?.json !== undefined) {
+        try { JSON.parse(body.json); json = body.json } catch { await reply.code(400).send({ ok: false, code: 'bad_json', message: 'Event template json is not valid JSON.' }); return }
+      } else {
+        const event = body?.eventId !== undefined ? getEvent(db, body.eventId) : getActiveEvent(db, guildId)
+        if (event === null) {
+          await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found. Provide json or eventId.' })
+          return
+        }
+        const { getEventForm } = await import('../features/events/data.js')
+        const { DEFAULT_FORM } = await import('../features/form/domain.js')
+        const payload = {
+          name: event.name,
+          description: event.description,
+          cleanupDelayHours: event.cleanupDelayHours,
+          form: getEventForm(db, event, DEFAULT_FORM),
+          schedule: event.schedule,
+        }
+        json = JSON.stringify(payload)
       }
-      json = JSON.stringify(payload)
     }
     const res = saveTemplate(db, 'web', guildId, body?.name ?? '', kind, json)
     if (!res.ok) {
@@ -520,6 +565,30 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return
     }
     return { ok: true, template: res.value }
+  })
+
+  app.patch('/api/templates/:templateId', async (req, reply) => {
+    const { templateId } = req.params as { templateId: string }
+    const body = req.body as { name?: string; json?: string; formJson?: string } | null
+    const existing = listTemplates(db, guildId).find(t => t.id === templateId)
+    if (!existing) { await reply.code(404).send({ ok: false, code: 'not_found', message: 'Template not found.' }); return }
+    const name = body?.name !== undefined ? body.name.trim().slice(0, 80) : existing.name
+    if (name.length < 2) { await reply.code(400).send({ ok: false, code: 'bad_name', message: 'Name must be at least 2 characters.' }); return }
+    let json = body?.json ?? body?.formJson ?? existing.json
+    // validate
+    try {
+      const parsed = JSON.parse(json)
+      if (existing.kind === 'form') {
+        const { normalizeFormUpdate } = await import('../features/form/domain.js')
+        const { DEFAULT_FORM } = await import('../features/form/domain.js')
+        json = JSON.stringify(normalizeFormUpdate(DEFAULT_FORM as never, parsed as never))
+      } else {
+        JSON.stringify(parsed) // just check valid
+      }
+    } catch (e) { await reply.code(400).send({ ok: false, code: 'bad_json', message: e instanceof Error ? e.message : 'Invalid JSON' }); return }
+    db.prepare('UPDATE event_templates SET name = ?, json = ? WHERE id = ?').run(name, json, templateId)
+    const updated = listTemplates(db, guildId).find(t => t.id === templateId)!
+    return { ok: true, template: updated }
   })
 
   app.delete('/api/templates/:templateId', async (req, reply) => {
@@ -581,6 +650,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       defaultPanelChannelId?: string | null
       defaultCategoryId?: string | null
       defaultCleanupDelayHours?: number | null
+      defaultFormTemplateId?: string | null
     } | null
     if (!body) {
       await reply.code(400).send({ ok: false, code: 'bad_input', message: 'Body required.' })
@@ -591,6 +661,13 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if ('defaultAnnouncementChannelId' in body) cleaned.defaultAnnouncementChannelId = body.defaultAnnouncementChannelId ?? null
     if ('defaultPanelChannelId' in body) cleaned.defaultPanelChannelId = body.defaultPanelChannelId ?? null
     if ('defaultCategoryId' in body) cleaned.defaultCategoryId = body.defaultCategoryId ?? null
+    if ('defaultFormTemplateId' in body) {
+      const id = body.defaultFormTemplateId
+      if (id !== null && id !== '' && listTemplates(db, guildId, 'form').find(t => t.id === id) === undefined) {
+        await reply.code(400).send({ ok: false, code: 'not_found', message: 'Form template not found.' }); return
+      }
+      cleaned.defaultFormTemplateId = id ?? null
+    }
     if ('defaultCleanupDelayHours' in body) {
       const n = body.defaultCleanupDelayHours
       if (n !== null && (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > 720)) {

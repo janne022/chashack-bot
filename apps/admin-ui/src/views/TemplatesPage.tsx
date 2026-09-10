@@ -1,247 +1,199 @@
-import { useState } from 'react'
-import { LayoutTemplate, Plus, Trash2, Copy, BookCopy } from 'lucide-react'
-import { toast } from 'sonner'
-import { useAppContext } from '@/lib/app-context'
-import { useT } from '@/lib/i18n'
-import { api } from '@/api'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { FormPanel } from '@/views/panels/FormPanel'
-import { dateTime } from '@/lib/format'
+import { useState } from "react"
+import { LayoutTemplate, BookCopy, Plus, Trash2, Pencil, Copy } from "lucide-react"
+import { toast } from "sonner"
+import { useAppContext } from "@/lib/app-context"
+import { useT } from "@/lib/i18n"
+import { api } from "@/api"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { FormConfigEditor } from "@/components/FormConfigEditor"
+import { EventTemplateEditor, type EventTemplateDraft } from "@/components/EventTemplateEditor"
+import type { FormConfig } from "@/types"
+import { dateTime } from "@/lib/format"
+import { DEFAULT_FORM } from "@/lib/default-form"
 
 export function TemplatesPage() {
   const { state, refresh } = useAppContext()
   const t = useT()
-  const eventTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'event')
-  const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
+  const eventTemplates = (state.templates ?? []).filter(tpl => tpl.kind === "event")
+  const formTemplates = (state.templates ?? []).filter(tpl => tpl.kind === "form")
+
+  const [tab, setTab] = useState<"event" | "form">("event")
+  const [editingFormId, setEditingFormId] = useState<string | null>(null)
+  const [editingEventId, setEditingEventId] = useState<string | null>(null)
+  const [creatingForm, setCreatingForm] = useState(false)
+  const [creatingEvent, setCreatingEvent] = useState(false)
 
   return (
     <div className="flex flex-col gap-6">
-      <header>
-        <h1 className="font-display text-2xl">{t('templates.title')}</h1>
-        <p className="text-sm text-muted-foreground">{t('templates.subtitle')}</p>
+      <header className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl">{t("templates.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("templates.subtitle")}</p>
+        </div>
       </header>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <LayoutTemplate className="size-4 text-accent" />
-              {t('templates.event_templates')}
-            </CardTitle>
-            <CardDescription>{t('templates.event_templates_desc')}</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <CreateEventTemplateDialog />
-            {eventTemplates.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('templates.no_event_templates')}</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {eventTemplates.map((tpl) => (
-                  <div key={tpl.id} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{tpl.name}</div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="font-mono">{tpl.id}</span>
-                        <span>·</span>
-                        <span>{dateTime(tpl.createdAt)}</span>
-                      </div>
-                    </div>
-                    <div className="flex gap-1.5">
-                      <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard.writeText(tpl.id)}>
-                        <Copy />
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={async () => {
-                        try { await api.deleteTemplate(tpl.id); toast.success(t('templates.deleted')); await refresh() } catch (e) { toast.error(e instanceof Error ? e.message : t('common.action_failed')) }
-                      }}>
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      <Tabs value={tab} onValueChange={v=>setTab(v as never)} className="w-full">
+        <TabsList className="w-full justify-start">
+          <TabsTrigger value="event" className="gap-2"><LayoutTemplate className="size-4" /> Event templates ({eventTemplates.length})</TabsTrigger>
+          <TabsTrigger value="form" className="gap-2"><BookCopy className="size-4" /> Form templates ({formTemplates.length})</TabsTrigger>
+        </TabsList>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BookCopy className="size-4 text-accent" />
-              {t('templates.form_templates')}
-            </CardTitle>
-            <CardDescription>{t('templates.form_templates_desc')}</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <CreateFormTemplateDialog />
-            {formTemplates.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('templates.no_form_templates')}</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {formTemplates.map((tpl) => (
-                  <div key={tpl.id} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{tpl.name}</div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="font-mono">{tpl.id}</span>
-                        <span>·</span>
-                        <span>{dateTime(tpl.createdAt)}</span>
-                      </div>
-                    </div>
-                    <div className="flex gap-1.5">
-                      <Button size="sm" variant="secondary" onClick={async () => {
-                        try {
-                          const parsed = JSON.parse(tpl.json) as Record<string, unknown>
-                          await api.updateForm(parsed)
-                          toast.success(t('templates.form_applied', { name: tpl.name }))
-                          await refresh()
-                        } catch (e) { toast.error(e instanceof Error ? e.message : t('form.template_apply_failed')) }
-                      }}>
-                        {t('templates.apply_to_global')}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={async () => {
-                        try { await api.deleteTemplate(tpl.id); toast.success(t('templates.deleted')); await refresh() } catch (e) { toast.error(e instanceof Error ? e.message : t('common.action_failed')) }
-                      }}>
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+        <TabsContent value="event" className="flex flex-col gap-4 mt-4">
+          <div className="flex justify-end"><Button onClick={()=>setCreatingEvent(true)}><Plus className="size-4" /> New event template</Button></div>
+          {eventTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">{t("templates.no_event_templates")}</CardContent></Card> : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {eventTemplates.map(tpl=>(
+                <Card key={tpl.id} className="flex flex-col">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
+                    <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
+                  </CardHeader>
+                  <CardContent className="mt-auto flex gap-2">
+                    <Button size="sm" variant="secondary" onClick={()=>setEditingEventId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
+                    <Button size="sm" variant="ghost" onClick={()=>void navigator.clipboard.writeText(tpl.id)}><Copy className="size-3.5" /></Button>
+                    <Button size="sm" variant="ghost" onClick={async()=>{ try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+          {(creatingEvent || editingEventId) && (
+            <EventTemplateDialog
+              template={editingEventId ? eventTemplates.find(t=>t.id===editingEventId) ?? null : null}
+              formTemplates={formTemplates}
+              onClose={()=>{ setCreatingEvent(false); setEditingEventId(null) }}
+              onSaved={refresh}
+            />
+          )}
+        </TabsContent>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="font-display text-sm uppercase tracking-wide text-muted-foreground">{t('templates.global_form')}</h2>
-        <FormPanel state={state} refresh={refresh} hideTemplates />
-      </section>
+        <TabsContent value="form" className="flex flex-col gap-4 mt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">Forms define the /hackathon join modal. Set the default in <span className="font-medium text-foreground">Config → Default form</span>.</p>
+            <Button onClick={()=>setCreatingForm(true)}><Plus className="size-4" /> New form template</Button>
+          </div>
+          {formTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">{t("templates.no_form_templates")}</CardContent></Card> : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {formTemplates.map(tpl=>(
+                <Card key={tpl.id} className="flex flex-col">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
+                    <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
+                  </CardHeader>
+                  <CardContent className="mt-auto flex gap-2">
+                    <Button size="sm" variant="secondary" onClick={()=>setEditingFormId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
+                    <Button size="sm" variant="ghost" onClick={()=>void navigator.clipboard.writeText(tpl.id)}><Copy className="size-3.5" /></Button>
+                    <Button size="sm" variant="ghost" onClick={async()=>{ try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+          {(creatingForm || editingFormId) && (
+            <FormTemplateDialog
+              template={editingFormId ? formTemplates.find(t=>t.id===editingFormId) ?? null : null}
+              onClose={()=>{ setCreatingForm(false); setEditingFormId(null) }}
+              onSaved={refresh}
+            />
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
 
-function CreateEventTemplateDialog() {
-  const { state, refresh } = useAppContext()
+function FormTemplateDialog({ template, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; onClose: ()=>void; onSaved: ()=>Promise<void> }) {
   const t = useT()
-  const [open, setOpen] = useState(false)
-  const [eventId, setEventId] = useState('')
-  const [name, setName] = useState('')
+  const [name, setName] = useState(template?.name ?? "")
+  const [config, setConfig] = useState<FormConfig>(()=>{
+    if (template) { try { return JSON.parse(template.json) as FormConfig } catch { return DEFAULT_FORM } }
+    return DEFAULT_FORM
+  })
   const [busy, setBusy] = useState(false)
-
-  const events = state.events ?? []
-  const effectiveName = name.trim() || events.find(e => e.id === eventId)?.name || ''
+  const isEdit = template !== null
 
   async function save() {
-    if (eventId === '' || effectiveName.length < 2) return
+    if (name.trim().length < 2) { toast.error("Name must be at least 2 characters"); return }
     setBusy(true)
     try {
-      await api.saveTemplate(eventId, effectiveName, 'event')
-      toast.success(t('templates.created', { name: effectiveName }))
-      setOpen(false)
-      setName('')
-      setEventId('')
-      await refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('templates.create_failed'))
-    } finally { setBusy(false) }
+      const json = JSON.stringify(config)
+      if (isEdit) await api.updateTemplate(template.id, { name: name.trim(), json })
+      else await api.createTemplateRaw(name.trim(), "form", json)
+      toast.success(isEdit ? "Form template updated" : t("templates.created", { name: name.trim() }))
+      onClose(); await onSaved()
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Save failed") }
+    finally { setBusy(false) }
   }
 
   return (
-    <>
-      <Button size="sm" onClick={() => setOpen(true)}>
-        <Plus />
-        {t('templates.new_event_template')}
-      </Button>
-      {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
-          <Card className="w-full max-w-md animate-pop-in" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            <CardHeader>
-              <CardTitle>{t('templates.new_event_template')}</CardTitle>
-              <CardDescription>{t('templates.new_event_template_desc')}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">{t('templates.source_event')}</span>
-                <Select value={eventId} onValueChange={setEventId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('templates.pick_event')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {events.map(e => <SelectItem key={e.id} value={e.id}>{e.name} · {e.status}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">{t('form.template_name')}</span>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={events.find(e => e.id === eventId)?.name ?? t('form.template_name_placeholder')} maxLength={80} />
-              </label>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-                <Button disabled={busy || eventId === '' || effectiveName.length < 2} onClick={() => void save()}>
-                  {t('common.create')}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
+      <Card className="w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col animate-pop-in" onClick={e=>e.stopPropagation()}>
+        <CardHeader className="shrink-0">
+          <CardTitle>{isEdit ? "Edit form template" : "New form template"}</CardTitle>
+          <CardDescription>Design the signup modal — title, roles, skills, team preferences. This becomes reusable.</CardDescription>
+        </CardHeader>
+        <div className="flex-1 overflow-y-auto px-6 pb-4 flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium">Template name</label>
+            <Input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Standard hackathon form" maxLength={80} />
+          </div>
+          <FormConfigEditor value={config} onChange={setConfig} />
         </div>
-      )}
-    </>
+        <div className="flex justify-end gap-2 border-t border-border p-4 shrink-0 bg-card">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={busy || name.trim().length<2} onClick={()=>void save()}>{isEdit ? "Save changes" : "Create template"}</Button>
+        </div>
+      </Card>
+    </div>
   )
 }
 
-function CreateFormTemplateDialog() {
-  const { state, refresh } = useAppContext()
+function EventTemplateDialog({ template, formTemplates, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; formTemplates: { id: string; name: string; json: string }[]; onClose: ()=>void; onSaved: ()=>Promise<void> }) {
   const t = useT()
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
+  const [draft, setDraft] = useState<EventTemplateDraft>(()=>{
+    if (template) {
+      try {
+        const p = JSON.parse(template.json) as Partial<EventTemplateDraft & { name: string }>
+        return { name: template.name, description: (p as Record<string,string>).description ?? "", cleanupDelayHours: (p as Record<string,number>).cleanupDelayHours ?? 48, form: (p.form as FormConfig) ?? DEFAULT_FORM, schedule: (p.schedule as EventTemplateDraft["schedule"]) ?? [] }
+      } catch { return { name: template.name, description: "", cleanupDelayHours: 48, form: DEFAULT_FORM, schedule: [] } }
+    }
+    return { name: "", description: "", cleanupDelayHours: 48, form: DEFAULT_FORM, schedule: [] }
+  })
   const [busy, setBusy] = useState(false)
+  const isEdit = template !== null
 
   async function save() {
-    const clean = name.trim()
-    if (clean.length < 2) return
+    if (draft.name.trim().length < 2) { toast.error("Name must be at least 2 characters"); return }
     setBusy(true)
     try {
-      await api.saveTemplate('', clean, 'form', JSON.stringify(state.config))
-      toast.success(t('form.template_saved', { name: clean }))
-      setOpen(false)
-      setName('')
-      await refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('form.template_save_failed'))
-    } finally { setBusy(false) }
+      const payload = { name: draft.name.trim(), description: draft.description, cleanupDelayHours: draft.cleanupDelayHours, form: draft.form, schedule: draft.schedule }
+      const json = JSON.stringify(payload)
+      if (isEdit) await api.updateTemplate(template.id, { name: draft.name.trim(), json })
+      else await api.createTemplateRaw(draft.name.trim(), "event", json)
+      toast.success(isEdit ? "Event template updated" : t("templates.created", { name: draft.name.trim() }))
+      onClose(); await onSaved()
+    } catch(e){ toast.error(e instanceof Error ? e.message : "Save failed") }
+    finally{ setBusy(false) }
   }
 
   return (
-    <>
-      <Button size="sm" onClick={() => setOpen(true)}>
-        <Plus />
-        {t('templates.new_form_template')}
-      </Button>
-      {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
-          <Card className="w-full max-w-md animate-pop-in" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            <CardHeader>
-              <CardTitle>{t('templates.new_form_template')}</CardTitle>
-              <CardDescription>{t('form.save_template_desc')}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">{t('form.template_name')}</span>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('form.template_name_placeholder')} maxLength={80} />
-              </label>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-                <Button disabled={busy || name.trim().length < 2} onClick={() => void save()}>
-                  {t('common.create')}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
+      <Card className="w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col animate-pop-in" onClick={e=>e.stopPropagation()}>
+        <CardHeader className="shrink-0">
+          <CardTitle>{isEdit ? "Edit event template" : "New event template"}</CardTitle>
+          <CardDescription>Reusable event — name, schedule, cleanup and embedded signup form.</CardDescription>
+        </CardHeader>
+        <div className="flex-1 overflow-y-auto px-6 pb-4">
+          <EventTemplateEditor value={draft} onChange={setDraft} formTemplates={formTemplates} />
         </div>
-      )}
-    </>
+        <div className="flex justify-end gap-2 border-t border-border p-4 shrink-0 bg-card">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={busy || draft.name.trim().length<2} onClick={()=>void save()}>{isEdit ? "Save changes" : "Create template"}</Button>
+        </div>
+      </Card>
+    </div>
   )
 }

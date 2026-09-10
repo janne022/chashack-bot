@@ -18,6 +18,7 @@ export function ConfigPage() {
   const [announce, setAnnounce] = useState(gs.defaultAnnouncementChannelId ?? '')
   const [category, setCategory] = useState(gs.defaultCategoryId ?? gs.teamCategoryId ?? '')
   const [cleanup, setCleanup] = useState(gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '')
+  const [defaultForm, setDefaultForm] = useState(gs.defaultFormTemplateId ?? '')
   const [busy, setBusy] = useState(false)
   const [testingPanel, setTestingPanel] = useState(false)
   const [testingAnnounce, setTestingAnnounce] = useState(false)
@@ -40,13 +41,15 @@ export function ConfigPage() {
     setAnnounce(gs.defaultAnnouncementChannelId ?? '')
     setCategory(gs.defaultCategoryId ?? gs.teamCategoryId ?? '')
     setCleanup(gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '')
-  }, [gs.defaultPanelChannelId, gs.defaultAnnouncementChannelId, gs.defaultCategoryId, gs.teamCategoryId, gs.defaultCleanupDelayHours])
+    setDefaultForm(gs.defaultFormTemplateId ?? '')
+  }, [gs.defaultPanelChannelId, gs.defaultAnnouncementChannelId, gs.defaultCategoryId, gs.teamCategoryId, gs.defaultCleanupDelayHours, gs.defaultFormTemplateId])
 
   const dirty =
     panel !== (gs.defaultPanelChannelId ?? '') ||
     announce !== (gs.defaultAnnouncementChannelId ?? '') ||
     category !== (gs.defaultCategoryId ?? gs.teamCategoryId ?? '') ||
-    cleanup !== (gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '')
+    cleanup !== (gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '') ||
+    defaultForm !== (gs.defaultFormTemplateId ?? '')
 
   async function save() {
     const payload: Record<string, unknown> = {}
@@ -56,6 +59,7 @@ export function ConfigPage() {
     const catVal = category.trim() === '' ? null : category.trim()
     payload.defaultCategoryId = catVal
     payload.teamCategoryId = catVal
+    payload.defaultFormTemplateId = defaultForm.trim() === '' ? null : defaultForm.trim()
     payload.defaultCleanupDelayHours = cleanup.trim() === '' ? null : Number(cleanup)
 
     if (payload.defaultCleanupDelayHours !== null && (Number.isNaN(payload.defaultCleanupDelayHours as number) || (payload.defaultCleanupDelayHours as number) < 0 || (payload.defaultCleanupDelayHours as number) > 720)) {
@@ -182,6 +186,22 @@ export function ConfigPage() {
                 <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="category id" />
               )}
               <span className="text-xs text-muted-foreground">{t('config.category_hint')}</span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label>Default signup form</Label>
+              {(state.templates ?? []).filter(t=>t.kind==='form').length > 0 ? (
+                <Select value={defaultForm || '__none'} onValueChange={(v)=>setDefaultForm(v==='__none' ? '' : v)}>
+                  <SelectTrigger><SelectValue placeholder="Default form (fallback to built-in)" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">Built-in default</SelectItem>
+                    {(state.templates ?? []).filter(t=>t.kind==='form').map(f=> <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={defaultForm} onChange={e=>setDefaultForm(e.target.value)} placeholder="form template id (create one in Templates)" />
+              )}
+              <span className="text-xs text-muted-foreground">Used when you create events without picking a form. Set in Templates first.</span>
             </div>
 
             <div className="flex flex-col gap-2">

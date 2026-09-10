@@ -94,6 +94,7 @@ function NewEventButton() {
   const [announceTitle, setAnnounceTitle] = useState('')
   const [announceMessage, setAnnounceMessage] = useState('')
   const [dmOnAnnounce, setDmOnAnnounce] = useState(false)
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const eventTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'event')
@@ -160,8 +161,9 @@ function NewEventButton() {
         panelChannelId: panelChannelId || null,
         announcementChannelId: announceChannelId || null,
         ...(schedule.length > 0 ? { schedule } : {}),
+        ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
-      toast.success(t('events.created', { name: name.trim() }))
+      toast.success(saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() }))
 
       setOpen(false)
       setChooserTemplateId('')
@@ -178,6 +180,7 @@ function NewEventButton() {
       setAnnounceTitle('')
       setAnnounceMessage('')
       setDmOnAnnounce(false)
+      setSaveAsTemplate(false)
       await refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('events.create_failed'))
@@ -361,6 +364,14 @@ function NewEventButton() {
                   {t('events.also_dm')}
                 </label>
               </fieldset>
+
+              <label className="flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm">
+                <Checkbox checked={saveAsTemplate} onCheckedChange={setSaveAsTemplate} />
+                <span className="flex flex-col">
+                  <span className="font-medium">Save as event template</span>
+                  <span className="text-xs text-muted-foreground">Reusable for next time — includes form, schedule and description.</span>
+                </span>
+              </label>
 
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
