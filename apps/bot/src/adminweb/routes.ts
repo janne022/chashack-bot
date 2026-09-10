@@ -182,6 +182,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       announcementChannelId?: string | null;
       templateId?: string;
       formTemplateId?: string;
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[];
     } | null;
     if (body?.name === undefined || body.name.trim().length < 3) {
       await reply.code(400).send({ ok: false, code: 'bad_name', message: 'Event name must be at least 3 characters.' });
@@ -212,6 +213,16 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
     // Fall back to guild defaults when not explicitly provided
     const gs = getGuildSettings(db, guildId)
+    let schedule = body.schedule
+    // If template provided a schedule and no explicit schedule, keep template's schedule
+    if (schedule === undefined && body.templateId !== undefined) {
+      const tpl = listTemplates(db, guildId, 'event').find((t) => t.id === body.templateId)
+      if (tpl) {
+        const { templateToEventInput } = await import('../features/events/data.js')
+        const tplInput = templateToEventInput(tpl.json)
+        schedule = tplInput.schedule as never
+      }
+    }
     const res = createEvent(db, 'web', guildId, {
       name: body.name,
       ...(body.description !== undefined ? { description: body.description } : {}),
@@ -222,6 +233,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(gs.defaultCategoryId && body.panelChannelId === undefined ? { categoryId: gs.defaultCategoryId } : {}),
       ...(gs.defaultCleanupDelayHours != null ? { cleanupDelayHours: gs.defaultCleanupDelayHours } : {}),
       ...(form !== undefined ? { form } : {}),
+      ...(schedule !== undefined ? { schedule: schedule as never } : {}),
     });
     if (!res.ok) {
       await reply.code(400).send(res);
@@ -254,6 +266,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       announcementChannelId?: string | null;
       cleanupDelayHours?: number;
       matchAt?: number | null;
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[];
     } | null;
     const res = updateEvent(db, 'web', eventId, {
       ...(body?.name !== undefined ? { name: body.name } : {}),
@@ -264,6 +277,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body?.announcementChannelId !== undefined ? { announcementChannelId: body.announcementChannelId } : {}),
       ...(body?.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : {}),
       ...(body?.matchAt !== undefined ? { matchAt: body.matchAt } : {}),
+      ...(body?.schedule !== undefined ? { schedule: body.schedule as never } : {}),
     });
     if (!res.ok) {
       await reply.code(400).send(res);
@@ -382,6 +396,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         description: event.description,
         cleanupDelayHours: event.cleanupDelayHours,
         form: getEventForm(db, event, DEFAULT_FORM),
+        schedule: event.schedule,
       }
       json = JSON.stringify(payload)
     }

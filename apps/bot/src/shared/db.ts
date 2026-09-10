@@ -64,6 +64,7 @@ function migrate(db: Db): void {
       match_locked INTEGER NOT NULL DEFAULT 0,
       discord_event_ids TEXT NOT NULL DEFAULT '[]',
       announcement_channel_id TEXT,
+      schedule_json TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -169,6 +170,7 @@ function migrate(db: Db): void {
   addColumnIfMissing(db, 'events', 'cleanup_warned_24h', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'events', 'match_at', 'INTEGER');
   addColumnIfMissing(db, 'events', 'match_locked', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'events', 'schedule_json', 'TEXT NOT NULL DEFAULT \'[]\'');
 
   backfillLegacyEvents(db);
   addEventColumns(db);

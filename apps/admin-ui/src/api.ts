@@ -174,6 +174,7 @@ export const api = {
     formTemplateId?: string
     panelChannelId?: string | null
     announcementChannelId?: string | null
+    schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[]
   }): Promise<HackathonEvent> {
     const res = await request<{ event: HackathonEvent }>('/api/events', {
       method: 'POST',
@@ -195,6 +196,7 @@ export const api = {
       endsAt?: number | null
       cleanupDelayHours?: number
       matchAt?: number | null
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[]
     },
   ): Promise<void> {
     await request(`/api/events/${eventId}`, {

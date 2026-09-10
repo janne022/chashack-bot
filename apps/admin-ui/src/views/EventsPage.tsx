@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers } from 'lucide-react'
-import { useState } from 'react'
+import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers, Clock } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
@@ -14,7 +14,8 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { DateTimePicker } from '@/components/ui/datetime-picker'
+import { DateRangePicker } from '@/components/ui/date-range-picker'
+import { ScheduleEditor } from '@/components/ui/schedule-editor'
 import { EmptyState } from '@/components/ui/empty-state'
 import { dateTime, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -82,6 +83,7 @@ function NewEventButton() {
   const [description, setDescription] = useState('')
   const [startsAt, setStartsAt] = useState('')
   const [endsAt, setEndsAt] = useState('')
+  const [schedule, setSchedule] = useState<import('@/types').ScheduleItem[]>([])
   const [panelChannelId, setPanelChannelId] = useState('')
   const [announceChannelId, setAnnounceChannelId] = useState('')
   const [announceTitle, setAnnounceTitle] = useState('')
@@ -106,9 +108,10 @@ function NewEventButton() {
     const tpl = eventTemplates.find((x) => x.id === id)
     if (!tpl) return
     try {
-      const parsed = JSON.parse(tpl.json) as { name?: string; description?: string; cleanupDelayHours?: number }
+      const parsed = JSON.parse(tpl.json) as { name?: string; description?: string; cleanupDelayHours?: number; schedule?: import('@/types').ScheduleItem[] }
       if (parsed.name) setName(parsed.name)
       if (parsed.description) setDescription(parsed.description)
+      if (Array.isArray(parsed.schedule)) setSchedule(parsed.schedule)
       toast.info(t('events.template_applied', { name: tpl.name }))
     } catch {
       // ignore parse errors, still send templateId to server
@@ -136,6 +139,7 @@ function NewEventButton() {
         ...(formTemplateId ? { formTemplateId } : {}),
         panelChannelId: panelChannelId || null,
         announcementChannelId: announceChannelId || null,
+        ...(schedule.length > 0 ? { schedule } : {}),
       })
       toast.success(t('events.created', { name: name.trim() }))
 
@@ -148,6 +152,7 @@ function NewEventButton() {
       setDescription('')
       setStartsAt('')
       setEndsAt('')
+      setSchedule([])
       setPanelChannelId('')
       setAnnounceChannelId('')
       setAnnounceTitle('')
@@ -244,16 +249,12 @@ function NewEventButton() {
                 <span className="font-medium">{t('events.description')}</span>
                 <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('events.desc_placeholder')} maxLength={1000} />
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-sm font-medium">{t('events.starts')}</span>
-                  <DateTimePicker value={startsAt} onChange={setStartsAt} placeholder="Start date & time" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-sm font-medium">{t('events.ends')}</span>
-                  <DateTimePicker value={endsAt} onChange={setEndsAt} placeholder="End date & time" />
-                </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium">{t('events.when')}</span>
+                <DateRangePicker from={startsAt} to={endsAt} onChange={({ from, to }) => { setStartsAt(from); setEndsAt(to) }} />
               </div>
+
+              <ScheduleEditor value={schedule} onChange={setSchedule} />
 
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
                 <span className="text-sm font-medium">{t('events.form_section')}</span>
@@ -381,6 +382,29 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
         </div>
       </CardHeader>
       <CardContent>
+        {event.schedule && event.schedule.length > 0 && (
+          <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('events.schedule')}</span>
+            <div className="flex flex-col gap-1.5">
+              {[...event.schedule].sort((a,b)=>a.time-b.time).map((it) => (
+                <div key={it.id} className="flex items-center gap-3 text-sm">
+                  <span className="shrink-0 rounded-md bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+                    {new Date(it.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <span className="font-medium">{it.title}</span>
+                  {it.description && <span className="text-muted-foreground">· {it.description}</span>}
+                  <Badge variant="secondary" className="ml-auto text-[10px]">{it.kind ?? 'custom'}</Badge>
+                </div>
+              ))}
+            </div>
+            <EditableSchedule event={event} refresh={refresh} />
+          </div>
+        )}
+        {(!event.schedule || event.schedule.length === 0) && (
+          <div className="mb-4">
+            <EditableSchedule event={event} refresh={refresh} />
+          </div>
+        )}
         <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
           <div className="flex items-center gap-2">
             <CalendarDays className="size-4 text-accent" />
@@ -444,6 +468,54 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const [items, setItems] = useState(event.schedule ?? [])
+  const [busy, setBusy] = useState(false)
+
+  // sync when event changes (after save)
+  useEffect(() => { if (!open) setItems(event.schedule ?? []) }, [event.schedule, open])
+
+  async function save() {
+    setBusy(true)
+    try {
+      await api.updateEvent(event.id, { schedule: items })
+      toast.success(t('events.schedule_saved'))
+      setOpen(false)
+      await refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t('events.schedule_save_failed'))
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <>
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        <Clock className="size-3.5" />
+        {event.schedule?.length ? t('events.edit_schedule') : t('events.add_schedule')}
+      </Button>
+      {open && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
+          <Card className="w-full max-w-xl animate-pop-in max-h-[85vh] overflow-y-auto" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle>{t('events.edit_schedule_title')}</CardTitle>
+              <CardDescription>{t('events.edit_schedule_desc')}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <ScheduleEditor value={items} onChange={setItems} />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+                <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </>
   )
 }
 

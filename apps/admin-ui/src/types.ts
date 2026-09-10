@@ -110,8 +110,17 @@ export interface HackathonEvent {
   matchAt: number | null
   matchLocked: boolean
   discordEventIds: string[]
+  schedule: ScheduleItem[]
   createdAt: number
   updatedAt: number
+}
+
+export interface ScheduleItem {
+  id: string
+  time: number
+  title: string
+  description?: string
+  kind?: 'food' | 'break' | 'voting' | 'prize' | 'talk' | 'custom'
 }
 
 export interface EventTemplate {

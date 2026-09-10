@@ -39,8 +39,17 @@ export interface HackathonEvent {
   /** Discord scheduled-event ids created for this hackathon event. */
   discordEventIds: string[];
   announcementChannelId: string | null;
+  schedule: ScheduleItem[];
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ScheduleItem {
+  id: string;
+  time: number;
+  title: string;
+  description?: string;
+  kind?: 'food' | 'break' | 'voting' | 'prize' | 'talk' | 'custom';
 }
 
 interface EventRow {
@@ -63,6 +72,7 @@ interface EventRow {
   match_locked: number;
   discord_event_ids: string;
   announcement_channel_id: string | null;
+  schedule_json: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -73,6 +83,13 @@ function toEvent(row: EventRow): HackathonEvent {
     discordEventIds = JSON.parse(row.discord_event_ids) as string[];
   } catch {
     discordEventIds = [];
+  }
+  let schedule: ScheduleItem[] = [];
+  try {
+    schedule = row.schedule_json ? (JSON.parse(row.schedule_json) as ScheduleItem[]) : [];
+    if (!Array.isArray(schedule)) schedule = [];
+  } catch {
+    schedule = [];
   }
   return {
     id: row.id,
@@ -94,6 +111,7 @@ function toEvent(row: EventRow): HackathonEvent {
     matchLocked: row.match_locked === 1,
     discordEventIds,
     announcementChannelId: row.announcement_channel_id ?? null,
+    schedule,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -112,6 +130,7 @@ export interface CreateEventInput {
   announcementChannelId?: string | null;
   categoryId?: string | null;
   cleanupDelayHours?: number;
+  schedule?: ScheduleItem[];
 }
 
 export function createEvent(db: Db, actor: string, guildId: string, input: CreateEventInput): Result<HackathonEvent> {
@@ -123,9 +142,10 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
 
   const id = newId('ev');
   const form: FormConfig = normalizeFormUpdate({ ...DEFAULT_FORM, ...(input.form ?? {}) }, {});
+  const schedule = normalizeSchedule(input.schedule ?? []);
   db.prepare(
-    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, status, form_json, panel_channel_id, announcement_channel_id, category_id, cleanup_delay_hours, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, status, form_json, panel_channel_id, announcement_channel_id, category_id, cleanup_delay_hours, schedule_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     guildId,
@@ -138,6 +158,7 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
     input.announcementChannelId ?? null,
     input.categoryId ?? null,
     input.cleanupDelayHours ?? 48,
+    JSON.stringify(schedule),
     Date.now(),
     Date.now(),
   );
@@ -167,7 +188,7 @@ export function updateEvent(
   db: Db,
   actor: string,
   eventId: string,
-  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'announcementChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds'>>,
+  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'announcementChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds' | 'schedule'>>,
 ): Result<HackathonEvent> {
   const event = getEvent(db, eventId);
   if (event === null) return err('not_found', 'Event not found.');
@@ -185,7 +206,7 @@ export function updateEvent(
       : event.cleanupDelayHours;
 
   db.prepare(
-    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, updated_at = ?
+    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, updated_at = ?
      WHERE id = ?`,
   ).run(
     name,
@@ -198,10 +219,11 @@ export function updateEvent(
     cleanupDelayHours,
     update.matchAt !== undefined ? update.matchAt : event.matchAt,
     update.discordEventIds !== undefined ? JSON.stringify(update.discordEventIds) : JSON.stringify(event.discordEventIds),
+    update.schedule !== undefined ? JSON.stringify(normalizeSchedule(update.schedule)) : JSON.stringify(event.schedule),
     Date.now(),
     eventId,
   );
-  audit(db, actor, 'event.update', eventId, { name, startsAt, endsAt, matchAt: update.matchAt !== undefined ? update.matchAt : undefined });
+  audit(db, actor, 'event.update', eventId, { name, startsAt, endsAt, matchAt: update.matchAt !== undefined ? update.matchAt : undefined, schedule: update.schedule !== undefined ? update.schedule.length : undefined });
   return ok(getEvent(db, eventId)!);
 }
 
@@ -320,7 +342,25 @@ export function templateToEventInput(json: string): Partial<CreateEventInput> {
     ...(parsed.description !== undefined ? { description: parsed.description } : {}),
     ...(parsed.cleanupDelayHours !== undefined ? { cleanupDelayHours: parsed.cleanupDelayHours } : {}),
     ...(parsed.form !== undefined ? { form: parsed.form } : {}),
+    ...(parsed.schedule !== undefined ? { schedule: normalizeSchedule(parsed.schedule) } : {}),
   };
+}
+
+function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
+  if (!Array.isArray(items)) return [];
+  const out: ScheduleItem[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw.time !== 'number' || !Number.isFinite(raw.time)) continue;
+    const title = String((raw as unknown as Record<string, unknown>).title ?? '').trim().slice(0, 80);
+    if (!title) continue;
+    const id = String((raw as unknown as Record<string, unknown>).id ?? '').trim() || newId('sch');
+    const description = String((raw as unknown as Record<string, unknown>).description ?? '').trim().slice(0, 200) || undefined;
+    const kindRaw = String((raw as unknown as Record<string, unknown>).kind ?? 'custom').trim() as ScheduleItem['kind'];
+    const kind: ScheduleItem['kind'] = ['food', 'break', 'voting', 'prize', 'talk', 'custom'].includes(kindRaw ?? '') ? kindRaw : 'custom';
+    out.push({ id, time: raw.time, title, ...(description ? { description } : {}), ...(kind ? { kind } : {}) });
+  }
+  out.sort((a, b) => a.time - b.time);
+  return out.slice(0, 50);
 }
 
 // ─── maintenance planner (pure, fully unit-testable) ────────────────────────
@@ -383,6 +423,7 @@ export async function listEventsForMaintenance(kysely: KyselyDb): Promise<Hackat
     toEvent({
       ...(row as unknown as EventRow),
       discord_event_ids: row.discord_event_ids ?? '[]',
+      schedule_json: (row as unknown as { schedule_json?: string | null }).schedule_json ?? '[]',
     }),
   );
 }
