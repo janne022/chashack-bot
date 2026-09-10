@@ -282,6 +282,7 @@ function NewEventButton() {
                 endValue={endsAt}
                 onStartChange={setStartsAt}
                 onEndChange={setEndsAt}
+                disablePast
               />
 
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
@@ -547,6 +548,7 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
                 endValue={end}
                 onStartChange={setStart}
                 onEndChange={setEnd}
+                disablePast
               />
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>

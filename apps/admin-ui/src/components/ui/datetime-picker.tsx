@@ -26,18 +26,33 @@ export function DateTimePicker({
   placeholder = "Pick date & time",
   className,
   disabled,
+  disablePast,
+  minDate,
 }: {
   value: string
   onChange: (v: string) => void
   placeholder?: string
   className?: string
   disabled?: boolean
+  disablePast?: boolean
+  minDate?: Date
 }) {
   const date = parseLocalIso(value)
   const [open, setOpen] = React.useState(false)
 
   const hours = date ? String(date.getHours()).padStart(2, "0") : "12"
   const minutes = date ? String(date.getMinutes()).padStart(2, "0") : "00"
+
+  const todayStart = React.useMemo(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  }, [])
+  const disabledMatcher = disablePast
+    ? minDate
+      ? { before: minDate }
+      : { before: todayStart }
+    : undefined
 
   const handleDateSelect = (d: Date | undefined) => {
     if (!d) return
@@ -98,7 +113,7 @@ export function DateTimePicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
-        <Calendar mode="single" selected={date} onSelect={handleDateSelect} captionLayout="dropdown" className="p-3" />
+        <Calendar mode="single" selected={date} onSelect={handleDateSelect} disabled={disabledMatcher} captionLayout="dropdown" className="p-3" />
         <div className="flex items-center gap-2 border-t border-border p-3">
           <Select value={hours} onValueChange={(v) => handleTimeChange("h", v)}>
             <SelectTrigger className="h-8 w-24">

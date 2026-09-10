@@ -32,6 +32,7 @@ export function DateRangePicker({
   placeholder = "Pick a date",
   label,
   className,
+  disablePast,
 }: {
   from: string
   to: string
@@ -39,10 +40,18 @@ export function DateRangePicker({
   placeholder?: string
   label?: string
   className?: string
+  disablePast?: boolean
 }) {
   const [open, setOpen] = React.useState(false)
   const fromDate = parseLocalIso(from)
   const toDate = parseLocalIso(to)
+
+  const todayStart = React.useMemo(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  }, [])
+  const disabledMatcher = disablePast ? { before: todayStart } : undefined
 
   const date: DateRange | undefined =
     fromDate || toDate ? { from: fromDate, to: toDate } : undefined
@@ -146,7 +155,7 @@ export function DateRangePicker({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="start">
-          <Calendar mode="range" defaultMonth={date?.from} selected={date} onSelect={handleRangeSelect} numberOfMonths={2} />
+          <Calendar mode="range" defaultMonth={date?.from} selected={date} onSelect={handleRangeSelect} numberOfMonths={2} disabled={disabledMatcher} />
           <div className="grid gap-3 border-t border-border p-3">
             <div className="flex items-center gap-2">
               <span className="w-10 text-xs font-medium text-muted-foreground">Start</span>

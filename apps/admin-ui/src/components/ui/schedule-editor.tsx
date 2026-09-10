@@ -29,6 +29,7 @@ export function ScheduleEditor({
   endValue,
   onStartChange,
   onEndChange,
+  disablePast,
 }: {
   value: ScheduleItem[]
   onChange: (next: ScheduleItem[]) => void
@@ -36,6 +37,7 @@ export function ScheduleEditor({
   endValue?: string
   onStartChange?: (v: string) => void
   onEndChange?: (v: string) => void
+  disablePast?: boolean
 }) {
   const t = useT()
   const sorted = [...value].sort((a, b) => a.time - b.time)
@@ -79,7 +81,7 @@ export function ScheduleEditor({
           </span>
           <span className="text-sm font-semibold">{t("events.starts" as never) ?? "Starts"}</span>
           <span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{t("events.schedule_start_hint" as never) ?? "first block"}</span>
-          <DateTimePicker value={startValue!} onChange={(v) => onStartChange!(v)} className="ml-auto h-8 w-48" />
+          <DateTimePicker value={startValue!} onChange={(v) => onStartChange!(v)} disablePast={disablePast} className="ml-auto h-8 w-48" />
         </div>
       )}
 
@@ -96,6 +98,8 @@ export function ScheduleEditor({
                 <DateTimePicker
                   value={iso}
                   onChange={(v) => update(item.id, { time: v ? Date.parse(v) : item.time })}
+                  disablePast={disablePast}
+                  minDate={disablePast && startValue ? (() => { const d = new Date(startValue); d.setHours(0,0,0,0); return d })() : undefined}
                   className="h-8 w-44"
                 />
                 <Select value={item.kind ?? "custom"} onValueChange={(v) => update(item.id, { kind: v as ScheduleItem["kind"] })}>
@@ -150,7 +154,7 @@ export function ScheduleEditor({
           </span>
           <span className="text-sm font-semibold">{t("events.ends" as never) ?? "Ends"}</span>
           <span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{t("events.schedule_end_hint" as never) ?? "last block"}</span>
-          <DateTimePicker value={endValue!} onChange={(v) => onEndChange!(v)} className="ml-auto h-8 w-48" />
+          <DateTimePicker value={endValue!} onChange={(v) => onEndChange!(v)} disablePast={disablePast} minDate={disablePast && startValue ? (() => { const d = new Date(startValue); return d })() : undefined} className="ml-auto h-8 w-48" />
         </div>
       )}
     </div>

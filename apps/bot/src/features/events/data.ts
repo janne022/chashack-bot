@@ -139,6 +139,10 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
   if (input.startsAt !== null && input.startsAt !== undefined && input.endsAt !== null && input.endsAt !== undefined) {
     if (input.endsAt <= input.startsAt) return err('bad_dates', 'The event must end after it starts.');
   }
+  if (input.startsAt !== null && input.startsAt !== undefined) {
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    if (input.startsAt < todayStart.getTime()) return err('bad_dates', 'Event cannot start in the past.');
+  }
 
   const id = newId('ev');
   const form: FormConfig = normalizeFormUpdate({ ...DEFAULT_FORM, ...(input.form ?? {}) }, {});
@@ -199,6 +203,10 @@ export function updateEvent(
   const endsAt = update.endsAt !== undefined ? update.endsAt : event.endsAt;
   if (startsAt !== null && endsAt !== null && endsAt <= startsAt) {
     return err('bad_dates', 'The event must end after it starts.');
+  }
+  if (update.startsAt !== undefined && startsAt !== null) {
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    if (startsAt < todayStart.getTime()) return err('bad_dates', 'Event cannot start in the past.');
   }
   const cleanupDelayHours =
     update.cleanupDelayHours !== undefined
