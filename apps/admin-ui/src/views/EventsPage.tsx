@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate } from 'lucide-react'
+import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
@@ -74,7 +74,9 @@ function NewEventButton() {
   const { state, refresh } = useAppContext()
   const t = useT()
   const [open, setOpen] = useState(false)
+  const [eventMode, setEventMode] = useState<'blank' | 'template'>('blank')
   const [templateId, setTemplateId] = useState<string>('')
+  const [formMode, setFormMode] = useState<'blank' | 'template'>('blank')
   const [formTemplateId, setFormTemplateId] = useState<string>('')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -138,7 +140,9 @@ function NewEventButton() {
       toast.success(t('events.created', { name: name.trim() }))
 
       setOpen(false)
+      setEventMode('blank')
       setTemplateId('')
+      setFormMode('blank')
       setFormTemplateId('')
       setName('')
       setDescription('')
@@ -174,40 +178,62 @@ function NewEventButton() {
               <CardDescription>{t('events.create_desc')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">{t('events.template')}</span>
-                <Select value={templateId || '__none'} onValueChange={(v) => applyTemplate(v === '__none' ? '' : v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('events.template_none')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">{t('events.template_none')}</SelectItem>
-                    {eventTemplates.map((tpl) => (
-                      <SelectItem key={tpl.id} value={tpl.id}>
-                        {tpl.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-xs text-muted-foreground">{t('events.template_hint')}</span>
-              </div>
-
-              <div className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">{t('templates.form_templates')}</span>
-                <Select value={formTemplateId || '__none'} onValueChange={(v) => setFormTemplateId(v === '__none' ? '' : v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('events.form_template_none')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">{t('events.form_template_none')}</SelectItem>
-                    {formTemplates.map((tpl) => (
-                      <SelectItem key={tpl.id} value={tpl.id}>
-                        {tpl.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-xs text-muted-foreground">{t('events.form_template_hint')}</span>
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-medium">{t('events.template')}</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setEventMode('blank'); setTemplateId('') }}
+                    className={cn(
+                      "flex items-center gap-3 rounded-xl border p-3 text-left transition-colors",
+                      eventMode === 'blank' ? "border-accent bg-accent-soft ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
+                    )}
+                  >
+                    <span className={cn("flex size-8 items-center justify-center rounded-lg", eventMode === 'blank' ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground")}>
+                      <FilePlus className="size-4" />
+                    </span>
+                    <span>
+                      <span className="block text-sm font-semibold">{t('events.new_event')}</span>
+                      <span className="block text-xs text-muted-foreground">{t('events.new_event_desc')}</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEventMode('template')}
+                    disabled={eventTemplates.length === 0}
+                    className={cn(
+                      "flex items-center gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50",
+                      eventMode === 'template' ? "border-accent bg-accent-soft ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
+                    )}
+                  >
+                    <span className={cn("flex size-8 items-center justify-center rounded-lg", eventMode === 'template' ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground")}>
+                      <Layers className="size-4" />
+                    </span>
+                    <span>
+                      <span className="block text-sm font-semibold">{t('events.from_template')}</span>
+                      <span className="block text-xs text-muted-foreground">{t('events.from_template_desc')}</span>
+                    </span>
+                  </button>
+                </div>
+                {eventMode === 'template' && (
+                  <Select value={templateId} onValueChange={(v) => applyTemplate(v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('events.pick_template')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {eventTemplates.map((tpl) => (
+                        <SelectItem key={tpl.id} value={tpl.id}>
+                          {tpl.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {eventMode === 'blank' ? (
+                  <span className="text-xs text-muted-foreground">{t('events.new_event_hint')}</span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">{t('events.template_hint')}</span>
+                )}
               </div>
 
               <label className="flex flex-col gap-1.5 text-sm">
@@ -227,6 +253,58 @@ function NewEventButton() {
                   <span className="text-sm font-medium">{t('events.ends')}</span>
                   <DateTimePicker value={endsAt} onChange={setEndsAt} placeholder="End date & time" />
                 </div>
+              </div>
+
+              <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
+                <span className="text-sm font-medium">{t('events.form_section')}</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setFormMode('blank'); setFormTemplateId('') }}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                      formMode === 'blank' ? "border-accent bg-background ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
+                    )}
+                  >
+                    <FilePlus className={cn("size-4", formMode === 'blank' ? "text-accent" : "text-muted-foreground")} />
+                    <span>
+                      <span className="block text-sm font-medium">{t('events.new_form')}</span>
+                      <span className="block text-xs text-muted-foreground">{t('events.new_form_desc')}</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormMode('template')}
+                    disabled={formTemplates.length === 0}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:opacity-50",
+                      formMode === 'template' ? "border-accent bg-background ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
+                    )}
+                  >
+                    <LayoutTemplate className={cn("size-4", formMode === 'template' ? "text-accent" : "text-muted-foreground")} />
+                    <span>
+                      <span className="block text-sm font-medium">{t('events.pick_form')}</span>
+                      <span className="block text-xs text-muted-foreground">{t('events.pick_form_desc')}</span>
+                    </span>
+                  </button>
+                </div>
+                {formMode === 'template' && (
+                  <Select value={formTemplateId} onValueChange={setFormTemplateId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('events.pick_form_template')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {formTemplates.map((tpl) => (
+                        <SelectItem key={tpl.id} value={tpl.id}>
+                          {tpl.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <span className="text-xs text-muted-foreground">
+                  {formMode === 'blank' ? t('events.new_form_hint') : t('events.form_template_hint')}
+                </span>
               </div>
 
               <label className="flex flex-col gap-1.5 text-sm">
