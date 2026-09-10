@@ -183,8 +183,9 @@ export const api = {
     return res.event
   },
 
-  async activateEvent(eventId: string): Promise<void> {
-    await request(`/api/events/${eventId}/activate`, { method: 'POST' })
+  async activateEvent(eventId: string): Promise<{ event: HackathonEvent; panel: { ok: boolean; channelId?: string; reason?: string; edited?: boolean }; announce: { posted: boolean; reason: string; channelId: string | null } | null }> {
+    const res = await request<{ ok: true; event: HackathonEvent; panel: { ok: boolean; channelId?: string; reason?: string; edited?: boolean }; announce: { posted: boolean; reason: string; channelId: string | null } | null }>(`/api/events/${eventId}/activate`, { method: 'POST' })
+    return { event: res.event, panel: res.panel, announce: res.announce }
   },
 
   async updateEvent(

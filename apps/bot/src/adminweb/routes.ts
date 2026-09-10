@@ -316,11 +316,52 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send(res);
       return;
     }
-    // Refresh the signup panel for the newly active event.
+    const event = res.value
+    let panelResult: { ok: boolean; channelId?: string; edited?: boolean; reason?: string } = { ok: true }
+    let announceResult: { posted: boolean; reason: string; channelId: string | null } | null = null
+
+    // Publish the join/signup panel to the event's panel channel (or guild default as fallback).
     if (deps.client !== null) {
-      await refreshSignupPanel(db, deps.client, guildId).catch(() => undefined);
+      const gs = getGuildSettings(db, guildId)
+      const panelChannelId = event.panelChannelId ?? gs.defaultPanelChannelId ?? null
+      const metaRef = deps.client ? db.prepare('SELECT value FROM meta WHERE key = ?').get(`signup_panel:${guildId}`) as { value: string } | undefined : undefined
+      let metaChannel: string | null = null
+      if (metaRef) { try { metaChannel = (JSON.parse(metaRef.value) as { channelId: string }).channelId } catch { metaChannel = null } }
+      const targetPanel = panelChannelId ?? metaChannel
+
+      if (targetPanel !== null) {
+        try {
+          const r = await postOrUpdatePanel(db, deps.client, guildId, targetPanel)
+          if ('error' in r) panelResult = { ok: false, reason: r.error }
+          else panelResult = { ok: true, channelId: r.channelId, edited: r.edited }
+        } catch (e) {
+          panelResult = { ok: false, reason: e instanceof Error ? e.message : String(e) }
+        }
+      } else {
+        // No channel configured at all — keep panel as not posted but don't fail activation
+        panelResult = { ok: false, reason: 'no_channel_configured: set Panel channel in event or Config → Guild defaults' }
+      }
+
+      // Auto-announcement so the Discord knows the event is live (announcement channel → panel channel → guild panel)
+      const annChannel = event.announcementChannelId ?? event.panelChannelId ?? gs.defaultAnnouncementChannelId ?? panelChannelId ?? metaChannel ?? null
+      if (annChannel !== null) {
+        try {
+          const { sendAnnouncement } = await import('../discord/notify.js')
+          const title = `${event.name} — signups open!`
+          const when = event.startsAt !== null ? `🗓️ <t:${Math.floor(event.startsAt / 1000)}:F>` : ''
+          const where = targetPanel ? `Join in <#${targetPanel}>` : ''
+          const desc = [event.description, '', when, where].filter(Boolean).join('\n').slice(0, 800)
+          const r = await sendAnnouncement({ db, client: deps.client }, 'web', event, title, desc || 'Signups are open — hit Join in the panel!', false, annChannel)
+          announceResult = { posted: r.posted, reason: r.reason, channelId: r.channelId }
+        } catch (e) {
+          announceResult = { posted: false, reason: e instanceof Error ? e.message : String(e), channelId: annChannel }
+        }
+      } else {
+        announceResult = { posted: false, reason: 'no_channel_configured: set Announcement channel in event or Config', channelId: null }
+      }
     }
-    return { ok: true, event: res.value };
+
+    return { ok: true, event, panel: panelResult, announce: announceResult };
   });
 
   app.patch('/api/events/:eventId', async (req, reply) => {

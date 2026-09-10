@@ -792,8 +792,18 @@ function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActi
 
   async function activate() {
     try {
-      await api.activateEvent(event.id)
-      toast.success(t('events.activated_toast', { name: event.name }))
+      const r = await api.activateEvent(event.id)
+      if (r.panel?.ok === false) {
+        toast.error(`Activated but panel not posted — ${r.panel.reason}`, { duration: 7000 })
+      } else if (r.panel?.channelId) {
+        toast.success(r.panel.edited ? `Panel updated in <#${r.panel.channelId}>` : `Join panel posted to <#${r.panel.channelId}>`)
+      } else {
+        toast.success(t('events.activated_toast', { name: event.name }))
+      }
+      if (r.announce) {
+        if (r.announce.posted) toast.success(`Announcement sent to <#${r.announce.channelId}>`)
+        else toast.error(`No announcement — ${r.announce.reason}`, { duration: 7000 })
+      }
       await refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('events.activate_failed'))
