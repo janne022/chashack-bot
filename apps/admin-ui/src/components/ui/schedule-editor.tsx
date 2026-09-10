@@ -318,7 +318,7 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
           <Button variant="secondary" size="sm" className="h-6 text-xs" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> Announcement</Button>
           <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("post_signup")}><ClipboardList className="size-3" /> Signup</Button>
           <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock</Button>
-          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("assign_random")}><UsersRound className="size-3" /> Assign</Button>
+          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("auto_match")}><UsersRound className="size-3" /> Auto-match</Button>
         </div>
       </div>
       {hasActions && (
@@ -331,7 +331,7 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
               <CardContent className="flex flex-col gap-2 p-2.5">
                 <div className="flex items-center gap-2">
                   {a.type==="announce" ? <Megaphone className="size-3.5 text-accent" /> : a.type==="post_signup" ? <ClipboardList className="size-3.5 text-blue-600" /> : a.type==="lock_teams" ? <Clock className="size-3.5 text-amber-600" /> : <UsersRound className="size-3.5 text-emerald-600" />}
-                  <span className="text-xs font-semibold">{a.type==="announce" ? `Announce when ${timeLabel.toLowerCase()}s` : a.type==="post_signup" ? "Post signup panel" : a.type==="lock_teams" ? "Lock teams" : a.type==="assign_random" ? "Assign random" : a.type}</span>
+                  <span className="text-xs font-semibold">{a.type==="announce" ? `Announce when ${timeLabel.toLowerCase()}s` : a.type==="post_signup" ? "Post signup panel" : a.type==="lock_teams" ? "Lock teams" : a.type==="assign_random" ? "Assign random (legacy)" : a.type==="auto_match" ? "Auto-match" : a.type}</span>
                   {isAnnounce && <span className="ml-auto hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex"><HelpTag /> type {"{"} for tags</span>}
                   <Select value={a.type} onValueChange={v=>updateAction(a.id, { type: v as ScheduleAction["type"] })}>
                     <SelectTrigger className="ml-auto h-6 w-32 text-xs"><SelectValue /></SelectTrigger>
@@ -547,8 +547,8 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" size="sm" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> Announcement</Button>
             <Button variant="outline" size="sm" onClick={()=>addAction("post_signup")}><ClipboardList className="size-3" /> Post signup</Button>
-            <Button variant="outline" size="sm" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock</Button>
-            <Button variant="outline" size="sm" onClick={()=>addAction("assign_random")}><UsersRound className="size-3" /> Assign random</Button>
+            <Button variant="outline" size="sm" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock teams</Button>
+            <Button variant="outline" size="sm" onClick={()=>addAction("auto_match")}><UsersRound className="size-3" /> Auto-match</Button>
           </div>
         </div>
       )}
