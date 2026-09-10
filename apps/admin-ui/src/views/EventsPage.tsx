@@ -637,6 +637,7 @@ function EventFormPicker({ event, refresh }: { event: HackathonEvent; refresh: (
 }
 
 function NotificationButtons({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+  const { state } = useAppContext()
   const t = useT()
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
@@ -645,10 +646,19 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  const announcementPresets = (event.announcements ?? []).filter(a=>a.trigger==='manual' || a.trigger==='on_activate' || a.trigger==='schedule')
+  const announcementPresets = [
+    ...(state.templates ?? []).filter(tp=>tp.kind==='announcement').map(tp=>{
+      try { const p = JSON.parse(tp.json) as { title?: string; message?: string; trigger?: string }; return { id: tp.id, title: p.title ?? tp.name, message: p.message ?? '', trigger: p.trigger ?? 'manual' } } catch { return { id: tp.id, title: tp.name, message: '', trigger: 'manual' } }
+    }),
+    ...(event.announcements ?? []).map(a=>({ id: a.id, title: a.title, message: a.message, trigger: a.trigger })),
+  ]
   function applyPreset(id: string) {
-    const tpl = (event.announcements ?? []).find(a=>a.id===id)
-    if (!tpl) return
+    const tpl = announcementPresets.find(a=>a.id===id) ?? (event.announcements ?? []).find(a=>a.id===id)
+    if (!tpl) {
+      const g = (state.templates ?? []).find(tp=>tp.id===id)
+      if (g) { try { const p = JSON.parse(g.json) as { title?: string; message?: string }; setTitle(p.title ?? ""); setMessage(p.message ?? "") } catch {} }
+      return
+    }
     setTitle(tpl.title)
     setMessage(tpl.message)
   }

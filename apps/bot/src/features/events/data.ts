@@ -67,7 +67,7 @@ export interface AnnouncementTemplate {
   id: string;
   title: string;
   message: string;
-  trigger: 'manual' | 'on_activate' | 'on_start' | 'schedule';
+  trigger: 'manual' | 'on_activate' | 'on_start' | 'schedule' | 'teams_locked' | 'teams_assigned';
   channelId?: string | null;
 }
 
@@ -442,7 +442,7 @@ export function normalizeAnnouncements(items: AnnouncementTemplate[]): Announcem
     const title = raw.title.trim().slice(0, 100);
     const message = raw.message.trim().slice(0, 2000);
     if (!title || !message) continue;
-    const trigger = (['manual','on_activate','on_start','schedule'] as const).includes(raw.trigger as never) ? raw.trigger : 'manual';
+    const trigger = (['manual','on_activate','on_start','schedule','teams_locked','teams_assigned'] as const).includes(raw.trigger as never) ? raw.trigger : 'manual';
     const id = String((raw as unknown as Record<string, unknown>).id ?? '').trim() || newId('ann');
     const channelId = raw.channelId !== undefined && raw.channelId !== null ? String(raw.channelId).trim() || null : null;
     out.push({ id, title, message, trigger, ...(channelId ? { channelId } : {}) });
@@ -455,6 +455,8 @@ export function defaultAnnouncements(eventName: string): AnnouncementTemplate[] 
     { id: newId('ann'), title: `${eventName} — signups open!`, message: 'Listen up {everyone} **{event}** is live! Sign up in {panel} — starts {timer}', trigger: 'on_activate' },
     { id: newId('ann'), title: '{event} starting soon', message: '{everyone} **{event}** starts {timer} — get ready! {panel}', trigger: 'on_start' },
     { id: newId('ann'), title: '{schedule_title}', message: '⏰ **{schedule_title}** — {schedule_desc} {timer_schedule} {everyone}', trigger: 'schedule' },
+    { id: newId('ann'), title: 'Teams locked!', message: '🔒 Teams for **{event}** are locked — {everyone} check your channels!', trigger: 'teams_locked' },
+    { id: newId('ann'), title: 'Teams assigned', message: '✅ **{event}** teams have been assigned — good luck {everyone}!', trigger: 'teams_assigned' },
   ]
 }
 

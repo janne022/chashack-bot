@@ -116,12 +116,12 @@ export function ScheduleEditor({
                         <span className="rounded bg-accent px-1 py-0 text-[10px] font-bold text-accent-foreground">{dayBadge}</span>
                       </span>
                       {/* Edit time popover trigger is still the picker, but compact */}
-                      <DateTimePicker
+                    <DateTimePicker
                         value={iso}
                         onChange={(v) => update(item.id, { time: v ? Date.parse(v) : item.time })}
                         disablePast={disablePast}
                         minDate={disablePast && startValue ? (() => { const d = new Date(startValue); d.setHours(0,0,0,0); return d })() : undefined}
-                        className="h-7 w-7 p-0 sm:h-7 sm:w-32"
+                        className="h-7 w-7 p-0"
                       />
                       <Select value={item.kind ?? "custom"} onValueChange={(v) => update(item.id, { kind: v as ScheduleItem["kind"] })}>
                         <SelectTrigger className="h-7 w-28 text-xs"><SelectValue /></SelectTrigger>

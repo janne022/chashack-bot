@@ -138,7 +138,7 @@ export interface AnnouncementTemplate {
   id: string
   title: string
   message: string
-  trigger: 'manual' | 'on_activate' | 'on_start' | 'schedule'
+  trigger: 'manual' | 'on_activate' | 'on_start' | 'schedule' | 'teams_locked' | 'teams_assigned'
   channelId?: string | null
 }
 

@@ -1,6 +1,6 @@
 "use client"
 import { useState } from "react"
-import { Plus, Trash2, Megaphone, Clock, Rocket, Hand, Eye } from "lucide-react"
+import { Plus, Trash2, Megaphone, Clock, Rocket, Hand, Eye, Lock, UsersRound } from "lucide-react"
 import type { AnnouncementTemplate, ScheduleItem } from "@/types"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,8 @@ const TRIGGER_META: Record<AnnouncementTemplate["trigger"], { label: string; ico
   on_start: { label: "At event start", icon: Clock, desc: "Not yet auto — use as manual template for start. (Schedule items cover timed announces)", color: "bg-blue-500/10 text-blue-700 border-blue-500/30" },
   schedule: { label: "For each schedule item", icon: Clock, desc: "Auto-sent when a schedule block's time hits (within ~60 min). Uses {schedule_title} etc.", color: "bg-amber-500/10 text-amber-700 border-amber-500/30" },
   manual: { label: "Manual only", icon: Hand, desc: "Only via the Announce button — pick this template as a preset.", color: "bg-muted text-muted-foreground" },
+  teams_locked: { label: "Teams locked", icon: Lock, desc: "When teams are locked (auto-match or manual lock). Good for 'teams are final!'", color: "bg-purple-500/10 text-purple-700 border-purple-500/30" },
+  teams_assigned: { label: "Teams assigned", icon: UsersRound, desc: "When teams are created/assigned via matching. Announce new teams.", color: "bg-cyan-500/10 text-cyan-700 border-cyan-500/30" },
 }
 
 function renderPreview(template: string, eventName: string, scheduleItem?: ScheduleItem): string {
@@ -68,6 +70,8 @@ export function AnnouncementEditor({
       on_start: { title: "{event} starting now!", message: "{everyone} **{event}** starts {timer} — head to {panel}!" },
       schedule: { title: "{schedule_title}", message: "⏰ **{schedule_title}** — {schedule_desc} {timer_schedule} {everyone}" },
       manual: { title: "Heads up!", message: "Hey {everyone}, quick update for **{event}** — {panel}" },
+      teams_locked: { title: "Teams locked!", message: "🔒 Teams for **{event}** are locked — {everyone} check your channels!" },
+      teams_assigned: { title: "Teams assigned", message: "✅ **{event}** teams have been assigned — good luck {everyone}!" },
     }
     const d = defaults[trigger]
     onChange([...value, { id, title: d.title, message: d.message, trigger }])
@@ -121,6 +125,8 @@ export function AnnouncementEditor({
                         <SelectItem value="on_activate">On activate (once)</SelectItem>
                         <SelectItem value="on_start">At event start</SelectItem>
                         <SelectItem value="schedule">For each schedule item (auto)</SelectItem>
+                        <SelectItem value="teams_locked">Teams locked</SelectItem>
+                        <SelectItem value="teams_assigned">Teams assigned</SelectItem>
                         <SelectItem value="manual">Manual only</SelectItem>
                       </SelectContent>
                     </Select>
@@ -156,8 +162,10 @@ export function AnnouncementEditor({
       <div className="flex flex-wrap gap-2">
         <Button variant="secondary" size="sm" onClick={()=>add("on_activate")}><Rocket className="size-4" /> On activate</Button>
         <Button variant="secondary" size="sm" onClick={()=>add("schedule")}><Clock className="size-4" /> For schedule</Button>
+        <Button variant="secondary" size="sm" onClick={()=>add("teams_locked")}><Lock className="size-4" /> Teams locked</Button>
         <Button variant="outline" size="sm" onClick={()=>add("manual")}><Megaphone className="size-4" /> Manual</Button>
         <Button variant="ghost" size="sm" onClick={()=>add("on_start")}><Plus className="size-4" /> At start</Button>
+        <Button variant="ghost" size="sm" onClick={()=>add("teams_assigned")}><UsersRound className="size-4" /> Teams assigned</Button>
       </div>
     </div>
   )
