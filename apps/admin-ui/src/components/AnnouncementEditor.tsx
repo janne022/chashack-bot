@@ -4,12 +4,10 @@ import { Plus, Trash2, Megaphone, Clock, Rocket, Hand, Eye, Lock, UsersRound } f
 import type { AnnouncementTemplate, ScheduleItem } from "@/types"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea-label"
 import { Label } from "@/components/ui/textarea-label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { TagCheatSheet, TagHelpButton, TagPill } from "@/components/TagHelp"
+import { TagAutocompleteInput, TagAutocompleteTextarea } from "@/components/TagAutocomplete"
 
 const TRIGGER_META: Record<AnnouncementTemplate["trigger"], { label: string; icon: typeof Megaphone; desc: string; color: string }> = {
   on_activate: { label: "On activate", icon: Rocket, desc: "Sent once when you hit Activate — e.g. 'signups open!'", color: "bg-emerald-500/10 text-emerald-700 border-emerald-500/30" },
@@ -86,11 +84,8 @@ export function AnnouncementEditor({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">Announcements</span>
-        <span className="text-xs text-muted-foreground">Tag-based Discord messages — tied to schedule &amp; triggers.</span>
-        <TagHelpButton />
+        <span className="text-xs text-muted-foreground">Tag-based Discord messages — tied to schedule &amp; triggers. Type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> for suggestions.</span>
       </div>
-
-      <TagCheatSheet compact />
 
       {value.length===0 && <p className="rounded-lg border border-dashed border-border bg-surface-2/30 px-3 py-3 text-sm text-muted-foreground">No announcements yet — add one. Schedule items auto-announce with the <Badge variant="outline" className="mx-1">For each schedule item</Badge> template. At least add an “On activate” one.</p>}
 
@@ -133,23 +128,15 @@ export function AnnouncementEditor({
                     <span className="text-xs text-muted-foreground">{meta.desc}</span>
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Label>Title (embed header) — hover tags for help</Label>
-                    <Input value={ann.title} onChange={e=>update(ann.id, { title: e.target.value })} placeholder="e.g. {schedule_title}" maxLength={100} />
+                    <Label>Title (embed header)</Label>
+                    <TagAutocompleteInput value={ann.title} onChange={v=>update(ann.id, { title: v })} placeholder="e.g. {schedule_title}" maxLength={100} />
                     <span className="text-[11px] text-muted-foreground">Preview: {renderPreview(ann.title, eventName, sampleItem)}</span>
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Label>Message (supports tags — hover tags below for meaning)</Label>
-                    <Textarea value={ann.message} onChange={e=>update(ann.id, { message: e.target.value })} placeholder="Listen up {everyone} {event} starts {timer} — {panel}" maxLength={2000} />
+                    <Label>Message (type {"{"} for tag suggestions)</Label>
+                    <TagAutocompleteTextarea value={ann.message} onChange={v=>update(ann.id, { message: v })} placeholder="Listen up {everyone} {event} starts {timer} — {panel}" maxLength={2000} />
                     <div className="rounded-md bg-surface-2/60 px-2.5 py-2 text-xs leading-relaxed">
                       <span className="font-medium">Preview:</span> <span className="whitespace-pre-wrap break-words">{renderPreview(ann.message, eventName, sampleItem)}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {["{everyone}","{event}","{panel}","{timer}","{schedule_title}","{schedule_desc}"].map(tag=>(
-                        <button key={tag} onClick={()=>update(ann.id, { message: ann.message ? `${ann.message} ${tag}` : tag })} type="button">
-                          <TagPill tag={tag} />
-                        </button>
-                      ))}
-                      <span className="self-center text-[11px] text-muted-foreground">click to insert — hover for meaning</span>
                     </div>
                   </div>
                 </CardContent>

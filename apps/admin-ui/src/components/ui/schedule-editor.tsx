@@ -4,14 +4,13 @@ import { Plus, Trash2, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, Ch
 import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea-label"
 import { Label } from "@/components/ui/textarea-label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DateTimePicker } from "@/components/ui/datetime-picker"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { TagPill } from "@/components/TagHelp"
+import { TagAutocompleteInput, TagAutocompleteTextarea } from "@/components/TagAutocomplete"
 import type { ScheduleItem, ScheduleAction } from "@/types"
 import { useT } from "@/lib/i18n"
 
@@ -310,13 +309,13 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
                 <div className="flex items-center gap-2">
                   <Megaphone className="size-3.5 text-accent" />
                   <span className="text-xs font-semibold">Announce when {timeLabel.toLowerCase()}s</span>
-                  <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> tags: {"{everyone}"} {"{event}"} {"{panel}"}</span>
+                  <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> type {"{"} for tags</span>
                   <Button variant="ghost" size="icon" className="size-6" onClick={()=>removeAction(a.id)}><Trash2 className="size-3" /></Button>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="flex flex-col gap-1">
                     <Label className="text-[11px]">Title</Label>
-                    <Input value={a.title} onChange={e=>updateAction(a.id, { title: e.target.value })} placeholder={`${timeLabel} — live!`} className="h-7 text-xs" maxLength={100} />
+                    <TagAutocompleteInput value={a.title} onChange={v=>updateAction(a.id, { title: v })} placeholder={`${timeLabel} — live!`} maxLength={100} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <Label className="text-[11px]">Channel override (optional)</Label>
@@ -325,13 +324,7 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
                 </div>
                 <div className="flex flex-col gap-1">
                   <Label className="text-[11px]">Message</Label>
-                  <Textarea value={a.message} onChange={e=>updateAction(a.id, { message: e.target.value })} placeholder={`🚀 {event} is live! {everyone} → {panel}`} className="min-h-[56px] text-xs" maxLength={2000} />
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {["{everyone}","{here}","{event}","{panel}","{timer}","{schedule_title}"].map(tag=>(
-                    <button key={tag} type="button" onClick={()=>updateAction(a.id, { message: a.message ? `${a.message} ${tag}` : tag })}><TagPill tag={tag} /></button>
-                  ))}
-                  <span className="self-center text-[11px] text-muted-foreground">hover for meaning — click to insert</span>
+                  <TagAutocompleteTextarea value={a.message} onChange={v=>updateAction(a.id, { message: v })} placeholder={`🚀 {event} is live! {everyone} → {panel}`} maxLength={2000} />
                 </div>
               </CardContent>
             </Card>
@@ -371,20 +364,20 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
       </button>
       {open && (
         <div className="flex flex-col gap-2 border-t border-border p-2">
-          {actions.length===0 && <p className="px-1 text-xs text-muted-foreground">When this block hits, do nothing by default. Add an announcement (or multiple) — they auto-fire with tags like {"{everyone}"} {"{schedule_title}"} {"{timer_schedule}"}. See Templates → Announcements for presets.</p>}
+          {actions.length===0 && <p className="px-1 text-xs text-muted-foreground">When this block hits, do nothing by default. Add an announcement — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in the message for tag suggestions.</p>}
           {actions.map(a=>(
             <Card key={a.id} className="border-border bg-background">
               <CardContent className="flex flex-col gap-2 p-2.5">
                 <div className="flex items-center gap-2">
                   <Megaphone className="size-3.5 text-accent" />
                   <span className="text-xs font-semibold">Announce</span>
-                  <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> tags: {"{everyone}"} {"{schedule_title}"} {"{panel}"}</span>
+                  <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> type {"{"} for tags</span>
                   <Button variant="ghost" size="icon" className="size-6" onClick={()=>removeAction(a.id)}><Trash2 className="size-3" /></Button>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="flex flex-col gap-1">
                     <Label className="text-[11px]">Title</Label>
-                    <Input value={a.title} onChange={e=>updateAction(a.id, { title: e.target.value })} placeholder="{schedule_title}" className="h-7 text-xs" maxLength={100} />
+                    <TagAutocompleteInput value={a.title} onChange={v=>updateAction(a.id, { title: v })} placeholder="{schedule_title}" maxLength={100} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <Label className="text-[11px]">Channel override (optional)</Label>
@@ -393,13 +386,7 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
                 </div>
                 <div className="flex flex-col gap-1">
                   <Label className="text-[11px]">Message</Label>
-                  <Textarea value={a.message} onChange={e=>updateAction(a.id, { message: e.target.value })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" className="min-h-[56px] text-xs" maxLength={2000} />
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {["{everyone}","{here}","{schedule_title}","{schedule_desc}","{panel}","{timer_schedule}"].map(tag=>(
-                    <button key={tag} type="button" onClick={()=>updateAction(a.id, { message: a.message ? `${a.message} ${tag}` : tag })}><TagPill tag={tag} /></button>
-                  ))}
-                  <span className="self-center text-[11px] text-muted-foreground">hover for meaning — click to insert</span>
+                  <TagAutocompleteTextarea value={a.message} onChange={v=>updateAction(a.id, { message: v })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
                 </div>
               </CardContent>
             </Card>

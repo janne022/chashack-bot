@@ -7,12 +7,11 @@ import { api } from "@/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea-label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FormConfigEditor } from "@/components/FormConfigEditor"
 import { EventTemplateEditor, type EventTemplateDraft } from "@/components/EventTemplateEditor"
-import { TagCheatSheet, TagHelpButton, TagPill } from "@/components/TagHelp"
+import { TagAutocompleteInput, TagAutocompleteTextarea } from "@/components/TagAutocomplete"
 import type { FormConfig } from "@/types"
 import { dateTime } from "@/lib/format"
 import { DEFAULT_FORM } from "@/lib/default-form"
@@ -110,22 +109,9 @@ export function TemplatesPage() {
 
         <TabsContent value="announcement" className="flex flex-col gap-4 mt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-muted-foreground">Reusable Discord messages — hover tags for meaning.</p>
-            <div className="flex items-center gap-2">
-              <TagHelpButton />
-              <Button onClick={()=>setCreatingAnnouncement(true)}><Plus className="size-4" /> New announcement</Button>
-            </div>
+            <p className="text-sm text-muted-foreground">Reusable Discord messages — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in the message to see tag suggestions.</p>
+            <Button onClick={()=>setCreatingAnnouncement(true)}><Plus className="size-4" /> New announcement</Button>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-border bg-surface-2/40 px-3 py-2">
-            <span className="text-xs font-medium">Tags — hover</span>
-            <TagPill tag="{event}" />
-            <TagPill tag="{panel}" />
-            <TagPill tag="{everyone}" />
-            <TagPill tag="{timer}" />
-            <TagPill tag="{schedule_title}" />
-            <TagPill tag="{schedule_desc}" />
-          </div>
-          <TagCheatSheet compact />
           {announcementTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">No announcement templates yet — create one.</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {announcementTemplates.map(tpl=>{
@@ -279,7 +265,7 @@ function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: 
       <Card className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-pop-in" onClick={e=>e.stopPropagation()}>
         <CardHeader className="shrink-0">
           <CardTitle>{isEdit ? "Edit announcement" : "New announcement template"}</CardTitle>
-          <CardDescription>Reusable Discord message with tags like {"{event}"} {"{everyone}"} {"{timer}"}. Use in schedules or manual announces.</CardDescription>
+          <CardDescription>Reusable Discord message — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in title or message for tag suggestions like {"{event}"} {"{everyone}"} {"{timer}"}.</CardDescription>
         </CardHeader>
         <div className="flex-1 overflow-y-auto px-6 pb-4 flex flex-col gap-4">
           <div className="flex flex-col gap-2">
@@ -300,26 +286,12 @@ function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: 
           </div>
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">Title</label>
-            <Input value={data.title} onChange={e=>setData({ ...data, title: e.target.value })} placeholder="e.g. {schedule_title}" maxLength={100} />
+            <TagAutocompleteInput value={data.title} onChange={v=>setData({ ...data, title: v })} placeholder="e.g. {schedule_title} — update" maxLength={100} />
           </div>
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">Message</label>
-            <Textarea value={data.message} onChange={e=>setData({ ...data, message: e.target.value })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
-            <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-border bg-surface-2/40 px-3 py-2">
-              <span className="text-xs font-medium">Tags — hover</span>
-              <TagPill tag="{event}" />
-              <TagPill tag="{panel}" />
-              <TagPill tag="{everyone}" />
-              <TagPill tag="{timer}" />
-              <TagPill tag="{schedule_title}" />
-              <TagHelpButton />
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {["{everyone}","{event}","{panel}","{timer}","{schedule_title}","{schedule_desc}"].map(tag=>(
-                <button key={tag} type="button" onClick={()=>setData({ ...data, message: data.message ? `${data.message} ${tag}` : tag })} className="rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[11px] hover:bg-accent-soft">{tag}</button>
-              ))}
-              <span className="self-center text-[11px] text-muted-foreground">click to insert</span>
-            </div>
+            <TagAutocompleteTextarea value={data.message} onChange={v=>setData({ ...data, message: v })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
+            <span className="text-[11px] text-muted-foreground">Tip: type <code className="rounded bg-muted px-1 font-mono text-[11px]">{"{"}</code> to autocomplete — e.g. <code className="font-mono">{"{eve"}</code> → <code className="font-mono">{"{event}"}</code> · <code className="font-mono">{"{timer"}</code> etc.</span>
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-border p-4 shrink-0 bg-card">
