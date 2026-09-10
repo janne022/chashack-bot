@@ -23,7 +23,6 @@ const KINDS: { id: ScheduleItem["kind"]; label: string; icon: typeof Clock }[] =
   { id: "talk", label: "Talk", icon: Mic },
   { id: "custom", label: "Custom", icon: Clock },
 ]
-
 function toLocalIso(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
@@ -36,6 +35,10 @@ export function ScheduleEditor({
   endValue,
   onStartChange,
   onEndChange,
+  startActions,
+  endActions,
+  onStartActionsChange,
+  onEndActionsChange,
   disablePast,
 }: {
   value: ScheduleItem[]
@@ -44,11 +47,21 @@ export function ScheduleEditor({
   endValue?: string
   onStartChange?: (v: string) => void
   onEndChange?: (v: string) => void
+  startActions?: ScheduleAction[]
+  endActions?: ScheduleAction[]
+  onStartActionsChange?: (a: ScheduleAction[]) => void
+  onEndActionsChange?: (a: ScheduleAction[]) => void
   disablePast?: boolean
 }) {
   const t = useT()
   const sorted = [...value].sort((a, b) => a.time - b.time)
   const hasRange = onStartChange !== undefined && onEndChange !== undefined && startValue !== undefined && endValue !== undefined
+  const [expanded, setExpanded] = useState<Set<string>>(()=>new Set())
+  const toggle = (id: string) => setExpanded(prev=>{
+    const n = new Set(prev)
+    if (n.has(id)) n.delete(id); else n.add(id)
+    return n
+  })
 
   const add = (preset?: Partial<ScheduleItem>) => {
     const base = new Date()
@@ -58,6 +71,7 @@ export function ScheduleEditor({
     const kind = preset?.kind ?? "custom"
     const id = `sch_${Math.random().toString(36).slice(2, 8)}`
     onChange([...value, { id, time, title, kind, actions: [] }])
+    setExpanded(prev=>new Set(prev).add(id))
   }
 
   const update = (id: string, patch: Partial<ScheduleItem>) => {
@@ -81,14 +95,21 @@ export function ScheduleEditor({
       </div>
 
       {hasRange && (
-        <div className="flex items-center gap-2 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2">
-          <span className="flex size-7 items-center justify-center rounded-md bg-accent text-accent-foreground">
-            <Clock className="size-3.5" />
-          </span>
-          <span className="text-sm font-semibold">{t("events.starts" as never) ?? "Starts"}</span>
-          <span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{t("events.schedule_start_hint" as never) ?? "first block"}</span>
-          <DateTimePicker value={startValue!} onChange={(v) => onStartChange!(v)} disablePast={disablePast} className="ml-auto h-8 w-48" />
-        </div>
+        <PinnedBlock
+          label={t("events.starts" as never) ?? "Starts"}
+          hint={t("events.schedule_start_hint" as never) ?? "first block"}
+          value={startValue!}
+          onChange={onStartChange!}
+          actions={startActions ?? []}
+          onActionsChange={onStartActionsChange}
+          disablePast={disablePast}
+          iconBg="bg-accent"
+          border="border-accent/40"
+          bg="bg-accent-soft"
+          expanded={expanded.has("__start__")}
+          onToggle={()=>toggle("__start__")}
+          emptyHint="When the event starts — add an announcement to ping @everyone."
+        />
       )}
 
       {sorted.length === 0 ? (
@@ -96,64 +117,75 @@ export function ScheduleEditor({
       ) : (
         <div className="flex flex-col gap-2">
           {sorted.map((item) => {
-            const iso = toLocalIso(new Date(item.time))
+            const isExp = expanded.has(item.id)
             const KindIcon = KINDS.find((k) => k.id === item.kind)?.icon ?? Clock
             const dt = new Date(item.time)
             const timeBadge = format(dt, "MMM d, HH:mm")
             const dayBadge = format(dt, "EEE")
+            const actions = item.actions ?? []
             return (
               <Card key={item.id} className="overflow-hidden border-border bg-background">
-                <div className="flex items-start gap-2 p-3">
-                  <KindIcon className="mt-1 size-4 shrink-0 text-accent" />
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    {/* Top row: visible time + kind + title */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      {/* Visible time badge — always readable without clicking */}
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent">
-                        <Clock className="size-3" />
-                        <span className="hidden sm:inline">{timeBadge}</span>
-                        <span className="sm:hidden">{format(dt, "HH:mm")}</span>
-                        <span className="rounded bg-accent px-1 py-0 text-[10px] font-bold text-accent-foreground">{dayBadge}</span>
-                      </span>
-                      {/* Edit time popover trigger is still the picker, but compact */}
-                    <DateTimePicker
-                        value={iso}
+                <button
+                  type="button"
+                  onClick={()=>toggle(item.id)}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/40"
+                >
+                  <KindIcon className="size-4 shrink-0 text-accent" />
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/20 bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent">
+                    <Clock className="size-3" />
+                    <span className="hidden sm:inline">{timeBadge}</span>
+                    <span className="sm:hidden">{format(dt, "HH:mm")}</span>
+                    <span className="rounded bg-accent px-1 py-0 text-[10px] font-bold text-accent-foreground">{dayBadge}</span>
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title || <span className="text-muted-foreground italic">Untitled</span>}</span>
+                  {actions.length > 0 && (
+                    <Badge variant="secondary" className="shrink-0 gap-1 text-[10px]"><Zap className="size-3" />{actions.length}</Badge>
+                  )}
+                  <Badge variant="secondary" className="hidden shrink-0 text-[10px] sm:inline-flex">{item.kind ?? "custom"}</Badge>
+                  {isExp ? <ChevronUp className="size-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="size-4 shrink-0 text-muted-foreground" />}
+                </button>
+                {isExp && (
+                  <div className="flex flex-col gap-3 border-t border-border p-3">
+                    <div className="grid gap-2 sm:grid-cols-[auto_1fr_auto]">
+                      <DateTimePicker
+                        value={toLocalIso(dt)}
                         onChange={(v) => update(item.id, { time: v ? Date.parse(v) : item.time })}
                         disablePast={disablePast}
                         minDate={disablePast && startValue ? (() => { const d = new Date(startValue); d.setHours(0,0,0,0); return d })() : undefined}
-                        className="h-7 w-7 p-0"
+                        className="h-8 w-44"
+                      />
+                      <Input
+                        value={item.title}
+                        onChange={(e) => update(item.id, { title: e.target.value })}
+                        placeholder="Dinner, Fika, Voting…"
+                        className="h-8 text-sm"
+                        maxLength={80}
                       />
                       <Select value={item.kind ?? "custom"} onValueChange={(v) => update(item.id, { kind: v as ScheduleItem["kind"] })}>
-                        <SelectTrigger className="h-7 w-28 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {KINDS.map((k) => (
                             <SelectItem key={k.id} value={k.id!}>{k.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                      <Input
-                        value={item.title}
-                        onChange={(e) => update(item.id, { title: e.target.value })}
-                        placeholder="Dinner, Fika, Voting…"
-                        className="h-7 min-w-[140px] flex-1 text-sm"
-                        maxLength={80}
-                      />
-                      <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={() => remove(item.id)}>
-                        <Trash2 className="size-3.5" />
-                      </Button>
                     </div>
-                    {/* Description */}
                     <Input
                       value={item.description ?? ""}
                       onChange={(e) => update(item.id, { description: e.target.value || undefined })}
                       placeholder="Details (optional) — e.g. Pizza in the kitchen"
-                      className="h-7 text-xs"
+                      className="h-8 text-xs"
                       maxLength={200}
                     />
-                    {/* Actions — Zapier-like */}
                     <ScheduleItemActions item={item} onChange={(actions)=>update(item.id, { actions })} />
+
+                    <div className="flex justify-end">
+                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => remove(item.id)}>
+                        <Trash2 className="size-3.5" /> Remove block
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                )}
               </Card>
             )
           })}
@@ -182,13 +214,128 @@ export function ScheduleEditor({
       </div>
 
       {hasRange && (
-        <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
-          <span className="flex size-7 items-center justify-center rounded-md bg-danger text-danger-foreground">
-            <Clock className="size-3.5" />
-          </span>
-          <span className="text-sm font-semibold">{t("events.ends" as never) ?? "Ends"}</span>
-          <span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{t("events.schedule_end_hint" as never) ?? "last block"}</span>
-          <DateTimePicker value={endValue!} onChange={(v) => onEndChange!(v)} disablePast={disablePast} minDate={disablePast && startValue ? (() => { const d = new Date(startValue); return d })() : undefined} className="ml-auto h-8 w-48" />
+        <PinnedBlock
+          label={t("events.ends" as never) ?? "Ends"}
+          hint={t("events.schedule_end_hint" as never) ?? "last block"}
+          value={endValue!}
+          onChange={onEndChange!}
+          actions={endActions ?? []}
+          onActionsChange={onEndActionsChange}
+          disablePast={disablePast}
+          minDate={disablePast && startValue ? new Date(startValue) : undefined}
+          iconBg="bg-danger"
+          border="border-danger/30"
+          bg="bg-danger/5"
+          expanded={expanded.has("__end__")}
+          onToggle={()=>toggle("__end__")}
+          emptyHint="When the event ends — add a wrap-up announcement if you want."
+        />
+      )}
+    </div>
+  )
+}
+
+function PinnedBlock({
+  label, hint, value, onChange, actions, onActionsChange, disablePast, minDate, iconBg, border, bg, expanded, onToggle, emptyHint,
+}: {
+  label: string; hint: string; value: string; onChange: (v: string)=>void; actions: ScheduleAction[]; onActionsChange?: (a: ScheduleAction[])=>void; disablePast?: boolean; minDate?: Date; iconBg: string; border: string; bg: string; expanded: boolean; onToggle: ()=>void; emptyHint: string;
+}) {
+  const hasActions = actions.length > 0
+  return (
+    <div className={`rounded-lg border ${border} ${bg}`}>
+      <button type="button" onClick={onToggle} className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
+        <span className={`flex size-7 items-center justify-center rounded-md ${iconBg} text-white`}>
+          <Clock className="size-3.5" />
+        </span>
+        <span className="text-sm font-semibold">{label}</span>
+        {value ? (
+          <span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{(() => { try { return format(new Date(value), "MMM d, HH:mm EEE") } catch { return hint } })()}</span>
+        ) : (
+          <span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{hint}</span>
+        )}
+        {hasActions && <Badge variant="secondary" className="ml-2 gap-1 text-[10px]"><Zap className="size-3" />{actions.length}</Badge>}
+        <span className="ml-auto flex items-center gap-2">
+          <span className="hidden text-xs text-muted-foreground sm:inline">{expanded ? "Hide" : hasActions ? `${actions.length} actions` : "Add actions"}</span>
+          {expanded ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+        </span>
+      </button>
+      {expanded && (
+        <div className="flex flex-col gap-3 border-t border-border bg-background px-3 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-medium text-muted-foreground">Time</span>
+            <DateTimePicker value={value} onChange={onChange} disablePast={disablePast} minDate={minDate} className="h-8 w-48" />
+            <span className="text-xs text-muted-foreground">This is the event {label.toLowerCase()} time.</span>
+          </div>
+          {onActionsChange ? (
+            <InlineActions
+              timeLabel={label}
+              timeValue={value}
+              actions={actions}
+              onChange={onActionsChange}
+              emptyHint={emptyHint}
+            />
+          ) : (
+            <p className="text-xs text-muted-foreground">{emptyHint}</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: { timeLabel: string; timeValue: string; actions: ScheduleAction[]; onChange: (a: ScheduleAction[])=>void; emptyHint: string }) {
+  const hasActions = actions.length > 0
+  function addAction() {
+    const id = `sact_${Math.random().toString(36).slice(2, 6)}`
+    const dt = (()=>{ try { return format(new Date(timeValue), "HH:mm") } catch { return "" }})()
+    const next: ScheduleAction = { id, type: "announce", title: `${timeLabel} — ${dt}`, message: `🚀 **{event}** ${timeLabel.toLowerCase()}s ${timeLabel==="Starts" ? "{everyone} {panel}" : "{everyone}"}`, channelId: null }
+    onChange([...actions, next])
+  }
+  function updateAction(id: string, patch: Partial<ScheduleAction>) {
+    onChange(actions.map(a=>a.id===id ? { ...a, ...patch } : a))
+  }
+  function removeAction(id: string) { onChange(actions.filter(a=>a.id!==id)) }
+
+  return (
+    <div className="rounded-lg border border-dashed border-border bg-surface-2/20">
+      <div className="flex items-center justify-between px-2.5 py-1.5">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Zap className="size-3 text-accent" /> {hasActions ? `${actions.length} action${actions.length>1?'s':''} — will run at ${(() => { try { return format(new Date(timeValue), "HH:mm") } catch { return "event time"} })()}` : `No actions yet — ${emptyHint}`}</span>
+        <Button variant="secondary" size="sm" className="h-6 text-xs" onClick={addAction}><Plus className="size-3" /> Add announcement</Button>
+      </div>
+      {hasActions && (
+        <div className="flex flex-col gap-2 border-t border-border p-2">
+          {actions.map(a=>(
+            <Card key={a.id} className="border-border bg-background">
+              <CardContent className="flex flex-col gap-2 p-2.5">
+                <div className="flex items-center gap-2">
+                  <Megaphone className="size-3.5 text-accent" />
+                  <span className="text-xs font-semibold">Announce when {timeLabel.toLowerCase()}s</span>
+                  <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> tags: {"{everyone}"} {"{event}"} {"{panel}"}</span>
+                  <Button variant="ghost" size="icon" className="size-6" onClick={()=>removeAction(a.id)}><Trash2 className="size-3" /></Button>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-[11px]">Title</Label>
+                    <Input value={a.title} onChange={e=>updateAction(a.id, { title: e.target.value })} placeholder={`${timeLabel} — live!`} className="h-7 text-xs" maxLength={100} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-[11px]">Channel override (optional)</Label>
+                    <Input value={a.channelId ?? ""} onChange={e=>updateAction(a.id, { channelId: e.target.value.trim() || null })} placeholder="defaults to announcement channel" className="h-7 text-xs font-mono" />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px]">Message</Label>
+                  <Textarea value={a.message} onChange={e=>updateAction(a.id, { message: e.target.value })} placeholder={`🚀 {event} is live! {everyone} → {panel}`} className="min-h-[56px] text-xs" maxLength={2000} />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {["{everyone}","{here}","{event}","{panel}","{timer}","{schedule_title}"].map(tag=>(
+                    <button key={tag} type="button" onClick={()=>updateAction(a.id, { message: a.message ? `${a.message} ${tag}` : tag })}><TagPill tag={tag} /></button>
+                  ))}
+                  <span className="self-center text-[11px] text-muted-foreground">hover for meaning — click to insert</span>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
     </div>

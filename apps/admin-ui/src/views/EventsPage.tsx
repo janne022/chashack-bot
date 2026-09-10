@@ -91,12 +91,11 @@ function NewEventButton() {
   const [panelChannelId, setPanelChannelId] = useState('')
   const [announceChannelId, setAnnounceChannelId] = useState('')
   const [scheduleChannelId, setScheduleChannelId] = useState('')
-  const [announceTitle, setAnnounceTitle] = useState('')
-  const [announceMessage, setAnnounceMessage] = useState('')
-  const [dmOnAnnounce, setDmOnAnnounce] = useState(false)
   const [saveAsTemplate, setSaveAsTemplate] = useState(false)
   const [busy, setBusy] = useState(false)
   const [guildChannels, setGuildChannels] = useState<{ id: string; name: string }[]>([])
+  const [startActions, setStartActions] = useState<import('@/types').ScheduleAction[]>([])
+  const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>([])
   useEffect(() => {
     api.getGuildChannels().then(r=>setGuildChannels(r.channels ?? [])).catch(()=>undefined)
   }, [])
@@ -168,6 +167,10 @@ function NewEventButton() {
         announcementChannelId: announceChannelId || null,
         scheduleChannelId: scheduleChannelId || null,
         ...(schedule.length > 0 ? { schedule } : {}),
+        ...((startActions.length > 0 || endActions.length > 0) ? { announcements: [
+          ...startActions.map(a=>({ id: a.id, title: a.title || 'Starts — announcement', message: a.message, trigger: 'on_activate' as const, channelId: a.channelId ?? null })),
+          ...endActions.map(a=>({ id: a.id, title: a.title || 'Ends — announcement', message: a.message, trigger: 'on_start' as const, channelId: a.channelId ?? null })),
+        ] } : {}),
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
       toast.success(saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() }))
@@ -185,9 +188,8 @@ function NewEventButton() {
       setPanelChannelId('')
       setAnnounceChannelId('')
       setScheduleChannelId('')
-      setAnnounceTitle('')
-      setAnnounceMessage('')
-      setDmOnAnnounce(false)
+      setStartActions([])
+      setEndActions([])
       setSaveAsTemplate(false)
       await refresh()
     } catch (e) {
@@ -293,6 +295,10 @@ function NewEventButton() {
                 endValue={endsAt}
                 onStartChange={setStartsAt}
                 onEndChange={setEndsAt}
+                startActions={startActions}
+                endActions={endActions}
+                onStartActionsChange={setStartActions}
+                onEndActionsChange={setEndActions}
                 disablePast
               />
 
@@ -391,22 +397,6 @@ function NewEventButton() {
                 )}
                 <span className="text-xs text-muted-foreground">The whole schedule (+ live <span className="font-mono">&lt;t:…&gt;</span> timers) is posted here as one message — auto-updated on Activate.</span>
               </label>
-
-              <fieldset className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2 p-3">
-                <legend className="text-xs font-medium text-muted-foreground px-1">{t('events.announce_at_create')}</legend>
-                <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="font-medium">{t('events.headline_placeholder')}</span>
-                  <Input value={announceTitle} onChange={(e) => setAnnounceTitle(e.target.value)} placeholder="Event is live!" maxLength={100} />
-                </label>
-                <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="font-medium">{t('events.message_placeholder')}</span>
-                  <Textarea value={announceMessage} onChange={(e) => setAnnounceMessage(e.target.value)} placeholder="The signup panel is ready..." maxLength={800} />
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={dmOnAnnounce} onCheckedChange={setDmOnAnnounce} />
-                  {t('events.also_dm')}
-                </label>
-              </fieldset>
 
               <label className="flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm">
                 <Checkbox checked={saveAsTemplate} onCheckedChange={setSaveAsTemplate} />
@@ -561,18 +551,28 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
   const [items, setItems] = useState(event.schedule ?? [])
   const [start, setStart] = useState(event.startsAt ? toLocalIso(new Date(event.startsAt)) : "")
   const [end, setEnd] = useState(event.endsAt ? toLocalIso(new Date(event.endsAt)) : "")
+  const [startActions, setStartActions] = useState<import('@/types').ScheduleAction[]>(()=> (event.announcements ?? []).filter(a=>a.trigger==='on_activate').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null })))
+  const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>(()=> (event.announcements ?? []).filter(a=>a.trigger==='on_start').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null })))
   const [busy, setBusy] = useState(false)
 
   // sync when event changes (after save)
-  useEffect(() => { if (!open) { setItems(event.schedule ?? []); setStart(event.startsAt ? toLocalIso(new Date(event.startsAt)) : ""); setEnd(event.endsAt ? toLocalIso(new Date(event.endsAt)) : "") } }, [event.schedule, event.startsAt, event.endsAt, open])
+  useEffect(() => { if (!open) { setItems(event.schedule ?? []); setStart(event.startsAt ? toLocalIso(new Date(event.startsAt)) : ""); setEnd(event.endsAt ? toLocalIso(new Date(event.endsAt)) : ""); setStartActions((event.announcements ?? []).filter(a=>a.trigger==='on_activate').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null }))); setEndActions((event.announcements ?? []).filter(a=>a.trigger==='on_start').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null }))) } }, [event.schedule, event.startsAt, event.endsAt, event.announcements, open])
 
   async function save() {
     setBusy(true)
     try {
+      // Rebuild announcements: keep non-start/end ones, replace start/end from actions
+      const other = (event.announcements ?? []).filter(a=>a.trigger !== 'on_activate' && a.trigger !== 'on_start')
+      const nextAnnouncements = [
+        ...other,
+        ...startActions.map(a=>({ id: a.id, title: a.title || 'Starts — announcement', message: a.message, trigger: 'on_activate' as const, channelId: a.channelId ?? null })),
+        ...endActions.map(a=>({ id: a.id, title: a.title || 'Ends — announcement', message: a.message, trigger: 'on_start' as const, channelId: a.channelId ?? null })),
+      ]
       await api.updateEvent(event.id, {
         schedule: items,
         startsAt: start ? Date.parse(start) : null,
         endsAt: end ? Date.parse(end) : null,
+        announcements: nextAnnouncements as never,
       })
       toast.success(t('events.schedule_saved'))
       setOpen(false)
@@ -603,6 +603,10 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
                 endValue={end}
                 onStartChange={setStart}
                 onEndChange={setEnd}
+                startActions={startActions}
+                endActions={endActions}
+                onStartActionsChange={setStartActions}
+                onEndActionsChange={setEndActions}
                 disablePast
               />
               <div className="flex justify-end gap-2">
