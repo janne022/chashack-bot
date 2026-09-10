@@ -440,6 +440,48 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           const scheduleId = (action as { type: 'schedule'; eventId: string; scheduleId: string }).scheduleId
           const item = event.schedule.find(s => s.id === scheduleId)
           if (!item) { markScheduleAnnounced(db, event.id, scheduleId); break }
+          // Split per-block actions by type
+          const perBlock = item.actions ?? []
+          const announceActions = perBlock.filter(a=>a.type==='announce') as { id: string; type: 'announce'; title: string; message: string; channelId?: string | null }[]
+          const opActions = perBlock.filter(a=>a.type!=='announce')
+          const globalAnns = (event.announcements ?? []).filter(a => a.trigger === 'schedule')
+          const toSend: { title: string; message: string; channelId?: string | null }[] =
+            announceActions.length > 0 ? announceActions.map(a=>({ title: a.title!, message: a.message!, channelId: a.channelId ?? null }))
+            : globalAnns.length > 0 ? globalAnns.map(a=>({ title: a.title, message: a.message, channelId: a.channelId ?? null }))
+            : []
+
+          // 1) Run ops first (lock / assign) so announcements that follow can reference final teams
+          for (const op of opActions) {
+            try {
+              if (op.type === 'lock_teams') {
+                const { markMatchLocked } = await import('../features/events/data.js')
+                markMatchLocked(db, event.id)
+                audit(db, 'system', 'schedule.lock_teams', event.id, { scheduleId })
+                summary.push(`schedule lock: ${event.name} — ${item.title}`)
+              } else if (op.type === 'assign_random' || op.type === 'auto_match') {
+                const config = getEventFormLocal(db, event)
+                const preview = previewMatch(db, event.id, config)
+                if (!preview.ok) {
+                  console.warn(`schedule ${op.type} for ${event.name} failed: ${preview.code} — ${preview.message}`)
+                  summary.push(`schedule ${op.type} failed (${preview.code}): ${event.name}`)
+                } else {
+                  commitMatch(db, 'system', event.id, event.guildId, config)
+                  markMatchLocked(db, event.id)
+                  summary.push(`schedule ${op.type}: ${event.name} (${preview.value.teams.length} teams)`)
+                }
+                audit(db, 'system', `schedule.${op.type}`, event.id, { scheduleId, ok: preview.ok, code: (preview as unknown as { code?: string }).code })
+              }
+            } catch (e) { console.warn(`schedule op ${op.type} failed`, e) }
+          }
+
+          if (toSend.length === 0) {
+            // no announcements, just ops
+            audit(db, 'system', 'schedule.ops', event.id, { scheduleId, title: item.title, ops: opActions.map(o=>o.type) })
+            if (opActions.length > 0) summary.push(`schedule ops: ${event.name} — ${item.title} (${opActions.map(o=>o.type).join(', ')})`)
+            markScheduleAnnounced(db, event.id, scheduleId)
+            break
+          }
+
           const channelId = event.announcementChannelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
           if (channelId === null || !isSnowflake(event.guildId) || !isSnowflake(channelId)) {
             if (channelId !== null) warnInvalidGuild(event.guildId, 'schedule')
@@ -447,13 +489,6 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             audit(db, 'system', 'schedule.skipped', event.id, { scheduleId, reason: 'no_channel' })
             break
           }
-          // Prefer per-block Zapier actions if present, else global schedule announcement templates
-          const perBlockActions = (item.actions ?? []).filter(a=>a.type==='announce')
-          const globalAnns = (event.announcements ?? []).filter(a => a.trigger === 'schedule')
-          const toSend: { title: string; message: string; channelId?: string | null }[] =
-            perBlockActions.length > 0 ? perBlockActions.map(a=>({ title: a.title, message: a.message, channelId: a.channelId ?? null }))
-            : globalAnns.length > 0 ? globalAnns.map(a=>({ title: a.title, message: a.message, channelId: a.channelId ?? null }))
-            : [{ title: item.title, message: '⏰ **{schedule_title}** — {schedule_desc} {everyone}', channelId: null }]
           try {
             const guild = await client.guilds.fetch(event.guildId)
             const baseChannel = await guild.channels.fetch(channelId).catch(()=>null)

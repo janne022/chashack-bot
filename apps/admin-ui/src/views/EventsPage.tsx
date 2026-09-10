@@ -159,6 +159,18 @@ function NewEventButton() {
     }
     setBusy(true)
     try {
+      // Build schedule + announcements from start/end pinned blocks: announce types → announcements, ops → synthetic schedule items at that time
+      const startTime = startsAt ? Date.parse(startsAt) : null
+      const endTime = endsAt ? Date.parse(endsAt) : null
+      const startAnn = startActions.filter(a=>a.type==='announce').map(a=>({ id: a.id, title: a.title || 'Starts — announcement', message: a.message!, trigger: 'on_activate' as const, channelId: a.channelId ?? null }))
+      const endAnn = endActions.filter(a=>a.type==='announce').map(a=>({ id: a.id, title: a.title || 'Ends — announcement', message: a.message!, trigger: 'on_start' as const, channelId: a.channelId ?? null }))
+      const startOps = startActions.filter(a=>a.type!=='announce')
+      const endOps = endActions.filter(a=>a.type!=='announce')
+      const extraSchedule: typeof schedule = []
+      if (startOps.length && startTime) extraSchedule.push({ id: '__start__', time: startTime, title: 'Event starts', kind: 'custom' as const, actions: startOps as never })
+      if (endOps.length && endTime) extraSchedule.push({ id: '__end__', time: endTime, title: 'Event ends', kind: 'custom' as const, actions: endOps as never })
+      const mergedSchedule = [...schedule, ...extraSchedule]
+
       await api.createEvent({
         ...parsed.data,
         ...(templateId ? { templateId } : {}),
@@ -166,11 +178,8 @@ function NewEventButton() {
         panelChannelId: panelChannelId || null,
         announcementChannelId: announceChannelId || null,
         scheduleChannelId: scheduleChannelId || null,
-        ...(schedule.length > 0 ? { schedule } : {}),
-        ...((startActions.length > 0 || endActions.length > 0) ? { announcements: [
-          ...startActions.map(a=>({ id: a.id, title: a.title || 'Starts — announcement', message: a.message, trigger: 'on_activate' as const, channelId: a.channelId ?? null })),
-          ...endActions.map(a=>({ id: a.id, title: a.title || 'Ends — announcement', message: a.message, trigger: 'on_start' as const, channelId: a.channelId ?? null })),
-        ] } : {}),
+        ...(mergedSchedule.length > 0 ? { schedule: mergedSchedule } : {}),
+        ...((startAnn.length > 0 || endAnn.length > 0) ? { announcements: [...startAnn, ...endAnn] } : {}),
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
       toast.success(saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() }))
@@ -455,11 +464,11 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
         </div>
       </CardHeader>
       <CardContent>
-        {event.schedule && event.schedule.length > 0 && (
+        {event.schedule && event.schedule.filter(s=>s.id!=='__start__' && s.id!=='__end__').length > 0 && (
           <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('events.schedule')}</span>
             <div className="flex flex-col gap-1.5">
-              {[...event.schedule].sort((a,b)=>a.time-b.time).map((it) => (
+              {[...event.schedule].filter(s=>s.id!=='__start__' && s.id!=='__end__').sort((a,b)=>a.time-b.time).map((it) => (
                 <div key={it.id} className="flex items-center gap-3 text-sm">
                   <span className="shrink-0 rounded-md bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
                     {new Date(it.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -473,7 +482,7 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
             <EditableSchedule event={event} refresh={refresh} />
           </div>
         )}
-        {(!event.schedule || event.schedule.length === 0) && (
+        {(!event.schedule || event.schedule.filter(s=>s.id!=='__start__' && s.id!=='__end__').length === 0) && (
           <div className="mb-4">
             <EditableSchedule event={event} refresh={refresh} />
           </div>
@@ -547,29 +556,49 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
 
 function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
   const t = useT()
+  // Derive start/end actions from both announcements (announce) and synthetic schedule items (__start__/__end__ for ops)
+  const deriveStart = (ev: HackathonEvent) => {
+    const ann = (ev.announcements ?? []).filter(a=>a.trigger==='on_activate').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null } as import('@/types').ScheduleAction))
+    const syn = (ev.schedule ?? []).find(s=>s.id==='__start__')
+    const ops = (syn?.actions ?? []).filter(a=>a.type!=='announce') as import('@/types').ScheduleAction[]
+    return [...ann, ...ops]
+  }
+  const deriveEnd = (ev: HackathonEvent) => {
+    const ann = (ev.announcements ?? []).filter(a=>a.trigger==='on_start').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null } as import('@/types').ScheduleAction))
+    const syn = (ev.schedule ?? []).find(s=>s.id==='__end__')
+    const ops = (syn?.actions ?? []).filter(a=>a.type!=='announce') as import('@/types').ScheduleAction[]
+    return [...ann, ...ops]
+  }
+  const deriveItems = (ev: HackathonEvent) => (ev.schedule ?? []).filter(s=>s.id!=='__start__' && s.id!=='__end__')
+
   const [open, setOpen] = useState(false)
-  const [items, setItems] = useState(event.schedule ?? [])
+  const [items, setItems] = useState(()=>deriveItems(event))
   const [start, setStart] = useState(event.startsAt ? toLocalIso(new Date(event.startsAt)) : "")
   const [end, setEnd] = useState(event.endsAt ? toLocalIso(new Date(event.endsAt)) : "")
-  const [startActions, setStartActions] = useState<import('@/types').ScheduleAction[]>(()=> (event.announcements ?? []).filter(a=>a.trigger==='on_activate').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null })))
-  const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>(()=> (event.announcements ?? []).filter(a=>a.trigger==='on_start').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null })))
+  const [startActions, setStartActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveStart(event))
+  const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveEnd(event))
   const [busy, setBusy] = useState(false)
 
   // sync when event changes (after save)
-  useEffect(() => { if (!open) { setItems(event.schedule ?? []); setStart(event.startsAt ? toLocalIso(new Date(event.startsAt)) : ""); setEnd(event.endsAt ? toLocalIso(new Date(event.endsAt)) : ""); setStartActions((event.announcements ?? []).filter(a=>a.trigger==='on_activate').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null }))); setEndActions((event.announcements ?? []).filter(a=>a.trigger==='on_start').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null }))) } }, [event.schedule, event.startsAt, event.endsAt, event.announcements, open])
+  useEffect(() => { if (!open) { setItems(deriveItems(event)); setStart(event.startsAt ? toLocalIso(new Date(event.startsAt)) : ""); setEnd(event.endsAt ? toLocalIso(new Date(event.endsAt)) : ""); setStartActions(deriveStart(event)); setEndActions(deriveEnd(event)) } }, [event.schedule, event.startsAt, event.endsAt, event.announcements, open])
 
   async function save() {
     setBusy(true)
     try {
-      // Rebuild announcements: keep non-start/end ones, replace start/end from actions
+      const startAnn = startActions.filter(a=>a.type==='announce').map(a=>({ id: a.id, title: a.title || 'Starts — announcement', message: a.message!, trigger: 'on_activate' as const, channelId: a.channelId ?? null }))
+      const endAnn = endActions.filter(a=>a.type==='announce').map(a=>({ id: a.id, title: a.title || 'Ends — announcement', message: a.message!, trigger: 'on_start' as const, channelId: a.channelId ?? null }))
+      const startOps = startActions.filter(a=>a.type!=='announce')
+      const endOps = endActions.filter(a=>a.type!=='announce')
+      const startTime = start ? Date.parse(start) : null
+      const endTime = end ? Date.parse(end) : null
+      const extra: typeof items = []
+      if (startOps.length && startTime) extra.push({ id: '__start__', time: startTime, title: 'Event starts', kind: 'custom' as const, actions: startOps as never })
+      if (endOps.length && endTime) extra.push({ id: '__end__', time: endTime, title: 'Event ends', kind: 'custom' as const, actions: endOps as never })
+      const merged = [...items, ...extra]
       const other = (event.announcements ?? []).filter(a=>a.trigger !== 'on_activate' && a.trigger !== 'on_start')
-      const nextAnnouncements = [
-        ...other,
-        ...startActions.map(a=>({ id: a.id, title: a.title || 'Starts — announcement', message: a.message, trigger: 'on_activate' as const, channelId: a.channelId ?? null })),
-        ...endActions.map(a=>({ id: a.id, title: a.title || 'Ends — announcement', message: a.message, trigger: 'on_start' as const, channelId: a.channelId ?? null })),
-      ]
+      const nextAnnouncements = [...other, ...startAnn, ...endAnn]
       await api.updateEvent(event.id, {
-        schedule: items,
+        schedule: merged,
         startsAt: start ? Date.parse(start) : null,
         endsAt: end ? Date.parse(end) : null,
         announcements: nextAnnouncements as never,

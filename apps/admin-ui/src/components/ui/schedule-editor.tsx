@@ -1,6 +1,6 @@
 "use client"
 import { useState } from "react"
-import { Plus, Trash2, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle } from "lucide-react"
+import { Plus, Trash2, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle, UsersRound } from "lucide-react"
 import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -284,11 +284,15 @@ function PinnedBlock({
 
 function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: { timeLabel: string; timeValue: string; actions: ScheduleAction[]; onChange: (a: ScheduleAction[])=>void; emptyHint: string }) {
   const hasActions = actions.length > 0
-  function addAction() {
+  function addAction(type: ScheduleAction["type"] = "announce") {
     const id = `sact_${Math.random().toString(36).slice(2, 6)}`
-    const dt = (()=>{ try { return format(new Date(timeValue), "HH:mm") } catch { return "" }})()
-    const next: ScheduleAction = { id, type: "announce", title: `${timeLabel} — ${dt}`, message: `🚀 **{event}** ${timeLabel.toLowerCase()}s ${timeLabel==="Starts" ? "{everyone} {panel}" : "{everyone}"}`, channelId: null }
-    onChange([...actions, next])
+    if (type === "announce") {
+      const dt = (()=>{ try { return format(new Date(timeValue), "HH:mm") } catch { return "" }})()
+      const next: ScheduleAction = { id, type: "announce", title: `${timeLabel} — ${dt}`, message: `🚀 **{event}** ${timeLabel.toLowerCase()}s ${timeLabel==="Starts" ? "{everyone} {panel}" : "{everyone}"}`, channelId: null }
+      onChange([...actions, next])
+    } else {
+      onChange([...actions, { id, type }])
+    }
   }
   function updateAction(id: string, patch: Partial<ScheduleAction>) {
     onChange(actions.map(a=>a.id===id ? { ...a, ...patch } : a))
@@ -297,25 +301,42 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
 
   return (
     <div className="rounded-lg border border-dashed border-border bg-surface-2/20">
-      <div className="flex items-center justify-between px-2.5 py-1.5">
+      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Zap className="size-3 text-accent" /> {hasActions ? `${actions.length} action${actions.length>1?'s':''} — will run at ${(() => { try { return format(new Date(timeValue), "HH:mm") } catch { return "event time"} })()}` : `No actions yet — ${emptyHint}`}</span>
-        <Button variant="secondary" size="sm" className="h-6 text-xs" onClick={addAction}><Plus className="size-3" /> Add announcement</Button>
+        <div className="flex gap-1">
+          <Button variant="secondary" size="sm" className="h-6 text-xs" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> Announcement</Button>
+          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock teams</Button>
+          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("assign_random")}><UsersRound className="size-3" /> Assign random</Button>
+        </div>
       </div>
       {hasActions && (
         <div className="flex flex-col gap-2 border-t border-border p-2">
-          {actions.map(a=>(
+          {actions.map(a=>{
+            const isAnnounce = a.type === "announce"
+            return (
             <Card key={a.id} className="border-border bg-background">
               <CardContent className="flex flex-col gap-2 p-2.5">
                 <div className="flex items-center gap-2">
-                  <Megaphone className="size-3.5 text-accent" />
-                  <span className="text-xs font-semibold">Announce when {timeLabel.toLowerCase()}s</span>
-                  <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> type {"{"} for tags</span>
+                  {a.type==="announce" ? <Megaphone className="size-3.5 text-accent" /> : a.type==="lock_teams" ? <Clock className="size-3.5 text-amber-600" /> : <UsersRound className="size-3.5 text-emerald-600" />}
+                  <span className="text-xs font-semibold">{a.type==="announce" ? `Announce when ${timeLabel.toLowerCase()}s` : a.type==="lock_teams" ? "Lock teams — no more changes" : a.type==="assign_random" ? "Assign everyone that picked “Random team”" : a.type}</span>
+                  {isAnnounce && <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> type {"{"} for tags</span>}
+                  <Select value={a.type} onValueChange={v=>updateAction(a.id, { type: v as ScheduleAction["type"] })}>
+                    <SelectTrigger className="ml-auto h-6 w-32 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="announce">Announcement</SelectItem>
+                      <SelectItem value="lock_teams">Lock teams</SelectItem>
+                      <SelectItem value="assign_random">Assign random</SelectItem>
+                      <SelectItem value="auto_match">Auto-match (all)</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Button variant="ghost" size="icon" className="size-6" onClick={()=>removeAction(a.id)}><Trash2 className="size-3" /></Button>
                 </div>
+                {isAnnounce ? (
+                  <>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="flex flex-col gap-1">
                     <Label className="text-[11px]">Title</Label>
-                    <TagAutocompleteInput value={a.title} onChange={v=>updateAction(a.id, { title: v })} placeholder={`${timeLabel} — live!`} maxLength={100} />
+                    <TagAutocompleteInput value={a.title ?? ""} onChange={v=>updateAction(a.id, { title: v })} placeholder={`${timeLabel} — live!`} maxLength={100} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <Label className="text-[11px]">Channel override (optional)</Label>
@@ -324,11 +345,18 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
                 </div>
                 <div className="flex flex-col gap-1">
                   <Label className="text-[11px]">Message</Label>
-                  <TagAutocompleteTextarea value={a.message} onChange={v=>updateAction(a.id, { message: v })} placeholder={`🚀 {event} is live! {everyone} → {panel}`} maxLength={2000} />
+                  <TagAutocompleteTextarea value={a.message ?? ""} onChange={v=>updateAction(a.id, { message: v })} placeholder={`🚀 {event} is live! {everyone} → {panel}`} maxLength={2000} />
                 </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {a.type==="lock_teams" ? "When this block hits, teams are locked (matchLocked = true) — no more auto-matches until you unlock. Runs before any announcements in this block." : a.type==="assign_random" ? "Runs matching for everyone who chose “Get matched into a random team” and locks teams. If no one is queued, it just locks." : "Runs full auto-match (same as matching) and locks teams."}
+                  </p>
+                )}
               </CardContent>
             </Card>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -340,11 +368,14 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
   const actions = item.actions ?? []
   const hasActions = actions.length > 0
 
-  function addAction() {
+  function addAction(type: ScheduleAction["type"] = "announce") {
     const id = `sact_${Math.random().toString(36).slice(2, 6)}`
-    const next: ScheduleAction = { id, type: "announce", title: item.title, message: `⏰ **{schedule_title}** — {schedule_desc} {everyone}`, channelId: null }
-    onChange([...actions, next])
-    setOpen(true)
+    if (type === "announce") {
+      const next: ScheduleAction = { id, type: "announce", title: item.title, message: `⏰ **{schedule_title}** — {schedule_desc} {everyone}`, channelId: null }
+      onChange([...actions, next]); setOpen(true)
+    } else {
+      onChange([...actions, { id, type }]); setOpen(true)
+    }
   }
   function updateAction(id: string, patch: Partial<ScheduleAction>) {
     onChange(actions.map(a=>a.id===id ? { ...a, ...patch } : a))
@@ -364,20 +395,33 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
       </button>
       {open && (
         <div className="flex flex-col gap-2 border-t border-border p-2">
-          {actions.length===0 && <p className="px-1 text-xs text-muted-foreground">When this block hits, do nothing by default. Add an announcement — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in the message for tag suggestions.</p>}
-          {actions.map(a=>(
+          {actions.length===0 && <p className="px-1 text-xs text-muted-foreground">When this block hits, do nothing by default. Add an action — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in an announcement message for tag suggestions.</p>}
+          {actions.map(a=>{
+            const isAnnounce = a.type === "announce"
+            return (
             <Card key={a.id} className="border-border bg-background">
               <CardContent className="flex flex-col gap-2 p-2.5">
                 <div className="flex items-center gap-2">
-                  <Megaphone className="size-3.5 text-accent" />
-                  <span className="text-xs font-semibold">Announce</span>
-                  <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> type {"{"} for tags</span>
+                  {a.type==="announce" ? <Megaphone className="size-3.5 text-accent" /> : a.type==="lock_teams" ? <Clock className="size-3.5 text-amber-600" /> : <UsersRound className="size-3.5 text-emerald-600" />}
+                  <span className="text-xs font-semibold">{a.type==="announce" ? "Announce" : a.type==="lock_teams" ? "Lock teams" : a.type==="assign_random" ? "Assign random" : a.type}</span>
+                  {isAnnounce && <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> type {"{"} for tags</span>}
+                  <Select value={a.type} onValueChange={v=>updateAction(a.id, { type: v as ScheduleAction["type"], ...(v!=="announce" ? { title: undefined, message: undefined, channelId: undefined } as never : {}) })}>
+                    <SelectTrigger className="ml-auto h-6 w-32 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="announce">Announcement</SelectItem>
+                      <SelectItem value="lock_teams">Lock teams</SelectItem>
+                      <SelectItem value="assign_random">Assign random</SelectItem>
+                      <SelectItem value="auto_match">Auto-match</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Button variant="ghost" size="icon" className="size-6" onClick={()=>removeAction(a.id)}><Trash2 className="size-3" /></Button>
                 </div>
+                {isAnnounce ? (
+                  <>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="flex flex-col gap-1">
                     <Label className="text-[11px]">Title</Label>
-                    <TagAutocompleteInput value={a.title} onChange={v=>updateAction(a.id, { title: v })} placeholder="{schedule_title}" maxLength={100} />
+                    <TagAutocompleteInput value={a.title ?? ""} onChange={v=>updateAction(a.id, { title: v })} placeholder="{schedule_title}" maxLength={100} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <Label className="text-[11px]">Channel override (optional)</Label>
@@ -386,14 +430,22 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
                 </div>
                 <div className="flex flex-col gap-1">
                   <Label className="text-[11px]">Message</Label>
-                  <TagAutocompleteTextarea value={a.message} onChange={v=>updateAction(a.id, { message: v })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
+                  <TagAutocompleteTextarea value={a.message ?? ""} onChange={v=>updateAction(a.id, { message: v })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
                 </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {a.type==="lock_teams" ? "Locks teams at this time — no more changes until you unlock." : a.type==="assign_random" ? "Assigns everyone who picked “Get matched into a random team” and locks. Uses the current form + matching logic." : "Runs full auto-match and locks teams."}
+                  </p>
+                )}
               </CardContent>
             </Card>
-          ))}
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={addAction}><Plus className="size-3" /> Add announcement</Button>
-            <span className="self-center text-xs text-muted-foreground">multiple allowed — all fire at this time</span>
+            )
+          })}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> Announcement</Button>
+            <Button variant="outline" size="sm" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock teams</Button>
+            <Button variant="outline" size="sm" onClick={()=>addAction("assign_random")}><UsersRound className="size-3" /> Assign random</Button>
           </div>
         </div>
       )}

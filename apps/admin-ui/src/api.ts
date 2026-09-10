@@ -178,7 +178,8 @@ export const api = {
     panelChannelId?: string | null
     announcementChannelId?: string | null
     scheduleChannelId?: string | null
-    schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; title: string; message: string }[] }[]
+    schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null }[] }[]
+    announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[]
     saveAsTemplate?: boolean
     saveTemplateName?: string
   }): Promise<HackathonEvent> {
@@ -203,7 +204,7 @@ export const api = {
       endsAt?: number | null
       cleanupDelayHours?: number
       matchAt?: number | null
-      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; title: string; message: string }[] }[]
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null }[] }[]
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[]
       scheduleChannelId?: string | null
     },

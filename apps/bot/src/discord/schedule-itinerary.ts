@@ -33,11 +33,11 @@ export function buildScheduleItineraryEmbed(event: HackathonEvent): EmbedBuilder
   if (event.endsAt !== null) lines.push(`**Ends:** <t:${Math.floor(event.endsAt/1000)}:F>`)
   lines.push('')
 
-  if (!event.schedule || event.schedule.length === 0) {
+  if (!event.schedule || event.schedule.filter(s=>s.id!=='__start__' && s.id!=='__end__').length === 0) {
     lines.push('_No schedule yet — the organizers will add dinner, breaks, voting etc._')
   } else {
-    lines.push(`**Schedule — ${event.schedule.length} blocks**`)
-    for (const item of [...event.schedule].sort((a,b)=>a.time-b.time)) {
+    lines.push(`**Schedule — ${event.schedule.filter(s=>s.id!=='__start__' && s.id!=='__end__').length} blocks**`)
+    for (const item of [...event.schedule].filter(s=>s.id!=='__start__' && s.id!=='__end__').sort((a,b)=>a.time-b.time)) {
       const timeFull = `<t:${Math.floor(item.time/1000)}:F>`
       const timeRel = `<t:${Math.floor(item.time/1000)}:R>`
       const kindEmoji: Record<string,string> = { food: '🍽️', break: '☕', voting: '🗳️', prize: '🏆', talk: '🎤', custom: '📌' }

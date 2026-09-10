@@ -58,9 +58,9 @@ export interface ScheduleItem {
 
 export interface ScheduleAction {
   id: string;
-  type: 'announce';
-  title: string;
-  message: string;
+  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match';
+  title?: string;
+  message?: string;
   channelId?: string | null;
 }
 
@@ -416,21 +416,27 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
     const description = String((raw as unknown as Record<string, unknown>).description ?? '').trim().slice(0, 200) || undefined;
     const kindRaw = String((raw as unknown as Record<string, unknown>).kind ?? 'custom').trim() as ScheduleItem['kind'];
     const kind: ScheduleItem['kind'] = ['food', 'break', 'voting', 'prize', 'talk', 'custom'].includes(kindRaw ?? '') ? kindRaw : 'custom';
-    // actions: zapier-like per-item announcements
+    // actions: zapier-like per-item ops (announce + lock/assign)
     let actions: ScheduleAction[] | undefined = undefined
     const rawActions = (raw as unknown as Record<string, unknown>).actions
     if (Array.isArray(rawActions)) {
       const norm: ScheduleAction[] = []
       for (const a of rawActions as unknown[]) {
         const ar = a as Record<string, unknown>
-        if (!ar || typeof ar.title !== 'string' || typeof ar.message !== 'string') continue
-        const atitle = String(ar.title).trim().slice(0, 100)
-        const amsg = String(ar.message).trim().slice(0, 2000)
-        if (!atitle || !amsg) continue
+        if (!ar || typeof ar.type !== 'string') continue
+        const atype = String(ar.type).trim() as ScheduleAction['type']
+        if (!['announce','lock_teams','assign_random','auto_match'].includes(atype)) continue
         const aid = String(ar.id ?? '').trim() || newId('sact')
-        const atype = String(ar.type ?? 'announce').trim() as ScheduleAction['type']
-        const chan = ar.channelId !== undefined && ar.channelId !== null ? String(ar.channelId).trim() || null : null
-        norm.push({ id: aid, type: 'announce', title: atitle, message: amsg, ...(chan ? { channelId: chan } : {}) })
+        if (atype === 'announce') {
+          if (typeof ar.title !== 'string' || typeof ar.message !== 'string') continue
+          const atitle = String(ar.title).trim().slice(0, 100)
+          const amsg = String(ar.message).trim().slice(0, 2000)
+          if (!atitle || !amsg) continue
+          const chan = ar.channelId !== undefined && ar.channelId !== null ? String(ar.channelId).trim() || null : null
+          norm.push({ id: aid, type: 'announce', title: atitle, message: amsg, ...(chan ? { channelId: chan } : {}) })
+        } else {
+          norm.push({ id: aid, type: atype })
+        }
       }
       if (norm.length > 0) actions = norm.slice(0, 10)
     }

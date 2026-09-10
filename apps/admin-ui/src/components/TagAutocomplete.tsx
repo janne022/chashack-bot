@@ -1,5 +1,6 @@
 "use client"
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { TAG_DEFS } from "@/components/TagHelp"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea-label"
@@ -7,30 +8,66 @@ import { Textarea } from "@/components/ui/textarea-label"
 type Pos = { start: number; end: number; prefix: string }
 
 function getTagPos(value: string, cursor: number): Pos | null {
-  // find the last "{" before cursor that isn't closed before cursor
   const before = value.slice(0, cursor)
   const lastOpen = before.lastIndexOf("{")
   if (lastOpen === -1) return null
-  // if there's a closing "}" between lastOpen and cursor, it's not active
   const between = before.slice(lastOpen, cursor)
   if (between.includes("}")) return null
-  const prefix = between.slice(1) // after "{"
-  // allow letters, numbers, underscore only — but show even if empty (just "{")
+  const prefix = between.slice(1)
   if (prefix.length > 30) return null
   if (prefix !== "" && !/^[a-zA-Z0-9_]*$/.test(prefix)) return null
   return { start: lastOpen, end: cursor, prefix }
 }
 
-function FilteredTags({ prefix, onPick, selectedIdx }: { prefix: string; onPick: (tag: string) => void; selectedIdx: number }) {
+function FilteredTagsPortal({
+  anchor,
+  prefix,
+  onPick,
+  selectedIdx,
+}: {
+  anchor: HTMLElement | null
+  prefix: string
+  onPick: (tag: string) => void
+  selectedIdx: number
+}) {
+  const [rect, setRect] = useState<DOMRect | null>(null)
+
+  useEffect(() => {
+    if (!anchor) return
+    const update = () => setRect(anchor.getBoundingClientRect())
+    update()
+    window.addEventListener("scroll", update, true)
+    window.addEventListener("resize", update)
+    return () => {
+      window.removeEventListener("scroll", update, true)
+      window.removeEventListener("resize", update)
+    }
+  }, [anchor])
+
   const filtered = useMemo(() => {
     const p = prefix.toLowerCase()
     if (p === "") return TAG_DEFS
     return TAG_DEFS.filter(d => d.tag.toLowerCase().includes(`{${p}`) || d.label.toLowerCase().includes(p) || d.tag.replace(/[{}]/g,"").toLowerCase().startsWith(p))
   }, [prefix])
 
-  if (filtered.length === 0) return null
-  return (
-    <div className="absolute left-0 top-full z-50 mt-1 max-h-64 w-80 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
+  if (!anchor || !rect || filtered.length === 0) return null
+  // position fixed below the input, with fallback above if near bottom
+  const spaceBelow = window.innerHeight - rect.bottom
+  const showAbove = spaceBelow < 280
+  const style: React.CSSProperties = {
+    position: "fixed",
+    left: Math.min(rect.left, window.innerWidth - 336),
+    top: showAbove ? Math.max(8, rect.top - 268) : rect.bottom + 6,
+    width: Math.min(360, Math.max(320, rect.width)),
+    zIndex: 100,
+  }
+
+  const node = (
+    <div
+      style={style}
+      className="max-h-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl"
+      onMouseDown={e=>e.preventDefault()}
+    >
       <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Tags — {prefix ? `matching "{${prefix}"` : "type to filter"}</div>
       {filtered.map((d, idx) => (
         <button
@@ -50,12 +87,13 @@ function FilteredTags({ prefix, onPick, selectedIdx }: { prefix: string; onPick:
       <div className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground">↑↓ navigate · Enter Tab to pick · Esc to close</div>
     </div>
   )
+  return createPortal(node, document.body)
 }
 
 function useTagAutocomplete(value: string, onChange: (next: string) => void) {
   const [pos, setPos] = useState<Pos | null>(null)
   const [selIdx, setSelIdx] = useState(0)
-  const textareaRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
+  const ref = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
 
   const updatePos = (v: string, cursor: number) => {
     const p = getTagPos(v, cursor)
@@ -77,9 +115,8 @@ function useTagAutocomplete(value: string, onChange: (next: string) => void) {
     const next = before + tag + after
     onChange(next)
     setPos(null)
-    // move cursor after tag
     requestAnimationFrame(()=>{
-      const el = textareaRef.current
+      const el = ref.current
       if (el) {
         const at = before.length + tag.length
         el.setSelectionRange(at, at)
@@ -97,15 +134,15 @@ function useTagAutocomplete(value: string, onChange: (next: string) => void) {
     } else if (e.key === "Escape") { setPos(null) }
   }
 
-  return { pos, selIdx, filtered, pick, onKeyDown, textareaRef, updatePos, setPos }
+  return { pos, selIdx, filtered, pick, onKeyDown, ref, updatePos, setPos }
 }
 
 export function TagAutocompleteTextarea({ value, onChange, placeholder, maxLength, className }: { value: string; onChange: (v: string)=>void; placeholder?: string; maxLength?: number; className?: string }) {
-  const { pos, selIdx, pick, onKeyDown, textareaRef, updatePos, setPos } = useTagAutocomplete(value, onChange)
+  const { pos, selIdx, pick, onKeyDown, ref, updatePos, setPos } = useTagAutocomplete(value, onChange)
   return (
-    <div className="relative">
+    <>
       <Textarea
-        ref={textareaRef as React.RefObject<HTMLTextAreaElement>}
+        ref={ref as React.RefObject<HTMLTextAreaElement>}
         value={value}
         onChange={e=>{
           const v = e.target.value
@@ -126,17 +163,17 @@ export function TagAutocompleteTextarea({ value, onChange, placeholder, maxLengt
         maxLength={maxLength}
         className={className}
       />
-      {pos && <FilteredTags prefix={pos.prefix} onPick={pick} selectedIdx={selIdx} />}
-    </div>
+      {pos && <FilteredTagsPortal anchor={ref.current} prefix={pos.prefix} onPick={pick} selectedIdx={selIdx} />}
+    </>
   )
 }
 
 export function TagAutocompleteInput({ value, onChange, placeholder, maxLength, className }: { value: string; onChange: (v: string)=>void; placeholder?: string; maxLength?: number; className?: string }) {
-  const { pos, selIdx, pick, onKeyDown, textareaRef, updatePos, setPos } = useTagAutocomplete(value, onChange)
+  const { pos, selIdx, pick, onKeyDown, ref, updatePos, setPos } = useTagAutocomplete(value, onChange)
   return (
-    <div className="relative">
+    <>
       <Input
-        ref={textareaRef as React.RefObject<HTMLInputElement>}
+        ref={ref as React.RefObject<HTMLInputElement>}
         value={value}
         onChange={e=>{
           const v = e.target.value
@@ -157,7 +194,7 @@ export function TagAutocompleteInput({ value, onChange, placeholder, maxLength, 
         maxLength={maxLength}
         className={className}
       />
-      {pos && <FilteredTags prefix={pos.prefix} onPick={pick} selectedIdx={selIdx} />}
-    </div>
+      {pos && <FilteredTagsPortal anchor={ref.current} prefix={pos.prefix} onPick={pick} selectedIdx={selIdx} />}
+    </>
   )
 }
