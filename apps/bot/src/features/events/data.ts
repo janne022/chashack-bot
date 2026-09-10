@@ -58,7 +58,7 @@ export interface ScheduleItem {
 
 export interface ScheduleAction {
   id: string;
-  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match';
+  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match' | 'post_signup';
   title?: string;
   message?: string;
   channelId?: string | null;
@@ -373,6 +373,21 @@ export function saveTemplate(
 }
 
 export function listTemplates(db: Db, guildId: string, kind?: Template['kind']): Template[] {
+  // Seed basic announcement templates on first use (initial, signup, schedule)
+  if (kind === undefined || kind === 'announcement') {
+    const count = (db.prepare("SELECT COUNT(*) as c FROM event_templates WHERE (guild_id = ? OR guild_id IS NULL) AND kind = 'announcement'").get(guildId) as unknown as { c: number }).c
+    if (count === 0) {
+      const seeds: { name: string; json: string }[] = [
+        { name: "Initial — signups open", json: JSON.stringify({ title: "{event} — signups open!", message: "Listen up {everyone} **{event}** is live! {event_description} Starts {start_date} {timer} — sign up in {panel}\n\nFull schedule:\n{schedule}", trigger: "manual", channelId: null }) },
+        { name: "Signup panel", json: JSON.stringify({ title: "Join {event}", message: "Hey {everyone}, the signup panel is ready in {panel} — hit Join! Starts {start_date} {timer}", trigger: "manual", channelId: null }) },
+        { name: "Schedule — next up", json: JSON.stringify({ title: "{schedule_title}", message: "⏰ **{schedule_title}** — {schedule_desc} at {schedule_time} {timer_schedule} {everyone}\n\n{schedule}", trigger: "schedule", channelId: null }) },
+      ]
+      for (const s of seeds) {
+        const id = newId('tpl')
+        db.prepare('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, guildId, s.name, 'announcement', s.json, Date.now())
+      }
+    }
+  }
   const rows = (
     kind === undefined
       ? db
@@ -416,7 +431,7 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
     const description = String((raw as unknown as Record<string, unknown>).description ?? '').trim().slice(0, 200) || undefined;
     const kindRaw = String((raw as unknown as Record<string, unknown>).kind ?? 'custom').trim() as ScheduleItem['kind'];
     const kind: ScheduleItem['kind'] = ['food', 'break', 'voting', 'prize', 'talk', 'custom'].includes(kindRaw ?? '') ? kindRaw : 'custom';
-    // actions: zapier-like per-item ops (announce + lock/assign)
+    // actions: zapier-like per-item ops (announce + lock/assign + signup)
     let actions: ScheduleAction[] | undefined = undefined
     const rawActions = (raw as unknown as Record<string, unknown>).actions
     if (Array.isArray(rawActions)) {
@@ -425,7 +440,7 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
         const ar = a as Record<string, unknown>
         if (!ar || typeof ar.type !== 'string') continue
         const atype = String(ar.type).trim() as ScheduleAction['type']
-        if (!['announce','lock_teams','assign_random','auto_match'].includes(atype)) continue
+        if (!['announce','lock_teams','assign_random','auto_match','post_signup'].includes(atype)) continue
         const aid = String(ar.id ?? '').trim() || newId('sact')
         if (atype === 'announce') {
           if (typeof ar.title !== 'string' || typeof ar.message !== 'string') continue
@@ -434,6 +449,9 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
           if (!atitle || !amsg) continue
           const chan = ar.channelId !== undefined && ar.channelId !== null ? String(ar.channelId).trim() || null : null
           norm.push({ id: aid, type: 'announce', title: atitle, message: amsg, ...(chan ? { channelId: chan } : {}) })
+        } else if (atype === 'post_signup') {
+          const chan = ar.channelId !== undefined && ar.channelId !== null ? String(ar.channelId).trim() || null : null
+          norm.push({ id: aid, type: 'post_signup', ...(chan ? { channelId: chan } : {}) })
         } else {
           norm.push({ id: aid, type: atype })
         }
@@ -592,7 +610,7 @@ export function setMatchAt(db: import('../../shared/db.js').Db, actor: string, e
   return res;
 }
 
-/** Tag renderer for announcement templates. Tags: {event} {event_description} {panel} {everyone} {here} {timer} {startsAt} {endsAt} {schedule} {schedule_title} {schedule_desc} {schedule_time} {timer_schedule} */
+/** Tag renderer for announcement templates. Tags: {event} {event_description} {panel} {everyone} {here} {timer} {startsAt} {start_date} {endsAt} {end_date} {schedule} {schedule_title} {schedule_desc} {schedule_time} {timer_schedule} */
 export function renderAnnouncementTags(template: string, event: HackathonEvent, ctx: { scheduleItem?: ScheduleItem } = {}): { content: string; hasEveryone: boolean; hasHere: boolean } {
   let content = template
   const everyone = template.includes('{everyone}')
@@ -606,14 +624,21 @@ export function renderAnnouncementTags(template: string, event: HackathonEvent, 
   content = content.replaceAll('{panel}', panel)
   content = content.replaceAll('{announce}', announce)
   if (event.startsAt !== null) {
-    content = content.replaceAll('{timer}', `<t:${Math.floor(event.startsAt/1000)}:R>`)
-    content = content.replaceAll('{startsAt}', `<t:${Math.floor(event.startsAt/1000)}:F>`)
+    const f = `<t:${Math.floor(event.startsAt/1000)}:F>`
+    const r = `<t:${Math.floor(event.startsAt/1000)}:R>`
+    content = content.replaceAll('{timer}', r)
+    content = content.replaceAll('{startsAt}', f)
+    content = content.replaceAll('{start_date}', f)
   } else {
     content = content.replaceAll('{timer}', '')
     content = content.replaceAll('{startsAt}', 'TBA')
+    content = content.replaceAll('{start_date}', 'TBA')
   }
-  if (event.endsAt !== null) content = content.replaceAll('{endsAt}', `<t:${Math.floor(event.endsAt/1000)}:F>`)
-  else content = content.replaceAll('{endsAt}', 'TBA')
+  if (event.endsAt !== null) {
+    const f2 = `<t:${Math.floor(event.endsAt/1000)}:F>`
+    content = content.replaceAll('{endsAt}', f2)
+    content = content.replaceAll('{end_date}', f2)
+  } else { content = content.replaceAll('{endsAt}', 'TBA'); content = content.replaceAll('{end_date}', 'TBA') }
 
   // schedule
   if (ctx.scheduleItem) {

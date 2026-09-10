@@ -1,6 +1,6 @@
 "use client"
-import { useState } from "react"
-import { Plus, Trash2, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle, UsersRound } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Plus, Trash2, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle, UsersRound, ClipboardList } from "lucide-react"
 import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { TagAutocompleteInput, TagAutocompleteTextarea } from "@/components/TagAutocomplete"
 import type { ScheduleItem, ScheduleAction } from "@/types"
 import { useT } from "@/lib/i18n"
+import { api } from "@/api"
 
 const KINDS: { id: ScheduleItem["kind"]; label: string; icon: typeof Clock }[] = [
   { id: "food", label: "Food", icon: Utensils },
@@ -106,7 +107,7 @@ export function ScheduleEditor({
           bg="bg-accent-soft"
           expanded={expanded.has("__start__")}
           onToggle={()=>toggle("__start__")}
-          emptyHint="When the event starts — add an announcement to ping @everyone."
+          emptyHint="When the event starts — add an announcement or post the signup panel to open signups on a timer."
         />
       )}
 
@@ -284,12 +285,17 @@ function PinnedBlock({
 
 function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: { timeLabel: string; timeValue: string; actions: ScheduleAction[]; onChange: (a: ScheduleAction[])=>void; emptyHint: string }) {
   const hasActions = actions.length > 0
+  const [channels, setChannels] = useState<{ id: string; name: string }[]>([])
+  const [templates, setTemplates] = useState<{ id: string; name: string; title: string; message: string }[]>([])
+  useEffect(()=>{ api.getGuildChannels().then(r=>setChannels(r.channels ?? [])).catch(()=>undefined); api.listTemplates('announcement').then(r=>{ const list = (r.templates ?? []).map(t=>{ try{ const p=JSON.parse((t as unknown as { json: string }).json ?? '{}'); return { id: t.id, name: t.name, title: p.title ?? t.name, message: p.message ?? '' } } catch{ return { id: t.id, name: t.name, title: t.name, message: '' } }}); setTemplates(list) }).catch(()=>undefined) }, [])
   function addAction(type: ScheduleAction["type"] = "announce") {
     const id = `sact_${Math.random().toString(36).slice(2, 6)}`
     if (type === "announce") {
       const dt = (()=>{ try { return format(new Date(timeValue), "HH:mm") } catch { return "" }})()
       const next: ScheduleAction = { id, type: "announce", title: `${timeLabel} — ${dt}`, message: `🚀 **{event}** ${timeLabel.toLowerCase()}s ${timeLabel==="Starts" ? "{everyone} {panel}" : "{everyone}"}`, channelId: null }
       onChange([...actions, next])
+    } else if (type === "post_signup") {
+      onChange([...actions, { id, type: "post_signup", channelId: null }])
     } else {
       onChange([...actions, { id, type }])
     }
@@ -297,50 +303,79 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
   function updateAction(id: string, patch: Partial<ScheduleAction>) {
     onChange(actions.map(a=>a.id===id ? { ...a, ...patch } : a))
   }
+  function applyTemplate(aid: string, tid: string) {
+    const t = templates.find(x=>x.id===tid)
+    if (!t) return
+    updateAction(aid, { title: t.title, message: t.message })
+  }
   function removeAction(id: string) { onChange(actions.filter(a=>a.id!==id)) }
 
   return (
     <div className="rounded-lg border border-dashed border-border bg-surface-2/20">
       <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Zap className="size-3 text-accent" /> {hasActions ? `${actions.length} action${actions.length>1?'s':''} — will run at ${(() => { try { return format(new Date(timeValue), "HH:mm") } catch { return "event time"} })()}` : `No actions yet — ${emptyHint}`}</span>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           <Button variant="secondary" size="sm" className="h-6 text-xs" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> Announcement</Button>
-          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock teams</Button>
-          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("assign_random")}><UsersRound className="size-3" /> Assign random</Button>
+          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("post_signup")}><ClipboardList className="size-3" /> Signup</Button>
+          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock</Button>
+          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("assign_random")}><UsersRound className="size-3" /> Assign</Button>
         </div>
       </div>
       {hasActions && (
         <div className="flex flex-col gap-2 border-t border-border p-2">
           {actions.map(a=>{
             const isAnnounce = a.type === "announce"
+            const isSignup = a.type === "post_signup"
             return (
             <Card key={a.id} className="border-border bg-background">
               <CardContent className="flex flex-col gap-2 p-2.5">
                 <div className="flex items-center gap-2">
-                  {a.type==="announce" ? <Megaphone className="size-3.5 text-accent" /> : a.type==="lock_teams" ? <Clock className="size-3.5 text-amber-600" /> : <UsersRound className="size-3.5 text-emerald-600" />}
-                  <span className="text-xs font-semibold">{a.type==="announce" ? `Announce when ${timeLabel.toLowerCase()}s` : a.type==="lock_teams" ? "Lock teams — no more changes" : a.type==="assign_random" ? "Assign everyone that picked “Random team”" : a.type}</span>
-                  {isAnnounce && <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> type {"{"} for tags</span>}
+                  {a.type==="announce" ? <Megaphone className="size-3.5 text-accent" /> : a.type==="post_signup" ? <ClipboardList className="size-3.5 text-blue-600" /> : a.type==="lock_teams" ? <Clock className="size-3.5 text-amber-600" /> : <UsersRound className="size-3.5 text-emerald-600" />}
+                  <span className="text-xs font-semibold">{a.type==="announce" ? `Announce when ${timeLabel.toLowerCase()}s` : a.type==="post_signup" ? "Post signup panel" : a.type==="lock_teams" ? "Lock teams" : a.type==="assign_random" ? "Assign random" : a.type}</span>
+                  {isAnnounce && <span className="ml-auto hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex"><HelpTag /> type {"{"} for tags</span>}
                   <Select value={a.type} onValueChange={v=>updateAction(a.id, { type: v as ScheduleAction["type"] })}>
                     <SelectTrigger className="ml-auto h-6 w-32 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="announce">Announcement</SelectItem>
+                      <SelectItem value="post_signup">Post signup</SelectItem>
                       <SelectItem value="lock_teams">Lock teams</SelectItem>
                       <SelectItem value="assign_random">Assign random</SelectItem>
-                      <SelectItem value="auto_match">Auto-match (all)</SelectItem>
+                      <SelectItem value="auto_match">Auto-match</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button variant="ghost" size="icon" className="size-6" onClick={()=>removeAction(a.id)}><Trash2 className="size-3" /></Button>
                 </div>
                 {isAnnounce ? (
                   <>
+                  {templates.length > 0 && (
+                    <div className="flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
+                      <span className="text-[11px] text-muted-foreground">From template:</span>
+                      <Select onValueChange={v=>applyTemplate(a.id, v)}>
+                        <SelectTrigger className="h-6 flex-1 text-xs"><SelectValue placeholder="Pick announcement template…" /></SelectTrigger>
+                        <SelectContent>
+                          {templates.map(t=> <SelectItem key={t.id} value={t.id}>{t.name} — {t.title.slice(0,30)}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="flex flex-col gap-1">
                     <Label className="text-[11px]">Title</Label>
                     <TagAutocompleteInput value={a.title ?? ""} onChange={v=>updateAction(a.id, { title: v })} placeholder={`${timeLabel} — live!`} maxLength={100} />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <Label className="text-[11px]">Channel override (optional)</Label>
-                    <Input value={a.channelId ?? ""} onChange={e=>updateAction(a.id, { channelId: e.target.value.trim() || null })} placeholder="defaults to announcement channel" className="h-7 text-xs font-mono" />
+                    <Label className="text-[11px]">Channel</Label>
+                    {channels.length > 0 ? (
+                      <Select value={a.channelId ?? "__none"} onValueChange={v=>updateAction(a.id, { channelId: v==="__none" ? null : v })}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Announcement channel" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none">Default (announcement/panel)</SelectItem>
+                          {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input value={a.channelId ?? ""} onChange={e=>updateAction(a.id, { channelId: e.target.value.trim() || null })} placeholder="defaults to announcement channel" className="h-7 text-xs font-mono" />
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
@@ -348,9 +383,27 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
                   <TagAutocompleteTextarea value={a.message ?? ""} onChange={v=>updateAction(a.id, { message: v })} placeholder={`🚀 {event} is live! {everyone} → {panel}`} maxLength={2000} />
                 </div>
                   </>
+                ) : isSignup ? (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs text-muted-foreground">Posts the interactive signup panel (the join button) to the channel below at this time. Add this to your Start block to open signups on a timer instead of on Activate.</p>
+                    <div className="flex flex-col gap-1">
+                      <Label className="text-[11px]">Panel channel</Label>
+                      {channels.length > 0 ? (
+                        <Select value={a.channelId ?? "__none"} onValueChange={v=>updateAction(a.id, { channelId: v==="__none" ? null : v })}>
+                          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Panel channel" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none">Default panel channel</SelectItem>
+                            {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input value={a.channelId ?? ""} onChange={e=>updateAction(a.id, { channelId: e.target.value.trim() || null })} placeholder="panel channel id" className="h-7 text-xs font-mono" />
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    {a.type==="lock_teams" ? "When this block hits, teams are locked (matchLocked = true) — no more auto-matches until you unlock. Runs before any announcements in this block." : a.type==="assign_random" ? "Runs matching for everyone who chose “Get matched into a random team” and locks teams. If no one is queued, it just locks." : "Runs full auto-match (same as matching) and locks teams."}
+                    {a.type==="lock_teams" ? "When this block hits, teams are locked (matchLocked = true) — no more auto-matches until you unlock. Runs before any announcements in this block." : a.type==="assign_random" ? "Runs matching for everyone who chose “Get matched into a random team” and locks teams. If no one is queued, it just locks." : "Runs full auto-match and locks teams."}
                   </p>
                 )}
               </CardContent>
@@ -367,18 +420,28 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
   const [open, setOpen] = useState(false)
   const actions = item.actions ?? []
   const hasActions = actions.length > 0
+  const [channels, setChannels] = useState<{ id: string; name: string }[]>([])
+  const [templates, setTemplates] = useState<{ id: string; name: string; title: string; message: string }[]>([])
+  useEffect(()=>{ if (open) { api.getGuildChannels().then(r=>setChannels(r.channels ?? [])).catch(()=>undefined); api.listTemplates('announcement').then(r=>{ const list = (r.templates ?? []).map(t=>{ try{ const p=JSON.parse((t as unknown as { json: string }).json ?? '{}'); return { id: t.id, name: t.name, title: p.title ?? t.name, message: p.message ?? '' } } catch{ return { id: t.id, name: t.name, title: t.name, message: '' } }}); setTemplates(list) }).catch(()=>undefined) } }, [open])
 
   function addAction(type: ScheduleAction["type"] = "announce") {
     const id = `sact_${Math.random().toString(36).slice(2, 6)}`
     if (type === "announce") {
       const next: ScheduleAction = { id, type: "announce", title: item.title, message: `⏰ **{schedule_title}** — {schedule_desc} {everyone}`, channelId: null }
       onChange([...actions, next]); setOpen(true)
+    } else if (type === "post_signup") {
+      onChange([...actions, { id, type: "post_signup", channelId: null }]); setOpen(true)
     } else {
       onChange([...actions, { id, type }]); setOpen(true)
     }
   }
   function updateAction(id: string, patch: Partial<ScheduleAction>) {
     onChange(actions.map(a=>a.id===id ? { ...a, ...patch } : a))
+  }
+  function applyTemplate(aid: string, tid: string) {
+    const t = templates.find(x=>x.id===tid)
+    if (!t) return
+    updateAction(aid, { title: t.title, message: t.message })
   }
   function removeAction(id: string) { onChange(actions.filter(a=>a.id!==id)) }
 
@@ -398,17 +461,19 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
           {actions.length===0 && <p className="px-1 text-xs text-muted-foreground">When this block hits, do nothing by default. Add an action — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in an announcement message for tag suggestions.</p>}
           {actions.map(a=>{
             const isAnnounce = a.type === "announce"
+            const isSignup = a.type === "post_signup"
             return (
             <Card key={a.id} className="border-border bg-background">
               <CardContent className="flex flex-col gap-2 p-2.5">
                 <div className="flex items-center gap-2">
-                  {a.type==="announce" ? <Megaphone className="size-3.5 text-accent" /> : a.type==="lock_teams" ? <Clock className="size-3.5 text-amber-600" /> : <UsersRound className="size-3.5 text-emerald-600" />}
-                  <span className="text-xs font-semibold">{a.type==="announce" ? "Announce" : a.type==="lock_teams" ? "Lock teams" : a.type==="assign_random" ? "Assign random" : a.type}</span>
-                  {isAnnounce && <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground"><HelpTag /> type {"{"} for tags</span>}
-                  <Select value={a.type} onValueChange={v=>updateAction(a.id, { type: v as ScheduleAction["type"], ...(v!=="announce" ? { title: undefined, message: undefined, channelId: undefined } as never : {}) })}>
+                  {a.type==="announce" ? <Megaphone className="size-3.5 text-accent" /> : a.type==="post_signup" ? <ClipboardList className="size-3.5 text-blue-600" /> : a.type==="lock_teams" ? <Clock className="size-3.5 text-amber-600" /> : <UsersRound className="size-3.5 text-emerald-600" />}
+                  <span className="text-xs font-semibold">{a.type==="announce" ? "Announce" : a.type==="post_signup" ? "Post signup" : a.type==="lock_teams" ? "Lock teams" : a.type==="assign_random" ? "Assign random" : a.type}</span>
+                  {isAnnounce && <span className="ml-auto hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex"><HelpTag /> type {"{"} for tags</span>}
+                  <Select value={a.type} onValueChange={v=>updateAction(a.id, { type: v as ScheduleAction["type"], ...(v!=="announce" && v!=="post_signup" ? { title: undefined, message: undefined, channelId: undefined } as never : {}) })}>
                     <SelectTrigger className="ml-auto h-6 w-32 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="announce">Announcement</SelectItem>
+                      <SelectItem value="post_signup">Post signup</SelectItem>
                       <SelectItem value="lock_teams">Lock teams</SelectItem>
                       <SelectItem value="assign_random">Assign random</SelectItem>
                       <SelectItem value="auto_match">Auto-match</SelectItem>
@@ -418,14 +483,35 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
                 </div>
                 {isAnnounce ? (
                   <>
+                  {templates.length > 0 && (
+                    <div className="flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
+                      <span className="text-[11px] text-muted-foreground">From template:</span>
+                      <Select onValueChange={v=>applyTemplate(a.id, v)}>
+                        <SelectTrigger className="h-6 flex-1 text-xs"><SelectValue placeholder="Pick template…" /></SelectTrigger>
+                        <SelectContent>
+                          {templates.map(t=> <SelectItem key={t.id} value={t.id}>{t.name} — {t.title.slice(0,30)}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="flex flex-col gap-1">
                     <Label className="text-[11px]">Title</Label>
                     <TagAutocompleteInput value={a.title ?? ""} onChange={v=>updateAction(a.id, { title: v })} placeholder="{schedule_title}" maxLength={100} />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <Label className="text-[11px]">Channel override (optional)</Label>
-                    <Input value={a.channelId ?? ""} onChange={e=>updateAction(a.id, { channelId: e.target.value.trim() || null })} placeholder="defaults to announcement channel" className="h-7 text-xs font-mono" />
+                    <Label className="text-[11px]">Channel</Label>
+                    {channels.length > 0 ? (
+                      <Select value={a.channelId ?? "__none"} onValueChange={v=>updateAction(a.id, { channelId: v==="__none" ? null : v })}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Announcement channel" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none">Default (announcement/panel)</SelectItem>
+                          {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input value={a.channelId ?? ""} onChange={e=>updateAction(a.id, { channelId: e.target.value.trim() || null })} placeholder="defaults to announcement channel" className="h-7 text-xs font-mono" />
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
@@ -433,6 +519,22 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
                   <TagAutocompleteTextarea value={a.message ?? ""} onChange={v=>updateAction(a.id, { message: v })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
                 </div>
                   </>
+                ) : isSignup ? (
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-[11px]">Panel channel</Label>
+                    {channels.length > 0 ? (
+                      <Select value={a.channelId ?? "__none"} onValueChange={v=>updateAction(a.id, { channelId: v==="__none" ? null : v })}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Panel channel" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none">Default panel channel</SelectItem>
+                          {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input value={a.channelId ?? ""} onChange={e=>updateAction(a.id, { channelId: e.target.value.trim() || null })} placeholder="panel channel id" className="h-7 text-xs font-mono" />
+                    )}
+                    <p className="text-xs text-muted-foreground">Posts the signup panel at this time. Use on your Start block to open signups via the schedule.</p>
+                  </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
                     {a.type==="lock_teams" ? "Locks teams at this time — no more changes until you unlock." : a.type==="assign_random" ? "Assigns everyone who picked “Get matched into a random team” and locks. Uses the current form + matching logic." : "Runs full auto-match and locks teams."}
@@ -444,7 +546,8 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
           })}
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" size="sm" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> Announcement</Button>
-            <Button variant="outline" size="sm" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock teams</Button>
+            <Button variant="outline" size="sm" onClick={()=>addAction("post_signup")}><ClipboardList className="size-3" /> Post signup</Button>
+            <Button variant="outline" size="sm" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock</Button>
             <Button variant="outline" size="sm" onClick={()=>addAction("assign_random")}><UsersRound className="size-3" /> Assign random</Button>
           </div>
         </div>
@@ -465,6 +568,9 @@ function HelpTag() {
           <span>{"{everyone}"} — @everyone ping</span>
           <span>{"{schedule_title}"} — this block's title</span>
           <span>{"{timer_schedule}"} — relative time</span>
+          <span>{"{start_date}"} — event start</span>
+          <span>{"{end_date}"} — event end</span>
+          <span>{"{schedule}"} — full itinerary</span>
         </div>
       </PopoverContent>
     </Popover>

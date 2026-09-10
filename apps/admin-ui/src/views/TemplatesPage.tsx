@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { LayoutTemplate, BookCopy, Megaphone, Plus, Trash2, Pencil, Copy } from "lucide-react"
 import { toast } from "sonner"
 import { useAppContext } from "@/lib/app-context"
@@ -243,17 +243,19 @@ function EventTemplateDialog({ template, formTemplates, onClose, onSaved }: { te
 function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; onClose: ()=>void; onSaved: ()=>Promise<void> }) {
   const t = useT()
   const [name, setName] = useState(template?.name ?? "")
-  const [data, setData] = useState<{ title: string; message: string; trigger: "manual"|"on_activate"|"on_start"|"schedule" }>(()=>{
-    if (template) { try { const p = JSON.parse(template.json) as { title?: string; message?: string; trigger?: string }; return { title: p.title ?? "", message: p.message ?? "", trigger: (p.trigger as never) ?? "manual" } } catch { return { title: "", message: "", trigger: "manual" } } }
-    return { title: "Heads up!", message: "Hey {everyone}, quick update for **{event}** — {panel}", trigger: "manual" }
+  const [data, setData] = useState<{ title: string; message: string; trigger: "manual"|"on_activate"|"on_start"|"schedule"; channelId: string | null }>(()=>{
+    if (template) { try { const p = JSON.parse(template.json) as { title?: string; message?: string; trigger?: string; channelId?: string | null }; return { title: p.title ?? "", message: p.message ?? "", trigger: (p.trigger as never) ?? "manual", channelId: p.channelId ?? null } } catch { return { title: "", message: "", trigger: "manual", channelId: null } } }
+    return { title: "Heads up!", message: "Hey {everyone}, quick update for **{event}** — {panel}", trigger: "manual", channelId: null }
   })
+  const [channels, setChannels] = useState<{ id: string; name: string }[]>([])
+  useEffect(()=>{ api.getGuildChannels().then(r=>setChannels(r.channels ?? [])).catch(()=>undefined) }, [])
   const [busy, setBusy] = useState(false)
   const isEdit = template !== null
   async function save() {
     if (name.trim().length < 2 || data.title.trim().length < 2 || data.message.trim().length < 2) { toast.error("Name, title and message required"); return }
     setBusy(true)
     try {
-      const json = JSON.stringify({ title: data.title.trim(), message: data.message.trim(), trigger: data.trigger })
+      const json = JSON.stringify({ title: data.title.trim(), message: data.message.trim(), trigger: data.trigger, channelId: data.channelId ?? null })
       if (isEdit) await api.updateTemplate(template.id, { name: name.trim(), json })
       else await api.createTemplateRaw(name.trim(), "announcement", json)
       toast.success(isEdit ? "Announcement updated" : t("templates.created", { name: name.trim() }))
@@ -272,17 +274,34 @@ function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: 
             <label className="text-sm font-medium">Template name (for picker)</label>
             <Input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Dinner reminder" maxLength={80} />
           </div>
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Trigger hint</label>
-            <Select value={data.trigger} onValueChange={v=>setData({ ...data, trigger: v as never })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="manual">Manual only</SelectItem>
-                <SelectItem value="on_activate">On activate</SelectItem>
-                <SelectItem value="schedule">For each schedule item</SelectItem>
-                <SelectItem value="on_start">At event start</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Trigger hint</label>
+              <Select value={data.trigger} onValueChange={v=>setData({ ...data, trigger: v as never })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Manual only</SelectItem>
+                  <SelectItem value="on_activate">On activate</SelectItem>
+                  <SelectItem value="schedule">For each schedule item</SelectItem>
+                  <SelectItem value="on_start">At event start</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Channel</label>
+              {channels.length > 0 ? (
+                <Select value={data.channelId ?? "__none"} onValueChange={v=>setData({ ...data, channelId: v==="__none" ? null : v })}>
+                  <SelectTrigger><SelectValue placeholder="Default announcement channel" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">Default (announcement/panel)</SelectItem>
+                    {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={data.channelId ?? ""} onChange={e=>setData({ ...data, channelId: e.target.value.trim() || null })} placeholder="channel id (optional)" />
+              )}
+              <span className="text-[11px] text-muted-foreground">Where this announcement is sent by default. Actions can override per-block.</span>
+            </div>
           </div>
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">Title</label>

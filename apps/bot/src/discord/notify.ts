@@ -450,7 +450,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             : globalAnns.length > 0 ? globalAnns.map(a=>({ title: a.title, message: a.message, channelId: a.channelId ?? null }))
             : []
 
-          // 1) Run ops first (lock / assign) so announcements that follow can reference final teams
+          // 1) Run ops first (lock / assign / signup) so announcements that follow can reference final teams
           for (const op of opActions) {
             try {
               if (op.type === 'lock_teams') {
@@ -458,6 +458,16 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 markMatchLocked(db, event.id)
                 audit(db, 'system', 'schedule.lock_teams', event.id, { scheduleId })
                 summary.push(`schedule lock: ${event.name} — ${item.title}`)
+              } else if (op.type === 'post_signup') {
+                const chan = op.channelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
+                if (chan && isSnowflake(chan) && isSnowflake(event.guildId)) {
+                  const { postOrUpdatePanel } = await import('./signup-panel.js')
+                  await postOrUpdatePanel(db, client, event.guildId, chan)
+                  audit(db, 'system', 'schedule.post_signup', event.id, { scheduleId, channelId: chan })
+                  summary.push(`schedule signup: ${event.name} — ${item.title} → #${chan}`)
+                } else {
+                  audit(db, 'system', 'schedule.post_signup_skipped', event.id, { scheduleId, reason: 'no_channel' })
+                }
               } else if (op.type === 'assign_random' || op.type === 'auto_match') {
                 const config = getEventFormLocal(db, event)
                 const preview = previewMatch(db, event.id, config)

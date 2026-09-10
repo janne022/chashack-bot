@@ -129,7 +129,7 @@ export interface ScheduleItem {
 
 export interface ScheduleAction {
   id: string
-  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match'
+  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match' | 'post_signup'
   title?: string
   message?: string
   channelId?: string | null
