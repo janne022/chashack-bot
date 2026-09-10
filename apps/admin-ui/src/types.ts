@@ -102,6 +102,7 @@ export interface HackathonEvent {
   status: 'draft' | 'active' | 'ended'
   formJson: string | null
   panelChannelId: string | null
+  announcementChannelId: string | null
   categoryId: string | null
   cleanupDelayHours: number
   cleanupDone: boolean
@@ -128,7 +129,13 @@ export interface AppState {
   config: FormConfig
   audit: AuditEntry[]
   lastMatch: { at: number; teams: number } | null
-  guildSettings: { teamCategoryId: string | null }
+  guildSettings: {
+    teamCategoryId: string | null
+    defaultAnnouncementChannelId: string | null
+    defaultPanelChannelId: string | null
+    defaultCategoryId: string | null
+    defaultCleanupDelayHours: number | null
+  }
   events: HackathonEvent[]
   templates: EventTemplate[]
   activeEventId: string | null

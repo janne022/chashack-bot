@@ -95,6 +95,26 @@ export const api = {
     })
   },
 
+  async updateGuildSettings(update: {
+    teamCategoryId?: string | null
+    defaultAnnouncementChannelId?: string | null
+    defaultPanelChannelId?: string | null
+    defaultCategoryId?: string | null
+    defaultCleanupDelayHours?: number | null
+  }): Promise<{ settings: AppState['guildSettings'] }> {
+    return request('/api/guild/settings', {
+      method: 'POST',
+      body: JSON.stringify(update),
+    })
+  },
+
+  async setEventForm(eventId: string, opts: { formTemplateId?: string; formJson?: string }): Promise<{ form: FormConfig }> {
+    return request(`/api/events/${eventId}/form`, {
+      method: 'POST',
+      body: JSON.stringify(opts),
+    })
+  },
+
   async removeMember(teamId: string, userId: string): Promise<void> {
     await request(`/api/teams/${teamId}/remove-member`, {
       method: 'POST',
@@ -151,6 +171,7 @@ export const api = {
     startsAt?: number | null
     endsAt?: number | null
     templateId?: string
+    formTemplateId?: string
     panelChannelId?: string | null
     announcementChannelId?: string | null
   }): Promise<HackathonEvent> {

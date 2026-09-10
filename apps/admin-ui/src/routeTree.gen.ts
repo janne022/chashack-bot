@@ -11,11 +11,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuditRouteImport } from './routes/audit'
+import { Route as ConfigRouteImport } from './routes/config'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as FormRouteImport } from './routes/form'
 import { Route as MatchingRouteImport } from './routes/matching'
 import { Route as ParticipantsRouteImport } from './routes/participants'
 import { Route as TeamsRouteImport } from './routes/teams'
+import { Route as TemplatesRouteImport } from './routes/templates'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -25,6 +27,11 @@ const IndexRoute = IndexRouteImport.update({
 const AuditRoute = AuditRouteImport.update({
   id: '/audit',
   path: '/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConfigRoute = ConfigRouteImport.update({
+  id: '/config',
+  path: '/config',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EventsRoute = EventsRouteImport.update({
@@ -52,73 +59,92 @@ const TeamsRoute = TeamsRouteImport.update({
   path: '/teams',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TemplatesRoute = TemplatesRouteImport.update({
+  id: '/templates',
+  path: '/templates',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
+  '/config': typeof ConfigRoute
   '/events': typeof EventsRoute
   '/form': typeof FormRoute
   '/matching': typeof MatchingRoute
   '/participants': typeof ParticipantsRoute
   '/teams': typeof TeamsRoute
+  '/templates': typeof TemplatesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
+  '/config': typeof ConfigRoute
   '/events': typeof EventsRoute
   '/form': typeof FormRoute
   '/matching': typeof MatchingRoute
   '/participants': typeof ParticipantsRoute
   '/teams': typeof TeamsRoute
+  '/templates': typeof TemplatesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
+  '/config': typeof ConfigRoute
   '/events': typeof EventsRoute
   '/form': typeof FormRoute
   '/matching': typeof MatchingRoute
   '/participants': typeof ParticipantsRoute
   '/teams': typeof TeamsRoute
+  '/templates': typeof TemplatesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/audit'
+    | '/config'
     | '/events'
     | '/form'
     | '/matching'
     | '/participants'
     | '/teams'
+    | '/templates'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/audit'
+    | '/config'
     | '/events'
     | '/form'
     | '/matching'
     | '/participants'
     | '/teams'
+    | '/templates'
   id:
     | '__root__'
     | '/'
     | '/audit'
+    | '/config'
     | '/events'
     | '/form'
     | '/matching'
     | '/participants'
     | '/teams'
+    | '/templates'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuditRoute: typeof AuditRoute
+  ConfigRoute: typeof ConfigRoute
   EventsRoute: typeof EventsRoute
   FormRoute: typeof FormRoute
   MatchingRoute: typeof MatchingRoute
   ParticipantsRoute: typeof ParticipantsRoute
   TeamsRoute: typeof TeamsRoute
+  TemplatesRoute: typeof TemplatesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -135,6 +161,13 @@ declare module '@tanstack/react-router' {
       path: '/audit'
       fullPath: '/audit'
       preLoaderRoute: typeof AuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/config': {
+      id: '/config'
+      path: '/config'
+      fullPath: '/config'
+      preLoaderRoute: typeof ConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/events': {
@@ -172,17 +205,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/templates': {
+      id: '/templates'
+      path: '/templates'
+      fullPath: '/templates'
+      preLoaderRoute: typeof TemplatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuditRoute: AuditRoute,
+  ConfigRoute: ConfigRoute,
   EventsRoute: EventsRoute,
   FormRoute: FormRoute,
   MatchingRoute: MatchingRoute,
   ParticipantsRoute: ParticipantsRoute,
   TeamsRoute: TeamsRoute,
+  TemplatesRoute: TemplatesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

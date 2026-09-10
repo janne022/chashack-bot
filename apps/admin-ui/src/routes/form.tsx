@@ -1,6 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { FormPage } from '@/views/FormPage'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/form')({
-  component: FormPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/templates' })
+  },
 })

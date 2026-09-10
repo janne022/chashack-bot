@@ -22,7 +22,7 @@ import {
 
 import { useAppContext } from '@/lib/app-context'
 
-export function FormPanel({ state, refresh }: { state: AppState; refresh: () => Promise<void> }) {
+export function FormPanel({ state, refresh, hideTemplates }: { state: AppState; refresh: () => Promise<void>; hideTemplates?: boolean }) {
   const t = useT()
   const [draft, setDraft] = useState<FormConfig>(state.config)
   const [dirty, setDirty] = useState(false)
@@ -122,7 +122,7 @@ export function FormPanel({ state, refresh }: { state: AppState; refresh: () => 
         grouped
       />
 
-      <FormTemplatesSection draft={draft} setDraft={setDraft} setDirty={setDirty} refresh={refresh} />
+      {!hideTemplates && <FormTemplatesSection draft={draft} setDraft={setDraft} setDirty={setDirty} refresh={refresh} />}
 
       <div className="flex items-center justify-between gap-3">
         <AlertDialog>
@@ -146,7 +146,7 @@ export function FormPanel({ state, refresh }: { state: AppState; refresh: () => 
           </AlertDialogContent>
         </AlertDialog>
 
-        <SaveFormTemplateDialog config={draft} />
+      {!hideTemplates && <SaveFormTemplateDialog config={draft} />}
 
         <Button onClick={() => void save()} disabled={!dirty}>
           <Save />

@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send } from 'lucide-react'
+import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
@@ -74,6 +74,7 @@ function NewEventButton() {
   const t = useT()
   const [open, setOpen] = useState(false)
   const [templateId, setTemplateId] = useState<string>('')
+  const [formTemplateId, setFormTemplateId] = useState<string>('')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [startsAt, setStartsAt] = useState('')
@@ -86,6 +87,15 @@ function NewEventButton() {
   const [busy, setBusy] = useState(false)
 
   const eventTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'event')
+  const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
+  const defaults = state.guildSettings
+
+  function onOpen() {
+    setOpen(true)
+    // prefill from guild defaults if empty
+    if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
+    if (!announceChannelId && defaults.defaultAnnouncementChannelId) setAnnounceChannelId(defaults.defaultAnnouncementChannelId)
+  }
 
   function applyTemplate(id: string) {
     setTemplateId(id)
@@ -120,6 +130,7 @@ function NewEventButton() {
       await api.createEvent({
         ...parsed.data,
         ...(templateId ? { templateId } : {}),
+        ...(formTemplateId ? { formTemplateId } : {}),
         panelChannelId: panelChannelId || null,
         announcementChannelId: announceChannelId || null,
       })
@@ -127,6 +138,7 @@ function NewEventButton() {
 
       setOpen(false)
       setTemplateId('')
+      setFormTemplateId('')
       setName('')
       setDescription('')
       setStartsAt('')
@@ -146,7 +158,7 @@ function NewEventButton() {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
+      <Button onClick={onOpen}>
         <Plus />
         {t('events.new')}
       </Button>
@@ -177,6 +189,24 @@ function NewEventButton() {
                   </SelectContent>
                 </Select>
                 <span className="text-xs text-muted-foreground">{t('events.template_hint')}</span>
+              </div>
+
+              <div className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('templates.form_templates')}</span>
+                <Select value={formTemplateId || '__none'} onValueChange={(v) => setFormTemplateId(v === '__none' ? '' : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('events.form_template_none')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">{t('events.form_template_none')}</SelectItem>
+                    {formTemplates.map((tpl) => (
+                      <SelectItem key={tpl.id} value={tpl.id}>
+                        {tpl.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground">{t('events.form_template_hint')}</span>
               </div>
 
               <label className="flex flex-col gap-1.5 text-sm">
@@ -327,13 +357,78 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button asChild>
-            <Link to="/form">{t('events.configure_form')}</Link>
+            <Link to="/templates">{t('events.configure_form')}</Link>
           </Button>
+          <EventFormPicker event={event} refresh={refresh} />
           <NotificationButtons event={event} refresh={refresh} />
           <EndEventButton event={event} refresh={refresh} />
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function EventFormPicker({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+  const { state } = useAppContext()
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const [formTemplateId, setFormTemplateId] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
+
+  async function apply() {
+    if (!formTemplateId) return
+    setBusy(true)
+    try {
+      await api.setEventForm(event.id, { formTemplateId })
+      toast.success(t('events.form_updated'))
+      setOpen(false)
+      setFormTemplateId('')
+      await refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t('events.form_update_failed'))
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <LayoutTemplate className="size-3.5" />
+        {t('events.change_form')}
+      </Button>
+      {open && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
+          <Card className="w-full max-w-md animate-pop-in" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle>{t('events.change_form_title')}</CardTitle>
+              <CardDescription>{t('events.change_form_desc')}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('templates.form_templates')}</span>
+                <Select value={formTemplateId} onValueChange={setFormTemplateId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('events.pick_form_template')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {formTemplates.map((tpl) => (
+                      <SelectItem key={tpl.id} value={tpl.id}>{tpl.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+                <Button disabled={busy || !formTemplateId} onClick={() => void apply()}>
+                  {t('common.save')}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </>
   )
 }
 

@@ -6,12 +6,13 @@ import {
   Users,
   UsersRound,
   Sparkles,
-  ClipboardList,
   History,
   RefreshCw,
   Sun,
   Moon,
   Globe,
+  Settings,
+  LayoutTemplate,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -24,7 +25,8 @@ const NAV_KEYS = [
   { to: '/participants', key: 'nav.participants', icon: Users },
   { to: '/teams', key: 'nav.teams', icon: UsersRound },
   { to: '/matching', key: 'nav.matching', icon: Sparkles },
-  { to: '/form', key: 'nav.form', icon: ClipboardList },
+  { to: '/templates', key: 'nav.templates', icon: LayoutTemplate },
+  { to: '/config', key: 'nav.config', icon: Settings },
   { to: '/audit', key: 'nav.audit', icon: History },
 ] as const
 

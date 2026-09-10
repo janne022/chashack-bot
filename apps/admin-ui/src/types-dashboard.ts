@@ -3,5 +3,6 @@ export type TabId =
   | 'participants'
   | 'teams'
   | 'matching'
-  | 'form'
+  | 'templates'
+  | 'config'
   | 'audit'

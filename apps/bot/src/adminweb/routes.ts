@@ -25,6 +25,7 @@ import {
   updateTeamSettings,
   setGuildCategory,
   getGuildSettings,
+  updateGuildSettings,
 } from '../features/teams/data.js';
 import { previewMatch, commitMatch, lastMatchInfo, listTeamsWithMembers } from '../features/matching/data.js';
 import { suggestTeamsForParticipant } from '../features/matching/domain.js';
@@ -180,6 +181,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       panelChannelId?: string | null;
       announcementChannelId?: string | null;
       templateId?: string;
+      formTemplateId?: string;
     } | null;
     if (body?.name === undefined || body.name.trim().length < 3) {
       await reply.code(400).send({ ok: false, code: 'bad_name', message: 'Event name must be at least 3 characters.' });
@@ -195,13 +197,30 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       const { templateToEventInput } = await import('../features/events/data.js');
       form = templateToEventInput(tpl.json).form;
     }
+    if (body.formTemplateId !== undefined) {
+      const tpl = listTemplates(db, guildId, 'form').find((t) => t.id === body.formTemplateId);
+      if (tpl === undefined) {
+        await reply.code(400).send({ ok: false, code: 'not_found', message: 'Form template not found.' });
+        return;
+      }
+      try {
+        form = JSON.parse(tpl.json) as Parameters<typeof createEvent>[3]['form'];
+      } catch {
+        await reply.code(400).send({ ok: false, code: 'bad_template', message: 'Form template JSON is invalid.' });
+        return;
+      }
+    }
+    // Fall back to guild defaults when not explicitly provided
+    const gs = getGuildSettings(db, guildId)
     const res = createEvent(db, 'web', guildId, {
       name: body.name,
       ...(body.description !== undefined ? { description: body.description } : {}),
       ...(body.startsAt != null ? { startsAt: body.startsAt } : {}),
       ...(body.endsAt != null ? { endsAt: body.endsAt } : {}),
-      ...(body.panelChannelId != null ? { panelChannelId: body.panelChannelId } : {}),
-      ...(body.announcementChannelId != null ? { announcementChannelId: body.announcementChannelId } : {}),
+      ...(body.panelChannelId !== undefined ? { panelChannelId: body.panelChannelId } : gs.defaultPanelChannelId ? { panelChannelId: gs.defaultPanelChannelId } : {}),
+      ...(body.announcementChannelId !== undefined ? { announcementChannelId: body.announcementChannelId } : gs.defaultAnnouncementChannelId ? { announcementChannelId: gs.defaultAnnouncementChannelId } : {}),
+      ...(gs.defaultCategoryId && body.panelChannelId === undefined ? { categoryId: gs.defaultCategoryId } : {}),
+      ...(gs.defaultCleanupDelayHours != null ? { cleanupDelayHours: gs.defaultCleanupDelayHours } : {}),
       ...(form !== undefined ? { form } : {}),
     });
     if (!res.ok) {
@@ -381,6 +400,78 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return;
     }
     return { ok: true };
+  });
+
+  // ── event form binding (put a template form onto an event) ────────────────
+  app.post('/api/events/:eventId/form', async (req, reply) => {
+    const { eventId } = req.params as { eventId: string }
+    const body = req.body as { formTemplateId?: string; formJson?: string } | null
+    const event = getEvent(db, eventId)
+    if (event === null) {
+      await reply.code(404).send({ ok: false, code: 'not_found', message: 'Event not found.' })
+      return
+    }
+    let form: Partial<FormConfig>
+    if (body?.formTemplateId) {
+      const tpl = listTemplates(db, guildId, 'form').find((t) => t.id === body.formTemplateId)
+      if (!tpl) {
+        await reply.code(404).send({ ok: false, code: 'not_found', message: 'Form template not found.' })
+        return
+      }
+      try {
+        form = JSON.parse(tpl.json) as Partial<FormConfig>
+      } catch {
+        await reply.code(400).send({ ok: false, code: 'bad_template', message: 'Form template JSON invalid.' })
+        return
+      }
+    } else if (body?.formJson) {
+      try {
+        form = JSON.parse(body.formJson) as Partial<FormConfig>
+      } catch {
+        await reply.code(400).send({ ok: false, code: 'bad_json', message: 'formJson is not valid JSON.' })
+        return
+      }
+    } else {
+      await reply.code(400).send({ ok: false, code: 'bad_input', message: 'Provide formTemplateId or formJson.' })
+      return
+    }
+    const { updateEventForm } = await import('../features/events/data.js')
+    const res = updateEventForm(db, 'web', eventId, form)
+    if (!res.ok) {
+      await reply.code(400).send(res)
+      return
+    }
+    return { ok: true, form: res.value }
+  });
+
+  // ── guild defaults ────────────────────────────────────────────────────────
+  app.post('/api/guild/settings', async (req, reply) => {
+    const body = req.body as {
+      teamCategoryId?: string | null
+      defaultAnnouncementChannelId?: string | null
+      defaultPanelChannelId?: string | null
+      defaultCategoryId?: string | null
+      defaultCleanupDelayHours?: number | null
+    } | null
+    if (!body) {
+      await reply.code(400).send({ ok: false, code: 'bad_input', message: 'Body required.' })
+      return
+    }
+    const cleaned: Parameters<typeof updateGuildSettings>[3] = {}
+    if ('teamCategoryId' in body) cleaned.teamCategoryId = body.teamCategoryId ?? null
+    if ('defaultAnnouncementChannelId' in body) cleaned.defaultAnnouncementChannelId = body.defaultAnnouncementChannelId ?? null
+    if ('defaultPanelChannelId' in body) cleaned.defaultPanelChannelId = body.defaultPanelChannelId ?? null
+    if ('defaultCategoryId' in body) cleaned.defaultCategoryId = body.defaultCategoryId ?? null
+    if ('defaultCleanupDelayHours' in body) {
+      const n = body.defaultCleanupDelayHours
+      if (n !== null && (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > 720)) {
+        await reply.code(400).send({ ok: false, code: 'bad_input', message: 'defaultCleanupDelayHours must be 0-720 or null.' })
+        return
+      }
+      cleaned.defaultCleanupDelayHours = n
+    }
+    const settings = updateGuildSettings(db, 'web', guildId, cleaned)
+    return { ok: true, settings }
   });
 
   app.post('/api/participants/:userId/status', async (req, reply) => {

@@ -135,6 +135,10 @@ function migrate(db: Db): void {
     CREATE TABLE IF NOT EXISTS guild_settings (
       guild_id TEXT PRIMARY KEY,
       team_category_id TEXT,
+      default_announcement_channel_id TEXT,
+      default_panel_channel_id TEXT,
+      default_category_id TEXT,
+      default_cleanup_delay_hours INTEGER,
       updated_at INTEGER NOT NULL
     );
 
@@ -150,6 +154,10 @@ function migrate(db: Db): void {
   `);
 
   // Legacy columns from earlier schemas.
+  addColumnIfMissing(db, 'guild_settings', 'default_announcement_channel_id', 'TEXT');
+  addColumnIfMissing(db, 'guild_settings', 'default_panel_channel_id', 'TEXT');
+  addColumnIfMissing(db, 'guild_settings', 'default_category_id', 'TEXT');
+  addColumnIfMissing(db, 'guild_settings', 'default_cleanup_delay_hours', 'INTEGER');
   addColumnIfMissing(db, 'teams', 'event_id', 'TEXT');
   addColumnIfMissing(db, 'team_requests', 'event_id', 'TEXT');
   addColumnIfMissing(db, 'participants', 'event_id', 'TEXT');

@@ -329,11 +329,25 @@ export function updateTeamSettings(
 
 // ─── guild-level settings (fallback category etc.) ──────────────────────────
 
-export function getGuildSettings(db: Db, guildId: string): { teamCategoryId: string | null } {
-  const row = db.prepare('SELECT team_category_id FROM guild_settings WHERE guild_id = ?').get(guildId) as
-    | { team_category_id: string | null }
+export interface GuildSettings {
+  teamCategoryId: string | null
+  defaultAnnouncementChannelId: string | null
+  defaultPanelChannelId: string | null
+  defaultCategoryId: string | null
+  defaultCleanupDelayHours: number | null
+}
+
+export function getGuildSettings(db: Db, guildId: string): GuildSettings {
+  const row = db.prepare('SELECT team_category_id, default_announcement_channel_id, default_panel_channel_id, default_category_id, default_cleanup_delay_hours FROM guild_settings WHERE guild_id = ?').get(guildId) as
+    | { team_category_id: string | null; default_announcement_channel_id: string | null; default_panel_channel_id: string | null; default_category_id: string | null; default_cleanup_delay_hours: number | null }
     | undefined;
-  return { teamCategoryId: row?.team_category_id ?? null };
+  return {
+    teamCategoryId: row?.team_category_id ?? null,
+    defaultAnnouncementChannelId: row?.default_announcement_channel_id ?? null,
+    defaultPanelChannelId: row?.default_panel_channel_id ?? null,
+    defaultCategoryId: row?.default_category_id ?? null,
+    defaultCleanupDelayHours: row?.default_cleanup_delay_hours ?? null,
+  };
 }
 
 export function setGuildCategory(db: Db, actor: string, guildId: string, categoryId: string | null): void {
@@ -342,4 +356,33 @@ export function setGuildCategory(db: Db, actor: string, guildId: string, categor
      ON CONFLICT(guild_id) DO UPDATE SET team_category_id = excluded.team_category_id, updated_at = excluded.updated_at`,
   ).run(guildId, categoryId, Date.now());
   audit(db, actor, 'guild.set_category', guildId, { categoryId });
+}
+
+export function updateGuildSettings(
+  db: Db,
+  actor: string,
+  guildId: string,
+  update: Partial<Pick<GuildSettings, 'teamCategoryId' | 'defaultAnnouncementChannelId' | 'defaultPanelChannelId' | 'defaultCategoryId' | 'defaultCleanupDelayHours'>>,
+): GuildSettings {
+  const cur = getGuildSettings(db, guildId)
+  const next: GuildSettings = {
+    teamCategoryId: update.teamCategoryId !== undefined ? update.teamCategoryId : cur.teamCategoryId,
+    defaultAnnouncementChannelId: update.defaultAnnouncementChannelId !== undefined ? update.defaultAnnouncementChannelId : cur.defaultAnnouncementChannelId,
+    defaultPanelChannelId: update.defaultPanelChannelId !== undefined ? update.defaultPanelChannelId : cur.defaultPanelChannelId,
+    defaultCategoryId: update.defaultCategoryId !== undefined ? update.defaultCategoryId : cur.defaultCategoryId,
+    defaultCleanupDelayHours: update.defaultCleanupDelayHours !== undefined ? update.defaultCleanupDelayHours : cur.defaultCleanupDelayHours,
+  }
+  db.prepare(
+    `INSERT INTO guild_settings (guild_id, team_category_id, default_announcement_channel_id, default_panel_channel_id, default_category_id, default_cleanup_delay_hours, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(guild_id) DO UPDATE SET
+       team_category_id = excluded.team_category_id,
+       default_announcement_channel_id = excluded.default_announcement_channel_id,
+       default_panel_channel_id = excluded.default_panel_channel_id,
+       default_category_id = excluded.default_category_id,
+       default_cleanup_delay_hours = excluded.default_cleanup_delay_hours,
+       updated_at = excluded.updated_at`,
+  ).run(guildId, next.teamCategoryId, next.defaultAnnouncementChannelId, next.defaultPanelChannelId, next.defaultCategoryId, next.defaultCleanupDelayHours, Date.now())
+  audit(db, actor, 'guild.update_settings', guildId, update as Record<string, unknown>)
+  return next
 }
