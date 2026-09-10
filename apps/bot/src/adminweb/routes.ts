@@ -153,6 +153,53 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
   });
 
+  app.post('/api/diag/channel-test', async (req, reply) => {
+    const body = req.body as { channelId?: string } | null
+    const channelId = body?.channelId?.trim() ?? ''
+    if (!isSnowflake(guildId)) {
+      await reply.code(400).send({ ok: false, code: 'guild_not_configured', message: `DISCORD_GUILD_ID="${guildId}" is not a snowflake — set it in .env and restart.` })
+      return
+    }
+    if (!isSnowflake(channelId)) {
+      await reply.code(400).send({ ok: false, code: 'bad_channel', message: `channelId "${channelId}" is not a snowflake — copy the ID (right-click channel → Copy ID), not the name.` })
+      return
+    }
+    if (deps.client === null) {
+      await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot not connected to Discord (SKIP_DISCORD=1 or offline).' })
+      return
+    }
+    try {
+      const guild = await deps.client.guilds.fetch(guildId)
+      const channel = await guild.channels.fetch(channelId)
+      if (channel === null) {
+        await reply.code(404).send({ ok: false, code: 'not_found', message: `Channel ${channelId} not found in guild ${guildId}. Is the ID correct?` })
+        return
+      }
+      if (!channel.isTextBased()) {
+        await reply.code(400).send({ ok: false, code: 'not_text', message: `Channel #${(channel as { name: string }).name} is not a text channel.` })
+        return
+      }
+      const me = guild.members.me
+      if (me !== null) {
+        const perms = channel.permissionsFor(me)
+        if (perms !== null && !perms.has('SendMessages')) {
+          await reply.code(403).send({ ok: false, code: 'forbidden', message: `Bot lacks SendMessages in #${(channel as { name: string }).name}. Give it permission and try again.` })
+          return
+        }
+        if (perms !== null && !perms.has('ViewChannel')) {
+          await reply.code(403).send({ ok: false, code: 'forbidden', message: `Bot cannot see #${(channel as { name: string }).name}.` })
+          return
+        }
+      }
+      await channel.send({ content: `✅ chashack test — if you see this, <#${channelId}> is reachable ✅` })
+      return { ok: true, channelId, name: (channel as { name: string }).name }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const code = (e as Record<string, unknown>)?.code !== undefined ? ` code=${(e as Record<string, unknown>).code}` : ''
+      await reply.code(500).send({ ok: false, code: 'discord_error', message: `Discord error${code}: ${msg}` })
+    }
+  });
+
   app.get('/api/state', async (_req, reply) => {
     const eventId = activeEventId();
     const participants = listParticipants(db, eventId);
@@ -328,7 +375,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return
     }
     if (deps.client === null) {
-      await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' })
+      await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord (SKIP_DISCORD=1 or gateway offline).' })
       return
     }
     if (body?.title === undefined || body.message === undefined) {
@@ -336,6 +383,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return
     }
     const result = await sendAnnouncement({ db, client: deps.client }, 'web', event, body.title, body.message, body.dm ?? false, body.channelId)
+    // Surface detailed reason to the UI so it can show "why not posted" instead of generic unreachable
     return { ok: true, ...result }
   })
 

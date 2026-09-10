@@ -215,10 +215,17 @@ export const api = {
     message: string,
     dm: boolean,
     channelId?: string,
-  ): Promise<{ posted: boolean; dmSent: number; dmFailed: number }> {
+  ): Promise<{ posted: boolean; reason: string; channelId: string | null; dmSent: number; dmFailed: number }> {
     return request('/api/events/announce', {
       method: 'POST',
       body: JSON.stringify({ eventId, title, message, dm, channelId }),
+    })
+  },
+
+  async testChannel(channelId: string): Promise<{ ok: true; channelId: string; name: string }> {
+    return request('/api/diag/channel-test', {
+      method: 'POST',
+      body: JSON.stringify({ channelId }),
     })
   },
 

@@ -645,12 +645,19 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
     try {
       const targetChannel = channelId.trim() || undefined
       const res = await api.announce(event.id, title.trim(), message.trim(), dm, targetChannel)
-      toast.success(res.posted ? (dm ? t('events.posted_with_dms', { count: res.dmSent }) : t('events.posted')) : t('events.posted_unreachable'))
+      if (res.posted) {
+        toast.success(dm ? t('events.posted_with_dms', { count: res.dmSent }) : t('events.posted'))
+      } else {
+        // Surface the actual reason now (no_channel_configured, missing_access, etc.)
+        toast.error(`Not posted — ${res.reason}`, { duration: 6000 })
+      }
       if (res.dmFailed > 0) toast.info(t('events.dms_failed', { count: res.dmFailed }))
-      setOpen(false)
-      setTitle('')
-      setMessage('')
-      setChannelId('')
+      if (res.posted) {
+        setOpen(false)
+        setTitle('')
+        setMessage('')
+        setChannelId('')
+      }
       await refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('events.announce_failed'))

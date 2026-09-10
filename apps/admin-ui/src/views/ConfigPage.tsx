@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Save, Settings } from 'lucide-react'
+import { Save, Settings, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
@@ -19,6 +19,8 @@ export function ConfigPage() {
   const [category, setCategory] = useState(gs.defaultCategoryId ?? gs.teamCategoryId ?? '')
   const [cleanup, setCleanup] = useState(gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '')
   const [busy, setBusy] = useState(false)
+  const [testingPanel, setTestingPanel] = useState(false)
+  const [testingAnnounce, setTestingAnnounce] = useState(false)
   const [channels, setChannels] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
 
@@ -71,6 +73,20 @@ export function ConfigPage() {
     } finally { setBusy(false) }
   }
 
+  async function testChannel(which: 'panel' | 'announce') {
+    const id = which === 'panel' ? panel.trim() : announce.trim()
+    if (!id) { toast.error('Pick a channel first'); return }
+    const setTesting = which === 'panel' ? setTestingPanel : setTestingAnnounce
+    setTesting(true)
+    try {
+      const res = await api.testChannel(id)
+      toast.success(`✅ Sent test to #${res.name} — check Discord`)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Test failed'
+      toast.error(msg, { duration: 7000 })
+    } finally { setTesting(false) }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <header>
@@ -107,7 +123,13 @@ export function ConfigPage() {
               ) : (
                 <Input value={panel} onChange={(e) => setPanel(e.target.value)} placeholder="123456789012345678" />
               )}
-              <span className="text-xs text-muted-foreground">{t('config.panel_hint')}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground flex-1">{t('config.panel_hint')}</span>
+                <Button variant="outline" size="sm" disabled={!panel || testingPanel} onClick={() => void testChannel('panel')}>
+                  <Send className="size-3.5" />
+                  {testingPanel ? 'Testing…' : 'Test'}
+                </Button>
+              </div>
             </div>
 
             <div className="flex flex-col gap-2">
@@ -129,7 +151,13 @@ export function ConfigPage() {
               ) : (
                 <Input value={announce} onChange={(e) => setAnnounce(e.target.value)} placeholder="123456789012345678" />
               )}
-              <span className="text-xs text-muted-foreground">{t('config.announce_hint')}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground flex-1">{t('config.announce_hint')}</span>
+                <Button variant="outline" size="sm" disabled={!announce || testingAnnounce} onClick={() => void testChannel('announce')}>
+                  <Send className="size-3.5" />
+                  {testingAnnounce ? 'Testing…' : 'Test'}
+                </Button>
+              </div>
             </div>
           </div>
 

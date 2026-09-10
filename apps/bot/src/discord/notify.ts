@@ -67,26 +67,56 @@ export async function sendAnnouncement(
   message: string,
   dmParticipants: boolean,
   overrideChannelId?: string,
-): Promise<{ posted: boolean; dmSent: number; dmFailed: number }> {
+): Promise<{ posted: boolean; reason: string; channelId: string | null; dmSent: number; dmFailed: number }> {
   const { client, db } = deps
   let posted = false
+  let reason = 'no_channel_configured'
 
   // 1) Announcement channel (override → event ann channel → panel → guild panel).
   const channelId = overrideChannelId ?? event.announcementChannelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
-  if (channelId !== null) {
-    if (warnInvalidGuild(event.guildId, 'announcement post')) {
-      // don't even try the Discord API — will stay posted=false, caller shows "channel unreachable"
-    } else {
-      try {
-        const guild = await client.guilds.fetch(event.guildId);
-        const channel = await guild.channels.fetch(channelId);
-        if (channel !== null && channel.isTextBased()) {
+  if (channelId === null) {
+    reason = 'no_channel_configured'
+  } else if (warnInvalidGuild(event.guildId, 'announcement post')) {
+    reason = `guild_invalid: DISCORD_GUILD_ID="${event.guildId}" is not a snowflake — set it in .env and restart`
+  } else if (!isSnowflake(channelId)) {
+    reason = `channel_invalid: channelId "${channelId}" is not a snowflake — copy #channel ID, not the name`
+  } else {
+    try {
+      const guild = await client.guilds.fetch(event.guildId);
+      const channel = await guild.channels.fetch(channelId);
+      if (channel === null) {
+        reason = `channel_not_found: ${channelId} not found in guild ${event.guildId} — is the ID correct and does the bot have access?`
+      } else if (!channel.isTextBased()) {
+        reason = `not_text_based: #${channel.name} (${channelId}) is not a text channel`
+      } else {
+        // Check bot can send there before trying
+        const me = guild.members.me
+        if (me !== null) {
+          const perms = channel.permissionsFor(me)
+          if (perms !== null && !perms.has('SendMessages')) {
+            reason = `missing_access: bot lacks SendMessages in #${channel.name} (${channelId})`
+            console.warn(`announcement: missing SendMessages in #${channel.name} (${channelId})`)
+          } else if (perms !== null && !perms.has('ViewChannel')) {
+            reason = `missing_access: bot cannot ViewChannel #${channel.name} (${channelId})`
+            console.warn(`announcement: missing ViewChannel in #${channel.name} (${channelId})`)
+          }
+        }
+        if (reason === 'guild_invalid' || reason.startsWith('channel_invalid') || reason.startsWith('channel_not_found') || reason.startsWith('not_text_based')) {
+          // already set
+        } else if (reason.startsWith('missing_access')) {
+          // don't try to send
+        } else {
           await channel.send({ embeds: [buildAnnouncementEmbed(event, title, message)] });
           posted = true;
+          reason = 'ok'
         }
-      } catch (error) {
-        console.warn('announcement post failed:', error);
       }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      // DiscordAPIError usually has code: 50035, 10003, 50013, 50001 etc.
+      const raw = (error as Record<string, unknown>)?.code !== undefined ? ` code=${(error as Record<string, unknown>).code}` : ''
+      reason = `discord_error${raw}: ${msg}`
+      console.warn(`announcement post failed [${channelId}]:`, error);
     }
   }
 
@@ -108,7 +138,7 @@ export async function sendAnnouncement(
   }
 
   audit(db, actor, 'announce.send', event.id, { title, posted, dmSent, dmFailed });
-  return { posted, dmSent, dmFailed };
+  return { posted, reason, channelId, dmSent, dmFailed };
 }
 
 function readGuildPanel(db: Db, guildId: string): string | null {
