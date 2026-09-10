@@ -245,6 +245,10 @@ export const api = {
     })
   },
 
+  async getGuildChannels(): Promise<{ channels: { id: string; name: string }[]; categories: { id: string; name: string }[]; roles: { id: string; name: string; color: string }[] }> {
+    return request('/api/guild/channels')
+  },
+
   async createDiscordEvents(eventId: string, days: number, durationHours: number): Promise<void> {
     await request(`/api/events/${eventId}/discord-events`, {
       method: 'POST',

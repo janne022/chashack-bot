@@ -96,6 +96,10 @@ function NewEventButton() {
   const [dmOnAnnounce, setDmOnAnnounce] = useState(false)
   const [saveAsTemplate, setSaveAsTemplate] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [guildChannels, setGuildChannels] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    api.getGuildChannels().then(r=>setGuildChannels(r.channels ?? [])).catch(()=>undefined)
+  }, [])
 
   const eventTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'event')
   const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
@@ -346,15 +350,45 @@ function NewEventButton() {
 
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.panel_channel')}</span>
-                <Input value={panelChannelId} onChange={(e) => setPanelChannelId(e.target.value)} placeholder="Discord channel ID" maxLength={30} />
+                {guildChannels.length > 0 ? (
+                  <Select value={panelChannelId || '__none'} onValueChange={(v)=>setPanelChannelId(v==='__none'?'':v)}>
+                    <SelectTrigger><SelectValue placeholder="Pick a Discord channel" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">Not set (use default)</SelectItem>
+                      {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={panelChannelId} onChange={(e) => setPanelChannelId(e.target.value)} placeholder="Discord channel ID" maxLength={30} />
+                )}
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.announce_channel')}</span>
-                <Input value={announceChannelId} onChange={(e) => setAnnounceChannelId(e.target.value)} placeholder="Discord channel ID (defaults to panel)" maxLength={30} />
+                {guildChannels.length > 0 ? (
+                  <Select value={announceChannelId || '__none'} onValueChange={(v)=>setAnnounceChannelId(v==='__none'?'':v)}>
+                    <SelectTrigger><SelectValue placeholder="Discord channel ID (defaults to panel)" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">Not set (use default/panel)</SelectItem>
+                      {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={announceChannelId} onChange={(e) => setAnnounceChannelId(e.target.value)} placeholder="Discord channel ID (defaults to panel)" maxLength={30} />
+                )}
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">Schedule / itinerary channel</span>
-                <Input value={scheduleChannelId} onChange={(e) => setScheduleChannelId(e.target.value)} placeholder="Discord channel for full itinerary with timers (e.g. #schedule)" maxLength={30} />
+                {guildChannels.length > 0 ? (
+                  <Select value={scheduleChannelId || '__none'} onValueChange={(v)=>setScheduleChannelId(v==='__none'?'':v)}>
+                    <SelectTrigger><SelectValue placeholder="Channel for full itinerary with timers" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">Not set (use Config default)</SelectItem>
+                      {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={scheduleChannelId} onChange={(e) => setScheduleChannelId(e.target.value)} placeholder="Discord channel for full itinerary with timers (e.g. #schedule)" maxLength={30} />
+                )}
                 <span className="text-xs text-muted-foreground">The whole schedule (+ live <span className="font-mono">&lt;t:…&gt;</span> timers) is posted here as one message — auto-updated on Activate.</span>
               </label>
 
@@ -656,6 +690,8 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   const [channelId, setChannelId] = useState('')
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [guildChannels, setGuildChannels] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => { if (open) api.getGuildChannels().then(r=>setGuildChannels(r.channels ?? [])).catch(()=>undefined) }, [open])
 
   const announcementPresets = [
     ...(state.templates ?? []).filter(tp=>tp.kind==='announcement').map(tp=>{
@@ -732,7 +768,17 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
               )}
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.channel')}</span>
-                <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="Override channel ID (optional)" maxLength={30} />
+                {guildChannels.length > 0 ? (
+                  <Select value={channelId || '__none'} onValueChange={(v)=>setChannelId(v==='__none'?'':v)}>
+                    <SelectTrigger><SelectValue placeholder="Override channel (defaults to panel)" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">Use default / panel</SelectItem>
+                      {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="Override channel ID (optional)" maxLength={30} />
+                )}
               </label>
               <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('events.headline_placeholder') + " — tags: {event} {everyone}"} maxLength={100} />
               <Textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('events.message_placeholder') + " — e.g. Listen up {everyone} {event} starts {timer} — {panel}"} maxLength={2000} />
@@ -775,6 +821,8 @@ function ScheduleItineraryButton({ event }: { event: HackathonEvent }) {
   const [channelId, setChannelId] = useState(defaultChan)
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [guildChannels, setGuildChannels] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => { if (open) api.getGuildChannels().then(r=>setGuildChannels(r.channels ?? [])).catch(()=>undefined) }, [open])
   useEffect(() => { if (!open) setChannelId(defaultChan) }, [defaultChan, open])
 
   async function post() {
@@ -809,8 +857,18 @@ function ScheduleItineraryButton({ event }: { event: HackathonEvent }) {
             <CardContent className="flex flex-col gap-4">
               <div className="rounded-md bg-surface-2 p-2 text-xs font-mono">Starts &lt;t:…:F&gt; → live · Each block → &lt;t:…:R&gt; (“in 10 min”)</div>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">Schedule channel ID</span>
-                <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="123456789012345678" maxLength={30} />
+                <span className="font-medium">Schedule channel</span>
+                {guildChannels.length > 0 ? (
+                  <Select value={channelId || '__none'} onValueChange={(v)=>setChannelId(v==='__none'?'':v)}>
+                    <SelectTrigger><SelectValue placeholder="Pick a channel for the itinerary" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">Not set</SelectItem>
+                      {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="123456789012345678" maxLength={30} />
+                )}
                 <span className="text-xs text-muted-foreground">Defaults to event’s scheduleChannelId → Config default. The same message is edited in place so the channel doesn’t fill with duplicates.</span>
               </label>
               <div className="flex justify-end gap-2">
