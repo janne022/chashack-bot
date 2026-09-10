@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Save, Settings, Send } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Save, Settings, Search, X, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/textarea-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
 
 export function ConfigPage() {
   const { state, refresh } = useAppContext()
@@ -22,12 +23,10 @@ export function ConfigPage() {
   const [defaultForm, setDefaultForm] = useState(gs.defaultFormTemplateId ?? '')
   const [modRoles, setModRoles] = useState<string[]>(gs.modRoleIds ?? [])
   const [busy, setBusy] = useState(false)
-  const [testingPanel, setTestingPanel] = useState(false)
-  const [testingAnnounce, setTestingAnnounce] = useState(false)
-  const [testingSchedule, setTestingSchedule] = useState(false)
   const [channels, setChannels] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
   const [roles, setRoles] = useState<{ id: string; name: string; color: string }[]>([])
+  const [roleQuery, setRoleQuery] = useState('')
 
   useEffect(() => {
     fetch('/api/guild/channels')
@@ -40,7 +39,6 @@ export function ConfigPage() {
       .catch(() => undefined)
   }, [])
 
-  // keep in sync when state reloads
   useEffect(() => {
     setPanel(gs.defaultPanelChannelId ?? '')
     setAnnounce(gs.defaultAnnouncementChannelId ?? '')
@@ -65,7 +63,6 @@ export function ConfigPage() {
     payload.defaultPanelChannelId = panel.trim() === '' ? null : panel.trim()
     payload.defaultAnnouncementChannelId = announce.trim() === '' ? null : announce.trim()
     payload.defaultScheduleChannelId = scheduleChannel.trim() === '' ? null : scheduleChannel.trim()
-    // category: keep both legacy teamCategoryId and new defaultCategoryId in sync
     const catVal = category.trim() === '' ? null : category.trim()
     payload.defaultCategoryId = catVal
     payload.teamCategoryId = catVal
@@ -88,19 +85,13 @@ export function ConfigPage() {
     } finally { setBusy(false) }
   }
 
-  async function testChannel(which: 'panel' | 'announce' | 'schedule') {
-    const id = which === 'panel' ? panel.trim() : which === 'announce' ? announce.trim() : scheduleChannel.trim()
-    if (!id) { toast.error('Pick a channel first'); return }
-    const setTesting = which === 'panel' ? setTestingPanel : which === 'announce' ? setTestingAnnounce : setTestingSchedule
-    setTesting(true)
-    try {
-      const res = await api.testChannel(id)
-      toast.success(`✅ Sent test to #${res.name} — check Discord`)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Test failed'
-      toast.error(msg, { duration: 7000 })
-    } finally { setTesting(false) }
-  }
+  const filteredRoles = useMemo(() => {
+    const q = roleQuery.trim().toLowerCase()
+    if (!q) return roles
+    return roles.filter(r => r.name.toLowerCase().includes(q))
+  }, [roles, roleQuery])
+
+  const selectedRoles = useMemo(() => roles.filter(r => modRoles.includes(r.id)), [roles, modRoles])
 
   return (
     <div className="flex flex-col gap-6">
@@ -110,121 +101,81 @@ export function ConfigPage() {
       </header>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2">
             <Settings className="size-4 text-accent" />
             {t('config.defaults')}
           </CardTitle>
           <CardDescription>{t('config.defaults_desc')}</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-5">
-          <div className="grid gap-4 md:grid-cols-2">
+        <CardContent className="flex flex-col gap-6">
+          {/* Channels — 3 equal columns, same height, no extra buttons */}
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="flex flex-col gap-2">
               <Label>{t('config.panel_channel')}</Label>
               {channels.length > 0 ? (
                 <Select value={panel || '__none'} onValueChange={(v) => setPanel(v === '__none' ? '' : v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('config.pick_channel')} />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t('config.pick_channel')} /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none">{t('common.not_set')}</SelectItem>
-                    {channels.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        #{c.name}
-                      </SelectItem>
-                    ))}
+                    {channels.map((c) => <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               ) : (
                 <Input value={panel} onChange={(e) => setPanel(e.target.value)} placeholder="123456789012345678" />
               )}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground flex-1">{t('config.panel_hint')}</span>
-                <Button variant="outline" size="sm" disabled={!panel || testingPanel} onClick={() => void testChannel('panel')}>
-                  <Send className="size-3.5" />
-                  {testingPanel ? 'Testing…' : 'Test'}
-                </Button>
-              </div>
+              <span className="text-xs leading-snug text-muted-foreground">{t('config.panel_hint')}</span>
             </div>
 
             <div className="flex flex-col gap-2">
               <Label>{t('config.announce_channel')}</Label>
               {channels.length > 0 ? (
                 <Select value={announce || '__none'} onValueChange={(v) => setAnnounce(v === '__none' ? '' : v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('config.pick_channel')} />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t('config.pick_channel')} /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none">{t('common.not_set')}</SelectItem>
-                    {channels.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        #{c.name}
-                      </SelectItem>
-                    ))}
+                    {channels.map((c) => <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               ) : (
                 <Input value={announce} onChange={(e) => setAnnounce(e.target.value)} placeholder="123456789012345678" />
               )}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground flex-1">{t('config.announce_hint')}</span>
-                <Button variant="outline" size="sm" disabled={!announce || testingAnnounce} onClick={() => void testChannel('announce')}>
-                  <Send className="size-3.5" />
-                  {testingAnnounce ? 'Testing…' : 'Test'}
-                </Button>
-              </div>
+              <span className="text-xs leading-snug text-muted-foreground">{t('config.announce_hint')}</span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label>Default schedule channel</Label>
+              {channels.length > 0 ? (
+                <Select value={scheduleChannel || '__none'} onValueChange={(v) => setScheduleChannel(v === '__none' ? '' : v)}>
+                  <SelectTrigger><SelectValue placeholder={t('config.pick_channel')} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">{t('common.not_set')}</SelectItem>
+                    {channels.map((c) => <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={scheduleChannel} onChange={(e) => setScheduleChannel(e.target.value)} placeholder="123456789012345678" />
+              )}
+              <span className="text-xs leading-snug text-muted-foreground">Where the full itinerary with Discord timers (&lt;t:…&gt;) is posted.</span>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <Label>Default schedule channel</Label>
-            {channels.length > 0 ? (
-              <Select value={scheduleChannel || '__none'} onValueChange={(v) => setScheduleChannel(v === '__none' ? '' : v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder={t('config.pick_channel')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none">{t('common.not_set')}</SelectItem>
-                  {channels.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      #{c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input value={scheduleChannel} onChange={(e) => setScheduleChannel(e.target.value)} placeholder="123456789012345678" />
-            )}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground flex-1">Where the full itinerary with Discord timers (&lt;t:…&gt;) is posted. Auto-updated on Activate and whenever you edit the schedule.</span>
-              <Button variant="outline" size="sm" disabled={!scheduleChannel || testingSchedule} onClick={() => void testChannel('schedule')}>
-                <Send className="size-3.5" />
-                {testingSchedule ? 'Testing…' : 'Test'}
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
+          {/* Category / Form / Cleanup — also 3 equal columns */}
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="flex flex-col gap-2">
               <Label>{t('config.category')}</Label>
               {categories.length > 0 ? (
                 <Select value={category || '__none'} onValueChange={(v) => setCategory(v === '__none' ? '' : v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('config.pick_category')} />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t('config.pick_category')} /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none">{t('common.not_set')}</SelectItem>
-                    {categories.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
+                    {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               ) : (
                 <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="category id" />
               )}
-              <span className="text-xs text-muted-foreground">{t('config.category_hint')}</span>
+              <span className="text-xs leading-snug text-muted-foreground">{t('config.category_hint')}</span>
             </div>
 
             <div className="flex flex-col gap-2">
@@ -240,19 +191,19 @@ export function ConfigPage() {
               ) : (
                 <Input value={defaultForm} onChange={e=>setDefaultForm(e.target.value)} placeholder="form template id (create one in Templates)" />
               )}
-              <span className="text-xs text-muted-foreground">Used when you create events without picking a form. Set in Templates first.</span>
+              <span className="text-xs leading-snug text-muted-foreground">Used when you create events without picking a form.</span>
             </div>
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="cleanup">{t('config.cleanup')}</Label>
               <Input id="cleanup" type="number" min={0} max={720} value={cleanup} onChange={(e) => setCleanup(e.target.value)} placeholder="48" />
-              <span className="text-xs text-muted-foreground">{t('config.cleanup_hint')}</span>
+              <span className="text-xs leading-snug text-muted-foreground">{t('config.cleanup_hint')}</span>
             </div>
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex justify-end border-t border-border pt-4">
             <Button disabled={!dirty || busy} onClick={() => void save()}>
-              <Save />
+              <Save className="size-4" />
               {busy ? t('common.save') + '…' : t('common.save')}
             </Button>
           </div>
@@ -260,44 +211,95 @@ export function ConfigPage() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2">
-            <Settings className="size-4 text-accent" />
+            <ShieldCheck className="size-4 text-accent" />
             Moderator roles
+            <Badge variant="secondary" className="ml-2 font-mono text-xs">{modRoles.length} selected</Badge>
+            {roles.length > 0 && <span className="text-xs font-normal text-muted-foreground">· {roles.length} total</span>}
           </CardTitle>
           <CardDescription>
-            Who can run <code className="rounded bg-muted px-1">/hackathon admin</code> commands in Discord without <b>Manage Server</b>. ADMIN_IDS and Manage Server / Administrator always work.
+            Who can run <code className="rounded bg-muted px-1">/hackathon admin</code> in Discord without <b>Manage Server</b>. ADMIN_IDS and Manage Server / Administrator always work.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+        <CardContent className="flex flex-col gap-4">
           {roles.length === 0 ? (
             <p className="text-sm text-muted-foreground">No roles found — is the bot in the guild and does it have access? You need to set DISCORD_GUILD_ID and restart.</p>
           ) : (
             <>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {roles.map(r=> {
-                  const checked = modRoles.includes(r.id)
-                  return (
-                    <label key={r.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors ${checked ? "border-accent bg-accent-soft" : "border-border hover:border-accent/40 bg-surface-2/40"}`}>
-                      <input type="checkbox" className="sr-only" checked={checked} onChange={e=>{
-                        setModRoles(prev => e.target.checked ? [...prev, r.id] : prev.filter(id=>id!==r.id))
-                      }} />
-                      <span className="flex size-3 shrink-0 rounded-full" style={{ backgroundColor: r.color && r.color !== "#000000" ? r.color : "#71717a" }} />
-                      <span className="flex-1 truncate font-medium">{r.name}</span>
-                      <span className={`flex size-4 items-center justify-center rounded border text-[10px] ${checked ? "border-accent bg-accent text-accent-foreground" : "border-input bg-background"}`}>{checked ? "✓" : ""}</span>
-                    </label>
-                  )
-                })}
+              {/* Selected pills — always visible */}
+              {selectedRoles.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-surface-2/40 p-2">
+                  {selectedRoles.map(r=>(
+                    <span key={r.id} className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2.5 py-1 text-xs font-medium">
+                      <span className="size-2 rounded-full" style={{ backgroundColor: r.color && r.color !== "#000000" ? r.color : "#71717a" }} />
+                      {r.name}
+                      <button onClick={()=>setModRoles(prev=>prev.filter(id=>id!==r.id))} className="ml-0.5 rounded-full p-0.5 hover:bg-accent/20"><X className="size-3" /></button>
+                    </span>
+                  ))}
+                  <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={()=>setModRoles([])}>Clear all</Button>
+                </div>
+              )}
+
+              {/* Search + count */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={roleQuery}
+                    onChange={e=>setRoleQuery(e.target.value)}
+                    placeholder={`Search ${roles.length} roles… (e.g. mod, organizer)`}
+                    className="h-8 pl-8"
+                  />
+                  {roleQuery && (
+                    <button onClick={()=>setRoleQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-muted"><X className="size-3.5" /></button>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {filteredRoles.length === roles.length ? `${roles.length} roles` : `${filteredRoles.length} / ${roles.length} match`}
+                </span>
+                {roleQuery && filteredRoles.length > 0 && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={()=>setModRoles(prev=>Array.from(new Set([...prev, ...filteredRoles.map(r=>r.id)])))}>
+                    Select {filteredRoles.length} filtered
+                  </Button>
+                )}
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>{modRoles.length} selected</span>
-                {modRoles.length>0 && <Button variant="ghost" size="sm" onClick={()=>setModRoles([])}>Clear</Button>}
-                <span className="flex-1" />
-                <span>Live in Discord immediately after Save.</span>
+
+              {/* Scrollable list — handles 100s */}
+              <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-background">
+                {filteredRoles.length === 0 ? (
+                  <p className="p-4 text-center text-sm text-muted-foreground">No roles match “{roleQuery}”.</p>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {filteredRoles.map(r=> {
+                      const checked = modRoles.includes(r.id)
+                      return (
+                        <label key={r.id} className={`flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted/50 ${checked ? "bg-accent-soft" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={e=>{
+                              setModRoles(prev => e.target.checked ? [...prev, r.id] : prev.filter(id=>id!==r.id))
+                            }}
+                            className="size-4 rounded border-input accent-accent"
+                          />
+                          <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: r.color && r.color !== "#000000" ? r.color : "#71717a" }} />
+                          <span className={`flex-1 truncate text-sm ${checked ? "font-medium" : ""}`}>{r.name}</span>
+                          {checked && <Badge variant="secondary" className="text-[10px]">selected</Badge>}
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
+
+              <p className="text-xs text-muted-foreground">
+                {modRoles.length===0
+                  ? "No extra roles selected — only Manage Server / Administrator + ADMIN_IDS can manage ChasHack."
+                  : `Live in Discord immediately after Save — ${modRoles.length} role${modRoles.length>1?'s':''} can use /hackathon admin.`}
+              </p>
             </>
           )}
-          {modRoles.length===0 && <p className="text-xs text-muted-foreground">No extra roles selected — only Manage Server / Administrator + ADMIN_IDS can manage ChasHack.</p>}
         </CardContent>
       </Card>
 
