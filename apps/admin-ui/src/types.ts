@@ -123,6 +123,15 @@ export interface ScheduleItem {
   title: string
   description?: string
   kind?: 'food' | 'break' | 'voting' | 'prize' | 'talk' | 'custom'
+  actions?: ScheduleAction[]
+}
+
+export interface ScheduleAction {
+  id: string
+  type: 'announce'
+  title: string
+  message: string
+  channelId?: string | null
 }
 
 export interface AnnouncementTemplate {
@@ -137,7 +146,7 @@ export interface EventTemplate {
   id: string
   guildId: string | null
   name: string
-  kind: 'event' | 'form'
+  kind: 'event' | 'form' | 'announcement'
   json: string
   createdAt: number
 }

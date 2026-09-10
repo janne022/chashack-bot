@@ -242,12 +242,12 @@ export const api = {
     })
   },
 
-  async listTemplates(kind?: 'event' | 'form'): Promise<{ templates: { id: string; name: string; kind: string; createdAt: number }[] }> {
+  async listTemplates(kind?: 'event' | 'form' | 'announcement'): Promise<{ templates: { id: string; name: string; kind: string; createdAt: number }[] }> {
     const url = kind ? `/api/templates?kind=${kind}` : '/api/templates'
     return request(url)
   },
 
-  async saveTemplate(eventId: string, name: string, kind: 'event' | 'form' = 'event', formJson?: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
+  async saveTemplate(eventId: string, name: string, kind: 'event' | 'form' | 'announcement' = 'event', formJson?: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
     const body: Record<string, unknown> = { eventId, name, kind }
     if (formJson !== undefined) body.formJson = formJson
     // also allow raw json for event templates from editor
@@ -262,7 +262,7 @@ export const api = {
     })
   },
 
-  async createTemplateRaw(name: string, kind: 'event' | 'form', json: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
+  async createTemplateRaw(name: string, kind: 'event' | 'form' | 'announcement', json: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
     return request('/api/templates', {
       method: 'POST',
       body: JSON.stringify({ name, kind, json }),

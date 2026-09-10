@@ -440,9 +440,6 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           const scheduleId = (action as { type: 'schedule'; eventId: string; scheduleId: string }).scheduleId
           const item = event.schedule.find(s => s.id === scheduleId)
           if (!item) { markScheduleAnnounced(db, event.id, scheduleId); break }
-          const anns = (event.announcements ?? []).filter(a => a.trigger === 'schedule')
-          // fallback: one generic schedule announcement if none configured
-          const templates = anns.length > 0 ? anns : [{ id: 'fallback', title: item.title, message: '⏰ **{schedule_title}** — {schedule_desc} {everyone}', trigger: 'schedule' as const }]
           const channelId = event.announcementChannelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
           if (channelId === null || !isSnowflake(event.guildId) || !isSnowflake(channelId)) {
             if (channelId !== null) warnInvalidGuild(event.guildId, 'schedule')
@@ -450,21 +447,30 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             audit(db, 'system', 'schedule.skipped', event.id, { scheduleId, reason: 'no_channel' })
             break
           }
+          // Prefer per-block Zapier actions if present, else global schedule announcement templates
+          const perBlockActions = (item.actions ?? []).filter(a=>a.type==='announce')
+          const globalAnns = (event.announcements ?? []).filter(a => a.trigger === 'schedule')
+          const toSend: { title: string; message: string; channelId?: string | null }[] =
+            perBlockActions.length > 0 ? perBlockActions.map(a=>({ title: a.title, message: a.message, channelId: a.channelId ?? null }))
+            : globalAnns.length > 0 ? globalAnns.map(a=>({ title: a.title, message: a.message, channelId: a.channelId ?? null }))
+            : [{ title: item.title, message: '⏰ **{schedule_title}** — {schedule_desc} {everyone}', channelId: null }]
           try {
             const guild = await client.guilds.fetch(event.guildId)
-            const channel = await guild.channels.fetch(channelId).catch(()=>null)
-            if (channel !== null && channel.isTextBased()) {
-              for (const tpl of templates.slice(0,3)) {
-                const rendered = renderTags(event, tpl.title, tpl.message, item)
-                const embed = new EmbedBuilder().setTitle(rendered.title).setDescription(rendered.message).setColor(item.kind==='food' ? 0x57f287 : item.kind==='break' ? 0xfaa61a : item.kind==='voting' ? 0x5865f2 : item.kind==='prize' ? 0xf0b429 : 0x5865f2)
-                  .setFooter({ text: `${event.name} · <t:${Math.floor(item.time/1000)}:F>` })
-                const payload: { embeds: EmbedBuilder[]; content?: string; allowedMentions?: { parse: ("everyone" | "users" | "roles")[] } } = { embeds: [embed] }
-                if (rendered.hasEveryone || rendered.hasHere) { payload.content = rendered.message; payload.allowedMentions = { parse: ["everyone"] } }
-                await channel.send(payload as never)
-              }
-              audit(db, 'system', 'schedule.announce', event.id, { scheduleId, title: item.title })
-              summary.push(`schedule: ${event.name} — ${item.title}`)
+            const baseChannel = await guild.channels.fetch(channelId).catch(()=>null)
+            if (baseChannel === null || !baseChannel.isTextBased()) { markScheduleAnnounced(db, event.id, scheduleId); break }
+            for (const tpl of toSend.slice(0,5)) {
+              const targetId = tpl.channelId && isSnowflake(tpl.channelId) ? tpl.channelId : channelId
+              const target = targetId === channelId ? baseChannel : await guild.channels.fetch(targetId).catch(()=>null)
+              if (target === null || !target.isTextBased()) continue
+              const rendered = renderTags(event, tpl.title, tpl.message, item)
+              const embed = new EmbedBuilder().setTitle(rendered.title).setDescription(rendered.message).setColor(item.kind==='food' ? 0x57f287 : item.kind==='break' ? 0xfaa61a : item.kind==='voting' ? 0x5865f2 : item.kind==='prize' ? 0xf0b429 : 0x5865f2)
+                .setFooter({ text: `${event.name} · <t:${Math.floor(item.time/1000)}:F>` })
+              const payload: { embeds: EmbedBuilder[]; content?: string; allowedMentions?: { parse: ("everyone" | "users" | "roles")[] } } = { embeds: [embed] }
+              if (rendered.hasEveryone || rendered.hasHere) { payload.content = rendered.message; payload.allowedMentions = { parse: ["everyone"] } }
+              await target.send(payload as never)
             }
+            audit(db, 'system', 'schedule.announce', event.id, { scheduleId, title: item.title, count: toSend.length })
+            summary.push(`schedule: ${event.name} — ${item.title}`)
           } catch (e) { console.warn('schedule announce failed', e) }
           markScheduleAnnounced(db, event.id, scheduleId)
           break;

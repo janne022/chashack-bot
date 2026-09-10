@@ -52,6 +52,15 @@ export interface ScheduleItem {
   title: string;
   description?: string;
   kind?: 'food' | 'break' | 'voting' | 'prize' | 'talk' | 'custom';
+  actions?: ScheduleAction[];
+}
+
+export interface ScheduleAction {
+  id: string;
+  type: 'announce';
+  title: string;
+  message: string;
+  channelId?: string | null;
 }
 
 export interface AnnouncementTemplate {
@@ -321,7 +330,7 @@ export interface Template {
   id: string;
   guildId: string | null;
   name: string;
-  kind: 'event' | 'form';
+  kind: 'event' | 'form' | 'announcement';
   json: string;
   createdAt: number;
 }
@@ -401,7 +410,25 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
     const description = String((raw as unknown as Record<string, unknown>).description ?? '').trim().slice(0, 200) || undefined;
     const kindRaw = String((raw as unknown as Record<string, unknown>).kind ?? 'custom').trim() as ScheduleItem['kind'];
     const kind: ScheduleItem['kind'] = ['food', 'break', 'voting', 'prize', 'talk', 'custom'].includes(kindRaw ?? '') ? kindRaw : 'custom';
-    out.push({ id, time: raw.time, title, ...(description ? { description } : {}), ...(kind ? { kind } : {}) });
+    // actions: zapier-like per-item announcements
+    let actions: ScheduleAction[] | undefined = undefined
+    const rawActions = (raw as unknown as Record<string, unknown>).actions
+    if (Array.isArray(rawActions)) {
+      const norm: ScheduleAction[] = []
+      for (const a of rawActions as unknown[]) {
+        const ar = a as Record<string, unknown>
+        if (!ar || typeof ar.title !== 'string' || typeof ar.message !== 'string') continue
+        const atitle = String(ar.title).trim().slice(0, 100)
+        const amsg = String(ar.message).trim().slice(0, 2000)
+        if (!atitle || !amsg) continue
+        const aid = String(ar.id ?? '').trim() || newId('sact')
+        const atype = String(ar.type ?? 'announce').trim() as ScheduleAction['type']
+        const chan = ar.channelId !== undefined && ar.channelId !== null ? String(ar.channelId).trim() || null : null
+        norm.push({ id: aid, type: 'announce', title: atitle, message: amsg, ...(chan ? { channelId: chan } : {}) })
+      }
+      if (norm.length > 0) actions = norm.slice(0, 10)
+    }
+    out.push({ id, time: raw.time, title, ...(description ? { description } : {}), ...(kind ? { kind } : {}), ...(actions ? { actions } : {}) });
   }
   out.sort((a, b) => a.time - b.time);
   return out.slice(0, 50);

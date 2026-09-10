@@ -551,15 +551,15 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/templates', async (req) => {
     const kind = (req.query as { kind?: string } | undefined)?.kind
-    const templates = listTemplates(db, guildId, kind as 'event' | 'form' | undefined)
+    const templates = listTemplates(db, guildId, kind as never)
     return { templates }
   })
 
   app.post('/api/templates', async (req, reply) => {
     const body = req.body as { eventId?: string; name?: string; kind?: string; formJson?: string; json?: string } | null
     const kind = body?.kind ?? 'event'
-    if (kind !== 'event' && kind !== 'form') {
-      await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be event|form' })
+    if (kind !== 'event' && kind !== 'form' && kind !== 'announcement') {
+      await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be event|form|announcement' })
       return
     }
     let json: string
@@ -580,6 +580,13 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         await reply.code(400).send({ ok: false, code: 'bad_json', message: e instanceof Error ? e.message : 'Invalid form JSON' })
         return
       }
+    } else if (kind === 'announcement') {
+      if (body?.json === undefined && body?.formJson === undefined) {
+        await reply.code(400).send({ ok: false, code: 'bad_input', message: 'json is required for announcement templates.' })
+        return
+      }
+      json = (body.json ?? body.formJson)!
+      try { const p = JSON.parse(json) as Record<string, unknown>; if (typeof p.title !== 'string' || typeof p.message !== 'string') throw new Error('title and message required'); if (typeof p.trigger !== 'string') (p as Record<string,unknown>).trigger='manual'; json = JSON.stringify(p) } catch (e) { await reply.code(400).send({ ok: false, code: 'bad_json', message: e instanceof Error ? e.message : 'Invalid announcement JSON' }); return }
     } else {
       // event template: allow direct json (from editor) or clone an existing event
       if (body?.json !== undefined) {
