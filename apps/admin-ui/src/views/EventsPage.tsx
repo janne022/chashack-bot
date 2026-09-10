@@ -74,8 +74,9 @@ export function EventsPage() {
 function NewEventButton() {
   const { state, refresh } = useAppContext()
   const t = useT()
+  const [chooserOpen, setChooserOpen] = useState(false)
   const [open, setOpen] = useState(false)
-  const [eventMode, setEventMode] = useState<'blank' | 'template'>('blank')
+  const [chooserTemplateId, setChooserTemplateId] = useState<string>('')
   const [templateId, setTemplateId] = useState<string>('')
   const [formMode, setFormMode] = useState<'blank' | 'template'>('blank')
   const [formTemplateId, setFormTemplateId] = useState<string>('')
@@ -95,9 +96,24 @@ function NewEventButton() {
   const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
   const defaults = state.guildSettings
 
-  function onOpen() {
+  function onOpenChooser() {
+    setChooserOpen(true)
+  }
+
+  function openBlank() {
+    setTemplateId('')
+    setChooserTemplateId('')
+    setChooserOpen(false)
     setOpen(true)
-    // prefill from guild defaults if empty
+    if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
+    if (!announceChannelId && defaults.defaultAnnouncementChannelId) setAnnounceChannelId(defaults.defaultAnnouncementChannelId)
+  }
+
+  function openFromTemplate() {
+    if (!chooserTemplateId) return
+    applyTemplate(chooserTemplateId)
+    setChooserOpen(false)
+    setOpen(true)
     if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
     if (!announceChannelId && defaults.defaultAnnouncementChannelId) setAnnounceChannelId(defaults.defaultAnnouncementChannelId)
   }
@@ -144,7 +160,7 @@ function NewEventButton() {
       toast.success(t('events.created', { name: name.trim() }))
 
       setOpen(false)
-      setEventMode('blank')
+      setChooserTemplateId('')
       setTemplateId('')
       setFormMode('blank')
       setFormTemplateId('')
@@ -168,78 +184,84 @@ function NewEventButton() {
 
   return (
     <>
-      <Button onClick={onOpen}>
+      <Button onClick={onOpenChooser}>
         <Plus />
         {t('events.new')}
       </Button>
+      {chooserOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setChooserOpen(false)}>
+          <Card className="w-full max-w-md animate-pop-in" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle>{t('events.chooser_title')}</CardTitle>
+              <CardDescription>{t('events.chooser_desc')}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <button
+                type="button"
+                onClick={openBlank}
+                className="flex items-center gap-3 rounded-xl border border-border bg-surface-2 p-4 text-left transition-colors hover:border-accent/40 hover:bg-accent-soft"
+              >
+                <span className="flex size-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+                  <FilePlus className="size-5" />
+                </span>
+                <span>
+                  <span className="block text-sm font-semibold">{t('events.new_event')}</span>
+                  <span className="block text-xs text-muted-foreground">{t('events.new_event_hint')}</span>
+                </span>
+              </button>
+
+              <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2/40 p-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                    <Layers className="size-4" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold">{t('events.from_template')}</span>
+                    <span className="block text-xs text-muted-foreground">{t('events.from_template_desc')}</span>
+                  </span>
+                </div>
+                {eventTemplates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t('events.no_templates_hint')}</p>
+                ) : (
+                  <>
+                    <Select value={chooserTemplateId} onValueChange={setChooserTemplateId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('events.pick_template')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {eventTemplates.map((tpl) => (
+                          <SelectItem key={tpl.id} value={tpl.id}>{tpl.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button disabled={!chooserTemplateId} onClick={openFromTemplate}>
+                      {t('events.continue_with_template')}
+                    </Button>
+                  </>
+                )}
+              </div>
+
+              <Button variant="ghost" onClick={() => setChooserOpen(false)}>{t('common.cancel')}</Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       {open && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
           <Card
-            className="w-full max-w-lg animate-pop-in overflow-y-auto max-h-[85vh]"
+            className="w-full max-w-[min(48rem,95vw)] animate-pop-in overflow-y-auto max-h-[85vh]"
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
-            <CardHeader>
-              <CardTitle>{t('events.create_title')}</CardTitle>
-              <CardDescription>{t('events.create_desc')}</CardDescription>
+            <CardHeader className="flex flex-row items-start justify-between gap-4">
+              <div>
+                <CardTitle>{t('events.create_title')}</CardTitle>
+                <CardDescription>{t('events.create_desc')}</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => { setOpen(false); setChooserOpen(true) }}>
+                {t('events.change_template')}
+              </Button>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <span className="text-sm font-medium">{t('events.template')}</span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { setEventMode('blank'); setTemplateId('') }}
-                    className={cn(
-                      "flex items-center gap-3 rounded-xl border p-3 text-left transition-colors",
-                      eventMode === 'blank' ? "border-accent bg-accent-soft ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
-                    )}
-                  >
-                    <span className={cn("flex size-8 items-center justify-center rounded-lg", eventMode === 'blank' ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground")}>
-                      <FilePlus className="size-4" />
-                    </span>
-                    <span>
-                      <span className="block text-sm font-semibold">{t('events.new_event')}</span>
-                      <span className="block text-xs text-muted-foreground">{t('events.new_event_desc')}</span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEventMode('template')}
-                    disabled={eventTemplates.length === 0}
-                    className={cn(
-                      "flex items-center gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50",
-                      eventMode === 'template' ? "border-accent bg-accent-soft ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
-                    )}
-                  >
-                    <span className={cn("flex size-8 items-center justify-center rounded-lg", eventMode === 'template' ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground")}>
-                      <Layers className="size-4" />
-                    </span>
-                    <span>
-                      <span className="block text-sm font-semibold">{t('events.from_template')}</span>
-                      <span className="block text-xs text-muted-foreground">{t('events.from_template_desc')}</span>
-                    </span>
-                  </button>
-                </div>
-                {eventMode === 'template' && (
-                  <Select value={templateId} onValueChange={(v) => applyTemplate(v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={t('events.pick_template')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {eventTemplates.map((tpl) => (
-                        <SelectItem key={tpl.id} value={tpl.id}>
-                          {tpl.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                {eventMode === 'blank' ? (
-                  <span className="text-xs text-muted-foreground">{t('events.new_event_hint')}</span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">{t('events.template_hint')}</span>
-                )}
-              </div>
 
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.name')}</span>
