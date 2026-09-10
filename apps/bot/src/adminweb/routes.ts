@@ -131,10 +131,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.get('/api/guild/channels', async () => {
-    if (deps.client === null) return { channels: [], categories: [] };
+    if (deps.client === null) return { channels: [], categories: [], roles: [] };
     if (!isSnowflake(guildId)) {
       console.warn(`GET /api/guild/channels: DISCORD_GUILD_ID not set or invalid ("${guildId}") — returning empty. Set it in .env.`);
-      return { channels: [], categories: [] };
+      return { channels: [], categories: [], roles: [] };
     }
     try {
       const guild = await deps.client.guilds.fetch(guildId);
@@ -147,10 +147,27 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         .filter((c) => c !== null && c.type === 4) // GUILD_CATEGORY
         .map((c) => ({ id: c!.id, name: c!.name }))
         .sort((a, b) => a.name.localeCompare(b.name));
-      return { channels: textChannels, categories };
+      const roles = [...guild.roles.cache.values()]
+        .filter(r => r.id !== guild.roles.everyone.id)
+        .map(r => ({ id: r.id, name: r.name, color: r.hexColor, position: r.position }))
+        .sort((a,b)=>b.position-a.position);
+      return { channels: textChannels, categories, roles };
     } catch {
-      return { channels: [], categories: [] };
+      return { channels: [], categories: [], roles: [] };
     }
+  });
+
+  app.get('/api/guild/roles', async () => {
+    if (deps.client === null) return { roles: [] };
+    if (!isSnowflake(guildId)) return { roles: [] };
+    try {
+      const guild = await deps.client.guilds.fetch(guildId);
+      const roles = [...guild.roles.cache.values()]
+        .filter(r => r.id !== guild.roles.everyone.id)
+        .map(r => ({ id: r.id, name: r.name, color: r.hexColor }))
+        .sort((a,b)=>a.name.localeCompare(b.name));
+      return { roles };
+    } catch { return { roles: [] } }
   });
 
   app.post('/api/diag/channel-test', async (req, reply) => {
@@ -677,6 +694,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       defaultCategoryId?: string | null
       defaultCleanupDelayHours?: number | null
       defaultFormTemplateId?: string | null
+      modRoleIds?: string[] | null
     } | null
     if (!body) {
       await reply.code(400).send({ ok: false, code: 'bad_input', message: 'Body required.' })
@@ -687,6 +705,13 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if ('defaultAnnouncementChannelId' in body) cleaned.defaultAnnouncementChannelId = body.defaultAnnouncementChannelId ?? null
     if ('defaultPanelChannelId' in body) cleaned.defaultPanelChannelId = body.defaultPanelChannelId ?? null
     if ('defaultCategoryId' in body) cleaned.defaultCategoryId = body.defaultCategoryId ?? null
+    if ('modRoleIds' in body) {
+      const arr = body.modRoleIds
+      if (arr !== null && (!Array.isArray(arr) || arr.some(v=>typeof v !== 'string' || !isSnowflake(v)))) {
+        await reply.code(400).send({ ok: false, code: 'bad_input', message: 'modRoleIds must be array of role snowflakes or null.' }); return
+      }
+      cleaned.modRoleIds = arr ?? []
+    }
     if ('defaultFormTemplateId' in body) {
       const id = body.defaultFormTemplateId
       if (id !== null && id !== '' && listTemplates(db, guildId, 'form').find(t => t.id === id) === undefined) {

@@ -102,6 +102,7 @@ export const api = {
     defaultCategoryId?: string | null
     defaultCleanupDelayHours?: number | null
     defaultFormTemplateId?: string | null
+    modRoleIds?: string[] | null
   }): Promise<{ settings: AppState['guildSettings'] }> {
     return request('/api/guild/settings', {
       method: 'POST',

@@ -155,6 +155,7 @@ export interface AppState {
     defaultCategoryId: string | null
     defaultCleanupDelayHours: number | null
     defaultFormTemplateId: string | null
+    modRoleIds: string[]
   }
   guildConfigured: boolean
   guildId: string

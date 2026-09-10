@@ -19,18 +19,21 @@ export function ConfigPage() {
   const [category, setCategory] = useState(gs.defaultCategoryId ?? gs.teamCategoryId ?? '')
   const [cleanup, setCleanup] = useState(gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '')
   const [defaultForm, setDefaultForm] = useState(gs.defaultFormTemplateId ?? '')
+  const [modRoles, setModRoles] = useState<string[]>(gs.modRoleIds ?? [])
   const [busy, setBusy] = useState(false)
   const [testingPanel, setTestingPanel] = useState(false)
   const [testingAnnounce, setTestingAnnounce] = useState(false)
   const [channels, setChannels] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
+  const [roles, setRoles] = useState<{ id: string; name: string; color: string }[]>([])
 
   useEffect(() => {
     fetch('/api/guild/channels')
       .then((r) => r.json())
-      .then((j: { channels: { id: string; name: string }[]; categories: { id: string; name: string }[] }) => {
+      .then((j: { channels: { id: string; name: string }[]; categories: { id: string; name: string }[]; roles?: { id: string; name: string; color: string }[] }) => {
         setChannels(j.channels ?? [])
         setCategories(j.categories ?? [])
+        setRoles(j.roles ?? [])
       })
       .catch(() => undefined)
   }, [])
@@ -42,14 +45,16 @@ export function ConfigPage() {
     setCategory(gs.defaultCategoryId ?? gs.teamCategoryId ?? '')
     setCleanup(gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '')
     setDefaultForm(gs.defaultFormTemplateId ?? '')
-  }, [gs.defaultPanelChannelId, gs.defaultAnnouncementChannelId, gs.defaultCategoryId, gs.teamCategoryId, gs.defaultCleanupDelayHours, gs.defaultFormTemplateId])
+    setModRoles(gs.modRoleIds ?? [])
+  }, [gs.defaultPanelChannelId, gs.defaultAnnouncementChannelId, gs.defaultCategoryId, gs.teamCategoryId, gs.defaultCleanupDelayHours, gs.defaultFormTemplateId, gs.modRoleIds])
 
   const dirty =
     panel !== (gs.defaultPanelChannelId ?? '') ||
     announce !== (gs.defaultAnnouncementChannelId ?? '') ||
     category !== (gs.defaultCategoryId ?? gs.teamCategoryId ?? '') ||
     cleanup !== (gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '') ||
-    defaultForm !== (gs.defaultFormTemplateId ?? '')
+    defaultForm !== (gs.defaultFormTemplateId ?? '') ||
+    JSON.stringify([...modRoles].sort()) !== JSON.stringify([...(gs.modRoleIds ?? [])].sort())
 
   async function save() {
     const payload: Record<string, unknown> = {}
@@ -60,6 +65,7 @@ export function ConfigPage() {
     payload.defaultCategoryId = catVal
     payload.teamCategoryId = catVal
     payload.defaultFormTemplateId = defaultForm.trim() === '' ? null : defaultForm.trim()
+    payload.modRoleIds = modRoles
     payload.defaultCleanupDelayHours = cleanup.trim() === '' ? null : Number(cleanup)
 
     if (payload.defaultCleanupDelayHours !== null && (Number.isNaN(payload.defaultCleanupDelayHours as number) || (payload.defaultCleanupDelayHours as number) < 0 || (payload.defaultCleanupDelayHours as number) > 720)) {
@@ -217,6 +223,48 @@ export function ConfigPage() {
               {busy ? t('common.save') + '…' : t('common.save')}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="size-4 text-accent" />
+            Moderator roles
+          </CardTitle>
+          <CardDescription>
+            Who can run <code className="rounded bg-muted px-1">/hackathon admin</code> commands in Discord without <b>Manage Server</b>. ADMIN_IDS and Manage Server / Administrator always work.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {roles.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No roles found — is the bot in the guild and does it have access? You need to set DISCORD_GUILD_ID and restart.</p>
+          ) : (
+            <>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {roles.map(r=> {
+                  const checked = modRoles.includes(r.id)
+                  return (
+                    <label key={r.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors ${checked ? "border-accent bg-accent-soft" : "border-border hover:border-accent/40 bg-surface-2/40"}`}>
+                      <input type="checkbox" className="sr-only" checked={checked} onChange={e=>{
+                        setModRoles(prev => e.target.checked ? [...prev, r.id] : prev.filter(id=>id!==r.id))
+                      }} />
+                      <span className="flex size-3 shrink-0 rounded-full" style={{ backgroundColor: r.color && r.color !== "#000000" ? r.color : "#71717a" }} />
+                      <span className="flex-1 truncate font-medium">{r.name}</span>
+                      <span className={`flex size-4 items-center justify-center rounded border text-[10px] ${checked ? "border-accent bg-accent text-accent-foreground" : "border-input bg-background"}`}>{checked ? "✓" : ""}</span>
+                    </label>
+                  )
+                })}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>{modRoles.length} selected</span>
+                {modRoles.length>0 && <Button variant="ghost" size="sm" onClick={()=>setModRoles([])}>Clear</Button>}
+                <span className="flex-1" />
+                <span>Live in Discord immediately after Save.</span>
+              </div>
+            </>
+          )}
+          {modRoles.length===0 && <p className="text-xs text-muted-foreground">No extra roles selected — only Manage Server / Administrator + ADMIN_IDS can manage ChasHack.</p>}
         </CardContent>
       </Card>
 
