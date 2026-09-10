@@ -1,6 +1,6 @@
 "use client"
 import { useState } from "react"
-import type { FormConfig, ScheduleItem } from "@/types"
+import type { FormConfig, ScheduleItem, AnnouncementTemplate } from "@/types"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,6 +8,7 @@ import { Label, Textarea } from "@/components/ui/textarea-label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScheduleEditor } from "@/components/ui/schedule-editor"
 import { FormConfigEditor } from "@/components/FormConfigEditor"
+import { AnnouncementEditor } from "@/components/AnnouncementEditor"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
 export interface EventTemplateDraft {
@@ -16,6 +17,7 @@ export interface EventTemplateDraft {
   cleanupDelayHours: number
   form: FormConfig
   schedule: ScheduleItem[]
+  announcements: AnnouncementTemplate[]
 }
 
 export function EventTemplateEditor({
@@ -94,6 +96,13 @@ export function EventTemplateEditor({
           </div>
           {showForm && <FormConfigEditor value={value.form} onChange={form=>onChange({ ...value, form })} />}
           {!showForm && <div className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2 text-sm text-muted-foreground">{value.form.title} · team size {value.form.teamSize} · {value.form.roleTracks.length} roles · {value.form.skills.length} skills</div>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Discord announcements</CardTitle><CardDescription>Tag-based messages that auto-fire. On activate → once. Schedule → at each schedule block. Manual → via Announce button.</CardDescription></CardHeader>
+        <CardContent>
+          <AnnouncementEditor value={value.announcements} onChange={anns=>onChange({ ...value, announcements: anns })} eventName={value.name} schedule={value.schedule} />
         </CardContent>
       </Card>
     </div>

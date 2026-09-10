@@ -644,6 +644,14 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
+  const announcementPresets = (event.announcements ?? []).filter(a=>a.trigger==='manual' || a.trigger==='on_activate' || a.trigger==='schedule')
+  function applyPreset(id: string) {
+    const tpl = (event.announcements ?? []).find(a=>a.id===id)
+    if (!tpl) return
+    setTitle(tpl.title)
+    setMessage(tpl.message)
+  }
+
   async function send() {
     const parsed = announceSchema.safeParse({ eventId: event.id, title: title.trim(), message: message.trim(), dm })
     if (!parsed.success) {
@@ -689,12 +697,26 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
               <CardDescription>{t('events.announce_desc')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              {announcementPresets.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Quick fill from template announcements</span>
+                  <Select onValueChange={applyPreset}>
+                    <SelectTrigger><SelectValue placeholder="Pick a preset (supports tags)" /></SelectTrigger>
+                    <SelectContent>
+                      {announcementPresets.map(p=> <SelectItem key={p.id} value={p.id}>{p.trigger === 'schedule' ? `⏰ ${p.title}` : p.trigger === 'on_activate' ? `🚀 ${p.title}` : p.title} — {p.message.slice(0,40)}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.channel')}</span>
                 <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="Override channel ID (optional)" maxLength={30} />
               </label>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('events.headline_placeholder')} maxLength={100} />
-              <Textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('events.message_placeholder')} maxLength={800} />
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('events.headline_placeholder') + " — tags: {event} {everyone}"} maxLength={100} />
+              <Textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('events.message_placeholder') + " — e.g. Listen up {everyone} {event} starts {timer} — {panel}"} maxLength={2000} />
+              <div className="rounded-md border border-dashed border-border bg-surface-2/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                <b>Tags:</b> {"{event}"} {"{panel}"} {"{everyone}"} {"{here}"} {"{timer}"} {"{startsAt}"} {"{endsAt}"} {"{schedule}"} {"{schedule_title}"} {"{schedule_desc}"} {"{schedule_time}"} — see Templates → Event → Discord announcements for full guide + preview.
+              </div>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={dm} onCheckedChange={setDm} />
                 {t('events.also_dm')}

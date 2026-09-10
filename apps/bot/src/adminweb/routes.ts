@@ -251,6 +251,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       templateId?: string;
       formTemplateId?: string;
       schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[];
+      announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
       saveAsTemplate?: boolean;
       saveTemplateName?: string;
     } | null;
@@ -294,6 +295,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     // Fall back to guild defaults when not explicitly provided
     const gs = getGuildSettings(db, guildId)
     let schedule = body.schedule
+    let announcements = body.announcements as never | undefined
     // If template provided a schedule and no explicit schedule, keep template's schedule
     if (schedule === undefined && body.templateId !== undefined) {
       const tpl = listTemplates(db, guildId, 'event').find((t) => t.id === body.templateId)
@@ -301,6 +303,11 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         const { templateToEventInput } = await import('../features/events/data.js')
         const tplInput = templateToEventInput(tpl.json)
         schedule = tplInput.schedule as never
+        // also carry announcements from template if not overridden
+        if (announcements === undefined) {
+          const parsed = JSON.parse(tpl.json) as { announcements?: typeof announcements }
+          if (Array.isArray(parsed.announcements)) announcements = parsed.announcements as never
+        }
       }
     }
     const res = createEvent(db, 'web', guildId, {
@@ -314,6 +321,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(gs.defaultCleanupDelayHours != null ? { cleanupDelayHours: gs.defaultCleanupDelayHours } : {}),
       ...(form !== undefined ? { form } : {}),
       ...(schedule !== undefined ? { schedule: schedule as never } : {}),
+      ...(announcements !== undefined ? { announcements: announcements as never } : {}),
     });
     if (!res.ok) {
       await reply.code(400).send(res);
@@ -332,6 +340,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
           cleanupDelayHours: savedEvent.cleanupDelayHours,
           form: getEventForm(db, savedEvent, DEFAULT_FORM),
           schedule: savedEvent.schedule,
+          announcements: savedEvent.announcements,
         }
         saveTemplate(db, 'web', guildId, tplName, 'event', JSON.stringify(payload))
       }
@@ -376,12 +385,27 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       if (annChannel !== null) {
         try {
           const { sendAnnouncement } = await import('../discord/notify.js')
-          const title = `${event.name} — signups open!`
-          const when = event.startsAt !== null ? `🗓️ <t:${Math.floor(event.startsAt / 1000)}:F>` : ''
-          const where = targetPanel ? `Join in <#${targetPanel}>` : ''
-          const desc = [event.description, '', when, where].filter(Boolean).join('\n').slice(0, 800)
-          const r = await sendAnnouncement({ db, client: deps.client }, 'web', event, title, desc || 'Signups are open — hit Join in the panel!', false, annChannel)
-          announceResult = { posted: r.posted, reason: r.reason, channelId: r.channelId }
+          const { renderAnnouncementTags } = await import('../features/events/data.js')
+          // Prefer on_activate templates from the event; fallback to generic
+          const onActivateTemplates = (event.announcements ?? []).filter(a=>a.trigger==='on_activate')
+          if (onActivateTemplates.length > 0) {
+            let first: { posted: boolean; reason: string; channelId: string | null } | null = null
+            for (const tpl of onActivateTemplates.slice(0,2)) {
+              const rt = renderAnnouncementTags(tpl.title, event)
+              const rm = renderAnnouncementTags(tpl.message, event)
+              const chan = tpl.channelId ?? annChannel
+              const r = await sendAnnouncement({ db, client: deps.client }, 'web', event, rt.content, rm.content, false, chan)
+              if (!first) first = { posted: r.posted, reason: r.reason, channelId: r.channelId }
+            }
+            announceResult = first
+          } else {
+            const title = `${event.name} — signups open!`
+            const when = event.startsAt !== null ? `🗓️ <t:${Math.floor(event.startsAt / 1000)}:F>` : ''
+            const where = targetPanel ? `Join in <#${targetPanel}>` : ''
+            const desc = [event.description, '', when, where].filter(Boolean).join('\n').slice(0, 800)
+            const r = await sendAnnouncement({ db, client: deps.client }, 'web', event, title, desc || 'Signups are open — hit Join in the panel!', false, annChannel)
+            announceResult = { posted: r.posted, reason: r.reason, channelId: r.channelId }
+          }
         } catch (e) {
           announceResult = { posted: false, reason: e instanceof Error ? e.message : String(e), channelId: annChannel }
         }
@@ -405,6 +429,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       cleanupDelayHours?: number;
       matchAt?: number | null;
       schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[];
+      announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
     } | null;
     const res = updateEvent(db, 'web', eventId, {
       ...(body?.name !== undefined ? { name: body.name } : {}),
@@ -416,6 +441,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body?.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : {}),
       ...(body?.matchAt !== undefined ? { matchAt: body.matchAt } : {}),
       ...(body?.schedule !== undefined ? { schedule: body.schedule as never } : {}),
+      ...(body?.announcements !== undefined ? { announcements: body.announcements as never } : {}),
     });
     if (!res.ok) {
       await reply.code(400).send(res);

@@ -111,6 +111,8 @@ export interface HackathonEvent {
   matchLocked: boolean
   discordEventIds: string[]
   schedule: ScheduleItem[]
+  announcements: AnnouncementTemplate[]
+  announcedScheduleIds: string[]
   createdAt: number
   updatedAt: number
 }
@@ -121,6 +123,14 @@ export interface ScheduleItem {
   title: string
   description?: string
   kind?: 'food' | 'break' | 'voting' | 'prize' | 'talk' | 'custom'
+}
+
+export interface AnnouncementTemplate {
+  id: string
+  title: string
+  message: string
+  trigger: 'manual' | 'on_activate' | 'on_start' | 'schedule'
+  channelId?: string | null
 }
 
 export interface EventTemplate {

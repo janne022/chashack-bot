@@ -40,6 +40,8 @@ export interface HackathonEvent {
   discordEventIds: string[];
   announcementChannelId: string | null;
   schedule: ScheduleItem[];
+  announcements: AnnouncementTemplate[];
+  announcedScheduleIds: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -50,6 +52,14 @@ export interface ScheduleItem {
   title: string;
   description?: string;
   kind?: 'food' | 'break' | 'voting' | 'prize' | 'talk' | 'custom';
+}
+
+export interface AnnouncementTemplate {
+  id: string;
+  title: string;
+  message: string;
+  trigger: 'manual' | 'on_activate' | 'on_start' | 'schedule';
+  channelId?: string | null;
 }
 
 interface EventRow {
@@ -73,6 +83,8 @@ interface EventRow {
   discord_event_ids: string;
   announcement_channel_id: string | null;
   schedule_json: string | null;
+  announcements_json: string | null;
+  announced_schedule_ids: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -90,6 +102,20 @@ function toEvent(row: EventRow): HackathonEvent {
     if (!Array.isArray(schedule)) schedule = [];
   } catch {
     schedule = [];
+  }
+  let announcements: AnnouncementTemplate[] = [];
+  try {
+    announcements = row.announcements_json ? (JSON.parse(row.announcements_json) as AnnouncementTemplate[]) : [];
+    if (!Array.isArray(announcements)) announcements = [];
+  } catch {
+    announcements = [];
+  }
+  let announcedScheduleIds: string[] = [];
+  try {
+    announcedScheduleIds = row.announced_schedule_ids ? (JSON.parse(row.announced_schedule_ids) as string[]) : [];
+    if (!Array.isArray(announcedScheduleIds)) announcedScheduleIds = [];
+  } catch {
+    announcedScheduleIds = [];
   }
   return {
     id: row.id,
@@ -112,6 +138,8 @@ function toEvent(row: EventRow): HackathonEvent {
     discordEventIds,
     announcementChannelId: row.announcement_channel_id ?? null,
     schedule,
+    announcements,
+    announcedScheduleIds,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -131,6 +159,7 @@ export interface CreateEventInput {
   categoryId?: string | null;
   cleanupDelayHours?: number;
   schedule?: ScheduleItem[];
+  announcements?: AnnouncementTemplate[];
 }
 
 export function createEvent(db: Db, actor: string, guildId: string, input: CreateEventInput): Result<HackathonEvent> {
@@ -147,9 +176,12 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
   const id = newId('ev');
   const form: FormConfig = normalizeFormUpdate({ ...DEFAULT_FORM, ...(input.form ?? {}) }, {});
   const schedule = normalizeSchedule(input.schedule ?? []);
+  const announcements = normalizeAnnouncements(input.announcements ?? []);
+  // seed defaults if none provided — at least on_activate + schedule
+  const seededAnnouncements = announcements.length > 0 ? announcements : defaultAnnouncements(name);
   db.prepare(
-    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, status, form_json, panel_channel_id, announcement_channel_id, category_id, cleanup_delay_hours, schedule_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, status, form_json, panel_channel_id, announcement_channel_id, category_id, cleanup_delay_hours, schedule_json, announcements_json, announced_schedule_ids, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     guildId,
@@ -163,6 +195,8 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
     input.categoryId ?? null,
     input.cleanupDelayHours ?? 48,
     JSON.stringify(schedule),
+    JSON.stringify(seededAnnouncements),
+    JSON.stringify([]),
     Date.now(),
     Date.now(),
   );
@@ -192,7 +226,7 @@ export function updateEvent(
   db: Db,
   actor: string,
   eventId: string,
-  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'announcementChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds' | 'schedule'>>,
+  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'panelChannelId' | 'announcementChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds' | 'schedule' | 'announcements'>>,
 ): Result<HackathonEvent> {
   const event = getEvent(db, eventId);
   if (event === null) return err('not_found', 'Event not found.');
@@ -214,7 +248,7 @@ export function updateEvent(
       : event.cleanupDelayHours;
 
   db.prepare(
-    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, updated_at = ?
+    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, announcements_json = ?, updated_at = ?
      WHERE id = ?`,
   ).run(
     name,
@@ -228,6 +262,7 @@ export function updateEvent(
     update.matchAt !== undefined ? update.matchAt : event.matchAt,
     update.discordEventIds !== undefined ? JSON.stringify(update.discordEventIds) : JSON.stringify(event.discordEventIds),
     update.schedule !== undefined ? JSON.stringify(normalizeSchedule(update.schedule)) : JSON.stringify(event.schedule),
+    update.announcements !== undefined ? JSON.stringify(normalizeAnnouncements(update.announcements)) : JSON.stringify(event.announcements),
     Date.now(),
     eventId,
   );
@@ -351,6 +386,7 @@ export function templateToEventInput(json: string): Partial<CreateEventInput> {
     ...(parsed.cleanupDelayHours !== undefined ? { cleanupDelayHours: parsed.cleanupDelayHours } : {}),
     ...(parsed.form !== undefined ? { form: parsed.form } : {}),
     ...(parsed.schedule !== undefined ? { schedule: normalizeSchedule(parsed.schedule) } : {}),
+    ...(parsed.announcements !== undefined ? { announcements: normalizeAnnouncements(parsed.announcements) } : {}),
   };
 }
 
@@ -371,6 +407,30 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
   return out.slice(0, 50);
 }
 
+export function normalizeAnnouncements(items: AnnouncementTemplate[]): AnnouncementTemplate[] {
+  if (!Array.isArray(items)) return [];
+  const out: AnnouncementTemplate[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw.title !== 'string' || typeof raw.message !== 'string') continue;
+    const title = raw.title.trim().slice(0, 100);
+    const message = raw.message.trim().slice(0, 2000);
+    if (!title || !message) continue;
+    const trigger = (['manual','on_activate','on_start','schedule'] as const).includes(raw.trigger as never) ? raw.trigger : 'manual';
+    const id = String((raw as unknown as Record<string, unknown>).id ?? '').trim() || newId('ann');
+    const channelId = raw.channelId !== undefined && raw.channelId !== null ? String(raw.channelId).trim() || null : null;
+    out.push({ id, title, message, trigger, ...(channelId ? { channelId } : {}) });
+  }
+  return out.slice(0, 20);
+}
+
+export function defaultAnnouncements(eventName: string): AnnouncementTemplate[] {
+  return [
+    { id: newId('ann'), title: `${eventName} — signups open!`, message: 'Listen up {everyone} **{event}** is live! Sign up in {panel} — starts {timer}', trigger: 'on_activate' },
+    { id: newId('ann'), title: '{event} starting soon', message: '{everyone} **{event}** starts {timer} — get ready! {panel}', trigger: 'on_start' },
+    { id: newId('ann'), title: '{schedule_title}', message: '⏰ **{schedule_title}** — {schedule_desc} {timer_schedule} {everyone}', trigger: 'schedule' },
+  ]
+}
+
 // ─── maintenance planner (pure, fully unit-testable) ────────────────────────
 
 export type MaintenanceAction =
@@ -378,7 +438,8 @@ export type MaintenanceAction =
   | { type: 'end_event'; eventId: string }
   | { type: 'cleanup_warn'; eventId: string; hoursLeft: number }
   | { type: 'cleanup'; eventId: string }
-  | { type: 'auto_match'; eventId: string };
+  | { type: 'auto_match'; eventId: string }
+  | { type: 'schedule'; eventId: string; scheduleId: string };
 
 /** Decide what should happen now, given the current time. Pure. */
 export function planMaintenance(events: HackathonEvent[], now: number): MaintenanceAction[] {
@@ -398,6 +459,14 @@ export function planMaintenance(events: HackathonEvent[], now: number): Maintena
       }
       if (event.endsAt !== null && event.endsAt <= now) {
         actions.push({ type: 'end_event', eventId: event.id });
+      }
+      // Schedule items: fire once when time is reached (within 10 min window to avoid backlog spam)
+      const announced = new Set(event.announcedScheduleIds ?? [])
+      for (const item of event.schedule ?? []) {
+        if (announced.has(item.id)) continue
+        if (item.time <= now && now - item.time <= 60*60*1000 && item.time > now - 24*3600*1000) {
+          actions.push({ type: 'schedule', eventId: event.id, scheduleId: item.id })
+        }
       }
     }
     if (event.status === 'ended' && !event.cleanupDone && event.endsAt !== null) {
@@ -432,6 +501,8 @@ export async function listEventsForMaintenance(kysely: KyselyDb): Promise<Hackat
       ...(row as unknown as EventRow),
       discord_event_ids: row.discord_event_ids ?? '[]',
       schedule_json: (row as unknown as { schedule_json?: string | null }).schedule_json ?? '[]',
+      announcements_json: (row as unknown as { announcements_json?: string | null }).announcements_json ?? '[]',
+      announced_schedule_ids: (row as unknown as { announced_schedule_ids?: string | null }).announced_schedule_ids ?? '[]',
     }),
   );
 }
@@ -478,4 +549,57 @@ export function setMatchAt(db: import('../../shared/db.js').Db, actor: string, e
   const res = updateEvent(db, actor, eventId, { matchAt });
   if (res.ok) audit(db, actor, 'event.match_schedule', eventId, { matchAt });
   return res;
+}
+
+/** Tag renderer for announcement templates. Tags: {event} {event_description} {panel} {everyone} {here} {timer} {startsAt} {endsAt} {schedule} {schedule_title} {schedule_desc} {schedule_time} {timer_schedule} */
+export function renderAnnouncementTags(template: string, event: HackathonEvent, ctx: { scheduleItem?: ScheduleItem } = {}): { content: string; hasEveryone: boolean; hasHere: boolean } {
+  let content = template
+  const everyone = template.includes('{everyone}')
+  const here = template.includes('{here}')
+  content = content.replaceAll('{event}', event.name)
+  content = content.replaceAll('{event_description}', event.description)
+  content = content.replaceAll('{everyone}', '@everyone')
+  content = content.replaceAll('{here}', '@here')
+  const panel = event.panelChannelId ? `<#${event.panelChannelId}>` : 'panel not set'
+  const announce = event.announcementChannelId ? `<#${event.announcementChannelId}>` : panel
+  content = content.replaceAll('{panel}', panel)
+  content = content.replaceAll('{announce}', announce)
+  if (event.startsAt !== null) {
+    content = content.replaceAll('{timer}', `<t:${Math.floor(event.startsAt/1000)}:R>`)
+    content = content.replaceAll('{startsAt}', `<t:${Math.floor(event.startsAt/1000)}:F>`)
+  } else {
+    content = content.replaceAll('{timer}', '')
+    content = content.replaceAll('{startsAt}', 'TBA')
+  }
+  if (event.endsAt !== null) content = content.replaceAll('{endsAt}', `<t:${Math.floor(event.endsAt/1000)}:F>`)
+  else content = content.replaceAll('{endsAt}', 'TBA')
+
+  // schedule
+  if (ctx.scheduleItem) {
+    content = content.replaceAll('{schedule_title}', ctx.scheduleItem.title)
+    content = content.replaceAll('{schedule_desc}', ctx.scheduleItem.description ?? '')
+    content = content.replaceAll('{schedule_time}', `<t:${Math.floor(ctx.scheduleItem.time/1000)}:t>`)
+    content = content.replaceAll('{timer_schedule}', `<t:${Math.floor(ctx.scheduleItem.time/1000)}:R>`)
+    content = content.replaceAll('{schedule_kind}', ctx.scheduleItem.kind ?? 'custom')
+  } else {
+    // if no specific item, {schedule} = list, others empty
+    const schedList = (event.schedule ?? []).map(s=> `• <t:${Math.floor(s.time/1000)}:t> ${s.title}`).join('\n') || 'No schedule yet'
+    content = content.replaceAll('{schedule}', schedList)
+    content = content.replaceAll('{schedule_title}', '')
+    content = content.replaceAll('{schedule_desc}', '')
+    content = content.replaceAll('{schedule_time}', '')
+    content = content.replaceAll('{timer_schedule}', '')
+    content = content.replaceAll('{schedule_kind}', '')
+  }
+  // collapse double spaces from empty replacements
+  content = content.replaceAll('  ', ' ').trim()
+  return { content, hasEveryone: everyone, hasHere: here }
+}
+
+/** Mark a schedule item as announced so planMaintenance won't re-fire. */
+export function markScheduleAnnounced(db: import('../../shared/db.js').Db, eventId: string, scheduleId: string): void {
+  const event = getEvent(db, eventId)
+  if (!event) return
+  const next = [...new Set([...(event.announcedScheduleIds ?? []), scheduleId])]
+  db.prepare('UPDATE events SET announced_schedule_ids = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), Date.now(), eventId)
 }

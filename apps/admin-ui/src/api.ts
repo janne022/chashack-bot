@@ -201,6 +201,7 @@ export const api = {
       cleanupDelayHours?: number
       matchAt?: number | null
       schedule?: { id: string; time: number; title: string; description?: string; kind?: string }[]
+      announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[]
     },
   ): Promise<void> {
     await request(`/api/events/${eventId}`, {

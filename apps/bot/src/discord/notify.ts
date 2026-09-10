@@ -17,7 +17,10 @@ import {
   endEvent,
   markCleanupWarned,
   markMatchLocked,
+  markScheduleAnnounced,
+  renderAnnouncementTags,
   type HackathonEvent,
+  type ScheduleItem,
 } from '../features/events/data.js';
 import type { KyselyDb } from '../shared/kysely.js';
 import { listParticipants } from '../features/signup/data.js';
@@ -51,8 +54,19 @@ function buildAnnouncementEmbed(event: HackathonEvent, title: string, message: s
   const lines: string[] = [message, ''];
   if (event.startsAt !== null) lines.push(`🗓️ **${t(locale, 'discord.events.starts')}:** <t:${Math.floor(event.startsAt / 1000)}:F> (<t:${Math.floor(event.startsAt / 1000)}:R>)`);
   if (event.endsAt !== null) lines.push(`🏁 **${t(locale, 'discord.events.ends')}:** <t:${Math.floor(event.endsAt / 1000)}:F>`);
+  // If schedule exists, include next 3 items in embed footer for context
+  if (event.schedule && event.schedule.length > 0) {
+    const next = [...event.schedule].sort((a,b)=>a.time-b.time).slice(0,3).map(s=> `• <t:${Math.floor(s.time/1000)}:t> ${s.title}`).join('\n')
+    if (next) lines.push('', '**Schedule:**', next)
+  }
   lines.push('', t(locale, 'discord.notify.sign_up_in', { channel: event.panelChannelId ?? '' }));
   return new EmbedBuilder().setTitle(t(locale, 'discord.notify.announce_title_prefix', { title })).setDescription(lines.join('\n')).setColor(0x5865f2);
+}
+
+function renderTags(event: HackathonEvent, title: string, message: string, scheduleItem?: ScheduleItem) {
+  const rTitle = renderAnnouncementTags(title, event, scheduleItem ? { scheduleItem } : {})
+  const rMsg = renderAnnouncementTags(message, event, scheduleItem ? { scheduleItem } : {})
+  return { title: rTitle.content, message: rMsg.content, hasEveryone: rTitle.hasEveryone || rMsg.hasEveryone, hasHere: rTitle.hasHere || rMsg.hasHere }
 }
 
 /**
@@ -106,7 +120,16 @@ export async function sendAnnouncement(
         } else if (reason.startsWith('missing_access')) {
           // don't try to send
         } else {
-          await channel.send({ embeds: [buildAnnouncementEmbed(event, title, message)] });
+          const rendered = renderTags(event, title, message)
+          const embed = buildAnnouncementEmbed(event, rendered.title, rendered.message)
+          const shouldPing = rendered.hasEveryone || rendered.hasHere
+          // Send as content + embed so @everyone/@here actually pings; Discord only pings from content, not embed
+          const payload: { embeds: ReturnType<typeof buildAnnouncementEmbed>[]; content?: string; allowedMentions?: { parse: ("everyone" | "users" | "roles")[] } } = { embeds: [embed] }
+          if (shouldPing) {
+            payload.content = rendered.message
+            payload.allowedMentions = { parse: ["everyone"] }
+          }
+          await channel.send(payload as never);
           posted = true;
           reason = 'ok'
         }
@@ -125,7 +148,8 @@ export async function sendAnnouncement(
   let dmFailed = 0;
   if (dmParticipants) {
     const participants = listParticipants(db, event.id, 'active');
-    const embed = buildAnnouncementEmbed(event, title, message);
+    const renderedDM = renderTags(event, title, message)
+    const embed = buildAnnouncementEmbed(event, renderedDM.title, renderedDM.message);
     for (const p of participants) {
       try {
         const user = await client.users.fetch(p.userId);
@@ -410,6 +434,39 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 .catch((err2) => console.warn('auto_match announcement failed:', err2));
             }
           }
+          break;
+        }
+        case 'schedule': {
+          const scheduleId = (action as { type: 'schedule'; eventId: string; scheduleId: string }).scheduleId
+          const item = event.schedule.find(s => s.id === scheduleId)
+          if (!item) { markScheduleAnnounced(db, event.id, scheduleId); break }
+          const anns = (event.announcements ?? []).filter(a => a.trigger === 'schedule')
+          // fallback: one generic schedule announcement if none configured
+          const templates = anns.length > 0 ? anns : [{ id: 'fallback', title: item.title, message: '⏰ **{schedule_title}** — {schedule_desc} {everyone}', trigger: 'schedule' as const }]
+          const channelId = event.announcementChannelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
+          if (channelId === null || !isSnowflake(event.guildId) || !isSnowflake(channelId)) {
+            if (channelId !== null) warnInvalidGuild(event.guildId, 'schedule')
+            markScheduleAnnounced(db, event.id, scheduleId)
+            audit(db, 'system', 'schedule.skipped', event.id, { scheduleId, reason: 'no_channel' })
+            break
+          }
+          try {
+            const guild = await client.guilds.fetch(event.guildId)
+            const channel = await guild.channels.fetch(channelId).catch(()=>null)
+            if (channel !== null && channel.isTextBased()) {
+              for (const tpl of templates.slice(0,3)) {
+                const rendered = renderTags(event, tpl.title, tpl.message, item)
+                const embed = new EmbedBuilder().setTitle(rendered.title).setDescription(rendered.message).setColor(item.kind==='food' ? 0x57f287 : item.kind==='break' ? 0xfaa61a : item.kind==='voting' ? 0x5865f2 : item.kind==='prize' ? 0xf0b429 : 0x5865f2)
+                  .setFooter({ text: `${event.name} · <t:${Math.floor(item.time/1000)}:F>` })
+                const payload: { embeds: EmbedBuilder[]; content?: string; allowedMentions?: { parse: ("everyone" | "users" | "roles")[] } } = { embeds: [embed] }
+                if (rendered.hasEveryone || rendered.hasHere) { payload.content = rendered.message; payload.allowedMentions = { parse: ["everyone"] } }
+                await channel.send(payload as never)
+              }
+              audit(db, 'system', 'schedule.announce', event.id, { scheduleId, title: item.title })
+              summary.push(`schedule: ${event.name} — ${item.title}`)
+            }
+          } catch (e) { console.warn('schedule announce failed', e) }
+          markScheduleAnnounced(db, event.id, scheduleId)
           break;
         }
       }
