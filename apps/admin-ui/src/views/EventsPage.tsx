@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Settings2, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers, Clock } from 'lucide-react'
+import { CalendarDays, Plus, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers, Clock } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
@@ -69,8 +69,6 @@ export function EventsPage() {
           </div>
         )}
       </section>
-
-      <QuickLinks activeEventId={activeEvent?.id ?? null} />
     </div>
   )
 }
@@ -855,42 +853,6 @@ function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActi
         )}
       </CardContent>
     </Card>
-  )
-}
-
-function QuickLinks({ activeEventId }: { activeEventId: string | null }) {
-  const t = useT()
-  const cards = [
-    { to: '/participants', label: t('nav.participants'), desc: t('events.ql_participants') },
-    { to: '/teams', label: t('nav.teams'), desc: t('events.ql_teams') },
-    { to: '/matching', label: t('nav.matching'), desc: t('events.ql_matching') },
-    { to: '/audit', label: t('nav.audit'), desc: t('events.ql_audit') },
-  ] as const
-
-  return (
-    <section>
-      <h2 className="font-display mb-3 text-sm uppercase tracking-wide text-muted-foreground">{t('events.operate')}</h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {cards.map((c) => (
-          <Link key={c.to} to={c.to} className="group">
-            <Card className="h-full transition-all group-hover:-translate-y-0.5 group-hover:border-accent/50">
-              <CardContent className="flex items-center gap-3 p-4">
-                <Settings2 className="size-4 shrink-0 text-accent" />
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold">{c.label}</div>
-                  <div className="truncate text-xs text-muted-foreground">{c.desc}</div>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
-      {activeEventId === null && (
-        <p className="mt-3 text-xs text-muted-foreground">
-          {t('events.no_active')}
-        </p>
-      )}
-    </section>
   )
 }
 
