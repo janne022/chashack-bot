@@ -265,6 +265,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       endsAt?: number | null;
       signupStartsAt?: number | null;
       signupEndsAt?: number | null;
+      cleanupDelayHours?: number;
       panelChannelId?: string | null;
       announcementChannelId?: string | null;
       scheduleChannelId?: string | null;
@@ -342,7 +343,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body.announcementChannelId !== undefined ? { announcementChannelId: body.announcementChannelId } : gs.defaultAnnouncementChannelId ? { announcementChannelId: gs.defaultAnnouncementChannelId } : {}),
       ...(body.scheduleChannelId !== undefined ? { scheduleChannelId: body.scheduleChannelId } : (gs as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId ? { scheduleChannelId: (gs as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId } : {}),
       ...(gs.defaultCategoryId && body.panelChannelId === undefined ? { categoryId: gs.defaultCategoryId } : {}),
-      ...(gs.defaultCleanupDelayHours != null ? { cleanupDelayHours: gs.defaultCleanupDelayHours } : {}),
+      ...(body.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : gs.defaultCleanupDelayHours != null ? { cleanupDelayHours: gs.defaultCleanupDelayHours } : {}),
       ...(form !== undefined ? { form } : {}),
       ...(schedule !== undefined ? { schedule: schedule as never } : {}),
       ...(announcements !== undefined ? { announcements: announcements as never } : {}),

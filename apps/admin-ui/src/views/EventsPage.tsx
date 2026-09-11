@@ -6,7 +6,7 @@ import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
 import { api } from '@/api'
 import { createEventSchema, announceSchema, cleanupDelaySchema } from '@/lib/schemas'
-import type { Assignment, FormConfig, HackathonEvent, Participant } from '@/types'
+import type { AnnouncementTemplate, Assignment, FormConfig, HackathonEvent, Participant } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -85,6 +85,8 @@ function NewEventButton() {
   const [formMode, setFormMode] = useState<'blank' | 'template'>('blank')
   const [formTemplateId, setFormTemplateId] = useState<string>('')
   const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [announcements, setAnnouncements] = useState<AnnouncementTemplate[]>([])
+  const [cleanupDelayHours, setCleanupDelayHours] = useState<number>(48)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [startsAt, setStartsAt] = useState('')
@@ -152,10 +154,20 @@ function NewEventButton() {
     const tpl = eventTemplates.find((x) => x.id === id)
     if (!tpl) return
     try {
-      const parsed = JSON.parse(tpl.json) as { name?: string; description?: string; cleanupDelayHours?: number; schedule?: import('@/types').ScheduleItem[] }
+      const parsed = JSON.parse(tpl.json) as {
+        name?: string;
+        description?: string;
+        cleanupDelayHours?: number;
+        schedule?: import('@/types').ScheduleItem[];
+        announcements?: AnnouncementTemplate[];
+        assignments?: Assignment[];
+      }
       if (parsed.name) setName(parsed.name)
       if (parsed.description) setDescription(parsed.description)
+      if (typeof parsed.cleanupDelayHours === 'number') setCleanupDelayHours(parsed.cleanupDelayHours)
       if (Array.isArray(parsed.schedule)) setSchedule(parsed.schedule)
+      if (Array.isArray(parsed.announcements)) setAnnouncements(parsed.announcements)
+      if (Array.isArray(parsed.assignments)) setAssignments(parsed.assignments)
       toast.info(t('events.template_applied', { name: tpl.name }))
     } catch {
       // ignore parse errors, still send templateId to server
@@ -193,15 +205,21 @@ function NewEventButton() {
       if (endOps.length && endTime) extraSchedule.push({ id: '__end__', time: endTime, title: 'Event ends', kind: 'custom' as const, actions: endOps as never })
       const mergedSchedule = [...schedule, ...extraSchedule]
 
+      // Merge template announcements with start/end announcements
+      const existingAnnIds = new Set([...startAnn, ...endAnn].map(a=>a.id))
+      const templateAnnouncements = announcements.filter(a=>!existingAnnIds.has(a.id))
+      const mergedAnnouncements = [...startAnn, ...endAnn, ...templateAnnouncements]
+
       await api.createEvent({
         ...parsed.data,
         ...(templateId ? { templateId } : {}),
         ...(formTemplateId ? { formTemplateId } : {}),
+        cleanupDelayHours: cleanupDelayHours,
         panelChannelId: panelChannelId || null,
         announcementChannelId: announceChannelId || null,
         scheduleChannelId: scheduleChannelId || null,
         ...(mergedSchedule.length > 0 ? { schedule: mergedSchedule } : {}),
-        ...((startAnn.length > 0 || endAnn.length > 0) ? { announcements: [...startAnn, ...endAnn] } : {}),
+        ...(mergedAnnouncements.length > 0 ? { announcements: mergedAnnouncements } : {}),
         ...(assignments.length > 0 ? { assignments } : {}),
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
@@ -225,6 +243,9 @@ function NewEventButton() {
       setStartActions([])
       setEndActions([])
       setSaveAsTemplate(false)
+      setAnnouncements([])
+      setCleanupDelayHours(48)
+      setAssignments([])
       await refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('events.create_failed'))

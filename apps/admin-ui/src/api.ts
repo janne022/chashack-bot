@@ -175,6 +175,7 @@ export const api = {
     endsAt?: number | null
     signupStartsAt?: number | null
     signupEndsAt?: number | null
+    cleanupDelayHours?: number
     templateId?: string
     formTemplateId?: string
     panelChannelId?: string | null
