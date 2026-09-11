@@ -518,7 +518,7 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
             <div className="flex items-center gap-2">
               <ClipboardList className="size-4 text-primary" />
               <div>
-                <div className="text-muted-foreground text-xs">Signup window</div>
+                <div className="text-muted-foreground text-xs">{t('events.signup_window')}</div>
                 <div>
                   {event.signupStartsAt !== null && event.signupEndsAt !== null
                     ? `${dateTime(event.signupStartsAt)} → ${dateTime(event.signupEndsAt)}`
@@ -534,14 +534,14 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
           <div className="flex items-center gap-2">
             <CalendarDays className="size-4 text-accent" />
             <div>
-              <div className="text-muted-foreground text-xs">Hackathon Starts</div>
+              <div className="text-muted-foreground text-xs">{t('events.hackathon_starts')}</div>
               <div>{event.startsAt !== null ? `${dateTime(event.startsAt)} (${timeAgo(event.startsAt)})` : t('common.not_set')}</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <CalendarDays className="size-4 text-danger" />
             <div>
-              <div className="text-muted-foreground text-xs">Hackathon Ends</div>
+              <div className="text-muted-foreground text-xs">{t('events.hackathon_ends')}</div>
               <div>{event.endsAt !== null ? `${dateTime(event.endsAt)}` : t('common.not_set')}</div>
             </div>
           </div>
@@ -1047,7 +1047,7 @@ function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActi
       await api.activateEvent(event.id)
       // Schedule now owns all Discord posts (signup, announcements, itinerary) — activate just flips to active.
       // Tell organizer how to make it actually post.
-      toast.success(`${event.name} is now active — schedule actions will fire at their times. Add a “Post signup” + announcements to your Start block to open on a timer.`, { duration: 7000 })
+      toast.success(t('events.activated_schedule', { name: event.name }), { duration: 7000 })
       await refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('events.activate_failed'))

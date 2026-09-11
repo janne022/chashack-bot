@@ -106,27 +106,27 @@ export function ScheduleEditor({
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
           <div className="flex items-center gap-2 mb-2">
             <ClipboardList className="size-4 text-primary" />
-            <span className="text-sm font-semibold">Signup window</span>
-            <span className="hidden text-xs text-muted-foreground sm:inline">— people can sign up during this period, before the hackathon</span>
-            <Badge variant="secondary" className="ml-auto text-[10px]">before hackathon</Badge>
+            <span className="text-sm font-semibold">{t('events.signup_window')}</span>
+            <span className="hidden text-xs text-muted-foreground sm:inline">— {t('events.signup_hint')}</span>
+            <Badge variant="secondary" className="ml-auto text-[10px]">{t('events.signup_before_hackathon')}</Badge>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Signup opens</Label>
+              <Label className="text-xs">{t('events.signup_opens')}</Label>
               <DateTimePicker value={signupStartValue!} onChange={(v) => onSignupStartChange!(v)} disablePast={disablePast} className="h-8" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Signup closes</Label>
+              <Label className="text-xs">{t('events.signup_closes')}</Label>
               <DateTimePicker value={signupEndValue!} onChange={(v) => onSignupEndChange!(v)} disablePast={disablePast} minDate={signupStartValue ? new Date(signupStartValue) : undefined} className="h-8" />
             </div>
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">Schedule blocks below must be after signup closes. They’re for the hackathon itself.</p>
+          <p className="mt-2 text-xs text-muted-foreground">{t('events.signup_after_hint')}</p>
         </div>
       )}
 
       {hasRange && (
         <PinnedBlock
-          label="Hackathon Starts"
+          label={t('events.hackathon_starts')}
           hint={t("events.schedule_start_hint" as never) ?? "first block"}
           value={startValue!}
           onChange={onStartChange!}
@@ -139,7 +139,7 @@ export function ScheduleEditor({
           bg="bg-accent-soft"
           expanded={expanded.has("__start__")}
           onToggle={()=>toggle("__start__")}
-          emptyHint="When the hackathon starts — add an announcement or post the signup panel to open signups on a timer."
+          emptyHint={t('events.schedule_start_hack_hint')}
         />
       )}
 
@@ -252,7 +252,7 @@ export function ScheduleEditor({
 
       {hasRange && (
         <PinnedBlock
-          label="Hackathon Ends"
+          label={t('events.hackathon_ends')}
           hint={t("events.schedule_end_hint" as never) ?? "last block"}
           value={endValue!}
           onChange={onEndChange!}
@@ -265,7 +265,7 @@ export function ScheduleEditor({
           bg="bg-danger/5"
           expanded={expanded.has("__end__")}
           onToggle={()=>toggle("__end__")}
-          emptyHint="When the hackathon ends — add a wrap-up announcement if you want."
+          emptyHint={t('events.schedule_end_hack_hint')}
         />
       )}
     </div>
@@ -321,6 +321,7 @@ function PinnedBlock({
 }
 
 function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: { timeLabel: string; timeValue: string; actions: ScheduleAction[]; onChange: (a: ScheduleAction[])=>void; emptyHint: string }) {
+  const t = useT()
   const hasActions = actions.length > 0
   const [channels, setChannels] = useState<{ id: string; name: string }[]>([])
   const [templates, setTemplates] = useState<{ id: string; name: string; title: string; message: string }[]>([])
@@ -352,10 +353,10 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
       <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Zap className="size-3 text-accent" /> {hasActions ? `${actions.length} action${actions.length>1?'s':''} — will run at ${(() => { try { return format(new Date(timeValue), "HH:mm") } catch { return "event time"} })()}` : `No actions yet — ${emptyHint}`}</span>
         <div className="flex flex-wrap gap-1">
-          <Button variant="secondary" size="sm" className="h-6 text-xs" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> Announcement</Button>
-          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("post_signup")}><ClipboardList className="size-3" /> Signup</Button>
-          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock</Button>
-          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("auto_match")}><UsersRound className="size-3" /> Auto-match</Button>
+          <Button variant="secondary" size="sm" className="h-6 text-xs" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> {t('events.schedule_action_announcement')}</Button>
+          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("post_signup")}><ClipboardList className="size-3" /> {t('events.schedule_action_signup')}</Button>
+          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> {t('events.schedule_action_lock')}</Button>
+          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={()=>addAction("auto_match")}><UsersRound className="size-3" /> {t('events.schedule_action_auto')}</Button>
         </div>
       </div>
       {hasActions && (
@@ -368,16 +369,16 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
               <CardContent className="flex flex-col gap-2 p-2.5">
                 <div className="flex items-center gap-2">
                   {a.type==="announce" ? <Megaphone className="size-3.5 text-accent" /> : a.type==="post_signup" ? <ClipboardList className="size-3.5 text-blue-600" /> : a.type==="lock_teams" ? <Clock className="size-3.5 text-amber-600" /> : <UsersRound className="size-3.5 text-emerald-600" />}
-                  <span className="text-xs font-semibold">{a.type==="announce" ? `Announce when ${timeLabel.toLowerCase()}s` : a.type==="post_signup" ? "Post signup panel" : a.type==="lock_teams" ? "Lock teams" : a.type==="assign_random" ? "Assign random (legacy)" : a.type==="auto_match" ? "Auto-match" : a.type}</span>
+                  <span className="text-xs font-semibold">{a.type==="announce" ? `Announce when ${timeLabel.toLowerCase()}s` : a.type==="post_signup" ? t('events.schedule_action_signup') : a.type==="lock_teams" ? t('events.schedule_action_lock') : a.type==="assign_random" ? "Assign random (legacy)" : a.type==="auto_match" ? t('events.schedule_action_auto') : a.type}</span>
                   {isAnnounce && <span className="ml-auto hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex"><HelpTag /> type {"{"} for tags</span>}
                   <Select value={a.type} onValueChange={v=>updateAction(a.id, { type: v as ScheduleAction["type"] })}>
                     <SelectTrigger className="ml-auto h-6 w-32 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="announce">Announcement</SelectItem>
-                      <SelectItem value="post_signup">Post signup</SelectItem>
-                      <SelectItem value="lock_teams">Lock teams</SelectItem>
-                      <SelectItem value="assign_random">Assign random</SelectItem>
-                      <SelectItem value="auto_match">Auto-match</SelectItem>
+                      <SelectItem value="announce">{t('events.schedule_action_announcement')}</SelectItem>
+                      <SelectItem value="post_signup">{t('events.schedule_action_signup')}</SelectItem>
+                      <SelectItem value="lock_teams">{t('events.schedule_action_lock')}</SelectItem>
+                      <SelectItem value="assign_random">Assign random (legacy)</SelectItem>
+                      <SelectItem value="auto_match">{t('events.schedule_action_auto')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button variant="ghost" size="icon" className="size-6" onClick={()=>removeAction(a.id)}><Trash2 className="size-3" /></Button>
@@ -386,9 +387,9 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
                   <>
                   {templates.length > 0 && (
                     <div className="flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
-                      <span className="text-[11px] text-muted-foreground">From template:</span>
+                      <span className="text-[11px] text-muted-foreground">{t('events.from_template')}</span>
                       <Select onValueChange={v=>applyTemplate(a.id, v)}>
-                        <SelectTrigger className="h-6 flex-1 text-xs"><SelectValue placeholder="Pick announcement template…" /></SelectTrigger>
+                        <SelectTrigger className="h-6 flex-1 text-xs"><SelectValue placeholder={t('events.pick_template')} /></SelectTrigger>
                         <SelectContent>
                           {templates.map(t=> <SelectItem key={t.id} value={t.id}>{t.name} — {t.title.slice(0,30)}</SelectItem>)}
                         </SelectContent>
@@ -397,16 +398,16 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
                   )}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="flex flex-col gap-1">
-                    <Label className="text-[11px]">Title</Label>
+                    <Label className="text-[11px]">{t('events.title_label')}</Label>
                     <TagAutocompleteInput value={a.title ?? ""} onChange={v=>updateAction(a.id, { title: v })} placeholder={`${timeLabel} — live!`} maxLength={100} />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <Label className="text-[11px]">Channel</Label>
+                    <Label className="text-[11px]">{t('events.channel_label')}</Label>
                     {channels.length > 0 ? (
                       <Select value={a.channelId ?? "__none"} onValueChange={v=>updateAction(a.id, { channelId: v==="__none" ? null : v })}>
-                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Announcement channel" /></SelectTrigger>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={t('events.channel_default_announcement')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none">Default (announcement/panel)</SelectItem>
+                          <SelectItem value="__none">{t('events.channel_default_announcement')}</SelectItem>
                           {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
@@ -416,20 +417,20 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <Label className="text-[11px]">Message</Label>
+                  <Label className="text-[11px]">{t('events.message_label')}</Label>
                   <TagAutocompleteTextarea value={a.message ?? ""} onChange={v=>updateAction(a.id, { message: v })} placeholder={`🚀 {event} is live! {everyone} → {panel}`} maxLength={2000} />
                 </div>
                   </>
                 ) : isSignup ? (
                   <div className="flex flex-col gap-2">
-                    <p className="text-xs text-muted-foreground">Posts the interactive signup panel (the join button) to the channel below at this time. Add this to your Start block to open signups on a timer instead of on Activate.</p>
+                    <p className="text-xs text-muted-foreground">{t('events.schedule_signup_desc')}</p>
                     <div className="flex flex-col gap-1">
-                      <Label className="text-[11px]">Panel channel</Label>
+                      <Label className="text-[11px]">{t('events.panel_channel_label')}</Label>
                       {channels.length > 0 ? (
                         <Select value={a.channelId ?? "__none"} onValueChange={v=>updateAction(a.id, { channelId: v==="__none" ? null : v })}>
-                          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Panel channel" /></SelectTrigger>
+                          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={t('events.panel_channel_label')} /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="__none">Default panel channel</SelectItem>
+                            <SelectItem value="__none">{t('events.channel_default_panel')}</SelectItem>
                             {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                           </SelectContent>
                         </Select>
@@ -440,7 +441,7 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    {a.type==="lock_teams" ? "When this block hits, teams are locked (matchLocked = true) — no more auto-matches until you unlock. Runs before any announcements in this block." : a.type==="assign_random" ? "Runs matching for everyone who chose “Get matched into a random team” and locks teams. If no one is queued, it just locks." : "Runs full auto-match and locks teams."}
+                    {a.type==="lock_teams" ? t('events.schedule_lock_desc') : a.type==="assign_random" ? "Runs matching for everyone who chose “Get matched into a random team” and locks teams. If no one is queued, it just locks." : t('events.schedule_auto_desc')}
                   </p>
                 )}
               </CardContent>
@@ -454,6 +455,7 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
 }
 
 function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange: (actions: ScheduleAction[])=>void }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const actions = item.actions ?? []
   const hasActions = actions.length > 0
@@ -504,16 +506,16 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
               <CardContent className="flex flex-col gap-2 p-2.5">
                 <div className="flex items-center gap-2">
                   {a.type==="announce" ? <Megaphone className="size-3.5 text-accent" /> : a.type==="post_signup" ? <ClipboardList className="size-3.5 text-blue-600" /> : a.type==="lock_teams" ? <Clock className="size-3.5 text-amber-600" /> : <UsersRound className="size-3.5 text-emerald-600" />}
-                  <span className="text-xs font-semibold">{a.type==="announce" ? "Announce" : a.type==="post_signup" ? "Post signup" : a.type==="lock_teams" ? "Lock teams" : a.type==="assign_random" ? "Assign random" : a.type}</span>
+                  <span className="text-xs font-semibold">{a.type==="announce" ? t('events.schedule_action_announcement') : a.type==="post_signup" ? t('events.schedule_action_signup') : a.type==="lock_teams" ? t('events.schedule_action_lock') : a.type==="assign_random" ? "Assign random (legacy)" : a.type==="auto_match" ? t('events.schedule_action_auto') : a.type}</span>
                   {isAnnounce && <span className="ml-auto hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex"><HelpTag /> type {"{"} for tags</span>}
                   <Select value={a.type} onValueChange={v=>updateAction(a.id, { type: v as ScheduleAction["type"], ...(v!=="announce" && v!=="post_signup" ? { title: undefined, message: undefined, channelId: undefined } as never : {}) })}>
                     <SelectTrigger className="ml-auto h-6 w-32 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="announce">Announcement</SelectItem>
-                      <SelectItem value="post_signup">Post signup</SelectItem>
-                      <SelectItem value="lock_teams">Lock teams</SelectItem>
-                      <SelectItem value="assign_random">Assign random</SelectItem>
-                      <SelectItem value="auto_match">Auto-match</SelectItem>
+                      <SelectItem value="announce">{t('events.schedule_action_announcement')}</SelectItem>
+                      <SelectItem value="post_signup">{t('events.schedule_action_signup')}</SelectItem>
+                      <SelectItem value="lock_teams">{t('events.schedule_action_lock')}</SelectItem>
+                      <SelectItem value="assign_random">Assign random (legacy)</SelectItem>
+                      <SelectItem value="auto_match">{t('events.schedule_action_auto')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button variant="ghost" size="icon" className="size-6" onClick={()=>removeAction(a.id)}><Trash2 className="size-3" /></Button>
@@ -522,9 +524,9 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
                   <>
                   {templates.length > 0 && (
                     <div className="flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
-                      <span className="text-[11px] text-muted-foreground">From template:</span>
+                      <span className="text-[11px] text-muted-foreground">{t('events.from_template')}</span>
                       <Select onValueChange={v=>applyTemplate(a.id, v)}>
-                        <SelectTrigger className="h-6 flex-1 text-xs"><SelectValue placeholder="Pick template…" /></SelectTrigger>
+                        <SelectTrigger className="h-6 flex-1 text-xs"><SelectValue placeholder={t('events.pick_template')} /></SelectTrigger>
                         <SelectContent>
                           {templates.map(t=> <SelectItem key={t.id} value={t.id}>{t.name} — {t.title.slice(0,30)}</SelectItem>)}
                         </SelectContent>
@@ -533,16 +535,16 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
                   )}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="flex flex-col gap-1">
-                    <Label className="text-[11px]">Title</Label>
+                    <Label className="text-[11px]">{t('events.title_label')}</Label>
                     <TagAutocompleteInput value={a.title ?? ""} onChange={v=>updateAction(a.id, { title: v })} placeholder="{schedule_title}" maxLength={100} />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <Label className="text-[11px]">Channel</Label>
+                    <Label className="text-[11px]">{t('events.channel_label')}</Label>
                     {channels.length > 0 ? (
                       <Select value={a.channelId ?? "__none"} onValueChange={v=>updateAction(a.id, { channelId: v==="__none" ? null : v })}>
-                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Announcement channel" /></SelectTrigger>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={t('events.channel_default_announcement')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none">Default (announcement/panel)</SelectItem>
+                          <SelectItem value="__none">{t('events.channel_default_announcement')}</SelectItem>
                           {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
@@ -552,29 +554,29 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <Label className="text-[11px]">Message</Label>
+                  <Label className="text-[11px]">{t('events.message_label')}</Label>
                   <TagAutocompleteTextarea value={a.message ?? ""} onChange={v=>updateAction(a.id, { message: v })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
                 </div>
                   </>
                 ) : isSignup ? (
                   <div className="flex flex-col gap-1">
-                    <Label className="text-[11px]">Panel channel</Label>
+                    <Label className="text-[11px]">{t('events.panel_channel_label')}</Label>
                     {channels.length > 0 ? (
                       <Select value={a.channelId ?? "__none"} onValueChange={v=>updateAction(a.id, { channelId: v==="__none" ? null : v })}>
-                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Panel channel" /></SelectTrigger>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={t('events.panel_channel_label')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none">Default panel channel</SelectItem>
+                          <SelectItem value="__none">{t('events.channel_default_panel')}</SelectItem>
                           {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     ) : (
                       <Input value={a.channelId ?? ""} onChange={e=>updateAction(a.id, { channelId: e.target.value.trim() || null })} placeholder="panel channel id" className="h-7 text-xs font-mono" />
                     )}
-                    <p className="text-xs text-muted-foreground">Posts the signup panel at this time. Use on your Start block to open signups via the schedule.</p>
+                    <p className="text-xs text-muted-foreground">{t('events.schedule_signup_desc')}</p>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    {a.type==="lock_teams" ? "Locks teams at this time — no more changes until you unlock." : a.type==="assign_random" ? "Assigns everyone who picked “Get matched into a random team” and locks. Uses the current form + matching logic." : "Runs full auto-match and locks teams."}
+                    {a.type==="lock_teams" ? t('events.schedule_lock_desc') : a.type==="assign_random" ? "Runs matching for everyone who chose “Get matched into a random team” and locks teams. If no one is queued, it just locks." : t('events.schedule_auto_desc')}
                   </p>
                 )}
               </CardContent>
@@ -582,10 +584,10 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
             )
           })}
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" size="sm" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> Announcement</Button>
-            <Button variant="outline" size="sm" onClick={()=>addAction("post_signup")}><ClipboardList className="size-3" /> Post signup</Button>
-            <Button variant="outline" size="sm" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> Lock teams</Button>
-            <Button variant="outline" size="sm" onClick={()=>addAction("auto_match")}><UsersRound className="size-3" /> Auto-match</Button>
+            <Button variant="secondary" size="sm" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> {t('events.schedule_action_announcement')}</Button>
+            <Button variant="outline" size="sm" onClick={()=>addAction("post_signup")}><ClipboardList className="size-3" /> {t('events.schedule_action_signup')}</Button>
+            <Button variant="outline" size="sm" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> {t('events.schedule_action_lock')}</Button>
+            <Button variant="outline" size="sm" onClick={()=>addAction("auto_match")}><UsersRound className="size-3" /> {t('events.schedule_action_auto')}</Button>
           </div>
         </div>
       )}

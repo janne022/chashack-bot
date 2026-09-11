@@ -144,7 +144,7 @@ export function ConfigPage() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label>Default schedule channel</Label>
+              <Label>{t('config.default_schedule_channel')}</Label>
               {channels.length > 0 ? (
                 <Select value={scheduleChannel || '__none'} onValueChange={(v) => setScheduleChannel(v === '__none' ? '' : v)}>
                   <SelectTrigger><SelectValue placeholder={t('config.pick_channel')} /></SelectTrigger>
@@ -156,7 +156,7 @@ export function ConfigPage() {
               ) : (
                 <Input value={scheduleChannel} onChange={(e) => setScheduleChannel(e.target.value)} placeholder="123456789012345678" />
               )}
-              <span className="text-xs leading-snug text-muted-foreground">Where the full itinerary with Discord timers (&lt;t:…&gt;) is posted.</span>
+              <span className="text-xs leading-snug text-muted-foreground">{t('config.default_schedule_hint')}</span>
             </div>
           </div>
 
@@ -214,17 +214,17 @@ export function ConfigPage() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2">
             <ShieldCheck className="size-4 text-accent" />
-            Moderator roles
+            {t('config.moderator_roles')}
             <Badge variant="secondary" className="ml-2 font-mono text-xs">{modRoles.length} selected</Badge>
             {roles.length > 0 && <span className="text-xs font-normal text-muted-foreground">· {roles.length} total</span>}
           </CardTitle>
           <CardDescription>
-            Who can run <code className="rounded bg-muted px-1">/hackathon admin</code> in Discord without <b>Manage Server</b>. ADMIN_IDS and Manage Server / Administrator always work.
+            {t('config.moderator_desc')}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {roles.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No roles found — is the bot in the guild and does it have access? You need to set DISCORD_GUILD_ID and restart.</p>
+            <p className="text-sm text-muted-foreground">{t('config.moderator_no_roles')}</p>
           ) : (
             <>
               {/* Selected pills — always visible */}
@@ -237,7 +237,7 @@ export function ConfigPage() {
                       <button onClick={()=>setModRoles(prev=>prev.filter(id=>id!==r.id))} className="ml-0.5 rounded-full p-0.5 hover:bg-accent/20"><X className="size-3" /></button>
                     </span>
                   ))}
-                  <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={()=>setModRoles([])}>Clear all</Button>
+                  <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={()=>setModRoles([])}>{t('config.moderator_clear_all')}</Button>
                 </div>
               )}
 
@@ -248,7 +248,7 @@ export function ConfigPage() {
                   <Input
                     value={roleQuery}
                     onChange={e=>setRoleQuery(e.target.value)}
-                    placeholder={`Search ${roles.length} roles… (e.g. mod, organizer)`}
+                    placeholder={t('config.moderator_search_placeholder', { count: roles.length })}
                     className="h-8 pl-8"
                   />
                   {roleQuery && (
@@ -268,7 +268,7 @@ export function ConfigPage() {
               {/* Scrollable list — handles 100s */}
               <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-background">
                 {filteredRoles.length === 0 ? (
-                  <p className="p-4 text-center text-sm text-muted-foreground">No roles match “{roleQuery}”.</p>
+                  <p className="p-4 text-center text-sm text-muted-foreground">{t('config.moderator_no_match', { query: roleQuery })}</p>
                 ) : (
                   <div className="divide-y divide-border">
                     {filteredRoles.map(r=> {
