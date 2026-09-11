@@ -399,20 +399,54 @@ export function saveTemplate(
 }
 
 export function listTemplates(db: Db, guildId: string, kind?: Template['kind']): Template[] {
-  // Seed basic announcement templates on first use (initial, signup, schedule)
-  if (kind === undefined || kind === 'announcement') {
-    const count = (db.prepare("SELECT COUNT(*) as c FROM event_templates WHERE (guild_id = ? OR guild_id IS NULL) AND kind = 'announcement'").get(guildId) as unknown as { c: number }).c
-    if (count === 0) {
-      const seeds: { name: string; json: string }[] = [
-        { name: "Initial — signups open", json: JSON.stringify({ title: "{event} — signups open!", message: "Listen up {everyone} **{event}** is live! {event_description} Starts {start_date} {timer} — sign up in {panel}\n\nFull schedule:\n{schedule}", trigger: "manual", channelId: null }) },
-        { name: "Signup panel", json: JSON.stringify({ title: "Join {event}", message: "Hey {everyone}, the signup panel is ready in {panel} — hit Join! Starts {start_date} {timer}", trigger: "manual", channelId: null }) },
-        { name: "Schedule — next up", json: JSON.stringify({ title: "{schedule_title}", message: "⏰ **{schedule_title}** — {schedule_desc} at {schedule_time} {timer_schedule} {everyone}\n\n{schedule}", trigger: "schedule", channelId: null }) },
-      ]
+  // Seed basic templates on first use for each kind
+  const seedIfEmpty = (k: Template['kind'], seeds: { name: string; json: string }[]) => {
+    const c = (db.prepare("SELECT COUNT(*) as c FROM event_templates WHERE (guild_id = ? OR guild_id IS NULL) AND kind = ?").get(guildId, k) as unknown as { c: number }).c
+    if (c === 0) {
       for (const s of seeds) {
         const id = newId('tpl')
-        db.prepare('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, guildId, s.name, 'announcement', s.json, Date.now())
+        db.prepare('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, guildId, s.name, k, s.json, Date.now())
       }
     }
+  }
+  if (kind === undefined || kind === 'announcement') {
+    seedIfEmpty('announcement', [
+      { name: "Initial — signups open", json: JSON.stringify({ title: "{event} — signups open!", message: "Listen up {everyone} **{event}** is live! {event_description} Starts {start_date} {timer} — sign up in {panel}\n\nFull schedule:\n{schedule}", trigger: "manual", channelId: null }) },
+      { name: "Signup panel", json: JSON.stringify({ title: "Join {event}", message: "Hey {everyone}, the signup panel is ready in {panel} — hit Join! Starts {start_date} {timer}", trigger: "manual", channelId: null }) },
+      { name: "Schedule — next up", json: JSON.stringify({ title: "{schedule_title}", message: "⏰ **{schedule_title}** — {schedule_desc} at {schedule_time} {timer_schedule} {everyone}\n\n{schedule}", trigger: "schedule", channelId: null }) },
+    ])
+  }
+  if (kind === undefined || kind === 'form') {
+    seedIfEmpty('form', [
+      { name: "Default signup form", json: JSON.stringify(DEFAULT_FORM) },
+    ])
+    // If guild has no default form selected, point it at the seeded one
+    const gsRow = db.prepare("SELECT default_form_template_id FROM guild_settings WHERE guild_id = ?").get(guildId) as unknown as { default_form_template_id: string | null } | undefined
+    if (gsRow && !gsRow.default_form_template_id) {
+      const seeded = db.prepare("SELECT id FROM event_templates WHERE guild_id = ? AND kind = 'form' ORDER BY created_at DESC LIMIT 1").get(guildId) as unknown as { id: string } | undefined
+      if (seeded) db.prepare("UPDATE guild_settings SET default_form_template_id = ?, updated_at = ? WHERE guild_id = ?").run(seeded.id, Date.now(), guildId)
+    } else if (!gsRow) {
+      // guild_settings row doesn't exist yet — it will be created on first Config save; seed will be picked up then via fallback in createEvent
+    }
+  }
+  if (kind === undefined || kind === 'event') {
+    // Default hackathon event: signup 7 days before, 48h hackathon, a few schedule blocks with signup + announcements via schedule
+    const now = Date.now()
+    const hackStarts = now + 14 * 24 * 3600 * 1000 // 2 weeks out so it passes past-date validation
+    const hackEnds = hackStarts + 2 * 24 * 3600 * 1000
+    const signupStarts = hackStarts - 7 * 24 * 3600 * 1000
+    const signupEnds = hackStarts
+    const baseDay = new Date(hackStarts)
+    baseDay.setHours(12,0,0,0)
+    const sched = [
+      { id: "sch_signup", time: signupStarts, title: "Signups open", description: "Signup window opens — post signup panel", kind: "custom", actions: [{ id: "a1", type: "post_signup" }] },
+      { id: "sch_dinner", time: new Date(new Date(hackStarts).setHours(18,0,0,0)).getTime(), title: "Dinner", description: "Pizza in the kitchen", kind: "food", actions: [{ id: "a2", type: "announce", title: "{schedule_title}", message: "🍽️ {schedule_title} — {schedule_desc} at {schedule_time} {everyone}" }] },
+      { id: "sch_fika", time: new Date(new Date(hackStarts).setHours(15,0,0,0)).getTime(), title: "Fika", description: "Coffee & buns", kind: "break" },
+      { id: "sch_voting", time: new Date(new Date(hackEnds).setHours(14,0,0,0)).getTime(), title: "Voting", description: "Vote for your favourite", kind: "voting", actions: [{ id: "a3", type: "announce", title: "Voting time!", message: "🗳️ {schedule_title} — {schedule_desc} {timer_schedule} {everyone}" }] },
+    ]
+    seedIfEmpty('event', [
+      { name: "Default Hackathon", json: JSON.stringify({ name: "ChasHack", description: "48-hour hackathon — build, ship, demo!", cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, announcements: defaultAnnouncements("ChasHack") }) },
+    ])
   }
   const rows = (
     kind === undefined
