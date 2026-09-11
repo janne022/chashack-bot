@@ -106,31 +106,53 @@ function ExperiencesEditor({ value, onChange }: { value: { id: string; label: st
     const label=newLabel.trim(); if(!label) return
     const id=label.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"") || `opt_${value.length+1}`
     if(value.some(v=>v.id===id)) { toast.error(`ID "${id}" already exists`); return }
-    // experience ids must be one of the 3 known for scoring; warn if custom
-    if(!["first_timer","some_experience","veteran"].includes(id)) toast.info(`Custom experience "${id}" will always score ~1 (middle) — matching only gives bonuses for the 3 built-ins.`)
     onChange([...value, { id, label }]); setNewLabel("")
   }
+  function move(from:number, to:number) {
+    if (to < 0 || to >= value.length) return
+    const next=[...value]
+    const item=next.splice(from,1)[0]
+    if (!item) return
+    next.splice(to,0,item)
+    onChange(next)
+  }
+  // Score helper: adjacent +6, same +3, diff 2+ +0. Show gap scores.
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-2"><CardTitle className="text-base">Experience levels</CardTitle><Help>How experience is <b>measured</b> in matching: first_timer=0, some_experience=1, veteran=2. Pair diff 1 → +6 (ideal mentorship), diff 0 → +3, diff 2 → +0. Custom IDs get no bonus. Keep to 3 levels for the model to work.</Help></div>
-        <CardDescription>The signup ask: “How many hackathons have you done?” Used only as a soft bonus — never blocks anyone.</CardDescription>
+        <div className="flex items-center gap-2"><CardTitle className="text-base">Experience levels</CardTitle><Help>Ordered list — **position matters**. Matching scores by distance: adjacent levels +6 (mentorship), same level +3, far (e.g. first↔veteran when 3 levels) +0. Drag to reorder; add new levels anywhere — the “steps” between items show the +6 gaps.</Help></div>
+        <CardDescription>Drag to reorder. The matcher rewards mixing adjacent levels. Add “intermediate” etc. and put it where it belongs in the ladder.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <ul className="flex flex-wrap gap-2">
-          {value.map(item=>(
-            <li key={item.id} className="flex items-center gap-2 rounded-full border border-border bg-surface-2 py-1.5 pr-2 pl-3.5 text-sm">
-              <span className="font-medium">{item.label}</span><Badge variant="secondary" className="font-mono text-[10px]">{item.id}</Badge>
-              <button onClick={()=>onChange(value.filter(v=>v.id!==item.id))} className="flex size-6 items-center justify-center rounded-full text-muted-foreground hover:bg-danger/10 hover:text-danger"><Trash2 className="size-3" /></button>
+        <ol className="flex flex-col gap-1">
+          {value.map((item, idx)=>(
+            <li key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-background px-2 py-2">
+              <span className="flex size-6 items-center justify-center rounded bg-muted font-mono text-xs font-bold text-muted-foreground">{idx+1}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium leading-tight">{item.label}</span>
+                <span className="block font-mono text-[10px] text-muted-foreground">{item.id}</span>
+              </span>
+              <div className="flex flex-col gap-1">
+                <button onClick={()=>move(idx, idx-1)} disabled={idx===0} className="flex size-6 items-center justify-center rounded border border-border text-xs disabled:opacity-30">↑</button>
+                <button onClick={()=>move(idx, idx+1)} disabled={idx===value.length-1} className="flex size-6 items-center justify-center rounded border border-border text-xs disabled:opacity-30">↓</button>
+              </div>
+              <Badge variant="secondary" className="hidden sm:inline-flex font-mono text-[10px]">+{idx===value.length-1 ? "3 self" : "6 next"}</Badge>
+              <button onClick={()=>onChange(value.filter(v=>v.id!==item.id))} className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-danger/10 hover:text-danger"><Trash2 className="size-3.5" /></button>
             </li>
           ))}
-        </ul>
+        </ol>
+        {value.length >= 2 && (
+          <div className="rounded-md bg-accent-soft/60 px-3 py-2 text-xs leading-relaxed">
+            <b>Score ladder:</b> {value.map((v,i)=> `${v.label}${i < value.length-1 ? ` —(+6)→ ` : ` (+3 with self)`}`).join("")}
+            <span className="text-muted-foreground"> · First ↔ last (diff {value.length-1}) = +0</span>
+          </div>
+        )}
         <div className="flex gap-2">
-          <Input value={newLabel} onChange={e=>setNewLabel(e.target.value)} placeholder="e.g. First hackathon" className="w-64" onKeyDown={e=>e.key==="Enter"&&(e.preventDefault(),add())} />
-          <Button variant="secondary" onClick={add} disabled={!newLabel.trim()}><Plus className="size-4" />Add</Button>
+          <Input value={newLabel} onChange={e=>setNewLabel(e.target.value)} placeholder="e.g. Intermediate — 2–5 hackathons" className="w-64" onKeyDown={e=>e.key==="Enter"&&(e.preventDefault(),add())} />
+          <Button variant="secondary" onClick={add} disabled={!newLabel.trim()}><Plus className="size-4" />Add level</Button>
         </div>
         <div className="rounded-md bg-surface-2/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-          <b>Impact:</b> first-timer ↔ some_experience = +6, same level = +3, veteran ↔ first-timer = +0. The matcher will prefer mixed teams, so add at least 2 levels.
+          <b>Tip:</b> Put the least experienced at the top, most at the bottom. The matcher uses <b>order</b>, not the ID text, so <code>senior</code> between <code>junior</code> and <code>expert</code> will give +6 to both neighbours.
         </div>
       </CardContent>
     </Card>
@@ -184,42 +206,37 @@ function TeamPrefsEditor({ value, onChange }: { value: { id:string; label:string
     join_team: { icon: Users, title: "Join an existing team", desc: "User browses public teams to request a join. They are NOT auto-matched.", impact: "Excluded from matching pool." },
     random_team: { icon: Shuffle, title: "Get matched", desc: "User opts into auto-matching. Only these signups are used when you Preview / Commit teams.", impact: "Included in matching pool." },
   }
-  const [newLabel, setNewLabel] = useState("")
-  const known = new Set(["create_team","join_team","random_team"])
-  function add() {
-    const label=newLabel.trim(); if(!label) return
-    const id=label.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"") || `opt_${value.length+1}`
-    if(value.some(v=>v.id===id)) { toast.error(`ID "${id}" already exists`); return }
-    if(!known.has(id)) toast.info(`Custom pref "${id}" is treated as “not random” — only random_team enters the matcher.`)
-    onChange([...value, { id, label }]); setNewLabel("")
+  const known = ["create_team","join_team","random_team"] as const
+  // ensure we always have the 3 — if template is missing one, add it back
+  const normalized = (known as readonly string[]).map(id => value.find(v=>v.id===id) ?? { id, label: (META as Record<string, { title: string }>)[id]?.title ?? id })
+  // keep only known + preserve order
+  const toPersist = (next: typeof normalized) => onChange(next as {id:string;label:string}[])
+  function rename(id:string, label:string) {
+    toPersist(normalized.map(v=> v.id===id ? { ...v, label: label.trim() || v.label } as {id:string;label:string} : v as {id:string;label:string}) as {id:string;label:string}[])
   }
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2"><CardTitle className="text-base">Team preferences</CardTitle><Help>What this <b>means</b> for matching: only <code className="rounded bg-muted px-1">random_team</code> (“Get matched”) signups are considered when you run Preview/Commit. The other two are manual — they must create or join a team themselves. This dropdown does NOT control matching directly; it gates who enters the matcher.</Help></div>
-        <CardDescription>What the participant wants. Only “Get matched” enters the auto-matcher — the other two are manual.</CardDescription>
+        <CardDescription>What the participant wants. Only “Get matched” enters the auto-matcher — the other two are manual. You can rename labels, but the 3 IDs are fixed.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="grid gap-3 sm:grid-cols-3">
-          {value.map(item=>{
-            const m=META[item.id]
-            const Icon=m?.icon ?? HelpCircle
+          {normalized.map(item=>{
+            const m=META[item.id]!
+            const Icon=m.icon ?? HelpCircle
             return (
               <div key={item.id} className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2/40 p-3">
-                <div className="flex items-center gap-2"><Icon className="size-4 text-accent" /><span className="text-sm font-semibold">{item.label}</span></div>
-                <span className="font-mono text-[10px] text-muted-foreground">{item.id}{!known.has(item.id) && " · custom (not matched)"}</span>
-                {m && <><p className="text-xs leading-relaxed text-muted-foreground">{m.desc}</p><Badge variant={item.id==="random_team" ? "default" : "secondary"} className="w-fit text-[10px]">{m.impact}</Badge></>}
-                <button onClick={()=>onChange(value.filter(v=>v.id!==item.id))} className="mt-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-danger"><Trash2 className="size-3" />Remove</button>
+                <div className="flex items-center gap-2"><Icon className="size-4 text-accent" /><span className="text-sm font-semibold">{m!.title}</span></div>
+                <span className="font-mono text-[10px] text-muted-foreground">{item.id}</span>
+                <Input value={item.label} onChange={e=>rename(item.id, e.target.value)} placeholder={m!.title} maxLength={60} />
+                <p className="text-xs leading-relaxed text-muted-foreground">{m!.desc}</p><Badge variant={item.id==="random_team" ? "default" : "secondary"} className="w-fit text-[10px]">{m!.impact}</Badge>
               </div>
             )
           })}
         </div>
-        <div className="flex gap-2">
-          <Input value={newLabel} onChange={e=>setNewLabel(e.target.value)} placeholder='e.g. Get matched' className="w-64" onKeyDown={e=>e.key==="Enter"&&(e.preventDefault(),add())} />
-          <Button variant="secondary" onClick={add} disabled={!newLabel.trim()}><Plus className="size-4" />Add</Button>
-        </div>
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed">
-          <b>Tip:</b> Keep IDs exactly <code>create_team</code>, <code>join_team</code>, <code>random_team</code> if you want the matcher to work. Renaming the <b>label</b> is fine — the <b>id</b> is what matters.
+          <b>Locked to 3:</b> IDs are fixed (<code>create_team</code>, <code>join_team</code>, <code>random_team</code>) because the matcher only knows <code>random_team</code>. Renaming the <b>label</b> is fine — changing the <b>id</b> would break matching. Extra prefs would just be ignored.
         </div>
       </CardContent>
     </Card>

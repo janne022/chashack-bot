@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useState } from "react"
-import { Plus, Trash2, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle, UsersRound, ClipboardList } from "lucide-react"
+import { Plus, Trash2, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle, UsersRound, ClipboardList, Lock, Shuffle } from "lucide-react"
 import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -440,9 +440,21 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint }: {
                     </div>
                   </div>
                 ) : (
+                  a.type==="distribute_assignments" ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs text-muted-foreground">Deal assignments — Random = shuffle and give one distinct per team (wraps if more teams than assignments). Same = first assignment to all.</p>
+                      <div className="flex gap-2 items-center">
+                        <Select value={a.mode ?? 'random'} onValueChange={v=>updateAction(a.id, { mode: v as 'random'|'same' })}>
+                          <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent><SelectItem value="random">Random per team</SelectItem><SelectItem value="same">Same for all</SelectItem></SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  ) : (
                   <p className="text-xs text-muted-foreground">
                     {a.type==="lock_teams" ? t('events.schedule_lock_desc') : a.type==="assign_random" ? "Runs matching for everyone who chose “Get matched into a random team” and locks teams. If no one is queued, it just locks." : t('events.schedule_auto_desc')}
                   </p>
+                  )
                 )}
               </CardContent>
             </Card>
@@ -575,9 +587,21 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
                     <p className="text-xs text-muted-foreground">{t('events.schedule_signup_desc')}</p>
                   </div>
                 ) : (
+                  a.type==="distribute_assignments" ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs text-muted-foreground">Deal assignments — Random = shuffle and give one distinct per team (wraps if more teams than assignments). Same = first assignment to all.</p>
+                      <div className="flex gap-2 items-center">
+                        <Select value={a.mode ?? 'random'} onValueChange={v=>updateAction(a.id, { mode: v as 'random'|'same' })}>
+                          <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent><SelectItem value="random">Random per team</SelectItem><SelectItem value="same">Same for all</SelectItem></SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  ) : (
                   <p className="text-xs text-muted-foreground">
                     {a.type==="lock_teams" ? t('events.schedule_lock_desc') : a.type==="assign_random" ? "Runs matching for everyone who chose “Get matched into a random team” and locks teams. If no one is queued, it just locks." : t('events.schedule_auto_desc')}
                   </p>
+                  )
                 )}
               </CardContent>
             </Card>
@@ -585,9 +609,10 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
           })}
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" size="sm" onClick={()=>addAction("announce")}><Megaphone className="size-3" /> {t('events.schedule_action_announcement')}</Button>
-            <Button variant="outline" size="sm" onClick={()=>addAction("post_signup")}><ClipboardList className="size-3" /> {t('events.schedule_action_signup')}</Button>
-            <Button variant="outline" size="sm" onClick={()=>addAction("lock_teams")}><Clock className="size-3" /> {t('events.schedule_action_lock')}</Button>
-            <Button variant="outline" size="sm" onClick={()=>addAction("auto_match")}><UsersRound className="size-3" /> {t('events.schedule_action_auto')}</Button>
+            <Button variant="secondary" size="sm" onClick={()=>addAction("post_signup")}><ClipboardList className="size-3" /> {t('events.schedule_action_signup')}</Button>
+            <Button variant="secondary" size="sm" onClick={()=>addAction("lock_teams")}><Lock className="size-3" /> {t('events.schedule_action_lock')}</Button>
+            <Button variant="secondary" size="sm" onClick={()=>addAction("auto_match")}><Shuffle className="size-3" /> {t('events.schedule_action_auto')}</Button>
+            <Button variant="secondary" size="sm" onClick={()=>addAction("distribute_assignments")}><ClipboardList className="size-3" /> Distribute assignments</Button>
           </div>
         </div>
       )}

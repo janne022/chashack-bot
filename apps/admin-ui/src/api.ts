@@ -180,8 +180,9 @@ export const api = {
     panelChannelId?: string | null
     announcementChannelId?: string | null
     scheduleChannelId?: string | null
-    schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null }[] }[]
+    schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null; mode?: string; assignmentId?: string }[] }[]
     announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[]
+    assignments?: { id: string; title: string; instructions: string; description?: string }[]
     saveAsTemplate?: boolean
     saveTemplateName?: string
   }): Promise<HackathonEvent> {
@@ -208,8 +209,9 @@ export const api = {
       signupEndsAt?: number | null
       cleanupDelayHours?: number
       matchAt?: number | null
-      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null }[] }[]
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null; mode?: string; assignmentId?: string }[] }[]
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[]
+      assignments?: { id: string; title: string; instructions: string; description?: string }[]
       scheduleChannelId?: string | null
     },
   ): Promise<void> {

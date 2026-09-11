@@ -65,8 +65,15 @@ export function scorePair(a: Participant, b: Participant): number {
   }
 
   // Experience spread: adjacent levels mix best (mentorship without a gap).
-  const la = EXP_LEVEL[a.experience] ?? 1;
-  const lb = EXP_LEVEL[b.experience] ?? 1;
+  // Uses form's ordered experiences if provided — position in that ladder matters, not the ID text.
+  const expOrder = (globalThis as unknown as { __expOrder?: string[] }).__expOrder as string[] | undefined
+  let la: number, lb: number
+  if (expOrder && expOrder.length > 1) {
+    const ia = expOrder.indexOf(a.experience); const ib = expOrder.indexOf(b.experience)
+    la = ia === -1 ? 1 : ia; lb = ib === -1 ? 1 : ib
+  } else {
+    la = EXP_LEVEL[a.experience] ?? 1; lb = EXP_LEVEL[b.experience] ?? 1
+  }
   const diff = Math.abs(la - lb);
   if (diff === 1) score += 6;
   else if (diff === 0) score += 3;
@@ -149,6 +156,8 @@ const TEAM_NAMES = [
 ];
 
 export function buildTeams(participants: Participant[], config: FormConfig): MatchResult {
+  const expOrder = config.experiences?.map(e=>e.id) ?? []
+  ;(globalThis as unknown as { __expOrder?: string[] }).__expOrder = expOrder
   const teamSize = config.teamSize;
   const byId = new Map(participants.map((p) => [p.userId, p]));
   const conflicts: string[] = [];

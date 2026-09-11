@@ -6,7 +6,7 @@ import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
 import { api } from '@/api'
 import { createEventSchema, announceSchema, cleanupDelaySchema } from '@/lib/schemas'
-import type { FormConfig, HackathonEvent, Participant } from '@/types'
+import type { Assignment, FormConfig, HackathonEvent, Participant } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScheduleEditor } from '@/components/ui/schedule-editor'
+import { AssignmentsEditor } from '@/components/AssignmentsEditor'
 import { EmptyState } from '@/components/ui/empty-state'
 import { TagAutocompleteInput, TagAutocompleteTextarea } from '@/components/TagAutocomplete'
 import { dateTime, timeAgo } from '@/lib/format'
@@ -83,6 +84,7 @@ function NewEventButton() {
   const [templateId, setTemplateId] = useState<string>('')
   const [formMode, setFormMode] = useState<'blank' | 'template'>('blank')
   const [formTemplateId, setFormTemplateId] = useState<string>('')
+  const [assignments, setAssignments] = useState<Assignment[]>([])
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [startsAt, setStartsAt] = useState('')
@@ -200,6 +202,7 @@ function NewEventButton() {
         scheduleChannelId: scheduleChannelId || null,
         ...(mergedSchedule.length > 0 ? { schedule: mergedSchedule } : {}),
         ...((startAnn.length > 0 || endAnn.length > 0) ? { announcements: [...startAnn, ...endAnn] } : {}),
+        ...(assignments.length > 0 ? { assignments } : {}),
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
       toast.success(saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() }))
@@ -336,6 +339,7 @@ function NewEventButton() {
                 onEndActionsChange={setEndActions}
                 disablePast
               />
+              <AssignmentsEditor value={assignments} onChange={setAssignments} />
 
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
                 <span className="text-sm font-medium">{t('events.form_section')}</span>
@@ -620,6 +624,7 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
   const [end, setEnd] = useState(event.endsAt ? toLocalIso(new Date(event.endsAt)) : "")
   const [signupStart, setSignupStart] = useState(event.signupStartsAt ? toLocalIso(new Date(event.signupStartsAt)) : "")
   const [signupEnd, setSignupEnd] = useState(event.signupEndsAt ? toLocalIso(new Date(event.signupEndsAt)) : "")
+  const [editAssignments, setEditAssignments] = useState<Assignment[]>(()=> (event.assignments ?? []))
   const [startActions, setStartActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveStart(event))
   const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveEnd(event))
   const [busy, setBusy] = useState(false)
@@ -649,6 +654,7 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
         signupStartsAt: signupStart ? Date.parse(signupStart) : null,
         signupEndsAt: signupEnd ? Date.parse(signupEnd) : null,
         announcements: nextAnnouncements as never,
+        assignments: editAssignments as never,
       })
       toast.success(t('events.schedule_saved'))
       setOpen(false)
@@ -689,6 +695,7 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
                 onEndActionsChange={setEndActions}
                 disablePast
               />
+              <AssignmentsEditor value={editAssignments} onChange={setEditAssignments} />
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
                 <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>

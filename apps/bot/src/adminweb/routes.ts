@@ -270,8 +270,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       scheduleChannelId?: string | null;
       templateId?: string;
       formTemplateId?: string;
-      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null }[] }[];
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null; mode?: string; assignmentId?: string }[] }[];
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
+      assignments?: { id: string; title: string; instructions: string; description?: string }[];
       saveAsTemplate?: boolean;
       saveTemplateName?: string;
     } | null;
@@ -345,6 +346,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(form !== undefined ? { form } : {}),
       ...(schedule !== undefined ? { schedule: schedule as never } : {}),
       ...(announcements !== undefined ? { announcements: announcements as never } : {}),
+      ...(body.assignments !== undefined ? { assignments: body.assignments as never } : {}),
     });
     if (!res.ok) {
       await reply.code(400).send(res);
@@ -402,8 +404,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       scheduleChannelId?: string | null;
       cleanupDelayHours?: number;
       matchAt?: number | null;
-      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null }[] }[];
+      schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null; mode?: string; assignmentId?: string }[] }[];
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
+      assignments?: { id: string; title: string; instructions: string; description?: string }[];
     } | null;
     const res = updateEvent(db, 'web', eventId, {
       ...(body?.name !== undefined ? { name: body.name } : {}),
@@ -419,6 +422,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body?.matchAt !== undefined ? { matchAt: body.matchAt } : {}),
       ...(body?.schedule !== undefined ? { schedule: body.schedule as never } : {}),
       ...(body?.announcements !== undefined ? { announcements: body.announcements as never } : {}),
+      ...(body?.assignments !== undefined ? { assignments: body.assignments as never } : {}),
     });
     if (!res.ok) {
       await reply.code(400).send(res);

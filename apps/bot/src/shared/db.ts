@@ -69,6 +69,7 @@ function migrate(db: Db): void {
       schedule_channel_id TEXT,
       schedule_json TEXT NOT NULL DEFAULT '[]',
       announcements_json TEXT NOT NULL DEFAULT '[]',
+      assignments_json TEXT NOT NULL DEFAULT '[]',
       announced_schedule_ids TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -184,6 +185,7 @@ function migrate(db: Db): void {
   addColumnIfMissing(db, 'events', 'schedule_channel_id', 'TEXT');
   addColumnIfMissing(db, 'events', 'signup_starts_at', 'INTEGER');
   addColumnIfMissing(db, 'events', 'signup_ends_at', 'INTEGER');
+  addColumnIfMissing(db, 'events', 'assignments_json', 'TEXT NOT NULL DEFAULT \'[]\'');
   addColumnIfMissing(db, 'events', 'schedule_json', 'TEXT NOT NULL DEFAULT \'[]\'');
   addColumnIfMissing(db, 'events', 'announcements_json', 'TEXT NOT NULL DEFAULT \'[]\'');
   addColumnIfMissing(db, 'events', 'announced_schedule_ids', 'TEXT NOT NULL DEFAULT \'[]\'');

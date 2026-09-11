@@ -480,6 +480,26 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                   summary.push(`schedule ${op.type}: ${event.name} (${preview.value.teams.length} teams)`)
                 }
                 audit(db, 'system', `schedule.${op.type}`, event.id, { scheduleId, ok: preview.ok, code: (preview as unknown as { code?: string }).code })
+              } else if (op.type === 'distribute_assignments') {
+                const assigns = (event.assignments ?? []) as { id:string; title:string; instructions:string }[]
+                if (assigns.length > 0) {
+                  const { listTeams } = await import('../features/teams/data.js')
+                  const teams = listTeams(db, event.guildId).filter((t: { eventId: string })=>t.eventId===event.id)
+                  if (teams.length > 0) {
+                    const mode = op.mode === 'same' ? 'same' : 'random'
+                    const perTeam = mode === 'same'
+                      ? teams.map((team: { name: string; id: string })=>({ team, assign: (op.assignmentId ? assigns.find(x=>x.id===op.assignmentId) ?? assigns[0]! : assigns[0]!) }))
+                      : (()=>{ const sh=[...assigns].sort(()=>Math.random()-0.5); return teams.map((team: { name: string; id: string },i: number)=>({ team, assign: sh[i % sh.length]! })) })()
+                    for (const { team, assign } of perTeam) {
+                      const chanId = (team as unknown as { channelId?: string | null }).channelId ?? (team as unknown as { channel_id?: string | null }).channel_id ?? null
+                      if (!chanId || !isSnowflake(chanId)) continue
+                      const text = `**${assign.title}**\n${assign.instructions.replaceAll('{team}', team.name).replaceAll('{event}', event.name)}`.slice(0, 2000)
+                      try { const guild = await client.guilds.fetch(event.guildId); const ch = await guild.channels.fetch(chanId).catch(()=>null) as import('discord.js').TextChannel | null; if (ch && ch.isTextBased()) await ch.send({ content: text, allowedMentions: { parse: ['everyone'] } as never }).catch(()=>undefined) } catch {}
+                    }
+                    audit(db, 'system', 'schedule.distribute_assignments', event.id, { scheduleId, mode, teams: teams.length, assignments: assigns.length })
+                    summary.push(`schedule assignments (${mode}): ${event.name} — ${teams.length} teams`)
+                  }
+                }
               }
             } catch (e) { console.warn(`schedule op ${op.type} failed`, e) }
           }

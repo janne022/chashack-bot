@@ -115,9 +115,17 @@ export interface HackathonEvent {
   discordEventIds: string[]
   schedule: ScheduleItem[]
   announcements: AnnouncementTemplate[]
+  assignments: Assignment[]
   announcedScheduleIds: string[]
   createdAt: number
   updatedAt: number
+}
+
+export interface Assignment {
+  id: string
+  title: string
+  instructions: string
+  description?: string
 }
 
 export interface ScheduleItem {
@@ -131,10 +139,12 @@ export interface ScheduleItem {
 
 export interface ScheduleAction {
   id: string
-  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match' | 'post_signup'
+  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match' | 'post_signup' | 'distribute_assignments'
   title?: string
   message?: string
   channelId?: string | null
+  mode?: 'random' | 'same'
+  assignmentId?: string
 }
 
 export interface AnnouncementTemplate {

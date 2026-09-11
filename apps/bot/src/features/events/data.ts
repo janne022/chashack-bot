@@ -44,9 +44,17 @@ export interface HackathonEvent {
   scheduleChannelId: string | null;
   schedule: ScheduleItem[];
   announcements: AnnouncementTemplate[];
+  assignments: Assignment[];
   announcedScheduleIds: string[];
   createdAt: number;
   updatedAt: number;
+}
+
+export interface Assignment {
+  id: string;
+  title: string;
+  instructions: string;
+  description?: string;
 }
 
 export interface ScheduleItem {
@@ -60,10 +68,12 @@ export interface ScheduleItem {
 
 export interface ScheduleAction {
   id: string;
-  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match' | 'post_signup';
+  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match' | 'post_signup' | 'distribute_assignments';
   title?: string;
   message?: string;
   channelId?: string | null;
+  mode?: 'random' | 'same';
+  assignmentId?: string;
 }
 
 export interface AnnouncementTemplate {
@@ -99,6 +109,7 @@ interface EventRow {
   schedule_channel_id: string | null;
   schedule_json: string | null;
   announcements_json: string | null;
+  assignments_json: string | null;
   announced_schedule_ids: string | null;
   created_at: number;
   updated_at: number;
@@ -124,6 +135,13 @@ function toEvent(row: EventRow): HackathonEvent {
     if (!Array.isArray(announcements)) announcements = [];
   } catch {
     announcements = [];
+  }
+  let assignments: Assignment[] = [];
+  try {
+    assignments = row.assignments_json ? (JSON.parse(row.assignments_json) as Assignment[]) : [];
+    if (!Array.isArray(assignments)) assignments = [];
+  } catch {
+    assignments = [];
   }
   let announcedScheduleIds: string[] = [];
   try {
@@ -157,6 +175,7 @@ function toEvent(row: EventRow): HackathonEvent {
     scheduleChannelId: row.schedule_channel_id ?? null,
     schedule,
     announcements,
+    assignments,
     announcedScheduleIds,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -181,6 +200,7 @@ export interface CreateEventInput {
   cleanupDelayHours?: number;
   schedule?: ScheduleItem[];
   announcements?: AnnouncementTemplate[];
+  assignments?: Assignment[];
 }
 
 export function createEvent(db: Db, actor: string, guildId: string, input: CreateEventInput): Result<HackathonEvent> {
@@ -204,29 +224,32 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
   const form: FormConfig = normalizeFormUpdate({ ...DEFAULT_FORM, ...(input.form ?? {}) }, {});
   const schedule = normalizeSchedule(input.schedule ?? []);
   const announcements = normalizeAnnouncements(input.announcements ?? []);
+  const assignments = normalizeAssignments(input.assignments ?? []);
   // seed defaults if none provided — at least on_activate + schedule
   const seededAnnouncements = announcements.length > 0 ? announcements : defaultAnnouncements(name);
+  const seededAssignments = assignments.length > 0 ? assignments : defaultAssignments();
   db.prepare(
-    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, signup_starts_at, signup_ends_at, status, form_json, panel_channel_id, announcement_channel_id, schedule_channel_id, category_id, cleanup_delay_hours, schedule_json, announcements_json, announced_schedule_ids, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, signup_starts_at, signup_ends_at, status, form_json, panel_channel_id, category_id, cleanup_delay_hours, match_at, match_locked, discord_event_ids, announcement_channel_id, schedule_channel_id, schedule_json, announcements_json, assignments_json, announced_schedule_ids, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, 0, '[]', ?, ?, ?, ?, ?, '[]', ?, ?)`,
   ).run(
     id,
     guildId,
     name,
-    (input.description ?? '').slice(0, 1000),
+    input.description?.trim() ?? '',
     input.startsAt ?? null,
     input.endsAt ?? null,
     input.signupStartsAt ?? null,
     input.signupEndsAt ?? null,
     JSON.stringify(form),
     input.panelChannelId ?? null,
+    input.categoryId ?? null,
+    Number.isFinite(Number(input.cleanupDelayHours)) ? Math.max(0, Math.min(720, Number(input.cleanupDelayHours))) : 24,
+    null,
     input.announcementChannelId ?? null,
     input.scheduleChannelId ?? null,
-    input.categoryId ?? null,
-    input.cleanupDelayHours ?? 48,
     JSON.stringify(schedule),
     JSON.stringify(seededAnnouncements),
-    JSON.stringify([]),
+    JSON.stringify(seededAssignments),
     Date.now(),
     Date.now(),
   );
@@ -256,7 +279,7 @@ export function updateEvent(
   db: Db,
   actor: string,
   eventId: string,
-  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'signupStartsAt' | 'signupEndsAt' | 'panelChannelId' | 'announcementChannelId' | 'scheduleChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds' | 'schedule' | 'announcements'>>,
+  update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'signupStartsAt' | 'signupEndsAt' | 'panelChannelId' | 'announcementChannelId' | 'scheduleChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds' | 'schedule' | 'announcements' | 'assignments'>>,
 ): Result<HackathonEvent> {
   const event = getEvent(db, eventId);
   if (event === null) return err('not_found', 'Event not found.');
@@ -286,7 +309,7 @@ export function updateEvent(
       : event.cleanupDelayHours;
 
   db.prepare(
-    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, signup_starts_at = ?, signup_ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, schedule_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, announcements_json = ?, updated_at = ?
+    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, signup_starts_at = ?, signup_ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, schedule_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, announcements_json = ?, assignments_json = ?, updated_at = ?
      WHERE id = ?`,
   ).run(
     name,
@@ -304,6 +327,7 @@ export function updateEvent(
     update.discordEventIds !== undefined ? JSON.stringify(update.discordEventIds) : JSON.stringify(event.discordEventIds),
     update.schedule !== undefined ? JSON.stringify(normalizeSchedule(update.schedule)) : JSON.stringify(event.schedule),
     update.announcements !== undefined ? JSON.stringify(normalizeAnnouncements(update.announcements)) : JSON.stringify(event.announcements),
+    update.assignments !== undefined ? JSON.stringify(normalizeAssignments(update.assignments)) : JSON.stringify(event.assignments),
     Date.now(),
     eventId,
   );
@@ -445,7 +469,7 @@ export function listTemplates(db: Db, guildId: string, kind?: Template['kind']):
       { id: "sch_voting", time: new Date(new Date(hackEnds).setHours(14,0,0,0)).getTime(), title: "Voting", description: "Vote for your favourite", kind: "voting", actions: [{ id: "a3", type: "announce", title: "Voting time!", message: "🗳️ {schedule_title} — {schedule_desc} {timer_schedule} {everyone}" }] },
     ]
     seedIfEmpty('event', [
-      { name: "Default Hackathon", json: JSON.stringify({ name: "ChasHack", description: "48-hour hackathon — build, ship, demo!", cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, announcements: defaultAnnouncements("ChasHack") }) },
+      { name: "Default Hackathon", json: JSON.stringify({ name: "ChasHack", description: "48-hour hackathon — build, ship, demo!", cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, announcements: defaultAnnouncements("ChasHack"), assignments: defaultAssignments() }) },
     ])
   }
   const rows = (
@@ -491,7 +515,7 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
     const description = String((raw as unknown as Record<string, unknown>).description ?? '').trim().slice(0, 200) || undefined;
     const kindRaw = String((raw as unknown as Record<string, unknown>).kind ?? 'custom').trim() as ScheduleItem['kind'];
     const kind: ScheduleItem['kind'] = ['food', 'break', 'voting', 'prize', 'talk', 'custom'].includes(kindRaw ?? '') ? kindRaw : 'custom';
-    // actions: zapier-like per-item ops (announce + lock/assign + signup)
+    // actions: zapier-like per-item ops (announce + lock/assign + signup + assignments)
     let actions: ScheduleAction[] | undefined = undefined
     const rawActions = (raw as unknown as Record<string, unknown>).actions
     if (Array.isArray(rawActions)) {
@@ -500,7 +524,7 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
         const ar = a as Record<string, unknown>
         if (!ar || typeof ar.type !== 'string') continue
         const atype = String(ar.type).trim() as ScheduleAction['type']
-        if (!['announce','lock_teams','assign_random','auto_match','post_signup'].includes(atype)) continue
+        if (!['announce','lock_teams','assign_random','auto_match','post_signup','distribute_assignments'].includes(atype)) continue
         const aid = String(ar.id ?? '').trim() || newId('sact')
         if (atype === 'announce') {
           if (typeof ar.title !== 'string' || typeof ar.message !== 'string') continue
@@ -512,6 +536,11 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
         } else if (atype === 'post_signup') {
           const chan = ar.channelId !== undefined && ar.channelId !== null ? String(ar.channelId).trim() || null : null
           norm.push({ id: aid, type: 'post_signup', ...(chan ? { channelId: chan } : {}) })
+        } else if (atype === 'distribute_assignments') {
+          const mode = String(ar.mode ?? 'random').trim() as ScheduleAction['mode']
+          const m = mode === 'same' ? 'same' : 'random'
+          const assignmentId = ar.assignmentId !== undefined && ar.assignmentId !== null ? String(ar.assignmentId).trim() || undefined : undefined
+          norm.push({ id: aid, type: 'distribute_assignments', mode: m, ...(assignmentId ? { assignmentId } : {}) })
         } else {
           norm.push({ id: aid, type: atype })
         }
@@ -538,6 +567,30 @@ export function normalizeAnnouncements(items: AnnouncementTemplate[]): Announcem
     out.push({ id, title, message, trigger, ...(channelId ? { channelId } : {}) });
   }
   return out.slice(0, 20);
+}
+
+export function normalizeAssignments(items: unknown): Assignment[] {
+  if (!Array.isArray(items)) return [];
+  const out: Assignment[] = [];
+  for (const raw of items as unknown[]) {
+    const r = raw as Record<string, unknown>;
+    if (!r || typeof r.title !== 'string' || typeof r.instructions !== 'string') continue;
+    const title = String(r.title).trim().slice(0, 100);
+    const instructions = String(r.instructions).trim().slice(0, 2000);
+    if (!title || !instructions) continue;
+    const id = String(r.id ?? '').trim() || newId('assign');
+    const description = typeof r.description === 'string' ? String(r.description).trim().slice(0, 300) || undefined : undefined;
+    out.push({ id, title, instructions, ...(description ? { description } : {}) });
+  }
+  return out.slice(0, 50);
+}
+
+export function defaultAssignments(): Assignment[] {
+  return [
+    { id: newId('assign'), title: 'Mystery API', instructions: 'Here is your assignment {team}: build a bot that greets newcomers in a creative way. Bonus if it pings {everyone} when someone joins!', description: 'Creative greeting bot' },
+    { id: newId('assign'), title: 'Data dash', instructions: 'Here is your assignment {team}: visualize the pantry stock for {event} — show what’s missing across stores.', description: 'Pantry viz' },
+    { id: newId('assign'), title: 'Mini-game', instructions: 'Here is your assignment {team}: make a tiny Discord mini-game (quiz, poll, or meme generator) for {event}.', description: 'Fun intermission' },
+  ]
 }
 
 export function defaultAnnouncements(eventName: string): AnnouncementTemplate[] {
