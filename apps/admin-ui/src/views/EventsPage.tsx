@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers, Clock, ClipboardList, Search, Rocket } from 'lucide-react'
+import { CalendarDays, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers, ClipboardList, Search, Rocket, Pencil } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
@@ -605,6 +605,7 @@ function NewEventButton() {
 function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
   const { state } = useAppContext()
   const t = useT()
+  const [editOpen, setEditOpen] = useState(false)
   const sorted = [...(event.schedule ?? [])]
     .filter((s) => s.id !== '__start__' && s.id !== '__end__')
     .sort((a, b) => a.time - b.time)
@@ -625,7 +626,11 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
             <CardDescription className="mt-1 max-w-2xl">{event.description}</CardDescription>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
+            <Pencil />
+            Edit event
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -714,29 +719,36 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
             <div>
               <div className="text-muted-foreground text-xs">Auto-match</div>
               <div className="flex items-center gap-1.5">
-                {event.matchLocked && <Lock className="size-3 text-ok" />}
                 <span>
                   {event.matchAt !== null
-                    ? `${dateTime(event.matchAt)} (${timeAgo(event.matchAt)})${event.matchLocked ? ' · locked' : ''}`
-                    : event.matchLocked
-                      ? 'locked · manual'
-                      : 'manual'}
+                    ? `Runs ${dateTime(event.matchAt)} (${timeAgo(event.matchAt)})`
+                    : 'Not scheduled'}
                 </span>
+                {event.matchLocked && (
+                  <span className="flex items-center gap-1 font-medium text-ok">
+                    <Lock className="size-3" />
+                    locked
+                  </span>
+                )}
               </div>
             </div>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <EditableSchedule event={event} refresh={refresh} />
           <NotificationButtons event={event} refresh={refresh} />
           <EndEventButton event={event} refresh={refresh} />
         </div>
       </CardContent>
+      {editOpen && <EditableSchedule event={event} refresh={refresh} open onClose={() => setEditOpen(false)} />}
     </Card>
   )
 }
 
-function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+/**
+ * The event edit dialog. Rendered on demand by its parent (which owns the
+ * open/close state) so the trigger button can live anywhere on the card.
+ */
+function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonEvent; refresh: () => Promise<void>; open: boolean; onClose: () => void }) {
   const { state } = useAppContext()
   const t = useT()
   const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
@@ -755,7 +767,6 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
   }
   const deriveItems = (ev: HackathonEvent) => (ev.schedule ?? []).filter(s=>s.id!=='__start__' && s.id!=='__end__')
 
-  const [open, setOpen] = useState(false)
   const [items, setItems] = useState(()=>deriveItems(event))
   const [start, setStart] = useState(event.startsAt ? toLocalIso(new Date(event.startsAt)) : "")
   const [end, setEnd] = useState(event.endsAt ? toLocalIso(new Date(event.endsAt)) : "")
@@ -769,8 +780,9 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
   const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveEnd(event))
   const [busy, setBusy] = useState(false)
 
-  // sync when event changes (after save)
-  useEffect(() => { if (!open) { setItems(deriveItems(event)); setStart(event.startsAt ? toLocalIso(new Date(event.startsAt)) : ""); setEnd(event.endsAt ? toLocalIso(new Date(event.endsAt)) : ""); setSignupStart(event.signupStartsAt ? toLocalIso(new Date(event.signupStartsAt)) : ""); setSignupEnd(event.signupEndsAt ? toLocalIso(new Date(event.signupEndsAt)) : ""); setStartActions(deriveStart(event)); setEndActions(deriveEnd(event)) } }, [event.schedule, event.startsAt, event.endsAt, event.signupStartsAt, event.signupEndsAt, event.announcements, open])
+  // No reset effect needed: the parent mounts this dialog only while it is open,
+  // so the useState initializers above already take a fresh snapshot of the event
+  // each time — and in-progress edits can't be clobbered by a background refresh.
 
   async function save() {
     setBusy(true)
@@ -804,7 +816,7 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
         setEditFormTemplateId('')
       }
       toast.success(t('events.schedule_saved'))
-      setOpen(false)
+      onClose()
       await refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('events.schedule_save_failed'))
@@ -813,12 +825,8 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
 
   return (
     <>
-      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
-        <Clock className="size-3.5" />
-        Edit event
-      </Button>
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
           <Card className="w-full max-w-xl animate-pop-in max-h-[85vh] overflow-y-auto" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             <CardHeader>
               <CardTitle>{t('events.edit_schedule_title')}</CardTitle>
@@ -866,7 +874,7 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
                 <span className="text-xs text-muted-foreground">Leave empty to keep the current form.</span>
               </label>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+                <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
                 <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>
               </div>
             </CardContent>
