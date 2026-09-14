@@ -195,6 +195,35 @@ function migrate(db: Db): void {
   recreateParticipantsTable(db);
   migrateTeamPrefs(db);
   stripTemplateAnnouncements(db);
+  purgeOrphanTeams(db);
+}
+
+/**
+ * commitMatch used to run a legacy insert loop without `event_id`, so every match
+ * left one extra `matched` team row with `event_id` NULL and **no members** (the
+ * event-scoped insert that followed took the members). `backfillLegacyEvents`
+ * then adopted those rows into the per-guild "Imported event", where they showed
+ * up as phantom teams.
+ *
+ * A `matched` team with no members is never legitimate, so purge those: both the
+ * not-yet-adopted (`event_id IS NULL`) and already-adopted (`ev_legacy_*`) ones.
+ * Real pre-events teams keep their members and are left alone. Idempotent.
+ */
+function purgeOrphanTeams(db: Db): void {
+  const has = (table: string): boolean =>
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !== undefined;
+  if (!has('teams') || !has('participants')) return;
+  const res = db
+    .prepare(
+      `DELETE FROM teams
+        WHERE kind = 'matched'
+          AND (event_id IS NULL OR event_id LIKE 'ev_legacy_%')
+          AND id NOT IN (SELECT team_id FROM participants WHERE team_id IS NOT NULL)`,
+    )
+    .run();
+  if (Number(res.changes) > 0) {
+    console.log(`migration: purged ${res.changes} orphan matched team row(s) with no members`);
+  }
 }
 
 /**

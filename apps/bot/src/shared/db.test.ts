@@ -115,3 +115,40 @@ test('migration: unparseable template json is left alone', () => {
     cleanup(file);
   }
 });
+
+/**
+ * commitMatch's legacy insert loop left a `matched` team row with `event_id` NULL
+ * and no members on every match; the legacy backfill then adopted those rows into
+ * "Imported event" as phantom teams. The migration purges them — both states —
+ * while leaving a genuine pre-events team (which owns its members) untouched.
+ */
+test('migration: purges orphan matched teams but keeps legacy teams with members', () => {
+  const file = tmpPath('orphans');
+  cleanup(file);
+  try {
+    const seedDb = openDb(file);
+    const now = 1;
+    seedDb
+      .prepare("INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES ('ev_legacy_g1', 'g1', 'Imported event', 'ended', 1, 1)")
+      .run();
+    // the bug's leftovers: one not-yet-adopted, one already adopted, both member-less
+    seedDb.prepare("INSERT INTO teams (id, guild_id, name, kind, created_at) VALUES ('orphan1', 'g1', 'Team Alpha', 'matched', 1)").run();
+    seedDb.prepare("INSERT INTO teams (id, event_id, guild_id, name, kind, created_at) VALUES ('orphan2', 'ev_legacy_g1', 'g1', 'Team Alpha', 'matched', 1)").run();
+    // a genuine legacy team: matched, in the legacy event, and it owns a member
+    seedDb.prepare("INSERT INTO teams (id, event_id, guild_id, name, kind, created_at) VALUES ('real', 'ev_legacy_g1', 'g1', 'Team Real', 'matched', 1)").run();
+    seedDb
+      .prepare(
+        `INSERT INTO participants (event_id, user_id, guild_id, display_name, experience, role_track, skills, team_pref, teammates, status, created_at, updated_at, team_id)
+         VALUES ('ev_legacy_g1', 'u1', 'g1', 'Legacy Person', 'veteran', 'backend', '[]', 'random_team', '[]', 'active', ?, ?, 'real')`,
+      )
+      .run(now, now);
+    seedDb.close();
+
+    const reopened = openDb(file);
+    const ids = (reopened.prepare('SELECT id FROM teams ORDER BY id').all() as unknown as { id: string }[]).map((r) => r.id);
+    assert.deepEqual(ids, ['real'], 'only the member-owning legacy team survives');
+    reopened.close();
+  } finally {
+    cleanup(file);
+  }
+});

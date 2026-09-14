@@ -78,7 +78,7 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
       const color = teamColor(team.colorId);
       const role = await guild.roles.create({
         name: team.name.slice(0, 100),
-        color: color.int,
+        colors: { primaryColor: color.int },
         mentionable: true,
         reason: t(locale, 'discord.provision.reason_create_role', { team: team.name }),
       });

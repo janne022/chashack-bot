@@ -33,22 +33,9 @@ export function commitMatch(db: Db, actor: string, eventId: string, guildId: str
     db.prepare('DELETE FROM teams WHERE id = ?').run(t.id);
   }
 
-  // Create the new matched teams and assign members.
-  for (const team of preview.value.teams) {
-    const id = newId('team');
-    db.prepare(
-      "INSERT INTO teams (id, guild_id, name, kind, owner_id, join_code, created_at) VALUES (?, ?, ?, 'matched', NULL, NULL, ?)",
-    ).run(id, guildId, team.name, Date.now());
-    for (const userId of team.memberIds) {
-      db.prepare('UPDATE participants SET team_id = ?, updated_at = ? WHERE user_id = ? AND guild_id = ?').run(
-        id,
-        Date.now(),
-        userId,
-        guildId,
-      );
-    }
-  }
-
+  // Create the new matched teams and assign members. Event-scoped on purpose:
+  // the row carries event_id and the member update is filtered by it, so a match
+  // in one event can never hijack that user's team in another.
   for (const team of preview.value.teams) {
     const id = newId('team');
     db.prepare(
