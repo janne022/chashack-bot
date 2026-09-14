@@ -317,7 +317,6 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     // Fall back to guild defaults when not explicitly provided
     const gs = getGuildSettings(db, guildId)
     let schedule = body.schedule
-    let announcements = body.announcements as never | undefined
     // If template provided a schedule and no explicit schedule, keep template's schedule
     if (schedule === undefined && body.templateId !== undefined) {
       const tpl = listTemplates(db, guildId, 'event').find((t) => t.id === body.templateId)
@@ -325,11 +324,6 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         const { templateToEventInput } = await import('../features/events/data.js')
         const tplInput = templateToEventInput(tpl.json)
         schedule = tplInput.schedule as never
-        // also carry announcements from template if not overridden
-        if (announcements === undefined) {
-          const parsed = JSON.parse(tpl.json) as { announcements?: typeof announcements }
-          if (Array.isArray(parsed.announcements)) announcements = parsed.announcements as never
-        }
       }
     }
     const res = createEvent(db, 'web', guildId, {
@@ -346,7 +340,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : gs.defaultCleanupDelayHours != null ? { cleanupDelayHours: gs.defaultCleanupDelayHours } : {}),
       ...(form !== undefined ? { form } : {}),
       ...(schedule !== undefined ? { schedule: schedule as never } : {}),
-      ...(announcements !== undefined ? { announcements: announcements as never } : {}),
+      ...(body.announcements !== undefined ? { announcements: body.announcements as never } : {}),
       ...(body.assignments !== undefined ? { assignments: body.assignments as never } : {}),
     });
     if (!res.ok) {
@@ -366,7 +360,6 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
           cleanupDelayHours: savedEvent.cleanupDelayHours,
           form: getEventForm(db, savedEvent, DEFAULT_FORM),
           schedule: savedEvent.schedule,
-          announcements: savedEvent.announcements,
         }
         saveTemplate(db, 'web', guildId, tplName, 'event', JSON.stringify(payload))
       }

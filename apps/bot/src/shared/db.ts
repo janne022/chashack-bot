@@ -194,6 +194,34 @@ function migrate(db: Db): void {
   addEventColumns(db);
   recreateParticipantsTable(db);
   migrateTeamPrefs(db);
+  stripTemplateAnnouncements(db);
+}
+
+/**
+ * Event templates used to embed a top-level `announcements` array (the old
+ * trigger-driven model). Announcements are now action-driven — they live in
+ * schedule blocks as `announce` actions. Strip the stale key so templates
+ * don't carry dead config. Idempotent: rewrites only rows that still have it.
+ */
+function stripTemplateAnnouncements(db: Db): void {
+  const tableExists = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'event_templates'")
+    .get();
+  if (tableExists === undefined) return;
+  const rows = db
+    .prepare("SELECT id, json FROM event_templates WHERE kind = 'event'")
+    .all() as unknown as { id: string; json: string }[];
+  for (const row of rows) {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(row.json) as Record<string, unknown>;
+    } catch {
+      continue; // unparseable — leave it alone
+    }
+    if (!('announcements' in parsed)) continue;
+    delete parsed.announcements;
+    db.prepare('UPDATE event_templates SET json = ? WHERE id = ?').run(JSON.stringify(parsed), row.id);
+  }
 }
 
 /**

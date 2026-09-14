@@ -198,11 +198,11 @@ function EventTemplateDialog({ template, formTemplates, onClose, onSaved }: { te
   const [draft, setDraft] = useState<EventTemplateDraft>(()=>{
     if (template) {
       try {
-        const p = JSON.parse(template.json) as Partial<EventTemplateDraft & { name: string } & { announcements?: import("@/types").AnnouncementTemplate[] }>
-        return { name: template.name, description: (p as Record<string,string>).description ?? "", cleanupDelayHours: (p as Record<string,number>).cleanupDelayHours ?? 48, form: (p.form as FormConfig) ?? DEFAULT_FORM, schedule: (p.schedule as EventTemplateDraft["schedule"]) ?? [], announcements: (p.announcements as EventTemplateDraft["announcements"]) ?? [{ id: "ann1", title: `${template.name} — signups open!`, message: "Listen up {everyone} **{event}** is live! Sign up in {panel} — starts {timer}", trigger: "on_activate" as const }, { id: "ann2", title: "{schedule_title}", message: "⏰ **{schedule_title}** — {schedule_desc} {timer_schedule} {everyone}", trigger: "schedule" as const }] }
-      } catch { return { name: template.name, description: "", cleanupDelayHours: 48, form: DEFAULT_FORM, schedule: [], announcements: [] } }
+        const p = JSON.parse(template.json) as Partial<EventTemplateDraft & { name: string }>
+        return { name: template.name, description: (p as Record<string,string>).description ?? "", cleanupDelayHours: (p as Record<string,number>).cleanupDelayHours ?? 48, form: (p.form as FormConfig) ?? DEFAULT_FORM, schedule: (p.schedule as EventTemplateDraft["schedule"]) ?? [] }
+      } catch { return { name: template.name, description: "", cleanupDelayHours: 48, form: DEFAULT_FORM, schedule: [] } }
     }
-    return { name: "", description: "", cleanupDelayHours: 48, form: DEFAULT_FORM, schedule: [], announcements: [{ id: "ann1", title: "Signups open!", message: "Listen up {everyone} **{event}** is live! Sign up in {panel} — starts {timer}", trigger: "on_activate" as const }, { id: "ann2", title: "{schedule_title}", message: "⏰ **{schedule_title}** — {schedule_desc} {timer_schedule} {everyone}", trigger: "schedule" as const }] }
+    return { name: "", description: "", cleanupDelayHours: 48, form: DEFAULT_FORM, schedule: [] }
   })
   const [busy, setBusy] = useState(false)
   const isEdit = template !== null
@@ -211,7 +211,7 @@ function EventTemplateDialog({ template, formTemplates, onClose, onSaved }: { te
     if (draft.name.trim().length < 2) { toast.error("Name must be at least 2 characters"); return }
     setBusy(true)
     try {
-      const payload = { name: draft.name.trim(), description: draft.description, cleanupDelayHours: draft.cleanupDelayHours, form: draft.form, schedule: draft.schedule, announcements: draft.announcements }
+      const payload = { name: draft.name.trim(), description: draft.description, cleanupDelayHours: draft.cleanupDelayHours, form: draft.form, schedule: draft.schedule }
       const json = JSON.stringify(payload)
       if (isEdit) await api.updateTemplate(template.id, { name: draft.name.trim(), json })
       else await api.createTemplateRaw(draft.name.trim(), "event", json)

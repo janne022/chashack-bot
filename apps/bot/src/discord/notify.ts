@@ -444,11 +444,10 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           const perBlock = item.actions ?? []
           const announceActions = perBlock.filter(a=>a.type==='announce') as { id: string; type: 'announce'; title: string; message: string; channelId?: string | null }[]
           const opActions = perBlock.filter(a=>a.type!=='announce')
-          const globalAnns = (event.announcements ?? []).filter(a => a.trigger === 'schedule')
+          // Action-driven: only per-block announce actions send messages. A block with
+          // no announce action sends nothing (it may still run ops).
           const toSend: { title: string; message: string; channelId?: string | null }[] =
-            announceActions.length > 0 ? announceActions.map(a=>({ title: a.title!, message: a.message!, channelId: a.channelId ?? null }))
-            : globalAnns.length > 0 ? globalAnns.map(a=>({ title: a.title, message: a.message, channelId: a.channelId ?? null }))
-            : []
+            announceActions.map(a=>({ title: a.title!, message: a.message!, channelId: a.channelId ?? null }))
 
           // 1) Run ops first (lock / assign / signup) so announcements that follow can reference final teams
           for (const op of opActions) {

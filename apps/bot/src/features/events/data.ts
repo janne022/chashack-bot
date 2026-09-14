@@ -223,10 +223,7 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
   const id = newId('ev');
   const form: FormConfig = normalizeFormUpdate({ ...DEFAULT_FORM, ...(input.form ?? {}) }, {});
   const schedule = normalizeSchedule(input.schedule ?? []);
-  const announcements = normalizeAnnouncements(input.announcements ?? []);
   const assignments = normalizeAssignments(input.assignments ?? []);
-  // seed defaults if none provided — at least on_activate + schedule
-  const seededAnnouncements = announcements.length > 0 ? announcements : defaultAnnouncements(name);
   const seededAssignments = assignments.length > 0 ? assignments : defaultAssignments();
   db.prepare(
     `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, signup_starts_at, signup_ends_at, status, form_json, panel_channel_id, category_id, cleanup_delay_hours, match_at, match_locked, discord_event_ids, announcement_channel_id, schedule_channel_id, schedule_json, announcements_json, assignments_json, announced_schedule_ids, created_at, updated_at)
@@ -248,7 +245,7 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
     input.announcementChannelId ?? null,
     input.scheduleChannelId ?? null,
     JSON.stringify(schedule),
-    JSON.stringify(seededAnnouncements),
+    JSON.stringify(input.announcements ?? []),
     JSON.stringify(seededAssignments),
     Date.now(),
     Date.now(),
@@ -469,7 +466,7 @@ export function listTemplates(db: Db, guildId: string, kind?: Template['kind']):
       { id: "sch_voting", time: new Date(new Date(hackEnds).setHours(14,0,0,0)).getTime(), title: "Voting", description: "Vote for your favourite", kind: "voting", actions: [{ id: "a3", type: "announce", title: "Voting time!", message: "🗳️ {schedule_title} — {schedule_desc} {timer_schedule} {everyone}" }] },
     ]
     seedIfEmpty('event', [
-      { name: "Default Hackathon", json: JSON.stringify({ name: "ChasHack", description: "48-hour hackathon — build, ship, demo!", cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, announcements: defaultAnnouncements("ChasHack"), assignments: defaultAssignments() }) },
+      { name: "Default Hackathon", json: JSON.stringify({ name: "ChasHack", description: "48-hour hackathon — build, ship, demo!", cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, assignments: defaultAssignments() }) },
     ])
   }
   const rows = (
@@ -500,7 +497,6 @@ export function templateToEventInput(json: string): Partial<CreateEventInput> {
     ...(parsed.cleanupDelayHours !== undefined ? { cleanupDelayHours: parsed.cleanupDelayHours } : {}),
     ...(parsed.form !== undefined ? { form: parsed.form } : {}),
     ...(parsed.schedule !== undefined ? { schedule: normalizeSchedule(parsed.schedule) } : {}),
-    ...(parsed.announcements !== undefined ? { announcements: normalizeAnnouncements(parsed.announcements) } : {}),
   };
 }
 
@@ -590,16 +586,6 @@ export function defaultAssignments(): Assignment[] {
     { id: newId('assign'), title: 'Mystery API', instructions: 'Here is your assignment {team}: build a bot that greets newcomers in a creative way. Bonus if it pings {everyone} when someone joins!', description: 'Creative greeting bot' },
     { id: newId('assign'), title: 'Data dash', instructions: 'Here is your assignment {team}: visualize the pantry stock for {event} — show what’s missing across stores.', description: 'Pantry viz' },
     { id: newId('assign'), title: 'Mini-game', instructions: 'Here is your assignment {team}: make a tiny Discord mini-game (quiz, poll, or meme generator) for {event}.', description: 'Fun intermission' },
-  ]
-}
-
-export function defaultAnnouncements(eventName: string): AnnouncementTemplate[] {
-  return [
-    { id: newId('ann'), title: `${eventName} — signups open!`, message: 'Listen up {everyone} **{event}** is live! Sign up in {panel} — starts {timer}', trigger: 'on_activate' },
-    { id: newId('ann'), title: '{event} starting soon', message: '{everyone} **{event}** starts {timer} — get ready! {panel}', trigger: 'on_start' },
-    { id: newId('ann'), title: '{schedule_title}', message: '⏰ **{schedule_title}** — {schedule_desc} {timer_schedule} {everyone}', trigger: 'schedule' },
-    { id: newId('ann'), title: 'Teams locked!', message: '🔒 Teams for **{event}** are locked — {everyone} check your channels!', trigger: 'teams_locked' },
-    { id: newId('ann'), title: 'Teams assigned', message: '✅ **{event}** teams have been assigned — good luck {everyone}!', trigger: 'teams_assigned' },
   ]
 }
 
