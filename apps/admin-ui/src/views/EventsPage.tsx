@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers, ClipboardList, Search, Rocket, Pencil } from 'lucide-react'
+import { CalendarDays, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, FileCheck, Layers, ClipboardList, Search, Rocket, Pencil } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
@@ -8,6 +8,8 @@ import { api } from '@/api'
 import { createEventSchema, announceSchema, cleanupDelaySchema } from '@/lib/schemas'
 import type { Assignment, AssignmentStrategy, FormConfig, HackathonEvent, Participant } from '@/types'
 import { STRATEGY_OPTIONS } from '@/lib/assignment-strategy'
+import { DEFAULT_FORM } from '@/lib/default-form'
+import { FormConfigEditor } from '@/components/FormConfigEditor'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -172,8 +174,9 @@ function NewEventButton() {
   const [open, setOpen] = useState(false)
   const [chooserTemplateId, setChooserTemplateId] = useState<string>('')
   const [templateId, setTemplateId] = useState<string>('')
-  const [formMode, setFormMode] = useState<'blank' | 'template'>('blank')
+  const [formMode, setFormMode] = useState<'default' | 'template' | 'custom'>('default')
   const [formTemplateId, setFormTemplateId] = useState<string>('')
+  const [customForm, setCustomForm] = useState<FormConfig>(() => JSON.parse(JSON.stringify(DEFAULT_FORM)) as FormConfig)
   const [assignmentCollectionId, setAssignmentCollectionId] = useState<string>('')
   const [assignmentStrategy, setAssignmentStrategy] = useState<AssignmentStrategy>('random')
   const [cleanupDelayHours, setCleanupDelayHours] = useState<number>(48)
@@ -298,6 +301,15 @@ function NewEventButton() {
     }
     setBusy(true)
     try {
+      // Custom form: save it as a real form template first — it shows up under
+      // Templates → Form templates and the event just binds to it by id.
+      let effectiveFormTemplateId = formTemplateId
+      if (formMode === 'custom') {
+        const tplName = `${name.trim()} — signup form`
+        const created = await api.createTemplateRaw(tplName, 'form', JSON.stringify(customForm))
+        effectiveFormTemplateId = created.template.id
+        toast.info(t('events.form_created', { name: tplName }))
+      }
       // Build schedule + announcements from start/end pinned blocks: announce types → announcements, ops → synthetic schedule items at that time
       const startTime = startsAt ? Date.parse(startsAt) : null
       const endTime = endsAt ? Date.parse(endsAt) : null
@@ -321,7 +333,7 @@ function NewEventButton() {
       await api.createEvent({
         ...parsed.data,
         ...(templateId ? { templateId } : {}),
-        ...(formTemplateId ? { formTemplateId } : {}),
+        ...(effectiveFormTemplateId ? { formTemplateId: effectiveFormTemplateId } : {}),
         cleanupDelayHours: cleanupDelayHours,
         ...(launch ? { launch: true } : {}),
         panelChannelId: panelChannelId || null,
@@ -338,8 +350,9 @@ function NewEventButton() {
       setOpen(false)
       setChooserTemplateId('')
       setTemplateId('')
-      setFormMode('blank')
+      setFormMode('default')
       setFormTemplateId('')
+      setCustomForm(JSON.parse(JSON.stringify(DEFAULT_FORM)) as FormConfig)
       setName('')
       setDescription('')
       setStartsAt('')
@@ -516,19 +529,19 @@ function NewEventButton() {
 
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
                 <span className="text-sm font-medium">{t('events.form_section')}</span>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid gap-2 sm:grid-cols-3">
                   <button
                     type="button"
-                    onClick={() => { setFormMode('blank'); setFormTemplateId('') }}
+                    onClick={() => { setFormMode('default'); setFormTemplateId('') }}
                     className={cn(
                       "flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                      formMode === 'blank' ? "border-accent bg-background ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
+                      formMode === 'default' ? "border-accent bg-background ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
                     )}
                   >
-                    <FilePlus className={cn("size-4", formMode === 'blank' ? "text-accent" : "text-muted-foreground")} />
+                    <FileCheck className={cn("size-4", formMode === 'default' ? "text-accent" : "text-muted-foreground")} />
                     <span>
-                      <span className="block text-sm font-medium">{t('events.new_form')}</span>
-                      <span className="block text-xs text-muted-foreground">{t('events.new_form_desc')}</span>
+                      <span className="block text-sm font-medium">{t('events.form_default')}</span>
+                      <span className="block text-xs text-muted-foreground">{t('events.form_default_desc')}</span>
                     </span>
                   </button>
                   <button
@@ -546,23 +559,56 @@ function NewEventButton() {
                       <span className="block text-xs text-muted-foreground">{t('events.pick_form_desc')}</span>
                     </span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormMode('custom')}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                      formMode === 'custom' ? "border-accent bg-background ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
+                    )}
+                  >
+                    <FilePlus className={cn("size-4", formMode === 'custom' ? "text-accent" : "text-muted-foreground")} />
+                    <span>
+                      <span className="block text-sm font-medium">{t('events.form_build')}</span>
+                      <span className="block text-xs text-muted-foreground">{t('events.form_build_desc')}</span>
+                    </span>
+                  </button>
                 </div>
                 {formMode === 'template' && (
-                  <Select value={formTemplateId} onValueChange={setFormTemplateId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={t('events.pick_form_template')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {formTemplates.map((tpl) => (
-                        <SelectItem key={tpl.id} value={tpl.id}>
-                          {tpl.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex flex-col gap-1.5">
+                    <Select value={formTemplateId} onValueChange={setFormTemplateId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('events.pick_form_template')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {formTemplates.map((tpl) => (
+                          <SelectItem key={tpl.id} value={tpl.id}>
+                            {tpl.name}{tpl.id === defaults.defaultFormTemplateId ? ` ${t('events.form_default_suffix')}` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {formTemplateId !== '' && (() => {
+                      const tpl = formTemplates.find((x) => x.id === formTemplateId)
+                      if (!tpl) return null
+                      try {
+                        const f = JSON.parse(tpl.json) as FormConfig
+                        return (
+                          <p className="text-xs text-muted-foreground">
+                            {f.title || tpl.name} · {t('events.form_summary', { team: f.teamSize, exp: f.experiences.length, skills: f.skills.length })}
+                          </p>
+                        )
+                      } catch { return null }
+                    })()}
+                  </div>
+                )}
+                {formMode === 'custom' && (
+                  <div className="rounded-lg border border-border bg-background p-3">
+                    <FormConfigEditor value={customForm} onChange={setCustomForm} />
+                  </div>
                 )}
                 <span className="text-xs text-muted-foreground">
-                  {formMode === 'blank' ? t('events.new_form_hint') : t('events.form_template_hint')}
+                  {formMode === 'default' ? t('events.form_default_hint') : formMode === 'template' ? t('events.form_template_hint') : t('events.form_build_hint')}
                 </span>
               </div>
 
