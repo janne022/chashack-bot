@@ -13,6 +13,7 @@ import { SYNTHETIC_BLOCK_IDS, resolveScheduleAnchors } from '@/lib/schedule-anch
 import { FormConfigEditor } from '@/components/FormConfigEditor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -1474,56 +1475,86 @@ function EventCard({ event, isSelected, onOpen, refresh }: { event: HackathonEve
         : 'events.status_draft'
 
   return (
-    <Card className={cn(isSelected && 'border-accent/40')}>
-      <CardHeader className="flex-row items-start justify-between space-y-0">
-        <div className="min-w-0">
-          <CardTitle className="truncate">{event.name}</CardTitle>
-          <CardDescription className="pt-1">
-            {event.startsAt !== null ? dateTime(event.startsAt) : t('events.no_date')}
-          </CardDescription>
-        </div>
-        <Badge variant={event.status === 'active' ? 'success' : event.status === 'ended' ? 'secondary' : 'warning'}>
-          {t(statusKey)}
-        </Badge>
-      </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {event.signupStartsAt !== null && event.signupEndsAt !== null && (
-            <span className="flex items-center gap-1">
-              <ClipboardList className="size-3" />
-              {dateTime(event.signupStartsAt)} → {dateTime(event.signupEndsAt)}
-            </span>
-          )}
-          {event.status === 'ended' && (
-            <span className="flex items-center gap-1">
-              <Radio className="size-3" />
-              {event.cleanupDone ? t('events.cleanup_done') : t('events.cleanup_pending', { hours: event.cleanupDelayHours })}
-            </span>
-          )}
-          {event.matchLocked && (
-            <span className="flex items-center gap-1 text-ok">
-              <Lock className="size-3" />
-              {t('events.match_locked')}
-            </span>
-          )}
-        </div>
-        <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{event.id}</span>
-          <div className="flex shrink-0 items-center gap-2">
-            {event.status === 'draft' && (
-              <Button size="sm" variant="secondary" onClick={() => void activate()}>
-                <Rocket />
-                {t('events.launch')}
-              </Button>
-            )}
-            <Button size="sm" variant={event.status === 'draft' ? 'outline' : 'secondary'} onClick={onOpen}>
-              <ArrowRight />
-              {t('events.open')}
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <Card className={cn(isSelected && "border-accent/40", "group")}>
+          <CardHeader className="flex-row items-start justify-between space-y-0">
+            <div className="min-w-0">
+              <CardTitle className="truncate">{event.name}</CardTitle>
+              <CardDescription className="pt-1">
+                {event.startsAt !== null ? dateTime(event.startsAt) : t('events.no_date')}
+              </CardDescription>
+            </div>
+            <Badge variant={event.status === 'active' ? 'success' : event.status === 'ended' ? 'secondary' : 'warning'}>
+              {t(statusKey)}
+            </Badge>
+          </CardHeader>
+          <CardContent className="flex flex-1 flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              {event.signupStartsAt !== null && event.signupEndsAt !== null && (
+                <span className="flex items-center gap-1">
+                  <ClipboardList className="size-3" />
+                  {dateTime(event.signupStartsAt)} → {dateTime(event.signupEndsAt)}
+                </span>
+              )}
+              {event.status === 'ended' && (
+                <span className="flex items-center gap-1">
+                  <Radio className="size-3" />
+                  {event.cleanupDone ? t('events.cleanup_done') : t('events.cleanup_pending', { hours: event.cleanupDelayHours })}
+                </span>
+              )}
+              {event.matchLocked && (
+                <span className="flex items-center gap-1 text-ok">
+                  <Lock className="size-3" />
+                  {t('events.match_locked')}
+                </span>
+              )}
+            </div>
+            <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{event.id}</span>
+                <span className="hidden shrink-0 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 md:inline">
+                  {t('events.hint_right_click')}
+                </span>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {event.status === 'draft' && (
+                  <Button size="sm" variant="secondary" onClick={() => void activate()}>
+                    <Rocket />
+                    {t('events.launch')}
+                  </Button>
+                )}
+                <Button size="sm" variant={event.status === 'draft' ? 'outline' : 'secondary'} onClick={onOpen}>
+                  <ArrowRight />
+                  {t('events.open')}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-52">
+        <ContextMenuItem onSelect={onOpen}>
+          <ArrowRight />
+          {t("events.menu_open")}
+        </ContextMenuItem>
+        {event.status === "draft" && (
+          <ContextMenuItem onSelect={() => void activate()}>
+            <Rocket />
+            {t("events.launch")}
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() => {
+            void navigator.clipboard.writeText(event.id).then(() => toast.info(t("events.id_copied")))
+          }}
+        >
+          <Copy />
+          {t("events.copy_id")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 

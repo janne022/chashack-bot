@@ -1,9 +1,10 @@
 "use client"
 import { useEffect, useState } from "react"
-import { Plus, Trash2, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle, UsersRound, ClipboardList, Lock, Shuffle, CalendarRange, CalendarPlus } from "lucide-react"
+import { Plus, Trash2, Copy, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle, UsersRound, ClipboardList, Lock, Shuffle, CalendarRange, CalendarPlus } from "lucide-react"
 import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/textarea-label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -355,6 +356,19 @@ export function ScheduleEditor({
 
   const remove = (id: string) => onChange(value.filter((s) => s.id !== id))
 
+  /** Copy a block in place — a real copy with fresh ids, opened for editing. */
+  const duplicate = (id: string) => {
+    const src = value.find((s) => s.id === id)
+    if (!src) return
+    const copy: ScheduleItem = {
+      ...src,
+      id: `sch_${Math.random().toString(36).slice(2, 8)}`,
+      actions: (src.actions ?? []).map((a) => ({ ...a, id: `sact_${Math.random().toString(36).slice(2, 6)}` })),
+    }
+    onChange([...value, copy])
+    setExpanded((prev) => new Set(prev).add(copy.id))
+  }
+
   const quickAdds = [
     { title: "Dinner", kind: "food" as const, hour: 18 },
     { title: "Fika / Break", kind: "break" as const, hour: 12 },
@@ -489,105 +503,128 @@ export function ScheduleEditor({
             const timeBadge = format(dt, "MMM d, HH:mm")
             const dayBadge = format(dt, "EEE")
             return (
-              <Card key={item.id} className="overflow-hidden border-border bg-background">
-                <button
-                  type="button"
-                  onClick={()=>toggle(item.id)}
-                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/40"
-                >
-                  <KindIcon className="size-4 shrink-0 text-accent" />
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/20 bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent">
-                    <Clock className="size-3" />
-                    {relative || anchored || isSynthetic ? (
-                      <span className="hidden sm:inline">{offsetLabel(item.offsetMinutes ?? 0)}</span>
-                    ) : (
-                      <span className="hidden sm:inline">{timeBadge}</span>
+              <ContextMenu key={item.id}>
+                <ContextMenuTrigger asChild>
+                  <Card className="overflow-hidden border-border bg-background">
+                  <button
+                    type="button"
+                    onClick={()=>toggle(item.id)}
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/40"
+                  >
+                    <KindIcon className="size-4 shrink-0 text-accent" />
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/20 bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent">
+                      <Clock className="size-3" />
+                      {relative || anchored || isSynthetic ? (
+                        <span className="hidden sm:inline">{offsetLabel(item.offsetMinutes ?? 0)}</span>
+                      ) : (
+                        <span className="hidden sm:inline">{timeBadge}</span>
+                      )}
+                      {!relative && !anchored && !isSynthetic && <span className="rounded bg-accent px-1 py-0 text-[10px] font-bold text-accent-foreground">{dayBadge}</span>}
+                    </span>
+                    {anchored && (
+                      <Badge variant="outline" className="hidden shrink-0 gap-1 text-[10px] sm:inline-flex">
+                        <CalendarRange className="size-3" />{t(ANCHOR_OPTIONS.find(o => o.id === item.anchor)?.labelKey ?? 'anchor.hackathon_start')}
+                      </Badge>
                     )}
-                    {!relative && !anchored && !isSynthetic && <span className="rounded bg-accent px-1 py-0 text-[10px] font-bold text-accent-foreground">{dayBadge}</span>}
-                  </span>
-                  {anchored && (
-                    <Badge variant="outline" className="hidden shrink-0 gap-1 text-[10px] sm:inline-flex">
-                      <CalendarRange className="size-3" />{t(ANCHOR_OPTIONS.find(o => o.id === item.anchor)?.labelKey ?? 'anchor.hackathon_start')}
-                    </Badge>
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title || <span className="text-muted-foreground italic">Untitled</span>}</span>
-                  {item.actions && item.actions.length > 0 && (
-                    <Badge variant="secondary" className="shrink-0 gap-1 text-[10px]"><Zap className="size-3" />{item.actions.length}</Badge>
-                  )}
-                  <Badge variant="secondary" className="hidden shrink-0 text-[10px] sm:inline-flex">{item.kind ?? "custom"}</Badge>
-                  {isExp ? <ChevronUp className="size-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="size-4 shrink-0 text-muted-foreground" />}
-                </button>
-                {isExp && (
-                  <div className="flex flex-col gap-3 border-t border-border p-3">
-                    {relative ? (
-                      <RelativeTimeEditor item={item} onChange={(patch) => update(item.id, patch)} />
-                    ) : (
-                      <div className="grid gap-2 sm:grid-cols-[auto_1fr_auto]">
-                        <DateTimePicker
-                          value={toLocalIso(dt)}
-                          onChange={(v) => update(item.id, { time: v ? Date.parse(v) : item.time, anchor: undefined, offsetMinutes: undefined })}
-                          disablePast={disablePast}
-                          minDate={(() => {
-                            const signupMin = hasSignup && signupEndValue ? new Date(signupEndValue) : null
-                            const hackMin = disablePast && startValue ? (() => { const d = new Date(startValue); d.setHours(0,0,0,0); return d })() : null
-                            if (signupMin && hackMin) return signupMin > hackMin ? signupMin : hackMin
-                            return signupMin ?? hackMin ?? undefined
-                          })()}
-                          className="h-8 w-44"
-                        />
-                        <Input
-                          value={item.title}
-                          onChange={(e) => update(item.id, { title: e.target.value })}
-                          placeholder="Dinner, Fika, Voting…"
-                          className="h-8 text-sm"
-                          maxLength={80}
-                        />
-                        <Select value={item.kind ?? "custom"} onValueChange={(v) => update(item.id, { kind: v as ScheduleItem["kind"] })}>
-                          <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {KINDS.map((k) => (
-                              <SelectItem key={k.id} value={k.id!}>{k.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title || <span className="text-muted-foreground italic">Untitled</span>}</span>
+                    {item.actions && item.actions.length > 0 && (
+                      <Badge variant="secondary" className="shrink-0 gap-1 text-[10px]"><Zap className="size-3" />{item.actions.length}</Badge>
                     )}
-                    {relative && (
-                      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                        <Input
-                          value={item.title}
-                          onChange={(e) => update(item.id, { title: e.target.value })}
-                          placeholder="Dinner, Fika, Voting…"
-                          className="h-8 text-sm"
-                          maxLength={80}
-                        />
-                        <Select value={item.kind ?? "custom"} onValueChange={(v) => update(item.id, { kind: v as ScheduleItem["kind"] })}>
-                          <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {KINDS.map((k) => (
-                              <SelectItem key={k.id} value={k.id!}>{k.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                    <Input
-                      value={item.description ?? ""}
-                      onChange={(e) => update(item.id, { description: e.target.value || undefined })}
-                      placeholder="Details (optional) — e.g. Pizza in the kitchen"
-                      className="h-8 text-xs"
-                      maxLength={200}
-                    />
-                    <ScheduleItemActions item={item} onChange={(actions)=>update(item.id, { actions })} />
+                    <Badge variant="secondary" className="hidden shrink-0 text-[10px] sm:inline-flex">{item.kind ?? "custom"}</Badge>
+                    {isExp ? <ChevronUp className="size-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="size-4 shrink-0 text-muted-foreground" />}
+                  </button>
+                  {isExp && (
+                    <div className="flex flex-col gap-3 border-t border-border p-3">
+                      {relative ? (
+                        <RelativeTimeEditor item={item} onChange={(patch) => update(item.id, patch)} />
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-[auto_1fr_auto]">
+                          <DateTimePicker
+                            value={toLocalIso(dt)}
+                            onChange={(v) => update(item.id, { time: v ? Date.parse(v) : item.time, anchor: undefined, offsetMinutes: undefined })}
+                            disablePast={disablePast}
+                            minDate={(() => {
+                              const signupMin = hasSignup && signupEndValue ? new Date(signupEndValue) : null
+                              const hackMin = disablePast && startValue ? (() => { const d = new Date(startValue); d.setHours(0,0,0,0); return d })() : null
+                              if (signupMin && hackMin) return signupMin > hackMin ? signupMin : hackMin
+                              return signupMin ?? hackMin ?? undefined
+                            })()}
+                            className="h-8 w-44"
+                          />
+                          <Input
+                            value={item.title}
+                            onChange={(e) => update(item.id, { title: e.target.value })}
+                            placeholder="Dinner, Fika, Voting…"
+                            className="h-8 text-sm"
+                            maxLength={80}
+                          />
+                          <Select value={item.kind ?? "custom"} onValueChange={(v) => update(item.id, { kind: v as ScheduleItem["kind"] })}>
+                            <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {KINDS.map((k) => (
+                                <SelectItem key={k.id} value={k.id!}>{k.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {relative && (
+                        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                          <Input
+                            value={item.title}
+                            onChange={(e) => update(item.id, { title: e.target.value })}
+                            placeholder="Dinner, Fika, Voting…"
+                            className="h-8 text-sm"
+                            maxLength={80}
+                          />
+                          <Select value={item.kind ?? "custom"} onValueChange={(v) => update(item.id, { kind: v as ScheduleItem["kind"] })}>
+                            <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {KINDS.map((k) => (
+                                <SelectItem key={k.id} value={k.id!}>{k.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      <Input
+                        value={item.description ?? ""}
+                        onChange={(e) => update(item.id, { description: e.target.value || undefined })}
+                        placeholder="Details (optional) — e.g. Pizza in the kitchen"
+                        className="h-8 text-xs"
+                        maxLength={200}
+                      />
+                      <ScheduleItemActions item={item} onChange={(actions)=>update(item.id, { actions })} />
 
-                    <div className="flex justify-end">
-                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => remove(item.id)}>
-                        <Trash2 className="size-3.5" /> Remove block
-                      </Button>
+                      <div className="flex justify-end">
+                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => remove(item.id)}>
+                          <Trash2 className="size-3.5" /> Remove block
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </Card>
+                  )}
+                  </Card>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="w-52">
+                  <ContextMenuItem onSelect={() => toggle(item.id)}>
+                    {isExp ? <ChevronUp /> : <ChevronDown />}
+                    {isExp ? t("events.collapse_block") : t("events.expand_block")}
+                  </ContextMenuItem>
+                  {!isSynthetic && (
+                    <>
+                      <ContextMenuItem onSelect={() => duplicate(item.id)}>
+                        <Copy />
+                        {t("events.duplicate_block")}
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem variant="destructive" onSelect={() => remove(item.id)}>
+                        <Trash2 />
+                        {t("events.remove_block")}
+                      </ContextMenuItem>
+                    </>
+                  )}
+                </ContextMenuContent>
+              </ContextMenu>
             )
           })}
         </div>

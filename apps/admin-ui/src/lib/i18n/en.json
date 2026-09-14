@@ -401,5 +401,11 @@
   "events.schedule_empty_title": "No blocks yet",
   "events.schedule_empty_desc": "Add the itinerary — dinner, breaks, voting, prizes. Each block can post an announcement, open signups or lock teams when it hits.",
   "events.pick_event_template": "Pick an event template…",
-  "events.pick_announcement_template": "Pick a saved announcement…"
+  "events.pick_announcement_template": "Pick a saved announcement…",
+  "events.menu_open": "Open workspace",
+  "events.duplicate_block": "Duplicate block",
+  "events.expand_block": "Expand",
+  "events.collapse_block": "Collapse",
+  "events.remove_block": "Remove block",
+  "events.hint_right_click": "Right-click for actions"
 }

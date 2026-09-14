@@ -401,5 +401,11 @@
   "events.schedule_empty_title": "Inga block än",
   "events.schedule_empty_desc": "Lägg till schemat — middag, pauser, röstning, priser. Varje block kan posta ett meddelande, öppna anmälan eller låsa team när det nås.",
   "events.pick_event_template": "Välj eventmall…",
-  "events.pick_announcement_template": "Välj ett sparat meddelande…"
+  "events.pick_announcement_template": "Välj ett sparat meddelande…",
+  "events.menu_open": "Öppna arbetsyta",
+  "events.duplicate_block": "Duplicera block",
+  "events.expand_block": "Expandera",
+  "events.collapse_block": "Fäll ihop",
+  "events.remove_block": "Ta bort block",
+  "events.hint_right_click": "Högerklicka för åtgärder"
 }
