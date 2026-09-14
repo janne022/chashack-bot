@@ -1,16 +1,17 @@
-import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, FileCheck, Layers, ClipboardList, Search, Rocket, Pencil } from 'lucide-react'
+import { CalendarDays, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Unlock, Send, LayoutTemplate, FilePlus, FileCheck, Layers, ClipboardList, Search, Rocket, Pencil, ChevronDown, ChevronUp, ChevronLeft, ArrowRight } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
 import { api } from '@/api'
-import { createEventSchema, announceSchema, cleanupDelaySchema } from '@/lib/schemas'
+import { createEventSchema, announceSchema } from '@/lib/schemas'
 import type { Assignment, AssignmentStrategy, FormConfig, HackathonEvent, Participant } from '@/types'
 import { STRATEGY_OPTIONS } from '@/lib/assignment-strategy'
 import { DEFAULT_FORM } from '@/lib/default-form'
 import { SYNTHETIC_BLOCK_IDS, resolveScheduleAnchors } from '@/lib/schedule-anchor'
 import { FormConfigEditor } from '@/components/FormConfigEditor'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -33,34 +34,47 @@ function toLocalIso(d: Date): string {
 }
 
 export function EventsPage() {
-  const { state, refresh } = useAppContext()
+  const { state, selectEvent, refresh } = useAppContext()
   const t = useT()
   const events = state.events ?? []
-  // With several live events, show the one the organizer selected; otherwise
-  // fall back to the first active event.
   const liveEvents = events.filter((e) => e.status === 'active')
-  const activeEvent =
-    liveEvents.find((e) => e.id === state.selectedEventId) ?? liveEvents[0] ?? null
+
+  // The open event lives in the URL (?event=<id>) so the workspace survives a
+  // refresh, is shareable, and the browser Back button returns to Overview.
+  const search = useSearch({ from: '/events' }) as { event?: string } | undefined
+  const navigate = useNavigate()
+  const eventParam = typeof search?.event === 'string' && search.event !== '' ? search.event : null
+  const openEvent = events.find((e) => e.id === eventParam) ?? null
+  const tab = openEvent !== null ? openEvent.id : 'overview'
 
   const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'active' | 'ended'>('all')
   const [sortKey, setSortKey] = useState<'newest' | 'oldest' | 'name' | 'starts'>('newest')
+  const [showEnded, setShowEnded] = useState(false)
 
-  const visible = events
-    .filter((e) => {
-      if (statusFilter !== 'all' && e.status !== statusFilter) return false
-      const q = query.trim().toLowerCase()
-      if (!q) return true
-      return e.name.toLowerCase().includes(q) || (e.description ?? '').toLowerCase().includes(q)
-    })
-    .sort((a, b) => {
+  // A deep link / shared URL also drives the app-wide selection so Operations
+  // and every event-scoped action follow the same event.
+  useEffect(() => {
+    if (openEvent !== null && state.selectedEventId !== openEvent.id) selectEvent(openEvent.id)
+  }, [openEvent, state.selectedEventId, selectEvent])
+
+  function setTab(next: string) {
+    if (next === 'overview') navigate({ to: '/events', search: {} })
+    else navigate({ to: '/events', search: { event: next } })
+  }
+
+  function openWorkspace(id: string) {
+    selectEvent(id)
+    setTab(id)
+  }
+
+  const bySort = (list: HackathonEvent[]) =>
+    [...list].sort((a, b) => {
       switch (sortKey) {
         case 'oldest':
           return a.createdAt - b.createdAt
         case 'name':
           return a.name.localeCompare(b.name)
         case 'starts':
-          // Events without a start date sort last.
           if (a.startsAt === null) return 1
           if (b.startsAt === null) return -1
           return a.startsAt - b.startsAt
@@ -69,13 +83,14 @@ export function EventsPage() {
       }
     })
 
-  const counts = {
-    all: events.length,
-    draft: events.filter((e) => e.status === 'draft').length,
-    active: events.filter((e) => e.status === 'active').length,
-    ended: events.filter((e) => e.status === 'ended').length,
-  }
-  const isFiltered = query.trim() !== '' || statusFilter !== 'all'
+  const q = query.trim().toLowerCase()
+  const matches = (e: HackathonEvent) =>
+    q === '' || e.name.toLowerCase().includes(q) || (e.description ?? '').toLowerCase().includes(q)
+
+  const live = bySort(liveEvents.filter(matches))
+  const drafts = bySort(events.filter((e) => e.status === 'draft' && matches(e)))
+  const ended = bySort(events.filter((e) => e.status === 'ended' && matches(e)))
+  const shown = live.length + drafts.length + ended.length
 
   return (
     <div className="flex flex-col gap-6">
@@ -87,85 +102,204 @@ export function EventsPage() {
         <NewEventButton />
       </header>
 
-      {activeEvent !== null && <ActiveEventCard event={activeEvent} refresh={refresh} />}
+      {events.length > 0 && (
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList variant="line">
+            <TabsTrigger value="overview"><Layers className="size-3.5" />{t('events.overview')}</TabsTrigger>
+            {openEvent !== null && (
+              <TabsTrigger value={openEvent.id}>
+                <span className={cn('size-1.5 rounded-full', openEvent.status === 'active' ? 'bg-ok' : openEvent.status === 'draft' ? 'bg-warning' : 'bg-muted-foreground')} />
+                <span className="max-w-[10rem] truncate">{openEvent.name}</span>
+              </TabsTrigger>
+            )}
+          </TabsList>
 
-      <InsightsSection participants={state.participants} config={state.config} />
-
-      <section>
-        <h2 className="font-display mb-3 text-sm uppercase tracking-wide text-muted-foreground">
-          {t('events.all', { count: events.length })}
-        </h2>
-
-        {events.length > 0 && (
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[12rem] flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search events…"
-                className="pl-8"
-                maxLength={100}
-              />
+          <TabsContent value="overview" className="flex flex-col gap-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[12rem] flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t('events.search_placeholder')}
+                  className="pl-8"
+                  maxLength={100}
+                />
+              </div>
+              <Select value={sortKey} onValueChange={(v) => setSortKey(v as never)}>
+                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="newest">Newest first</SelectItem>
+                  <SelectItem value="oldest">Oldest first</SelectItem>
+                  <SelectItem value="name">Name A–Z</SelectItem>
+                  <SelectItem value="starts">Starts soonest</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as never)}>
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses ({counts.all})</SelectItem>
-                <SelectItem value="draft">Draft ({counts.draft})</SelectItem>
-                <SelectItem value="active">Active ({counts.active})</SelectItem>
-                <SelectItem value="ended">Ended ({counts.ended})</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={sortKey} onValueChange={(v) => setSortKey(v as never)}>
-              <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="newest">Newest first</SelectItem>
-                <SelectItem value="oldest">Oldest first</SelectItem>
-                <SelectItem value="name">Name A–Z</SelectItem>
-                <SelectItem value="starts">Starts soonest</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
 
-        {events.length === 0 ? (
-          <Card>
-            <CardContent>
-              <EmptyState
-                icon={<CalendarDays className="size-5" />}
-                title={t('events.none_title')}
-                description={t('events.none_desc')}
-                action={<NewEventButton />}
-              />
-            </CardContent>
-          </Card>
-        ) : visible.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              No events match your filters.
-              {isFiltered && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="ml-2"
-                  onClick={() => { setQuery(''); setStatusFilter('all') }}
-                >
-                  Clear
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {visible.map((event) => (
-              <EventCard key={event.id} event={event} isActive={activeEvent?.id === event.id} refresh={refresh} />
-            ))}
-          </div>
-        )}
-      </section>
+            {events.length === 0 ? (
+              <Card>
+                <CardContent>
+                  <EmptyState
+                    icon={<CalendarDays className="size-5" />}
+                    title={t('events.none_title')}
+                    description={t('events.none_desc')}
+                    action={<NewEventButton />}
+                  />
+                </CardContent>
+              </Card>
+            ) : shown === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                  {t('events.no_matches')}
+                  {query.trim() !== '' && (
+                    <Button variant="ghost" size="sm" className="ml-2" onClick={() => setQuery('')}>
+                      {t('common.clear')}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="flex flex-col gap-6">
+                <EventSection
+                  title={t('events.section_live')}
+                  hint={t('events.section_live_hint')}
+                  events={live}
+                  selectedId={state.selectedEventId}
+                  onOpen={openWorkspace}
+                  refresh={refresh}
+                  tone="live"
+                />
+                <EventSection
+                  title={t('events.section_drafts')}
+                  hint={t('events.section_drafts_hint')}
+                  events={drafts}
+                  selectedId={state.selectedEventId}
+                  onOpen={openWorkspace}
+                  refresh={refresh}
+                  tone="draft"
+                />
+                <EventSection
+                  title={t('events.section_ended')}
+                  hint={t('events.section_ended_hint')}
+                  events={ended}
+                  selectedId={state.selectedEventId}
+                  onOpen={openWorkspace}
+                  refresh={refresh}
+                  tone="ended"
+                  collapsed={!showEnded}
+                  onToggleCollapsed={() => setShowEnded((v) => !v)}
+                />
+              </div>
+            )}
+          </TabsContent>
+
+          {openEvent !== null && (
+            <TabsContent value={openEvent.id}>
+              <EventWorkspace event={openEvent} refresh={refresh} onBack={() => setTab('overview')} />
+            </TabsContent>
+          )}
+        </Tabs>
+      )}
+
+      {events.length === 0 && (
+        <Card>
+          <CardContent>
+            <EmptyState
+              icon={<CalendarDays className="size-5" />}
+              title={t('events.none_title')}
+              description={t('events.none_desc')}
+              action={<NewEventButton />}
+            />
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
+}
+
+/** One status group on the overview (Live now / Drafts / Ended). */
+function EventSection({
+  title, hint, events, selectedId, onOpen, refresh, tone, collapsed, onToggleCollapsed,
+}: {
+  title: string
+  hint: string
+  events: HackathonEvent[]
+  selectedId: string | null
+  onOpen: (id: string) => void
+  refresh: () => Promise<void>
+  tone: 'live' | 'draft' | 'ended'
+  collapsed?: boolean
+  onToggleCollapsed?: () => void
+}) {
+  const t = useT()
+  if (events.length === 0 && collapsed === undefined) {
+    // Live / drafts: keep the group visible so the layout doesn't jump around.
+    return (
+      <section className="flex flex-col gap-3">
+        <SectionHeader title={title} hint={hint} count={0} tone={tone} />
+        <Card className="border-dashed">
+          <CardContent className="py-4 text-sm text-muted-foreground">{t('events.section_empty')}</CardContent>
+        </Card>
+      </section>
+    )
+  }
+  if (events.length === 0 && collapsed !== undefined) return null
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHeader
+        title={title}
+        hint={hint}
+        count={events.length}
+        tone={tone}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+      />
+      {!collapsed && (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {events.map((event) => (
+            <EventCard
+              key={event.id}
+              event={event}
+              isSelected={selectedId === event.id}
+              onOpen={() => onOpen(event.id)}
+              refresh={refresh}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function SectionHeader({
+  title, hint, count, tone, collapsed, onToggleCollapsed,
+}: {
+  title: string
+  hint: string
+  count: number
+  tone: 'live' | 'draft' | 'ended'
+  collapsed?: boolean
+  onToggleCollapsed?: () => void
+}) {
+  const dot = tone === 'live' ? 'bg-ok' : tone === 'draft' ? 'bg-warning' : 'bg-muted-foreground'
+  const body = (
+    <>
+      <span className={cn('size-2 rounded-full', dot)} />
+      <span className="font-display text-sm uppercase tracking-wide">{title}</span>
+      <Badge variant="secondary" className="text-[10px]">{count}</Badge>
+      <span className="hidden text-xs text-muted-foreground sm:inline">{hint}</span>
+      {onToggleCollapsed && (collapsed ? <ChevronDown className="ml-auto size-4 text-muted-foreground" /> : <ChevronUp className="ml-auto size-4 text-muted-foreground" />)}
+    </>
+  )
+  if (onToggleCollapsed) {
+    return (
+      <button type="button" onClick={onToggleCollapsed} className="flex w-full items-center gap-2 text-left">
+        {body}
+      </button>
+    )
+  }
+  return <div className="flex w-full items-center gap-2">{body}</div>
 }
 
 function NewEventButton() {
@@ -688,6 +822,20 @@ function NewEventButton() {
                 </div>
               )}
 
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5">
+                <span className="text-sm font-medium">{t('events.cleanup_delay')}</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={720}
+                  value={String(cleanupDelayHours)}
+                  onChange={(e) => setCleanupDelayHours(Math.min(720, Math.max(0, Number(e.target.value) || 0)))}
+                  className="h-8 w-20"
+                  aria-label={t('events.cleanup_delay_aria')}
+                />
+                <span className="text-xs text-muted-foreground">{t('events.cleanup_delay_hint')}</span>
+              </div>
+
               <label className="flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm">
                 <Checkbox checked={saveAsTemplate} onCheckedChange={setSaveAsTemplate} />
                 <span className="flex flex-col">
@@ -715,50 +863,121 @@ function NewEventButton() {
   )
 }
 
-function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+/**
+ * The per-event workspace: information + actions only. Configuration (cleanup
+ * delay, dates, schedule, form, assignments) lives in the Edit dialog, which is
+ * one click away from the sticky action bar instead of a scroll journey.
+ */
+function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; refresh: () => Promise<void>; onBack: () => void }) {
   const { state } = useAppContext()
   const t = useT()
   const [editOpen, setEditOpen] = useState(false)
+  const [busy, setBusy] = useState<'match' | 'lock' | null>(null)
   const sorted = [...(event.schedule ?? [])]
     .filter((s) => !SYNTHETIC_BLOCK_IDS.includes(s.id))
     .sort((a, b) => a.time - b.time)
+  const ended = event.status === 'ended'
+
+  async function matchNow() {
+    setBusy('match')
+    try {
+      const res = await api.matchCommit(event.id)
+      toast.success(t('events.match_done', { count: res.teams.length }))
+      await refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t('events.match_failed'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function toggleLock() {
+    setBusy('lock')
+    try {
+      if (event.matchLocked) {
+        await api.matchUnlock(event.id)
+        toast.success(t('events.teams_unlocked'))
+      } else {
+        await api.matchLock(event.id)
+        toast.success(t('events.teams_locked'))
+      }
+      await refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t('events.save_failed'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const statusBadge = event.status === 'active'
+    ? <Badge variant="success">{t('events.live')}</Badge>
+    : event.status === 'draft'
+      ? <Badge variant="warning">{t('events.status_draft')}</Badge>
+      : <Badge variant="secondary">{t('events.status_ended')}</Badge>
 
   return (
-    <Card className="border-accent/40">
-      <CardHeader className="flex-row items-start justify-between space-y-0">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="relative flex size-2.5">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
-              <span className="relative inline-flex size-2.5 rounded-full bg-ok" />
-            </span>
+    <Card className={cn('border-border', event.status === 'active' && 'border-accent/40')}>
+      <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            {event.status === 'active' && (
+              <span className="relative flex size-2.5">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
+                <span className="relative inline-flex size-2.5 rounded-full bg-ok" />
+              </span>
+            )}
             <CardTitle className="font-display text-xl">{event.name}</CardTitle>
-            <Badge>{t('events.live')}</Badge>
+            {statusBadge}
           </div>
           {event.description !== '' && (
             <CardDescription className="mt-1 max-w-2xl">{event.description}</CardDescription>
           )}
         </div>
-        <div className="flex shrink-0 gap-2">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ChevronLeft />
+          {t('events.back_overview')}
+        </Button>
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-4">
+        {/* Actions first — they are the reason you opened the event. Offset below
+            the mobile shell header so the two sticky bars don't overlap. */}
+        <div className="sticky top-14 z-[5] flex flex-wrap items-center gap-2 rounded-xl border border-border bg-background/95 p-2.5 backdrop-blur lg:top-4">
           <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
             <Pencil />
-            Edit event
+            {t('events.edit_event')}
           </Button>
+          {!ended && <NotificationButtons event={event} refresh={refresh} />}
+          {!ended && (
+            <>
+              <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void matchNow()}>
+                <UsersRound />
+                {t('events.match_now')}
+              </Button>
+              <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void toggleLock()}>
+                {event.matchLocked ? <Unlock /> : <Lock />}
+                {event.matchLocked ? t('events.unlock_teams') : t('events.lock_teams')}
+              </Button>
+            </>
+          )}
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            onClick={() => {
-              void navigator.clipboard.writeText(event.id).then(() => toast.info(t('events.id_copied')))
-            }}
+            onClick={() => { void navigator.clipboard.writeText(event.id).then(() => toast.info(t('events.id_copied'))) }}
           >
             <Copy />
             {t('events.copy_id')}
           </Button>
+          <div className="ml-auto flex items-center gap-2">
+            {!ended && <EndEventButton event={event} refresh={refresh} />}
+            {ended && (
+              <span className="text-xs text-muted-foreground">{t('events.ended_readonly')}</span>
+            )}
+          </div>
         </div>
-      </CardHeader>
-      <CardContent>
+
         {sorted.length > 0 && (
-          <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
+          <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('events.schedule')}</span>
             <div className="flex flex-col gap-1.5">
               {sorted.map((it) => (
@@ -772,8 +991,10 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
                 </div>
               ))}
             </div>
+            <span className="text-xs text-muted-foreground">{t('events.schedule_edit_hint')}</span>
           </div>
         )}
+
         <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
           {event.signupStartsAt !== null || event.signupEndsAt !== null ? (
             <div className="flex items-center gap-2">
@@ -835,22 +1056,20 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
                 <span>
                   {event.matchAt !== null
                     ? `Runs ${dateTime(event.matchAt)} (${timeAgo(event.matchAt)})`
-                    : 'Not scheduled'}
+                    : t('events.match_not_scheduled')}
                 </span>
                 {event.matchLocked && (
                   <span className="flex items-center gap-1 font-medium text-ok">
                     <Lock className="size-3" />
-                    locked
+                    {t('events.match_locked')}
                   </span>
                 )}
               </div>
             </div>
           </div>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <NotificationButtons event={event} refresh={refresh} />
-          <EndEventButton event={event} refresh={refresh} />
-        </div>
+
+        <InsightsSection participants={state.participants} config={state.config} />
       </CardContent>
       {editOpen && <EditableSchedule event={event} refresh={refresh} open onClose={() => setEditOpen(false)} />}
     </Card>
@@ -927,6 +1146,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [signupStart, setSignupStart] = useState(event.signupStartsAt ? toLocalIso(new Date(event.signupStartsAt)) : "")
   const [signupEnd, setSignupEnd] = useState(event.signupEndsAt ? toLocalIso(new Date(event.signupEndsAt)) : "")
   const [editAssignments, setEditAssignments] = useState<Assignment[]>(()=> (event.assignments ?? []))
+  const [editCleanup, setEditCleanup] = useState<number>(event.cleanupDelayHours)
   const [editName, setEditName] = useState(event.name)
   const [editDescription, setEditDescription] = useState(event.description)
   const [editFormTemplateId, setEditFormTemplateId] = useState<string>('')
@@ -977,6 +1197,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
         signupEndsAt: signupEnd ? Date.parse(signupEnd) : null,
         announcements: nextAnnouncements as never,
         assignments: editAssignments as never,
+        cleanupDelayHours: editCleanup,
       })
       // Form change is a separate endpoint — only call it when the user picked one.
       if (editFormTemplateId) {
@@ -1008,6 +1229,21 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.description')}</span>
                 <Textarea value={editDescription} onChange={(e)=>setEditDescription(e.target.value)} maxLength={1000} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('events.cleanup_delay')}</span>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={720}
+                    value={String(editCleanup)}
+                    onChange={(e) => setEditCleanup(Math.min(720, Math.max(0, Number(e.target.value) || 0)))}
+                    className="h-8 w-20"
+                    aria-label={t('events.cleanup_delay_aria')}
+                  />
+                  <span className="text-xs text-muted-foreground">{t('events.cleanup_delay_hint')}</span>
+                </div>
               </label>
               <ScheduleEditor
                 value={items}
@@ -1175,44 +1411,6 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   )
 }
 
-function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
-  const t = useT()
-  const [hours, setHours] = useState(String(event.cleanupDelayHours))
-  const [busy, setBusy] = useState(false)
-  const dirty = Number(hours) !== event.cleanupDelayHours && hours !== ''
-
-  async function save() {
-    const parsed = cleanupDelaySchema.safeParse(Number(hours))
-    if (!parsed.success) {
-      toast.error(t('events.cleanup_delay_aria'))
-      return
-    }
-    setBusy(true)
-    try {
-      await api.updateEvent(event.id, { cleanupDelayHours: parsed.data })
-      toast.success(t('events.cleanup_delay_saved', { hours: parsed.data }))
-      await refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('events.save_failed'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-      {t('events.cleanup_delay')}
-      <Input type="number" min={0} max={720} value={hours} onChange={(e) => setHours(e.target.value)} className="h-7 w-16" aria-label={t('events.cleanup_delay_aria')} />
-      h
-      {dirty && (
-        <Button size="sm" variant="secondary" disabled={busy} onClick={() => void save()}>
-          {t('common.save')}
-        </Button>
-      )}
-    </label>
-  )
-}
-
 function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
   const t = useT()
   const [confirming, setConfirming] = useState(false)
@@ -1229,7 +1427,6 @@ function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: ()
 
   return (
     <>
-      <CleanupDelayConfig event={event} refresh={refresh} />
       <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>
         <Trash2 />
         {t('events.end_event')}
@@ -1254,8 +1451,7 @@ function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: ()
   )
 }
 
-function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActive: boolean; refresh: () => Promise<void> }) {
-  const { selectEvent } = useAppContext()
+function EventCard({ event, isSelected, onOpen, refresh }: { event: HackathonEvent; isSelected: boolean; onOpen: () => void; refresh: () => Promise<void> }) {
   const t = useT()
 
   async function activate() {
@@ -1278,7 +1474,7 @@ function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActi
         : 'events.status_draft'
 
   return (
-    <Card className={cn(isActive && 'border-accent/40')}>
+    <Card className={cn(isSelected && 'border-accent/40')}>
       <CardHeader className="flex-row items-start justify-between space-y-0">
         <div className="min-w-0">
           <CardTitle className="truncate">{event.name}</CardTitle>
@@ -1290,24 +1486,42 @@ function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActi
           {t(statusKey)}
         </Badge>
       </CardHeader>
-      <CardContent className="flex items-center justify-between gap-2">
-        <span className="truncate font-mono text-xs text-muted-foreground">{event.id}</span>
-        {event.status === 'draft' ? (
-          <Button size="sm" variant="secondary" onClick={() => void activate()}>
-            <Rocket />
-            Launch event
-          </Button>
-        ) : event.status === 'active' && !isActive ? (
-          // Another live event is being managed — make this one selectable here.
-          <Button size="sm" variant="secondary" onClick={() => selectEvent(event.id)}>
-            <Layers />
-            Manage
-          </Button>
-        ) : (
-          <Button size="sm" variant="ghost" asChild>
-            <Link to="/events">{t('events.view')}</Link>
-          </Button>
-        )}
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {event.signupStartsAt !== null && event.signupEndsAt !== null && (
+            <span className="flex items-center gap-1">
+              <ClipboardList className="size-3" />
+              {dateTime(event.signupStartsAt)} → {dateTime(event.signupEndsAt)}
+            </span>
+          )}
+          {event.status === 'ended' && (
+            <span className="flex items-center gap-1">
+              <Radio className="size-3" />
+              {event.cleanupDone ? t('events.cleanup_done') : t('events.cleanup_pending', { hours: event.cleanupDelayHours })}
+            </span>
+          )}
+          {event.matchLocked && (
+            <span className="flex items-center gap-1 text-ok">
+              <Lock className="size-3" />
+              {t('events.match_locked')}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate font-mono text-[11px] text-muted-foreground">{event.id}</span>
+          <div className="flex shrink-0 gap-2">
+            {event.status === 'draft' && (
+              <Button size="sm" variant="secondary" onClick={() => void activate()}>
+                <Rocket />
+                {t('events.launch')}
+              </Button>
+            )}
+            <Button size="sm" variant={event.status === 'draft' ? 'outline' : 'secondary'} onClick={onOpen}>
+              <ArrowRight />
+              {t('events.open')}
+            </Button>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )

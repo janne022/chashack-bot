@@ -117,11 +117,18 @@ function ActionCard({ action, channels, templates, announceTitlePlaceholder, ann
           <>
             {templates.length > 0 && (
               <div className="flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
-                <span className="text-[11px] text-muted-foreground">{t('events.from_template')}</span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">{t('events.from_template')}</span>
                 <Select onValueChange={v => { const tpl = templates.find(x => x.id === v); if (tpl) onUpdate(action.id, { title: tpl.title, message: tpl.message }) }}>
-                  <SelectTrigger className="h-6 flex-1 text-xs"><SelectValue placeholder={t('events.pick_template')} /></SelectTrigger>
-                  <SelectContent>
-                    {templates.map(tp => <SelectItem key={tp.id} value={tp.id}>{tp.name} — {tp.title.slice(0, 30)}</SelectItem>)}
+                  <SelectTrigger className="h-7 min-w-0 flex-1 text-xs [&>span]:truncate"><SelectValue placeholder={t('events.pick_template')} /></SelectTrigger>
+                  <SelectContent position="popper" align="start" className="max-h-72 w-[22rem] max-w-[90vw]">
+                    {templates.map(tp => (
+                      <SelectItem key={tp.id} value={tp.id}>
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate text-xs font-medium">{tp.name}</span>
+                          <span className="truncate text-[11px] text-muted-foreground">{tp.title}</span>
+                        </span>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
