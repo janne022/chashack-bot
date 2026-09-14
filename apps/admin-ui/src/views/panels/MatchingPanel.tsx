@@ -499,7 +499,7 @@ export function TeamCardWithMenu({
         <ContextMenuTrigger asChild>
           <Card
             className={
-              'transition-all ' +
+              'card-interactive ' +
               (dragActive && isDropTarget ? 'border-accent bg-accent/10 ring-2 ring-accent/40' : '')
             }
             onDragOver={onDragOver}

@@ -57,15 +57,19 @@ export function TemplatesPage() {
           {eventTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">{t("templates.no_event_templates")}</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {eventTemplates.map(tpl=>(
-                <Card key={tpl.id} className="flex flex-col">
+                <Card
+                  key={tpl.id}
+                  className="card-interactive cursor-pointer flex flex-col"
+                  onClick={() => setEditingEventId(tpl.id)}
+                >
                   <CardHeader className="pb-3">
                     <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
                     <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
                   </CardHeader>
                   <CardContent className="mt-auto flex gap-2">
                     <Button size="sm" variant="secondary" onClick={()=>setEditingEventId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                    <Button size="sm" variant="ghost" onClick={()=>void navigator.clipboard.writeText(tpl.id)}><Copy className="size-3.5" /></Button>
-                    <Button size="sm" variant="ghost" onClick={async()=>{ try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                    <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
+                    <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
                   </CardContent>
                 </Card>
               ))}
@@ -90,15 +94,19 @@ export function TemplatesPage() {
           {formTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">{t("templates.no_form_templates")}</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {formTemplates.map(tpl=>(
-                <Card key={tpl.id} className="flex flex-col">
+                <Card
+                  key={tpl.id}
+                  className="card-interactive cursor-pointer flex flex-col"
+                  onClick={() => setEditingFormId(tpl.id)}
+                >
                   <CardHeader className="pb-3">
                     <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
                     <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
                   </CardHeader>
                   <CardContent className="mt-auto flex gap-2">
                     <Button size="sm" variant="secondary" onClick={()=>setEditingFormId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                    <Button size="sm" variant="ghost" onClick={()=>void navigator.clipboard.writeText(tpl.id)}><Copy className="size-3.5" /></Button>
-                    <Button size="sm" variant="ghost" onClick={async()=>{ try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                    <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
+                    <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
                   </CardContent>
                 </Card>
               ))}
@@ -124,7 +132,11 @@ export function TemplatesPage() {
                 let parsed: { title?: string; message?: string; trigger?: string } = {}
                 try { parsed = JSON.parse(tpl.json) as never } catch {}
                 return (
-                  <Card key={tpl.id} className="flex flex-col">
+                  <Card
+                    key={tpl.id}
+                    className="card-interactive cursor-pointer flex flex-col"
+                    onClick={() => setEditingAnnouncementId(tpl.id)}
+                  >
                     <CardHeader className="pb-2">
                       <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
                       <CardDescription className="line-clamp-2 whitespace-pre-wrap break-words text-xs">{parsed.title ?? ""} — {(parsed.message ?? "").slice(0,120)}</CardDescription>
@@ -132,8 +144,8 @@ export function TemplatesPage() {
                     </CardHeader>
                     <CardContent className="mt-auto flex gap-2">
                       <Button size="sm" variant="secondary" onClick={()=>setEditingAnnouncementId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                      <Button size="sm" variant="ghost" onClick={()=>void navigator.clipboard.writeText(tpl.id)}><Copy className="size-3.5" /></Button>
-                      <Button size="sm" variant="ghost" onClick={async()=>{ try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                      <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
+                      <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
                     </CardContent>
                   </Card>
                 )
@@ -161,7 +173,11 @@ export function TemplatesPage() {
                 try { parsed = JSON.parse(tpl.json) as never } catch {}
                 const items = parsed.assignments ?? []
                 return (
-                  <Card key={tpl.id} className="flex flex-col">
+                  <Card
+                    key={tpl.id}
+                    className="card-interactive cursor-pointer flex flex-col"
+                    onClick={() => setEditingCollectionId(tpl.id)}
+                  >
                     <CardHeader className="pb-2">
                       <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
                       <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
@@ -181,8 +197,8 @@ export function TemplatesPage() {
                       )}
                       <div className="flex gap-2">
                         <Button size="sm" variant="secondary" onClick={()=>setEditingCollectionId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>void navigator.clipboard.writeText(tpl.id)}><Copy className="size-3.5" /></Button>
-                        <Button size="sm" variant="ghost" onClick={async()=>{ try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                        <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
+                        <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
                       </div>
                     </CardContent>
                   </Card>

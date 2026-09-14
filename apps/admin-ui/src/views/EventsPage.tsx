@@ -25,6 +25,7 @@ import { AssignmentsEditor } from '@/components/AssignmentsEditor'
 import { EmptyState } from '@/components/ui/empty-state'
 import { TagAutocompleteInput, TagAutocompleteTextarea } from '@/components/TagAutocomplete'
 import { dateTime, timeAgo } from '@/lib/format'
+import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { SignupsTimeline } from '@/views/panels/charts/SignupsTimeline'
 import { TeamComposition } from '@/views/panels/charts/TeamComposition'
@@ -258,14 +259,21 @@ function EventSection({
       />
       {!collapsed && (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {events.map((event) => (
-            <EventCard
+          {events.map((event, i) => (
+            <motion.div
               key={event.id}
-              event={event}
-              isSelected={selectedId === event.id}
-              onOpen={() => onOpen(event.id)}
-              refresh={refresh}
-            />
+              className="h-full"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: 'easeOut', delay: Math.min(i, 5) * 0.04 }}
+            >
+              <EventCard
+                event={event}
+                isSelected={selectedId === event.id}
+                onOpen={() => onOpen(event.id)}
+                refresh={refresh}
+              />
+            </motion.div>
           ))}
         </div>
       )}
@@ -1477,7 +1485,10 @@ function EventCard({ event, isSelected, onOpen, refresh }: { event: HackathonEve
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <Card className={cn(isSelected && "border-accent/40", "group")}>
+        <Card
+          className={cn("card-interactive h-full cursor-pointer", isSelected && "border-accent/40", "group")}
+          onClick={onOpen}
+        >
           <CardHeader className="flex-row items-start justify-between space-y-0">
             <div className="min-w-0">
               <CardTitle className="truncate">{event.name}</CardTitle>
@@ -1519,13 +1530,27 @@ function EventCard({ event, isSelected, onOpen, refresh }: { event: HackathonEve
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {event.status === 'draft' && (
-                  <Button size="sm" variant="secondary" onClick={() => void activate()}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void activate()
+                    }}
+                  >
                     <Rocket />
                     {t('events.launch')}
                   </Button>
                 )}
-                <Button size="sm" variant={event.status === 'draft' ? 'outline' : 'secondary'} onClick={onOpen}>
-                  <ArrowRight />
+                <Button
+                  size="sm"
+                  variant={event.status === 'draft' ? 'outline' : 'secondary'}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpen()
+                  }}
+                >
+                  <ArrowRight className="transition-transform group-hover:translate-x-0.5" />
                   {t('events.open')}
                 </Button>
               </div>

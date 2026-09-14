@@ -123,7 +123,7 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
 
       <div className="grid gap-3 md:grid-cols-2">
         {state.teams.map((team) => (
-          <Card key={team.id} className="animate-fade-in">
+          <Card key={team.id} className="animate-fade-in card-interactive">
             <CardHeader className="flex-row items-start justify-between space-y-0">
               <div className="flex min-w-0 items-start gap-3">
                 <span

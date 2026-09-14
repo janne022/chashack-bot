@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createRouter, RouterProvider } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MotionConfig } from 'framer-motion'
 import { Toaster } from 'sonner'
 import './index.css'
 import { routeTree } from './routeTree.gen'
@@ -29,18 +30,20 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nProvider>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-        <Toaster
-          theme="dark"
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: '#191e28',
-              border: '1px solid #262c3a',
-              color: '#eef2f7',
-            },
-          }}
-        />
+        <MotionConfig reducedMotion="user">
+          <RouterProvider router={router} />
+          <Toaster
+            theme="dark"
+            position="bottom-right"
+            toastOptions={{
+              style: {
+                background: '#191e28',
+                border: '1px solid #262c3a',
+                color: '#eef2f7',
+              },
+            }}
+          />
+        </MotionConfig>
       </QueryClientProvider>
     </I18nProvider>
   </StrictMode>,

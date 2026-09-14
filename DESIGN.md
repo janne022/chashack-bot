@@ -299,6 +299,12 @@ rest and gains air only where something is floating above them.
 - Light mode uses the same geometry with warm, low-opacity ink:
   `rgba(26, 29, 36, 0.12)` / `rgba(26, 29, 36, 0.18)`.
 
+**Implementation.** The three steps are tokens in `index.css` (`--shadow-lift-hover`,
+`--shadow-ambient-low`, `--shadow-ambient-high`), retuned for light mode in
+`:root[data-theme='light']` (lift `rgba(26, 29, 36, 0.10)`). Interactive cards opt
+in with the `.card-interactive` utility rather than repeating a shadow chain per
+component, and that utility is inert under `prefers-reduced-motion`.
+
 ### Named Rules
 **The Flat-At-Rest Rule.** Cells are flat when they are part of the grid. Shadow
 is a state or a modality: floating (dialog, popover, sticky bar) or hovered — not
@@ -374,6 +380,22 @@ reserved for avatars, the live pulse and icon-only buttons.
 - Selects, date pickers and popovers reuse the input shell; picker popovers open
   as popper-positioned panels with the ambient-low shadow.
 
+### Cards
+- **Interaction model (hybrid).** The whole card is a click target for its
+  *primary* action — event card → open workspace, template card → edit — because
+  a card-sized target beats a 28px button for pointer users and reads as the
+  obvious affordance. The explicit button stays for keyboard, screen readers and
+  discoverability. Secondary and destructive controls inside a card keep their own
+  buttons and must `stopPropagation()`, so Delete can never open the editor behind
+  its own confirmation.
+- **Hover:** `.card-interactive` — flat at rest, rises 2px on hover with the
+  lift-hover shadow and an accent border shift, 180ms ease-out. A card that is not
+  interactive stays flat and does not lift.
+- **Motion budget:** hover/press feedback is CSS (no re-render). framer-motion is
+  reserved for entrance and view transitions — card stagger 300ms in 40ms steps
+  (capped at six), page transition 200ms — and everything honours the OS setting
+  through `MotionConfig reducedMotion="user"`.
+
 ### Navigation
 - **Style:** 240px sidebar, quiet by default: label in `muted-foreground` at 14px
   with a 16px lucide icon; the active item gets `accent` text on an `accent-soft`
@@ -406,6 +428,8 @@ can read the hexagons before the content, the opacity is wrong.
   with a label (`live`, `locked`, `Not scheduled`) so state survives a glance and
   a colour-blind reading.
 - **Do** keep press feedback tactile: `active:translate-y-px` on buttons and tabs.
+- **Do** make a whole card the target for its primary action and keep an explicit
+  button beside it for keyboard and assistive tech — hybrid beats either alone.
 - **Do** place the destructive action away from the primary flow (ghost/danger
   tint, right-aligned, behind a confirm dialog with the consequence stated in
   hours).
@@ -413,6 +437,8 @@ can read the hexagons before the content, the opacity is wrong.
 ### Don't:
 - **Don't** add drop shadows to cards at rest — the comb is flat; lift only for
   modality or hover.
+- **Don't** give a hover lift to a card that does nothing when clicked — a lift
+  promises an action; leave static surfaces flat.
 - **Don't** use the accent colour for decoration; if it isn't actionable or live,
   it's neutral.
 - **Don't** introduce a new radius, a new surface step, or a second font to solve
