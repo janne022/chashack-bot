@@ -184,6 +184,8 @@ export const api = {
     schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null; mode?: string; assignmentId?: string }[] }[]
     announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[]
     assignments?: { id: string; title: string; instructions: string; description?: string }[]
+    assignmentStrategy?: 'random' | 'same'
+    launch?: boolean
     saveAsTemplate?: boolean
     saveTemplateName?: string
   }): Promise<HackathonEvent> {

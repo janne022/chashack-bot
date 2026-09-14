@@ -128,6 +128,9 @@ export interface Assignment {
   description?: string
 }
 
+/** How an event's assignment pool is dealt out to teams. */
+export type AssignmentStrategy = 'random' | 'same'
+
 export interface ScheduleItem {
   id: string
   time: number

@@ -1,12 +1,13 @@
 import { Link } from '@tanstack/react-router'
-import { CalendarDays, Plus, Bell, Copy, Trash2, ExternalLink, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers, Clock, ClipboardList } from 'lucide-react'
+import { CalendarDays, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Send, LayoutTemplate, FilePlus, Layers, Clock, ClipboardList, Search, Rocket } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
 import { api } from '@/api'
 import { createEventSchema, announceSchema, cleanupDelaySchema } from '@/lib/schemas'
-import type { Assignment, FormConfig, HackathonEvent, Participant } from '@/types'
+import type { Assignment, AssignmentStrategy, FormConfig, HackathonEvent, Participant } from '@/types'
+import { STRATEGY_OPTIONS } from '@/lib/assignment-strategy'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +35,41 @@ export function EventsPage() {
   const events = state.events ?? []
   const activeEvent = events.find((e) => e.status === 'active') ?? null
 
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'active' | 'ended'>('all')
+  const [sortKey, setSortKey] = useState<'newest' | 'oldest' | 'name' | 'starts'>('newest')
+
+  const visible = events
+    .filter((e) => {
+      if (statusFilter !== 'all' && e.status !== statusFilter) return false
+      const q = query.trim().toLowerCase()
+      if (!q) return true
+      return e.name.toLowerCase().includes(q) || (e.description ?? '').toLowerCase().includes(q)
+    })
+    .sort((a, b) => {
+      switch (sortKey) {
+        case 'oldest':
+          return a.createdAt - b.createdAt
+        case 'name':
+          return a.name.localeCompare(b.name)
+        case 'starts':
+          // Events without a start date sort last.
+          if (a.startsAt === null) return 1
+          if (b.startsAt === null) return -1
+          return a.startsAt - b.startsAt
+        default:
+          return b.createdAt - a.createdAt
+      }
+    })
+
+  const counts = {
+    all: events.length,
+    draft: events.filter((e) => e.status === 'draft').length,
+    active: events.filter((e) => e.status === 'active').length,
+    ended: events.filter((e) => e.status === 'ended').length,
+  }
+  const isFiltered = query.trim() !== '' || statusFilter !== 'all'
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -52,6 +88,40 @@ export function EventsPage() {
         <h2 className="font-display mb-3 text-sm uppercase tracking-wide text-muted-foreground">
           {t('events.all', { count: events.length })}
         </h2>
+
+        {events.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[12rem] flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search events…"
+                className="pl-8"
+                maxLength={100}
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as never)}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses ({counts.all})</SelectItem>
+                <SelectItem value="draft">Draft ({counts.draft})</SelectItem>
+                <SelectItem value="active">Active ({counts.active})</SelectItem>
+                <SelectItem value="ended">Ended ({counts.ended})</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v as never)}>
+              <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest first</SelectItem>
+                <SelectItem value="oldest">Oldest first</SelectItem>
+                <SelectItem value="name">Name A–Z</SelectItem>
+                <SelectItem value="starts">Starts soonest</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         {events.length === 0 ? (
           <Card>
             <CardContent>
@@ -63,9 +133,25 @@ export function EventsPage() {
               />
             </CardContent>
           </Card>
+        ) : visible.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">
+              No events match your filters.
+              {isFiltered && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-2"
+                  onClick={() => { setQuery(''); setStatusFilter('all') }}
+                >
+                  Clear
+                </Button>
+              )}
+            </CardContent>
+          </Card>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
-            {events.map((event) => (
+            {visible.map((event) => (
               <EventCard key={event.id} event={event} isActive={activeEvent?.id === event.id} refresh={refresh} />
             ))}
           </div>
@@ -85,6 +171,7 @@ function NewEventButton() {
   const [formMode, setFormMode] = useState<'blank' | 'template'>('blank')
   const [formTemplateId, setFormTemplateId] = useState<string>('')
   const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [assignmentStrategy, setAssignmentStrategy] = useState<AssignmentStrategy>('random')
   const [cleanupDelayHours, setCleanupDelayHours] = useState<number>(48)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -159,19 +246,21 @@ function NewEventButton() {
         cleanupDelayHours?: number;
         schedule?: import('@/types').ScheduleItem[];
         assignments?: Assignment[];
+        assignmentStrategy?: AssignmentStrategy;
       }
       if (parsed.name) setName(parsed.name)
       if (parsed.description) setDescription(parsed.description)
       if (typeof parsed.cleanupDelayHours === 'number') setCleanupDelayHours(parsed.cleanupDelayHours)
       if (Array.isArray(parsed.schedule)) setSchedule(parsed.schedule)
       if (Array.isArray(parsed.assignments)) setAssignments(parsed.assignments)
+      if (parsed.assignmentStrategy === 'same' || parsed.assignmentStrategy === 'random') setAssignmentStrategy(parsed.assignmentStrategy)
       toast.info(t('events.template_applied', { name: tpl.name }))
     } catch {
       // ignore parse errors, still send templateId to server
     }
   }
 
-  async function create() {
+  async function create(launch: boolean) {
     const starts = startsAt !== '' ? Date.parse(startsAt) || null : null
     const ends = endsAt !== '' ? Date.parse(endsAt) || null : null
     const signupStarts = signupStartsAt !== '' ? Date.parse(signupStartsAt) || null : null
@@ -207,15 +296,17 @@ function NewEventButton() {
         ...(templateId ? { templateId } : {}),
         ...(formTemplateId ? { formTemplateId } : {}),
         cleanupDelayHours: cleanupDelayHours,
+        ...(launch ? { launch: true } : {}),
         panelChannelId: panelChannelId || null,
         announcementChannelId: announceChannelId || null,
         scheduleChannelId: scheduleChannelId || null,
         ...(mergedSchedule.length > 0 ? { schedule: mergedSchedule } : {}),
         ...((startAnn.length > 0 || endAnn.length > 0) ? { announcements: [...startAnn, ...endAnn] } : {}),
-        ...(assignments.length > 0 ? { assignments } : {}),
+        ...(assignments.length > 0 ? { assignments, assignmentStrategy } : {}),
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
-      toast.success(saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() }))
+      const created = saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() })
+      toast.success(launch ? `Event “${name.trim()}” launched` : created)
 
       setOpen(false)
       setChooserTemplateId('')
@@ -237,6 +328,7 @@ function NewEventButton() {
       setSaveAsTemplate(false)
       setCleanupDelayHours(48)
       setAssignments([])
+      setAssignmentStrategy('random')
       await refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('events.create_failed'))
@@ -353,6 +445,36 @@ function NewEventButton() {
               />
               <AssignmentsEditor value={assignments} onChange={setAssignments} />
 
+              {assignments.length > 0 && (
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
+                  <span className="text-sm font-medium">Distribution strategy</span>
+                  <span className="text-xs text-muted-foreground">Assignments go out when the hackathon starts.</span>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {STRATEGY_OPTIONS.map(opt => {
+                      const Icon = opt.icon
+                      const selected = assignmentStrategy === opt.id
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setAssignmentStrategy(opt.id)}
+                          className={cn(
+                            "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                            selected ? "border-accent bg-background ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
+                          )}
+                        >
+                          <Icon className={cn("mt-0.5 size-4 shrink-0", selected ? "text-accent" : "text-muted-foreground")} />
+                          <span>
+                            <span className="block text-sm font-medium">{opt.label}</span>
+                            <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
                 <span className="text-sm font-medium">{t('events.form_section')}</span>
                 <div className="grid grid-cols-2 gap-2">
@@ -459,9 +581,13 @@ function NewEventButton() {
 
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-                <Button disabled={busy || name.trim().length < 3} onClick={() => void create()}>
+                <Button variant="secondary" disabled={busy || name.trim().length < 3} onClick={() => void create(false)}>
+                  <FilePlus />
+                  Save as draft
+                </Button>
+                <Button disabled={busy || name.trim().length < 3} onClick={() => void create(true)}>
                   <Send />
-                  {t('common.create')}
+                  Create &amp; launch
                 </Button>
               </div>
             </CardContent>
@@ -475,6 +601,9 @@ function NewEventButton() {
 function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
   const { state } = useAppContext()
   const t = useT()
+  const sorted = [...(event.schedule ?? [])]
+    .filter((s) => s.id !== '__start__' && s.id !== '__end__')
+    .sort((a, b) => a.time - b.time)
 
   return (
     <Card className="border-accent/40">
@@ -506,11 +635,11 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
         </div>
       </CardHeader>
       <CardContent>
-        {event.schedule && event.schedule.filter(s=>s.id!=='__start__' && s.id!=='__end__').length > 0 && (
+        {sorted.length > 0 && (
           <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('events.schedule')}</span>
             <div className="flex flex-col gap-1.5">
-              {[...event.schedule].filter(s=>s.id!=='__start__' && s.id!=='__end__').sort((a,b)=>a.time-b.time).map((it) => (
+              {sorted.map((it) => (
                 <div key={it.id} className="flex items-center gap-3 text-sm">
                   <span className="shrink-0 rounded-md bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
                     {new Date(it.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -521,12 +650,6 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
                 </div>
               ))}
             </div>
-            <EditableSchedule event={event} refresh={refresh} />
-          </div>
-        )}
-        {(!event.schedule || event.schedule.filter(s=>s.id!=='__start__' && s.id!=='__end__').length === 0) && (
-          <div className="mb-4">
-            <EditableSchedule event={event} refresh={refresh} />
           </div>
         )}
         <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
@@ -600,12 +723,8 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button asChild>
-            <Link to="/templates">{t('events.configure_form')}</Link>
-          </Button>
-          <EventFormPicker event={event} refresh={refresh} />
+          <EditableSchedule event={event} refresh={refresh} />
           <NotificationButtons event={event} refresh={refresh} />
-          <ScheduleItineraryButton event={event} />
           <EndEventButton event={event} refresh={refresh} />
         </div>
       </CardContent>
@@ -614,7 +733,9 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
 }
 
 function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
+  const { state } = useAppContext()
   const t = useT()
+  const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
   // Derive start/end actions from both announcements (announce) and synthetic schedule items (__start__/__end__ for ops)
   const deriveStart = (ev: HackathonEvent) => {
     const ann = (ev.announcements ?? []).filter(a=>a.trigger==='on_activate').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null } as import('@/types').ScheduleAction))
@@ -637,6 +758,9 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
   const [signupStart, setSignupStart] = useState(event.signupStartsAt ? toLocalIso(new Date(event.signupStartsAt)) : "")
   const [signupEnd, setSignupEnd] = useState(event.signupEndsAt ? toLocalIso(new Date(event.signupEndsAt)) : "")
   const [editAssignments, setEditAssignments] = useState<Assignment[]>(()=> (event.assignments ?? []))
+  const [editName, setEditName] = useState(event.name)
+  const [editDescription, setEditDescription] = useState(event.description)
+  const [editFormTemplateId, setEditFormTemplateId] = useState<string>('')
   const [startActions, setStartActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveStart(event))
   const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveEnd(event))
   const [busy, setBusy] = useState(false)
@@ -660,6 +784,8 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
       const other = (event.announcements ?? []).filter(a=>a.trigger !== 'on_activate' && a.trigger !== 'on_start')
       const nextAnnouncements = [...other, ...startAnn, ...endAnn]
       await api.updateEvent(event.id, {
+        name: editName.trim(),
+        description: editDescription,
         schedule: merged,
         startsAt: start ? Date.parse(start) : null,
         endsAt: end ? Date.parse(end) : null,
@@ -668,6 +794,11 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
         announcements: nextAnnouncements as never,
         assignments: editAssignments as never,
       })
+      // Form change is a separate endpoint — only call it when the user picked one.
+      if (editFormTemplateId) {
+        await api.setEventForm(event.id, { formTemplateId: editFormTemplateId })
+        setEditFormTemplateId('')
+      }
       toast.success(t('events.schedule_saved'))
       setOpen(false)
       await refresh()
@@ -678,9 +809,9 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
 
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
         <Clock className="size-3.5" />
-        {event.schedule?.length ? t('events.edit_schedule') : t('events.add_schedule')}
+        Edit event
       </Button>
       {open && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
@@ -690,6 +821,14 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
               <CardDescription>{t('events.edit_schedule_desc')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('events.name')}</span>
+                <Input value={editName} onChange={(e)=>setEditName(e.target.value)} maxLength={100} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('events.description')}</span>
+                <Textarea value={editDescription} onChange={(e)=>setEditDescription(e.target.value)} maxLength={1000} />
+              </label>
               <ScheduleEditor
                 value={items}
                 onChange={setItems}
@@ -708,58 +847,9 @@ function EditableSchedule({ event, refresh }: { event: HackathonEvent; refresh: 
                 disablePast
               />
               <AssignmentsEditor value={editAssignments} onChange={setEditAssignments} />
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-                <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-    </>
-  )
-}
-
-function EventFormPicker({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
-  const { state } = useAppContext()
-  const t = useT()
-  const [open, setOpen] = useState(false)
-  const [formTemplateId, setFormTemplateId] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
-
-  async function apply() {
-    if (!formTemplateId) return
-    setBusy(true)
-    try {
-      await api.setEventForm(event.id, { formTemplateId })
-      toast.success(t('events.form_updated'))
-      setOpen(false)
-      setFormTemplateId('')
-      await refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('events.form_update_failed'))
-    } finally { setBusy(false) }
-  }
-
-  return (
-    <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <LayoutTemplate className="size-3.5" />
-        {t('events.change_form')}
-      </Button>
-      {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
-          <Card className="w-full max-w-md animate-pop-in" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            <CardHeader>
-              <CardTitle>{t('events.change_form_title')}</CardTitle>
-              <CardDescription>{t('events.change_form_desc')}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">{t('templates.form_templates')}</span>
-                <Select value={formTemplateId} onValueChange={setFormTemplateId}>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('events.change_form')}</span>
+                <Select value={editFormTemplateId} onValueChange={setEditFormTemplateId}>
                   <SelectTrigger>
                     <SelectValue placeholder={t('events.pick_form_template')} />
                   </SelectTrigger>
@@ -769,12 +859,11 @@ function EventFormPicker({ event, refresh }: { event: HackathonEvent; refresh: (
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+                <span className="text-xs text-muted-foreground">Leave empty to keep the current form.</span>
+              </label>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-                <Button disabled={busy || !formTemplateId} onClick={() => void apply()}>
-                  {t('common.save')}
-                </Button>
+                <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>
               </div>
             </CardContent>
           </Card>
@@ -904,80 +993,6 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   )
 }
 
-const updateCleanupPlaceholder = undefined
-
-function ScheduleItineraryButton({ event }: { event: HackathonEvent }) {
-  const { state } = useAppContext()
-  const t = useT()
-  const defaultChan = event.scheduleChannelId ?? (state.guildSettings as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId ?? ''
-  const [channelId, setChannelId] = useState(defaultChan)
-  const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [guildChannels, setGuildChannels] = useState<{ id: string; name: string }[]>([])
-  useEffect(() => { if (open) api.getGuildChannels().then(r=>setGuildChannels(r.channels ?? [])).catch(()=>undefined) }, [open])
-  useEffect(() => { if (!open) setChannelId(defaultChan) }, [defaultChan, open])
-
-  async function post() {
-    const cid = channelId.trim()
-    if (!cid) { toast.error('Pick a schedule channel first — set it in Config → Default schedule channel or on the event.'); return }
-    setBusy(true)
-    try {
-      const res = await api.postScheduleItinerary(event.id, cid)
-      if (cid !== (event.scheduleChannelId ?? '')) {
-        await api.updateEvent(event.id, { scheduleChannelId: cid }).catch(()=>undefined)
-      }
-      toast.success(res.edited ? `Itinerary updated in <#${res.channelId}>` : `Itinerary posted to <#${res.channelId}> — live <t:…> timers included`)
-      setOpen(false)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to post itinerary')
-    } finally { setBusy(false) }
-  }
-
-  return (
-    <>
-      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
-        <CalendarDays />
-        Post itinerary
-      </Button>
-      {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
-          <Card className="w-full max-w-md animate-pop-in" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            <CardHeader>
-              <CardTitle>Post schedule itinerary</CardTitle>
-              <CardDescription>One message with the whole schedule — Discord shows live <span className="font-mono">&lt;t:unix:F&gt;</span> + <span className="font-mono">&lt;t:unix:R&gt;</span> timers (e.g. in 2 hours, Tomorrow at 18:00). Auto-updated when you Activate or edit the schedule.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <div className="rounded-md bg-surface-2 p-2 text-xs font-mono">Starts &lt;t:…:F&gt; → live · Each block → &lt;t:…:R&gt; (“in 10 min”)</div>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">Schedule channel</span>
-                {guildChannels.length > 0 ? (
-                  <Select value={channelId || '__none'} onValueChange={(v)=>setChannelId(v==='__none'?'':v)}>
-                    <SelectTrigger><SelectValue placeholder="Pick a channel for the itinerary" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none">Not set</SelectItem>
-                      {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="123456789012345678" maxLength={30} />
-                )}
-                <span className="text-xs text-muted-foreground">Defaults to event’s scheduleChannelId → Config default. The same message is edited in place so the channel doesn’t fill with duplicates.</span>
-              </label>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-                <Button disabled={busy || channelId.trim()===''} onClick={() => void post()}>
-                  <CalendarDays className="size-4" />
-                  {busy ? 'Posting…' : defaultChan ? 'Update itinerary' : 'Post itinerary'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-    </>
-  )
-}
-
 function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
   const t = useT()
   const [hours, setHours] = useState(String(event.cleanupDelayHours))
@@ -1018,7 +1033,6 @@ function CleanupDelayConfig({ event, refresh }: { event: HackathonEvent; refresh
 
 function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: () => Promise<void> }) {
   const t = useT()
-  void updateCleanupPlaceholder
   const [confirming, setConfirming] = useState(false)
 
   async function end() {
@@ -1097,8 +1111,8 @@ function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActi
         <span className="truncate font-mono text-xs text-muted-foreground">{event.id}</span>
         {event.status === 'draft' ? (
           <Button size="sm" variant="secondary" onClick={() => void activate()}>
-            <ExternalLink />
-            {t('events.activate')}
+            <Rocket />
+            Launch event
           </Button>
         ) : (
           <Button size="sm" variant="ghost" asChild>

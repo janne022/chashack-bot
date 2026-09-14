@@ -76,6 +76,46 @@ export interface ScheduleAction {
   assignmentId?: string;
 }
 
+/** How an event's assignment pool is dealt out to teams. */
+export type AssignmentStrategy = 'random' | 'same';
+
+export const DISTRIBUTE_ACTION_ID = '__distribute_assignments__';
+
+/**
+ * Inject a `distribute_assignments` action into the pinned Start block so the
+ * pool goes out when the hackathon starts.
+ *
+ * The Start block is normally synthesised by the UI as schedule id `__start__`
+ * (carrying only ops). If the caller passed a real schedule with no `__start__`
+ * block but a `startsAt`, we add that block. If there's no start time at all we
+ * leave the schedule alone — the assignments stay on the event and can be
+ * distributed from a block later.
+ */
+export function withAssignmentDistribution(
+  schedule: ScheduleItem[],
+  strategy: AssignmentStrategy,
+  startsAt: number | null | undefined,
+): ScheduleItem[] {
+  if (schedule.length === 0) return schedule;
+  const startIdx = schedule.findIndex((s) => s.id === '__start__');
+  const action: ScheduleAction = { id: DISTRIBUTE_ACTION_ID, type: 'distribute_assignments', mode: strategy };
+  if (startIdx !== -1) {
+    const block = schedule[startIdx]!;
+    const existing = block.actions ?? [];
+    // Idempotent: replace any prior distribute action, keep everything else.
+    const without = existing.filter((a) => a.type !== 'distribute_assignments');
+    const next = [...without, action];
+    const out = [...schedule];
+    out[startIdx] = { ...block, actions: next };
+    return out;
+  }
+  if (startsAt == null) return schedule;
+  return [
+    ...schedule,
+    { id: '__start__', time: startsAt, title: 'Event starts', kind: 'custom', actions: [action] },
+  ];
+}
+
 export interface AnnouncementTemplate {
   id: string;
   title: string;
@@ -201,6 +241,8 @@ export interface CreateEventInput {
   schedule?: ScheduleItem[];
   announcements?: AnnouncementTemplate[];
   assignments?: Assignment[];
+  /** How the assignment pool is dealt out at event start. Defaults to 'random'. */
+  assignmentStrategy?: AssignmentStrategy;
 }
 
 export function createEvent(db: Db, actor: string, guildId: string, input: CreateEventInput): Result<HackathonEvent> {
@@ -222,9 +264,16 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
 
   const id = newId('ev');
   const form: FormConfig = normalizeFormUpdate({ ...DEFAULT_FORM, ...(input.form ?? {}) }, {});
-  const schedule = normalizeSchedule(input.schedule ?? []);
   const assignments = normalizeAssignments(input.assignments ?? []);
   const seededAssignments = assignments.length > 0 ? assignments : defaultAssignments();
+  // Assignments go out when the hackathon starts: inject a distribute action into
+  // the pinned Start block, using the chosen strategy.
+  const strategy: AssignmentStrategy = input.assignmentStrategy === 'same' ? 'same' : 'random';
+  const schedule = withAssignmentDistribution(
+    normalizeSchedule(input.schedule ?? []),
+    strategy,
+    input.startsAt ?? null,
+  );
   db.prepare(
     `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, signup_starts_at, signup_ends_at, status, form_json, panel_channel_id, category_id, cleanup_delay_hours, match_at, match_locked, discord_event_ids, announcement_channel_id, schedule_channel_id, schedule_json, announcements_json, assignments_json, announced_schedule_ids, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, 0, '[]', ?, ?, ?, ?, ?, '[]', ?, ?)`,
@@ -466,7 +515,7 @@ export function listTemplates(db: Db, guildId: string, kind?: Template['kind']):
       { id: "sch_voting", time: new Date(new Date(hackEnds).setHours(14,0,0,0)).getTime(), title: "Voting", description: "Vote for your favourite", kind: "voting", actions: [{ id: "a3", type: "announce", title: "Voting time!", message: "🗳️ {schedule_title} — {schedule_desc} {timer_schedule} {everyone}" }] },
     ]
     seedIfEmpty('event', [
-      { name: "Default Hackathon", json: JSON.stringify({ name: "ChasHack", description: "48-hour hackathon — build, ship, demo!", cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, assignments: defaultAssignments() }) },
+      { name: "Default Hackathon", json: JSON.stringify({ name: "ChasHack", description: "48-hour hackathon — build, ship, demo!", cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, assignments: defaultAssignments(), assignmentStrategy: 'random' }) },
     ])
   }
   const rows = (
@@ -497,6 +546,10 @@ export function templateToEventInput(json: string): Partial<CreateEventInput> {
     ...(parsed.cleanupDelayHours !== undefined ? { cleanupDelayHours: parsed.cleanupDelayHours } : {}),
     ...(parsed.form !== undefined ? { form: parsed.form } : {}),
     ...(parsed.schedule !== undefined ? { schedule: normalizeSchedule(parsed.schedule) } : {}),
+    ...(parsed.assignments !== undefined ? { assignments: normalizeAssignments(parsed.assignments) } : {}),
+    ...(parsed.assignmentStrategy !== undefined
+      ? { assignmentStrategy: parsed.assignmentStrategy === 'same' ? 'same' : 'random' }
+      : {}),
   };
 }
 

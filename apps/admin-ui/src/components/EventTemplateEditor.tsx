@@ -1,6 +1,6 @@
 "use client"
 import { useState } from "react"
-import type { FormConfig, ScheduleItem } from "@/types"
+import type { FormConfig, ScheduleItem, Assignment, AssignmentStrategy } from "@/types"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,6 +8,8 @@ import { Label, Textarea } from "@/components/ui/textarea-label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScheduleEditor } from "@/components/ui/schedule-editor"
 import { FormConfigEditor } from "@/components/FormConfigEditor"
+import { AssignmentsEditor } from "@/components/AssignmentsEditor"
+import { STRATEGY_OPTIONS } from "@/lib/assignment-strategy"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
 export interface EventTemplateDraft {
@@ -16,6 +18,8 @@ export interface EventTemplateDraft {
   cleanupDelayHours: number
   form: FormConfig
   schedule: ScheduleItem[]
+  assignments: Assignment[]
+  assignmentStrategy: AssignmentStrategy
 }
 
 export function EventTemplateEditor({
@@ -94,6 +98,39 @@ export function EventTemplateEditor({
           </div>
           {showForm && <FormConfigEditor value={value.form} onChange={form=>onChange({ ...value, form })} />}
           {!showForm && <div className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2 text-sm text-muted-foreground">{value.form.title} · team size {value.form.teamSize} · {value.form.roleTracks.length} roles · {value.form.skills.length} skills</div>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Assignments</CardTitle>
+          <CardDescription>The pool every team gets dealt from. When an event is created from this template, the assignments go out when the hackathon starts — using the strategy below.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <AssignmentsEditor value={value.assignments} onChange={assignments => onChange({ ...value, assignments })} />
+          <div className="flex flex-col gap-2">
+            <Label>Distribution strategy</Label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {STRATEGY_OPTIONS.map(opt => {
+                const Icon = opt.icon
+                const selected = value.assignmentStrategy === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onChange({ ...value, assignmentStrategy: opt.id })}
+                    className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors ${selected ? "border-accent bg-background ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"}`}
+                  >
+                    <Icon className={`mt-0.5 size-4 shrink-0 ${selected ? "text-accent" : "text-muted-foreground"}`} />
+                    <span>
+                      <span className="block text-sm font-medium">{opt.label}</span>
+                      <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
         </CardContent>
       </Card>
 

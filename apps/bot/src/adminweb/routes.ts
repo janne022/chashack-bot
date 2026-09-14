@@ -274,14 +274,19 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null; mode?: string; assignmentId?: string }[] }[];
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
       assignments?: { id: string; title: string; instructions: string; description?: string }[];
+      assignmentStrategy?: 'random' | 'same';
       saveAsTemplate?: boolean;
       saveTemplateName?: string;
+      /** Create & launch: activate the event immediately after creating it. */
+      launch?: boolean;
     } | null;
     if (body?.name === undefined || body.name.trim().length < 3) {
       await reply.code(400).send({ ok: false, code: 'bad_name', message: 'Event name must be at least 3 characters.' });
       return;
     }
     let form: Parameters<typeof createEvent>[3]['form'];
+    // Parse the event template once — it seeds form, schedule, assignments and strategy.
+    let tplInput: Partial<Parameters<typeof createEvent>[3]> | undefined;
     if (body.templateId !== undefined) {
       const tpl = listTemplates(db, guildId, 'event').find((t) => t.id === body.templateId);
       if (tpl === undefined) {
@@ -289,7 +294,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         return;
       }
       const { templateToEventInput } = await import('../features/events/data.js');
-      form = templateToEventInput(tpl.json).form;
+      tplInput = templateToEventInput(tpl.json);
+      form = tplInput.form;
     }
     if (body.formTemplateId !== undefined) {
       const tpl = listTemplates(db, guildId, 'form').find((t) => t.id === body.formTemplateId);
@@ -316,16 +322,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
     // Fall back to guild defaults when not explicitly provided
     const gs = getGuildSettings(db, guildId)
-    let schedule = body.schedule
-    // If template provided a schedule and no explicit schedule, keep template's schedule
-    if (schedule === undefined && body.templateId !== undefined) {
-      const tpl = listTemplates(db, guildId, 'event').find((t) => t.id === body.templateId)
-      if (tpl) {
-        const { templateToEventInput } = await import('../features/events/data.js')
-        const tplInput = templateToEventInput(tpl.json)
-        schedule = tplInput.schedule as never
-      }
-    }
+    // Template seeds the schedule + assignment pool when the caller didn't supply them.
+    const schedule = body.schedule ?? tplInput?.schedule
+    const assignments = body.assignments ?? tplInput?.assignments
+    const strategy = body.assignmentStrategy ?? tplInput?.assignmentStrategy
     const res = createEvent(db, 'web', guildId, {
       name: body.name,
       ...(body.description !== undefined ? { description: body.description } : {}),
@@ -337,15 +337,20 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body.announcementChannelId !== undefined ? { announcementChannelId: body.announcementChannelId } : gs.defaultAnnouncementChannelId ? { announcementChannelId: gs.defaultAnnouncementChannelId } : {}),
       ...(body.scheduleChannelId !== undefined ? { scheduleChannelId: body.scheduleChannelId } : (gs as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId ? { scheduleChannelId: (gs as unknown as { defaultScheduleChannelId: string | null }).defaultScheduleChannelId } : {}),
       ...(gs.defaultCategoryId && body.panelChannelId === undefined ? { categoryId: gs.defaultCategoryId } : {}),
-      ...(body.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : gs.defaultCleanupDelayHours != null ? { cleanupDelayHours: gs.defaultCleanupDelayHours } : {}),
+      ...(body.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : tplInput?.cleanupDelayHours !== undefined ? { cleanupDelayHours: tplInput.cleanupDelayHours } : gs.defaultCleanupDelayHours != null ? { cleanupDelayHours: gs.defaultCleanupDelayHours } : {}),
       ...(form !== undefined ? { form } : {}),
       ...(schedule !== undefined ? { schedule: schedule as never } : {}),
       ...(body.announcements !== undefined ? { announcements: body.announcements as never } : {}),
-      ...(body.assignments !== undefined ? { assignments: body.assignments as never } : {}),
+      ...(assignments !== undefined ? { assignments: assignments as never } : {}),
+      ...(strategy !== undefined ? { assignmentStrategy: strategy } : {}),
     });
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
+    }
+    // Create & launch: activate immediately when the caller asked for it.
+    if (body.launch === true) {
+      activateEvent(db, 'web', res.value.id);
     }
     // Optional: save as event template via checkbox in create dialog
     if (body.saveAsTemplate) {
@@ -353,18 +358,23 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       if (tplName.length >= 2) {
         const { getEventForm } = await import('../features/events/data.js')
         const { DEFAULT_FORM } = await import('../features/form/domain.js')
-        const savedEvent = res.value
+        const savedEvent = getEvent(db, res.value.id) ?? res.value
+        // Read the strategy back off the Start block so the template round-trips it.
+        const startBlock = savedEvent.schedule.find((s) => s.id === '__start__')
+        const savedStrategy = startBlock?.actions?.find((a) => a.type === 'distribute_assignments')?.mode
         const payload = {
           name: savedEvent.name,
           description: savedEvent.description,
           cleanupDelayHours: savedEvent.cleanupDelayHours,
           form: getEventForm(db, savedEvent, DEFAULT_FORM),
           schedule: savedEvent.schedule,
+          assignments: savedEvent.assignments,
+          assignmentStrategy: savedStrategy === 'same' ? 'same' : 'random',
         }
         saveTemplate(db, 'web', guildId, tplName, 'event', JSON.stringify(payload))
       }
     }
-    return { ok: true, event: res.value };
+    return { ok: true, event: getEvent(db, res.value.id) ?? res.value };
   });
 
   app.post('/api/events/:eventId/activate', async (req, reply) => {

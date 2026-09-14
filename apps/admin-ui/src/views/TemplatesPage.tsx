@@ -199,10 +199,20 @@ function EventTemplateDialog({ template, formTemplates, onClose, onSaved }: { te
     if (template) {
       try {
         const p = JSON.parse(template.json) as Partial<EventTemplateDraft & { name: string }>
-        return { name: template.name, description: (p as Record<string,string>).description ?? "", cleanupDelayHours: (p as Record<string,number>).cleanupDelayHours ?? 48, form: (p.form as FormConfig) ?? DEFAULT_FORM, schedule: (p.schedule as EventTemplateDraft["schedule"]) ?? [] }
-      } catch { return { name: template.name, description: "", cleanupDelayHours: 48, form: DEFAULT_FORM, schedule: [] } }
+        return {
+          name: template.name,
+          description: (p as Record<string,string>).description ?? "",
+          cleanupDelayHours: (p as Record<string,number>).cleanupDelayHours ?? 48,
+          form: (p.form as FormConfig) ?? DEFAULT_FORM,
+          schedule: (p.schedule as EventTemplateDraft["schedule"]) ?? [],
+          assignments: (p.assignments as EventTemplateDraft["assignments"]) ?? [],
+          assignmentStrategy: (p.assignmentStrategy as EventTemplateDraft["assignmentStrategy"]) ?? "random",
+        }
+      } catch {
+        return { name: template.name, description: "", cleanupDelayHours: 48, form: DEFAULT_FORM, schedule: [], assignments: [], assignmentStrategy: "random" }
+      }
     }
-    return { name: "", description: "", cleanupDelayHours: 48, form: DEFAULT_FORM, schedule: [] }
+    return { name: "", description: "", cleanupDelayHours: 48, form: DEFAULT_FORM, schedule: [], assignments: [], assignmentStrategy: "random" }
   })
   const [busy, setBusy] = useState(false)
   const isEdit = template !== null
@@ -211,7 +221,7 @@ function EventTemplateDialog({ template, formTemplates, onClose, onSaved }: { te
     if (draft.name.trim().length < 2) { toast.error("Name must be at least 2 characters"); return }
     setBusy(true)
     try {
-      const payload = { name: draft.name.trim(), description: draft.description, cleanupDelayHours: draft.cleanupDelayHours, form: draft.form, schedule: draft.schedule }
+      const payload = { name: draft.name.trim(), description: draft.description, cleanupDelayHours: draft.cleanupDelayHours, form: draft.form, schedule: draft.schedule, assignments: draft.assignments, assignmentStrategy: draft.assignmentStrategy }
       const json = JSON.stringify(payload)
       if (isEdit) await api.updateTemplate(template.id, { name: draft.name.trim(), json })
       else await api.createTemplateRaw(draft.name.trim(), "event", json)
