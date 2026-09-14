@@ -96,12 +96,34 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     console.warn(`[adminweb] DISCORD_GUILD_ID is not set or not a snowflake (got "${guildId}"). Discord features (announce, panel, guild channels) will fail until you set it in .env and restart. Admin UI still works.`);
   }
 
-  /** The event the admin web UI is operating on: the active one. */
+  /**
+   * The event the admin web UI operates on when the caller doesn't name one.
+   * Prefers the newest active event so single-event setups keep working, then
+   * falls back to the newest event of any status (so a guild with only drafts
+   * still resolves to a real event rather than the guild id).
+   */
   const activeEventId = (): string => {
-    const row = db
-      .prepare("SELECT id FROM events WHERE guild_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1")
-      .get(guildId) as { id: string } | undefined;
+    const row =
+      (db
+        .prepare("SELECT id FROM events WHERE guild_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1")
+        .get(guildId) as { id: string } | undefined) ??
+      (db
+        .prepare('SELECT id FROM events WHERE guild_id = ? ORDER BY created_at DESC LIMIT 1')
+        .get(guildId) as { id: string } | undefined);
     return row?.id ?? guildId;
+  };
+
+  /**
+   * Resolve the event an endpoint should act on. An explicit `eventId` (query
+   * param or body field) always wins so multiple concurrent events are
+   * addressable; otherwise fall back to the default event.
+   */
+  const resolveEventId = (req: { query?: unknown; body?: unknown }): string => {
+    const q = req.query as Record<string, unknown> | undefined;
+    if (q && typeof q.eventId === 'string' && q.eventId !== '') return q.eventId;
+    const b = req.body as Record<string, unknown> | null | undefined;
+    if (b && typeof b.eventId === 'string' && b.eventId !== '') return b.eventId;
+    return activeEventId();
   };
 
   app.addHook('preHandler', async (req, reply) => {
@@ -217,12 +239,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
   });
 
-  app.get('/api/state', async (_req, reply) => {
-    const eventId = activeEventId();
+  app.get('/api/state', async (req, reply) => {
+    const eventId = resolveEventId(req);
     const participants = listParticipants(db, eventId);
     const teams = listTeams(db, eventId);
     const events = listEvents(db, guildId);
-    const active = events.find((e) => e.status === 'active') ?? null;
+    const selected = events.find((e) => e.id === eventId) ?? null;
     // surface guild mis-config so UI can warn
     const guildOk = isSnowflake(guildId);
     if (!guildOk) {
@@ -239,7 +261,11 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       guildId,
       events,
       templates: listTemplates(db, guildId),
-      activeEventId: active?.id ?? null,
+      // The event these participants/teams belong to (explicit pick, else default).
+      activeEventId: selected?.id ?? null,
+      selectedEventId: selected?.id ?? null,
+      // Every live event, so the UI can offer a switcher when >1 is running.
+      activeEventIds: events.filter((e) => e.status === 'active').map((e) => e.id),
       stats: {
         signups: participants.filter((p) => p.status !== 'withdrawn').length,
         active: participants.filter((p) => p.status === 'active').length,
@@ -728,7 +754,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const { userId } = req.params as { userId: string };
     const body = req.body as { action?: string; reason?: string } | null;
     const actor = 'web';
-    const eventId = activeEventId();
+    const eventId = resolveEventId(req);
     let res;
     switch (body?.action) {
       case 'block':
@@ -768,7 +794,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/participants/:userId/team', async (req, reply) => {
     const { userId } = req.params as { userId: string };
     const body = req.body as { teamId?: string | null } | null;
-    const res = adminAssign(db, 'web', activeEventId(), userId, body?.teamId ?? null);
+    const res = adminAssign(db, 'web', resolveEventId(req), userId, body?.teamId ?? null);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -782,12 +808,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be public|private' });
       return;
     }
-    if (body.ownerId !== undefined && getParticipant(db, activeEventId(), body.ownerId) === null) {
+    if (body.ownerId !== undefined && getParticipant(db, resolveEventId(req), body.ownerId) === null) {
       await reply.code(400).send({ ok: false, code: 'not_found', message: 'Owner has no signup.' });
       return;
     }
     const ownerId = body.ownerId ?? `admin-${Date.now()}`;
-    const res = createTeam(db, 'web', activeEventId(), guildId, body.name ?? '', body.kind, ownerId);
+    const res = createTeam(db, 'web', resolveEventId(req), guildId, body.name ?? '', body.kind, ownerId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -840,7 +866,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/match/preview', async (req, reply) => {
-    const res = previewMatch(db, activeEventId(), getForm(db));
+    const res = previewMatch(db, resolveEventId(req), getForm(db));
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -848,8 +874,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return { ok: true, result: res.value };
   });
 
-  app.post('/api/match/commit', async () => {
-    const eventId = activeEventId();
+app.post('/api/match/commit', async (req) => {
+    const eventId = resolveEventId(req);
     const res = commitMatch(db, 'web', eventId, guildId, getForm(db));
     if (!res.ok) {
       return { ok: false, code: res.code, message: res.message };
@@ -887,7 +913,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/match/suggestions', async (req, reply) => {
     const body = req.body as { participantId?: string } | null;
     const participantId = body?.participantId ?? '';
-    const eventId = activeEventId();
+    const eventId = resolveEventId(req);
     const participant = getParticipant(db, eventId, participantId);
     if (participant === null) {
       await reply.code(404).send({ ok: false, code: 'not_found', message: 'Participant not found in this event.' });
@@ -902,16 +928,16 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   /** Lock teams in now: skips future auto-match (manual match runs still allowed). */
-  app.post('/api/match/lock', async () => {
-    markMatchLocked(db, activeEventId());
-    audit(db, 'web', 'match.lock', activeEventId(), null);
+app.post('/api/match/lock', async (req) => {
+    markMatchLocked(db, resolveEventId(req));
+    audit(db, 'web', 'match.lock', resolveEventId(req), null);
     return { ok: true };
   });
 
   /** Clear the lock so auto-match can fire again. */
-  app.post('/api/match/unlock', async () => {
-    markMatchUnlocked(db, activeEventId());
-    audit(db, 'web', 'match.unlock', activeEventId(), null);
+  app.post('/api/match/unlock', async (req) => {
+    markMatchUnlocked(db, resolveEventId(req));
+    audit(db, 'web', 'match.unlock', resolveEventId(req), null);
     return { ok: true };
   });
 
@@ -934,8 +960,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return { ok: res.ok, config: res.ok ? res.value : undefined };
   });
 
-  app.post('/api/event/reset', async () => {
-    const eventId = activeEventId();
+app.post('/api/event/reset', async (req) => {
+    const eventId = resolveEventId(req);
     const { purgeEventParticipants } = await import('../features/signup/data.js');
     const { deleteEventTeams } = await import('../features/teams/data.js');
     const participants = purgeEventParticipants(db, 'web', eventId);

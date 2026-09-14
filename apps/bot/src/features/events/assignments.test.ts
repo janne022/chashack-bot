@@ -64,13 +64,18 @@ test('assignments: synthesises a Start block when schedule has none but a start 
   assert.deepEqual(modes(out), ['random']);
 });
 
-test('assignments: empty schedule and missing start time are left alone', () => {
+test('assignments: empty schedule gets a Start block only when a start time exists', () => {
   const schedule: ScheduleItem[] = [
     { id: 'sch_dinner', time: START + H, title: 'Dinner', kind: 'food' },
   ];
   // No start time → nothing to attach to, caller keeps the pool on the event.
   assert.deepEqual(withAssignmentDistribution(schedule, 'random', null), schedule);
-  assert.deepEqual(withAssignmentDistribution([], 'random', START), []);
+  // Empty schedule + a start time → the Start block is synthesised so the
+  // distribution still fires at event start.
+  const out = withAssignmentDistribution([], 'random', START);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.id, '__start__');
+  assert.deepEqual(modes(out), ['random']);
 });
 
 test('template: assignments and strategy round-trip through templateToEventInput', () => {

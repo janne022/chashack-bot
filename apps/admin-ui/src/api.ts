@@ -40,8 +40,13 @@ export const api = {
     })
   },
 
-  async state(): Promise<AppState> {
-    return request<AppState>('/api/state')
+  /**
+   * Load app state. Pass an eventId to scope participants/teams/matching to a
+   * specific event — required when more than one event is active at once.
+   */
+  async state(eventId?: string | null): Promise<AppState> {
+    const qs = eventId ? `?eventId=${encodeURIComponent(eventId)}` : ''
+    return request<AppState>(`/api/state${qs}`)
   },
 
   async participantAction(userId: string, action: string, reason?: string): Promise<void> {

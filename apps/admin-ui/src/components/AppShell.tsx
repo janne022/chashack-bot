@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useAppContext } from '@/lib/app-context'
 import { useLocale, useT, setLocale } from '@/lib/i18n'
 import type { AppState } from '@/types'
 import brandMark from '@/assets/brand/1.png'
@@ -111,6 +113,7 @@ export function AppShell({
             </Link>
           ))}
         </nav>
+        <EventSwitcher state={state} />
         <div className="mt-auto flex flex-col gap-2 pb-1">
           <div className="hex-bg rounded-xl border border-border p-3">
             <div className="font-display text-2xl text-accent">{state.stats.active}</div>
@@ -218,6 +221,39 @@ export function AppShell({
           ))}
         </div>
       </nav>
+    </div>
+  )
+}
+
+/**
+ * Lets the organizer pick which event the participant/team/matching views show.
+ * Only rendered when more than one event is live — in a single-event setup it
+ * would be noise, so it renders nothing.
+ */
+function EventSwitcher({ state }: { state: AppState }) {
+  const { selectEvent } = useAppContext()
+  const events = state.events ?? []
+  const live = events.filter((e) => e.status === 'active')
+
+  if (live.length < 2) return null
+
+  const currentId = state.selectedEventId ?? live[0]?.id ?? ''
+
+  return (
+    <div className="mt-4 flex flex-col gap-1.5 rounded-xl border border-border bg-surface-2/40 p-2.5">
+      <span className="px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Active event
+      </span>
+      <Select value={currentId} onValueChange={selectEvent}>
+        <SelectTrigger className="h-8 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {live.map((e) => (
+            <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }

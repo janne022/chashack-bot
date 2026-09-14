@@ -33,7 +33,11 @@ export function EventsPage() {
   const { state, refresh } = useAppContext()
   const t = useT()
   const events = state.events ?? []
-  const activeEvent = events.find((e) => e.status === 'active') ?? null
+  // With several live events, show the one the organizer selected; otherwise
+  // fall back to the first active event.
+  const liveEvents = events.filter((e) => e.status === 'active')
+  const activeEvent =
+    liveEvents.find((e) => e.id === state.selectedEventId) ?? liveEvents[0] ?? null
 
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'active' | 'ended'>('all')

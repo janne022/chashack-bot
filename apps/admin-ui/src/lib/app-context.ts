@@ -4,6 +4,12 @@ import type { AppState } from '@/types'
 interface AppContextValue {
   state: AppState
   refresh: () => Promise<void>
+  /**
+   * Switch which event the participant/team/matching views are scoped to.
+   * Pass null to fall back to the server default (newest active event).
+   * No-op in single-event setups.
+   */
+  selectEvent: (eventId: string | null) => void
 }
 
 const AppContext = createContext<AppContextValue | null>(null)

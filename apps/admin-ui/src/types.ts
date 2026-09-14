@@ -188,6 +188,10 @@ export interface AppState {
   events: HackathonEvent[]
   templates: EventTemplate[]
   activeEventId: string | null
+  /** The event the current participants/teams are scoped to (explicit pick or default). */
+  selectedEventId: string | null
+  /** Every event currently live — used to offer a switcher when >1 is running. */
+  activeEventIds: string[]
   stats: Stats
 }
 

@@ -13,10 +13,15 @@ export default function App({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null)
   const [authed, setAuthed] = useState<boolean | null>(null) // null = checking
   const [error, setError] = useState<string | null>(null)
+  // Which event the data views are scoped to. Persisted so a reload keeps the
+  // organizer on the event they were working on. Null = server default.
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(
+    () => localStorage.getItem('chas-event') || null,
+  )
 
   const refresh = useCallback(async () => {
     try {
-      const s = await api.state()
+      const s = await api.state(selectedEventId)
       setState(s)
       setAuthed(true)
       setError(null)
@@ -27,11 +32,17 @@ export default function App({ children }: { children: ReactNode }) {
         setError(e instanceof Error ? e.message : 'Failed to load')
       }
     }
-  }, [])
+  }, [selectedEventId])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  const selectEvent = useCallback((eventId: string | null) => {
+    if (eventId === null) localStorage.removeItem('chas-event')
+    else localStorage.setItem('chas-event', eventId)
+    setSelectedEventId(eventId)
+  }, [])
 
   const handleLogin = useCallback(
     async (password: string) => {
@@ -65,7 +76,7 @@ export default function App({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AppContextProvider value={{ state, refresh }}>
+    <AppContextProvider value={{ state, refresh, selectEvent }}>
       <AppShell state={state} refresh={refresh}>
         {children}
       </AppShell>

@@ -102,4 +102,16 @@ New backend logic gets unit tests. Final: push to `origin/main`.
 - [x] 3. Single Edit button
 - [x] 4. Save as draft / launch
 - [x] 5. All-events search + filter + sort
-- [ ] 6. Multi-event support
+- [x] 6. Multi-event support
+
+## Notes / follow-ups
+
+- Multi-event: `resolveEventId()` (bot/src/adminweb/routes.ts) takes an explicit
+  `eventId` from query or body, else falls back to newest-active → newest-any.
+  The UI persists the pick in `localStorage['chas-event']` and only renders the
+  switcher when 2+ events are live.
+- Bug found by tests: `withAssignmentDistribution` originally returned early on an
+  empty schedule, so an event created with no schedule never got the distribute
+  action — assignments silently would not fire. Now the Start block is
+  synthesised whenever a start time exists.
+- The `Link`/`useT` imports in EventsPage are still used by the event cards.

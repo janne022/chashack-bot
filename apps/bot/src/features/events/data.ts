@@ -96,7 +96,6 @@ export function withAssignmentDistribution(
   strategy: AssignmentStrategy,
   startsAt: number | null | undefined,
 ): ScheduleItem[] {
-  if (schedule.length === 0) return schedule;
   const startIdx = schedule.findIndex((s) => s.id === '__start__');
   const action: ScheduleAction = { id: DISTRIBUTE_ACTION_ID, type: 'distribute_assignments', mode: strategy };
   if (startIdx !== -1) {
@@ -109,6 +108,8 @@ export function withAssignmentDistribution(
     out[startIdx] = { ...block, actions: next };
     return out;
   }
+  // No Start block yet. Without a start time there's nothing to hang the action
+  // on, so leave the schedule alone — the pool stays on the event.
   if (startsAt == null) return schedule;
   return [
     ...schedule,
