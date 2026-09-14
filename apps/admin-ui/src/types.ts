@@ -126,6 +126,8 @@ export interface Assignment {
   title: string
   instructions: string
   description?: string
+  /** Optional image (URL) attached when the assignment is dealt to a team channel. */
+  imageUrl?: string
 }
 
 /** How an event's assignment pool is dealt out to teams. */
@@ -162,7 +164,7 @@ export interface EventTemplate {
   id: string
   guildId: string | null
   name: string
-  kind: 'event' | 'form' | 'announcement'
+  kind: 'event' | 'form' | 'announcement' | 'assignments'
   json: string
   createdAt: number
 }

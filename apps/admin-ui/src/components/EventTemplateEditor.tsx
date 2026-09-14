@@ -1,6 +1,6 @@
 "use client"
 import { useState } from "react"
-import type { FormConfig, ScheduleItem, Assignment, AssignmentStrategy } from "@/types"
+import type { FormConfig, ScheduleItem, AssignmentStrategy } from "@/types"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,7 +8,6 @@ import { Label, Textarea } from "@/components/ui/textarea-label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScheduleEditor } from "@/components/ui/schedule-editor"
 import { FormConfigEditor } from "@/components/FormConfigEditor"
-import { AssignmentsEditor } from "@/components/AssignmentsEditor"
 import { STRATEGY_OPTIONS } from "@/lib/assignment-strategy"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
@@ -18,7 +17,8 @@ export interface EventTemplateDraft {
   cleanupDelayHours: number
   form: FormConfig
   schedule: ScheduleItem[]
-  assignments: Assignment[]
+  /** Default assignment collection for events created from this template. */
+  assignmentCollectionId: string
   assignmentStrategy: AssignmentStrategy
 }
 
@@ -26,10 +26,12 @@ export function EventTemplateEditor({
   value,
   onChange,
   formTemplates,
+  assignmentCollections,
 }: {
   value: EventTemplateDraft
   onChange: (next: EventTemplateDraft) => void
   formTemplates: { id: string; name: string; json: string }[]
+  assignmentCollections: { id: string; name: string }[]
 }) {
   const [formMode, setFormMode] = useState<"inline" | "template">("inline")
   const [selectedFormId, setSelectedFormId] = useState<string>("")
@@ -104,10 +106,23 @@ export function EventTemplateEditor({
       <Card>
         <CardHeader>
           <CardTitle>Assignments</CardTitle>
-          <CardDescription>The pool every team gets dealt from. When an event is created from this template, the assignments go out when the hackathon starts — using the strategy below.</CardDescription>
+          <CardDescription>Pick the collection events from this template default to, and how it’s dealt out. Assignments go out when the hackathon starts.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <AssignmentsEditor value={value.assignments} onChange={assignments => onChange({ ...value, assignments })} />
+          <div className="flex flex-col gap-2">
+            <Label>Collection</Label>
+            {assignmentCollections.length > 0 ? (
+              <Select value={value.assignmentCollectionId || "__none"} onValueChange={v => onChange({ ...value, assignmentCollectionId: v === "__none" ? "" : v })}>
+                <SelectTrigger className="w-72"><SelectValue placeholder="Pick a collection" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">No assignments</SelectItem>
+                  {assignmentCollections.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2 text-sm text-muted-foreground">No collections yet — create one under Templates → Assignment collections.</p>
+            )}
+          </div>
           <div className="flex flex-col gap-2">
             <Label>Distribution strategy</Label>
             <div className="grid gap-2 sm:grid-cols-2">

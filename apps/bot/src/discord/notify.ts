@@ -480,7 +480,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 }
                 audit(db, 'system', `schedule.${op.type}`, event.id, { scheduleId, ok: preview.ok, code: (preview as unknown as { code?: string }).code })
               } else if (op.type === 'distribute_assignments') {
-                const assigns = (event.assignments ?? []) as { id:string; title:string; instructions:string }[]
+                const assigns = (event.assignments ?? []) as { id:string; title:string; instructions:string; imageUrl?:string }[]
                 if (assigns.length > 0) {
                   const { listTeams } = await import('../features/teams/data.js')
                   const teams = listTeams(db, event.guildId).filter((t: { eventId: string })=>t.eventId===event.id)
@@ -493,7 +493,10 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                       const chanId = (team as unknown as { channelId?: string | null }).channelId ?? (team as unknown as { channel_id?: string | null }).channel_id ?? null
                       if (!chanId || !isSnowflake(chanId)) continue
                       const text = `**${assign.title}**\n${assign.instructions.replaceAll('{team}', team.name).replaceAll('{event}', event.name)}`.slice(0, 2000)
-                      try { const guild = await client.guilds.fetch(event.guildId); const ch = await guild.channels.fetch(chanId).catch(()=>null) as import('discord.js').TextChannel | null; if (ch && ch.isTextBased()) await ch.send({ content: text, allowedMentions: { parse: ['everyone'] } as never }).catch(()=>undefined) } catch {}
+                      // Attach the assignment's image when it has a usable URL.
+                      const payload: Parameters<import('discord.js').TextChannel['send']>[0] = { content: text, allowedMentions: { parse: ['everyone'] } as never }
+                      if (typeof assign.imageUrl === 'string' && /^https?:\/\//.test(assign.imageUrl)) payload.files = [assign.imageUrl]
+                      try { const guild = await client.guilds.fetch(event.guildId); const ch = await guild.channels.fetch(chanId).catch(()=>null) as import('discord.js').TextChannel | null; if (ch && ch.isTextBased()) await ch.send(payload).catch(()=>undefined) } catch {}
                     }
                     audit(db, 'system', 'schedule.distribute_assignments', event.id, { scheduleId, mode, teams: teams.length, assignments: assigns.length })
                     summary.push(`schedule assignments (${mode}): ${event.name} — ${teams.length} teams`)

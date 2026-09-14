@@ -174,7 +174,7 @@ function NewEventButton() {
   const [templateId, setTemplateId] = useState<string>('')
   const [formMode, setFormMode] = useState<'blank' | 'template'>('blank')
   const [formTemplateId, setFormTemplateId] = useState<string>('')
-  const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [assignmentCollectionId, setAssignmentCollectionId] = useState<string>('')
   const [assignmentStrategy, setAssignmentStrategy] = useState<AssignmentStrategy>('random')
   const [cleanupDelayHours, setCleanupDelayHours] = useState<number>(48)
   const [name, setName] = useState('')
@@ -212,6 +212,14 @@ function NewEventButton() {
 
   const eventTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'event')
   const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
+  // Assignment collections (template kind `assignments`) with their pool sizes.
+  const assignmentCollections = (state.templates ?? [])
+    .filter((tpl) => tpl.kind === 'assignments')
+    .map((tpl) => {
+      let count = 0
+      try { const p = JSON.parse(tpl.json) as { assignments?: unknown[] }; if (Array.isArray(p.assignments)) count = p.assignments.length } catch { /* keep 0 */ }
+      return { id: tpl.id, name: tpl.name, count }
+    })
   const defaults = state.guildSettings
 
   function onOpenChooser() {
@@ -250,13 +258,20 @@ function NewEventButton() {
         cleanupDelayHours?: number;
         schedule?: import('@/types').ScheduleItem[];
         assignments?: Assignment[];
+        assignmentCollectionId?: string;
         assignmentStrategy?: AssignmentStrategy;
       }
       if (parsed.name) setName(parsed.name)
       if (parsed.description) setDescription(parsed.description)
       if (typeof parsed.cleanupDelayHours === 'number') setCleanupDelayHours(parsed.cleanupDelayHours)
       if (Array.isArray(parsed.schedule)) setSchedule(parsed.schedule)
-      if (Array.isArray(parsed.assignments)) setAssignments(parsed.assignments)
+      // Prefer a collection reference; fall back to legacy embedded pools (pre-collections templates).
+      if (typeof parsed.assignmentCollectionId === 'string' && parsed.assignmentCollectionId !== '') {
+        setAssignmentCollectionId(parsed.assignmentCollectionId)
+      } else if (Array.isArray(parsed.assignments) && parsed.assignments.length > 0) {
+        // Legacy template with an embedded pool — keep the strategy it carried.
+        setAssignmentStrategy(parsed.assignmentStrategy === 'same' ? 'same' : 'random')
+      }
       if (parsed.assignmentStrategy === 'same' || parsed.assignmentStrategy === 'random') setAssignmentStrategy(parsed.assignmentStrategy)
       toast.info(t('events.template_applied', { name: tpl.name }))
     } catch {
@@ -295,6 +310,14 @@ function NewEventButton() {
       if (endOps.length && endTime) extraSchedule.push({ id: '__end__', time: endTime, title: 'Event ends', kind: 'custom' as const, actions: endOps as never })
       const mergedSchedule = [...schedule, ...extraSchedule]
 
+      // Resolve the assignment pool from the picked collection (snapshot semantics —
+      // later edits to the collection don't retroactively change this event).
+      const pickedCollection = state.templates.find((tpl) => tpl.id === assignmentCollectionId && tpl.kind === 'assignments')
+      let pool: Assignment[] = []
+      if (pickedCollection) {
+        try { const p = JSON.parse(pickedCollection.json) as { assignments?: Assignment[] }; if (Array.isArray(p.assignments)) pool = p.assignments } catch { pool = [] }
+      }
+
       await api.createEvent({
         ...parsed.data,
         ...(templateId ? { templateId } : {}),
@@ -306,7 +329,7 @@ function NewEventButton() {
         scheduleChannelId: scheduleChannelId || null,
         ...(mergedSchedule.length > 0 ? { schedule: mergedSchedule } : {}),
         ...((startAnn.length > 0 || endAnn.length > 0) ? { announcements: [...startAnn, ...endAnn] } : {}),
-        ...(assignments.length > 0 ? { assignments, assignmentStrategy } : {}),
+        ...(pool.length > 0 ? { assignments: pool, assignmentStrategy } : {}),
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
       const created = saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() })
@@ -331,7 +354,7 @@ function NewEventButton() {
       setEndActions([])
       setSaveAsTemplate(false)
       setCleanupDelayHours(48)
-      setAssignments([])
+      setAssignmentCollectionId('')
       setAssignmentStrategy('random')
       await refresh()
     } catch (e) {
@@ -447,37 +470,49 @@ function NewEventButton() {
                 onEndActionsChange={setEndActions}
                 disablePast
               />
-              <AssignmentsEditor value={assignments} onChange={setAssignments} />
-
-              {assignments.length > 0 && (
-                <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
-                  <span className="text-sm font-medium">Distribution strategy</span>
-                  <span className="text-xs text-muted-foreground">Assignments go out when the hackathon starts.</span>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {STRATEGY_OPTIONS.map(opt => {
-                      const Icon = opt.icon
-                      const selected = assignmentStrategy === opt.id
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => setAssignmentStrategy(opt.id)}
-                          className={cn(
-                            "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                            selected ? "border-accent bg-background ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
-                          )}
-                        >
-                          <Icon className={cn("mt-0.5 size-4 shrink-0", selected ? "text-accent" : "text-muted-foreground")} />
-                          <span>
-                            <span className="block text-sm font-medium">{opt.label}</span>
-                            <span className="block text-xs text-muted-foreground">{opt.hint}</span>
-                          </span>
-                        </button>
-                      )
-                    })}
+              <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
+                <span className="text-sm font-medium">Assignments</span>
+                <span className="text-xs text-muted-foreground">Pick a collection — its assignments go out to each team when the hackathon starts. Manage collections under Templates → Assignment collections.</span>
+                {assignmentCollections.length > 0 ? (
+                  <Select value={assignmentCollectionId || '__none'} onValueChange={(v)=>setAssignmentCollectionId(v==='__none'?'':v)}>
+                    <SelectTrigger className="w-72"><SelectValue placeholder="Pick a collection" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">No assignments</SelectItem>
+                      {assignmentCollections.map(c => <SelectItem key={c.id} value={c.id}>{c.name} ({c.count})</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="rounded-lg border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground">No collections yet — create one under Templates → Assignment collections.</p>
+                )}
+                {assignmentCollectionId !== '' && (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-sm font-medium">Distribution strategy</span>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {STRATEGY_OPTIONS.map(opt => {
+                        const Icon = opt.icon
+                        const selected = assignmentStrategy === opt.id
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setAssignmentStrategy(opt.id)}
+                            className={cn(
+                              "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                              selected ? "border-accent bg-background ring-1 ring-accent" : "border-border bg-surface-2 hover:border-accent/40"
+                            )}
+                          >
+                            <Icon className={cn("mt-0.5 size-4 shrink-0", selected ? "text-accent" : "text-muted-foreground")} />
+                            <span>
+                              <span className="block text-sm font-medium">{opt.label}</span>
+                              <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
                 <span className="text-sm font-medium">{t('events.form_section')}</span>

@@ -55,6 +55,8 @@ export interface Assignment {
   title: string;
   instructions: string;
   description?: string;
+  /** Optional image (URL) attached when the assignment is dealt to a team channel. */
+  imageUrl?: string;
 }
 
 export interface ScheduleItem {
@@ -265,16 +267,15 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
 
   const id = newId('ev');
   const form: FormConfig = normalizeFormUpdate({ ...DEFAULT_FORM, ...(input.form ?? {}) }, {});
+  // The pool is a snapshot of the assignment collection picked at creation.
+  // No pool chosen → nothing is distributed (no silent defaults).
   const assignments = normalizeAssignments(input.assignments ?? []);
-  const seededAssignments = assignments.length > 0 ? assignments : defaultAssignments();
-  // Assignments go out when the hackathon starts: inject a distribute action into
-  // the pinned Start block, using the chosen strategy.
   const strategy: AssignmentStrategy = input.assignmentStrategy === 'same' ? 'same' : 'random';
-  const schedule = withAssignmentDistribution(
-    normalizeSchedule(input.schedule ?? []),
-    strategy,
-    input.startsAt ?? null,
-  );
+  // Assignments go out when the hackathon starts: inject a distribute action into
+  // the pinned Start block — but only when there is actually a pool to deal.
+  const schedule = assignments.length > 0
+    ? withAssignmentDistribution(normalizeSchedule(input.schedule ?? []), strategy, input.startsAt ?? null)
+    : normalizeSchedule(input.schedule ?? []);
   db.prepare(
     `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, signup_starts_at, signup_ends_at, status, form_json, panel_channel_id, category_id, cleanup_delay_hours, match_at, match_locked, discord_event_ids, announcement_channel_id, schedule_channel_id, schedule_json, announcements_json, assignments_json, announced_schedule_ids, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, 0, '[]', ?, ?, ?, ?, ?, '[]', ?, ?)`,
@@ -296,7 +297,7 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
     input.scheduleChannelId ?? null,
     JSON.stringify(schedule),
     JSON.stringify(input.announcements ?? []),
-    JSON.stringify(seededAssignments),
+    JSON.stringify(assignments),
     Date.now(),
     Date.now(),
   );
@@ -433,7 +434,7 @@ export interface Template {
   id: string;
   guildId: string | null;
   name: string;
-  kind: 'event' | 'form' | 'announcement';
+  kind: 'event' | 'form' | 'announcement' | 'assignments';
   json: string;
   createdAt: number;
 }
@@ -500,6 +501,11 @@ export function listTemplates(db: Db, guildId: string, kind?: Template['kind']):
       // guild_settings row doesn't exist yet — it will be created on first Config save; seed will be picked up then via fallback in createEvent
     }
   }
+  if (kind === undefined || kind === 'assignments') {
+    seedIfEmpty('assignments', [
+      { name: "Default assignments", json: JSON.stringify({ assignments: defaultAssignments() }) },
+    ])
+  }
   if (kind === undefined || kind === 'event') {
     // Default hackathon event: signup 7 days before, 48h hackathon, a few schedule blocks with signup + announcements via schedule
     const now = Date.now()
@@ -516,7 +522,7 @@ export function listTemplates(db: Db, guildId: string, kind?: Template['kind']):
       { id: "sch_voting", time: new Date(new Date(hackEnds).setHours(14,0,0,0)).getTime(), title: "Voting", description: "Vote for your favourite", kind: "voting", actions: [{ id: "a3", type: "announce", title: "Voting time!", message: "🗳️ {schedule_title} — {schedule_desc} {timer_schedule} {everyone}" }] },
     ]
     seedIfEmpty('event', [
-      { name: "Default Hackathon", json: JSON.stringify({ name: "ChasHack", description: "48-hour hackathon — build, ship, demo!", cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, assignments: defaultAssignments(), assignmentStrategy: 'random' }) },
+      { name: "Default Hackathon", json: JSON.stringify({ name: "ChasHack", description: "48-hour hackathon — build, ship, demo!", cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, assignmentStrategy: 'random' }) },
     ])
   }
   const rows = (
@@ -630,7 +636,10 @@ export function normalizeAssignments(items: unknown): Assignment[] {
     if (!title || !instructions) continue;
     const id = String(r.id ?? '').trim() || newId('assign');
     const description = typeof r.description === 'string' ? String(r.description).trim().slice(0, 300) || undefined : undefined;
-    out.push({ id, title, instructions, ...(description ? { description } : {}) });
+    // Only accept http(s) URLs — anything else can't be attached by Discord anyway.
+    const rawImage = typeof r.imageUrl === 'string' ? r.imageUrl.trim() : '';
+    const imageUrl = /^https?:\/\/\S+$/.test(rawImage) ? rawImage.slice(0, 500) : undefined;
+    out.push({ id, title, instructions, ...(description ? { description } : {}), ...(imageUrl ? { imageUrl } : {}) });
   }
   return out.slice(0, 50);
 }

@@ -58,11 +58,19 @@ test('multi-event: assignment distribution lands on the event it was created for
   assert.equal(b.value.schedule.find((s) => s.id === '__start__'), undefined);
   assert.equal(a.value.assignments.length, 1);
   assert.equal(a.value.assignments[0]?.title, 'Demo prep');
-  // Event B supplied no pool, so it keeps the seeded defaults rather than
-  // inheriting event A's.
-  assert.ok(b.value.assignments.length > 0);
-  assert.ok(!b.value.assignments.some((x) => x.title === 'Demo prep'));
+  // No collection chosen → no pool, no silent defaults, no distribute action.
+  assert.equal(b.value.assignments.length, 0);
 
+  db.close();
+});
+
+test('multi-event: no pool means no distribute action is wired', () => {
+  const db = openDb(':memory:');
+  const starts = Date.now() + 7 * 24 * 3600 * 1000;
+  const bare = createEvent(db, 'test', G, { name: 'No pool', startsAt: starts });
+  assert.ok(bare.ok);
+  assert.equal(bare.value.assignments.length, 0);
+  assert.equal(bare.value.schedule.find((s) => s.id === '__start__'), undefined);
   db.close();
 });
 

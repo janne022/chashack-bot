@@ -12,20 +12,20 @@ import { toast } from 'sonner'
 function newId(prefix='assign') { return `${prefix}_${Math.random().toString(36).slice(2,8)}_${Date.now().toString(36)}` }
 
 export function AssignmentsEditor({ value, onChange }: { value: Assignment[]; onChange: (v: Assignment[])=>void }) {
-  const [draft, setDraft] = useState<Assignment>({ id: newId(), title: '', instructions: '', description: '' })
+  const [draft, setDraft] = useState<Assignment>({ id: newId(), title: '', instructions: '', description: '', imageUrl: '' })
   const [editing, setEditing] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<Assignment | null>(null)
 
   function add() {
     if (!draft.title.trim() || !draft.instructions.trim()) { toast.error('Title and instructions required'); return }
-    onChange([...value, { ...draft, id: newId(), title: draft.title.trim(), instructions: draft.instructions.trim(), description: draft.description?.trim() || undefined }])
-    setDraft({ id: newId(), title: '', instructions: '', description: '' })
+    onChange([...value, { ...draft, id: newId(), title: draft.title.trim(), instructions: draft.instructions.trim(), description: draft.description?.trim() || undefined, imageUrl: draft.imageUrl?.trim() || undefined }])
+    setDraft({ id: newId(), title: '', instructions: '', description: '', imageUrl: '' })
   }
   function remove(id: string) { onChange(value.filter(v=>v.id!==id)) }
   function startEdit(a: Assignment) { setEditing(a.id); setEditDraft({ ...a }) }
   function saveEdit() {
     if (!editDraft || !editDraft.title.trim() || !editDraft.instructions.trim()) { toast.error('Title and instructions required'); return }
-    onChange(value.map(v=> v.id===editDraft.id ? { ...editDraft, title: editDraft.title.trim(), instructions: editDraft.instructions.trim(), description: editDraft.description?.trim() || undefined } : v))
+    onChange(value.map(v=> v.id===editDraft.id ? { ...editDraft, title: editDraft.title.trim(), instructions: editDraft.instructions.trim(), description: editDraft.description?.trim() || undefined, imageUrl: editDraft.imageUrl?.trim() || undefined } : v))
     setEditing(null); setEditDraft(null)
   }
 
@@ -47,6 +47,13 @@ export function AssignmentsEditor({ value, onChange }: { value: Assignment[]; on
                     <Label className="text-xs">Title</Label><Input value={editDraft.title} onChange={e=>setEditDraft({ ...editDraft, title: e.target.value })} placeholder="e.g. Build a Discord bot" />
                     <Label className="text-xs">Instructions</Label><Textarea value={editDraft.instructions} onChange={e=>setEditDraft({ ...editDraft, instructions: e.target.value })} rows={3} placeholder="Here is your assignment {team}: … — will be sent to the team's channel" />
                     <Label className="text-xs">Description (optional)</Label><Input value={editDraft.description ?? ''} onChange={e=>setEditDraft({ ...editDraft, description: e.target.value })} placeholder="Short hint" />
+                    <Label className="text-xs">Image URL (optional)</Label>
+                    <div className="flex items-start gap-2">
+                      <Input value={editDraft.imageUrl ?? ''} onChange={e=>setEditDraft({ ...editDraft, imageUrl: e.target.value })} placeholder="https://… — attached when dealt to a team" className="font-mono text-xs" />
+                      {editDraft.imageUrl && /^https?:\/\//.test(editDraft.imageUrl) && (
+                        <img src={editDraft.imageUrl} alt="" className="size-14 shrink-0 rounded-md border border-border object-cover" onError={(e)=>{ (e.target as HTMLImageElement).style.display='none' }} />
+                      )}
+                    </div>
                     <div className="flex gap-2"><Button size="sm" onClick={saveEdit}><Save className="size-3" />Save</Button><Button size="sm" variant="secondary" onClick={()=>{ setEditing(null); setEditDraft(null) }}><X className="size-3" />Cancel</Button></div>
                   </div>
                 ) : (
@@ -55,6 +62,9 @@ export function AssignmentsEditor({ value, onChange }: { value: Assignment[]; on
                       <div className="flex items-center gap-2 flex-wrap"><span className="font-semibold text-sm">{a.title}</span><Badge variant="secondary" className="font-mono text-[10px]">{a.id.slice(0,12)}</Badge></div>
                       <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{a.instructions}</p>
                       {a.description && <p className="mt-1 text-xs text-muted-foreground">{a.description}</p>}
+                      {a.imageUrl && (
+                        <img src={a.imageUrl} alt="" className="mt-2 max-h-32 rounded-lg border border-border object-cover" onError={(e)=>{ (e.target as HTMLImageElement).style.display='none' }} />
+                      )}
                     </div>
                     <div className="flex shrink-0 gap-1">
                       <Button variant="ghost" size="icon" onClick={()=>startEdit(a)} title="Edit"><Edit2 className="size-4" /></Button>
@@ -71,6 +81,12 @@ export function AssignmentsEditor({ value, onChange }: { value: Assignment[]; on
           <Input value={draft.title} onChange={e=>setDraft({ ...draft, title: e.target.value })} placeholder="Title — e.g. Mystery box" />
           <Textarea value={draft.instructions} onChange={(e: any)=>setDraft({ ...draft, instructions: e.target.value })} rows={3} placeholder="Instructions — e.g. Here is your assignment {team}: build a bot that greets newcomers. Use {everyone} if you want to ping." />
           <Input value={draft.description ?? ''} onChange={(e: any)=>setDraft({ ...draft, description: e.target.value })} placeholder="Description (optional)" />
+          <div className="flex items-start gap-2">
+            <Input value={draft.imageUrl ?? ''} onChange={(e: any)=>setDraft({ ...draft, imageUrl: e.target.value })} placeholder="Image URL (optional) — https://…" className="font-mono text-xs" />
+            {draft.imageUrl && /^https?:\/\//.test(draft.imageUrl) && (
+              <img src={draft.imageUrl} alt="" className="size-14 shrink-0 rounded-md border border-border object-cover" onError={(e)=>{ (e.target as HTMLImageElement).style.display='none' }} />
+            )}
+          </div>
           <Button onClick={add} disabled={!draft.title.trim() || !draft.instructions.trim()}><Plus className="size-4" />Add to list</Button>
           <p className="text-xs text-muted-foreground">Tags like {"{team}"}, {"{event}"}, {"{everyone}"} work in instructions — they’re rendered per-team when distributed.</p>
         </div>

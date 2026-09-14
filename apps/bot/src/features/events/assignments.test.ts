@@ -96,3 +96,19 @@ test('template: an unknown strategy name falls back to random, never a bad value
   const out = templateToEventInput(JSON.stringify({ assignmentStrategy: 'chaotic' }));
   assert.equal(out.assignmentStrategy, 'random');
 });
+
+test('assignments: imageUrl is kept only when it looks like an http(s) URL', () => {
+  const out = templateToEventInput(JSON.stringify({
+    assignments: [
+      { id: 'a', title: 'Good', instructions: 'Do it', imageUrl: 'https://example.com/x.png' },
+      { id: 'b', title: 'Bad scheme', instructions: 'Do it', imageUrl: 'javascript:alert(1)' },
+      { id: 'c', title: 'Not a URL', instructions: 'Do it', imageUrl: 'hello world' },
+      { id: 'd', title: 'Empty', instructions: 'Do it', imageUrl: '   ' },
+    ],
+  }));
+  assert.equal(out.assignments?.length, 4);
+  assert.equal(out.assignments?.[0]?.imageUrl, 'https://example.com/x.png');
+  assert.equal(out.assignments?.[1]?.imageUrl, undefined);
+  assert.equal(out.assignments?.[2]?.imageUrl, undefined);
+  assert.equal(out.assignments?.[3]?.imageUrl, undefined);
+});

@@ -568,8 +568,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/templates', async (req, reply) => {
     const body = req.body as { eventId?: string; name?: string; kind?: string; formJson?: string; json?: string } | null
     const kind = body?.kind ?? 'event'
-    if (kind !== 'event' && kind !== 'form' && kind !== 'announcement') {
-      await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be event|form|announcement' })
+    if (kind !== 'event' && kind !== 'form' && kind !== 'announcement' && kind !== 'assignments') {
+      await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be event|form|announcement|assignments' })
       return
     }
     let json: string

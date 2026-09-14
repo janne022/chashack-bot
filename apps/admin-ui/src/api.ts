@@ -291,7 +291,7 @@ export const api = {
     })
   },
 
-  async createTemplateRaw(name: string, kind: 'event' | 'form' | 'announcement', json: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
+  async createTemplateRaw(name: string, kind: 'event' | 'form' | 'announcement' | 'assignments', json: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
     return request('/api/templates', {
       method: 'POST',
       body: JSON.stringify({ name, kind, json }),

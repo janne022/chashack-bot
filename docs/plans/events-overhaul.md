@@ -88,6 +88,27 @@ participant/team/matching route implicitly operates on it. Two live events are u
 
 ---
 
+## 7. Assignment collections (rework of #1 — corrected model)
+
+janne clarified #1: assignments should not live inside event templates. They want
+**standalone collections** — a named, reusable set of assignments with title,
+instructions, description and **image** — authored once on the Templates page and
+picked at event creation.
+
+**Model:**
+- New template kind `assignments` (alongside event/form/announcement). JSON =
+  `{ assignments: Assignment[] }`; the template name is the collection name.
+- `Assignment` gains `imageUrl?: string` — attached to the Discord message when
+  the assignment is dealt to a team channel.
+- Event template remembers the **default collection id + strategy**; the create
+  dialog can override both. No more embedded assignment arrays in event templates
+  (old ones keep working — `templateToEventInput` still maps the legacy key).
+- Event keeps its own **snapshot** of the pool at creation (same semantics as the
+  signup form). The per-event edit dialog can tweak that snapshot afterwards.
+- `createEvent` no longer silently seeds default assignments — if no pool is
+  chosen, nothing is distributed. Explicit over implicit.
+- The `distribute_assignments` action is only injected when a pool exists.
+
 ## Verification
 
 Per workstream: `tsc --noEmit` in both apps, `npm run build` in admin-ui, `npm test` in bot.
@@ -97,12 +118,13 @@ New backend logic gets unit tests. Final: push to `origin/main`.
 
 ## Progress
 
-- [x] 1. Assignments in templates + strategy at create
+- [x] 1. Assignments in templates + strategy at create *(superseded by #7)*
 - [x] 2. Remove redundant active-event buttons
 - [x] 3. Single Edit button
 - [x] 4. Save as draft / launch
 - [x] 5. All-events search + filter + sort
 - [x] 6. Multi-event support
+- [x] 7. Assignment collections (rework of #1)
 
 ## Notes / follow-ups
 
