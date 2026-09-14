@@ -1,0 +1,554 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-14T22:28:55.418636Z",
+  "title": "Design System: ChasHack Admin",
+  "extensions": {
+    "colorMeta": {
+      "comb-sky": {
+        "role": "primary",
+        "displayName": "Comb Sky",
+        "canonical": "oklch(74.4% 0.104 220.8)",
+        "tonalRamp": [
+          "#000f21",
+          "#002c41",
+          "#004c65",
+          "#006e8a",
+          "#1f90ae",
+          "#4db4d3",
+          "#74d9f9",
+          "#9bffff"
+        ]
+      },
+      "deep-comb-sky": {
+        "role": "primary",
+        "displayName": "Deep Comb Sky",
+        "canonical": "oklch(61.0% 0.103 227.3)",
+        "tonalRamp": [
+          "#000e26",
+          "#002b48",
+          "#004b6c",
+          "#006c8e",
+          "#2d8eb2",
+          "#56b2d7",
+          "#7bd7fd",
+          "#a8fcff"
+        ]
+      },
+      "signal-coral": {
+        "role": "secondary",
+        "displayName": "Signal Coral",
+        "canonical": "oklch(72.5% 0.138 21.0)",
+        "tonalRamp": [
+          "#290000",
+          "#4f0009",
+          "#771a23",
+          "#a1393e",
+          "#c75c5e",
+          "#ef7f7f",
+          "#ffa3a2",
+          "#ffc8c6"
+        ]
+      },
+      "moss-teal": {
+        "role": "secondary",
+        "displayName": "Moss Teal",
+        "canonical": "oklch(58.2% 0.061 185.6)",
+        "tonalRamp": [
+          "#00110e",
+          "#002e29",
+          "#0d4c47",
+          "#336d66",
+          "#558f87",
+          "#78b2aa",
+          "#9cd7cf",
+          "#c5fbf4"
+        ]
+      },
+      "orchid-lilac": {
+        "role": "tertiary",
+        "displayName": "Orchid Lilac",
+        "canonical": "oklch(69.6% 0.130 326.9)",
+        "tonalRamp": [
+          "#1d0020",
+          "#3e0740",
+          "#622463",
+          "#864387",
+          "#aa64ab",
+          "#cf87cf",
+          "#f6abf5",
+          "#ffd0ff"
+        ]
+      },
+      "powder-pink": {
+        "role": "tertiary",
+        "displayName": "Powder Pink",
+        "canonical": "oklch(80.8% 0.093 4.1)",
+        "tonalRamp": [
+          "#1e0008",
+          "#401321",
+          "#642e3d",
+          "#8a4b5b",
+          "#b16a7c",
+          "#d78c9e",
+          "#feb0c2",
+          "#ffd5e7"
+        ]
+      },
+      "boundary-amber": {
+        "role": "tertiary",
+        "displayName": "Boundary Amber",
+        "canonical": "oklch(80.4% 0.156 82.5)",
+        "tonalRamp": [
+          "#1f0100",
+          "#401a00",
+          "#633600",
+          "#895500",
+          "#af7600",
+          "#d49a00",
+          "#fbbe38",
+          "#ffe466"
+        ]
+      },
+      "alert-red": {
+        "role": "tertiary",
+        "displayName": "Alert Red",
+        "canonical": "oklch(63.7% 0.208 25.3)",
+        "tonalRamp": [
+          "#380000",
+          "#640000",
+          "#920000",
+          "#bb0016",
+          "#e4393b",
+          "#ff625e",
+          "#ff8981",
+          "#ffb4a9"
+        ]
+      },
+      "night-comb": {
+        "role": "neutral",
+        "displayName": "Night Comb",
+        "canonical": "oklch(15.4% 0.009 264.3)",
+        "tonalRamp": [
+          "#090b0f",
+          "#23252a",
+          "#3f4247",
+          "#5f6166",
+          "#808287",
+          "#a3a5a9",
+          "#c7c9cd",
+          "#edeef2"
+        ]
+      },
+      "comb-cell": {
+        "role": "neutral",
+        "displayName": "Comb Cell",
+        "canonical": "oklch(19.1% 0.015 266.8)",
+        "tonalRamp": [
+          "#080b12",
+          "#22252d",
+          "#3e424a",
+          "#5d616a",
+          "#7f828a",
+          "#a2a5ad",
+          "#c6c9d0",
+          "#eceef5"
+        ]
+      },
+      "raised-cell": {
+        "role": "neutral",
+        "displayName": "Raised Cell",
+        "canonical": "oklch(23.5% 0.021 264.1)",
+        "tonalRamp": [
+          "#070b14",
+          "#20252f",
+          "#3c424d",
+          "#5b616d",
+          "#7d828e",
+          "#a0a5b0",
+          "#c4c9d3",
+          "#eaeff7"
+        ]
+      },
+      "cell-edge": {
+        "role": "neutral",
+        "displayName": "Cell Edge",
+        "canonical": "oklch(29.4% 0.027 266.7)",
+        "tonalRamp": [
+          "#060b17",
+          "#1f2532",
+          "#3b4251",
+          "#5a6171",
+          "#7b8292",
+          "#9ea5b4",
+          "#c3c9d7",
+          "#e9eefb"
+        ]
+      },
+      "moonlight-ink": {
+        "role": "neutral",
+        "displayName": "Moonlight Ink",
+        "canonical": "oklch(96.0% 0.008 253.9)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232527",
+          "#404245",
+          "#5f6165",
+          "#7f8387",
+          "#a2a5aa",
+          "#c6c9ce",
+          "#ebeff4"
+        ]
+      },
+      "slate-mist": {
+        "role": "neutral",
+        "displayName": "Slate Mist",
+        "canonical": "oklch(67.6% 0.031 266.3)",
+        "tonalRamp": [
+          "#070b15",
+          "#1f2533",
+          "#3a4252",
+          "#596174",
+          "#7a8296",
+          "#9ca5b9",
+          "#c0c9de",
+          "#e5efff"
+        ]
+      },
+      "warm-paper": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "oklch(97.0% 0.007 88.6)",
+        "tonalRamp": [
+          "#0c0b09",
+          "#262523",
+          "#43423f",
+          "#62615e",
+          "#84827e",
+          "#a7a5a0",
+          "#cbc9c4",
+          "#f0eee9"
+        ]
+      },
+      "paper-card": {
+        "role": "neutral",
+        "displayName": "Paper Card",
+        "canonical": "oklch(99.4% 0.006 84.6)",
+        "tonalRamp": [
+          "#0c0b0a",
+          "#262523",
+          "#434240",
+          "#62615e",
+          "#84827f",
+          "#a7a5a1",
+          "#cbc9c5",
+          "#f0eeea"
+        ]
+      },
+      "paper-shade": {
+        "role": "neutral",
+        "displayName": "Paper Shade",
+        "canonical": "oklch(94.6% 0.010 87.5)",
+        "tonalRamp": [
+          "#0c0b09",
+          "#262522",
+          "#44423e",
+          "#63615c",
+          "#85827c",
+          "#a8a59e",
+          "#ccc9c2",
+          "#f1eee7"
+        ]
+      },
+      "paper-line": {
+        "role": "neutral",
+        "displayName": "Paper Line",
+        "canonical": "oklch(88.6% 0.015 84.6)",
+        "tonalRamp": [
+          "#0d0b07",
+          "#272520",
+          "#45423b",
+          "#656159",
+          "#868279",
+          "#a9a49b",
+          "#cdc9bf",
+          "#f3eee4"
+        ]
+      },
+      "graphite": {
+        "role": "neutral",
+        "displayName": "Graphite",
+        "canonical": "oklch(23.1% 0.014 266.9)",
+        "tonalRamp": [
+          "#080b11",
+          "#22252c",
+          "#3e424a",
+          "#5d616a",
+          "#7f828a",
+          "#a2a5ac",
+          "#c6c9d0",
+          "#eceef5"
+        ]
+      },
+      "pencil-grey": {
+        "role": "neutral",
+        "displayName": "Pencil Grey",
+        "canonical": "oklch(55.1% 0.023 264.4)",
+        "tonalRamp": [
+          "#070b14",
+          "#1f2530",
+          "#3c424f",
+          "#5b616f",
+          "#7b8291",
+          "#9ea5b4",
+          "#c2c9d8",
+          "#e8effd"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page titles and card titles only — Nunito 800, -0.02em."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Dialog titles and stat values in Geist 500."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Everything operational: rows, descriptions, controls at 14px."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, badges, uppercase section eyebrows at 12px."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Inline hints and field labels inside dense action editors (11px)."
+      },
+      "micro": {
+        "displayName": "Micro",
+        "purpose": "Badge counts, action counters and control-attached metadata (10px). Never primary copy."
+      }
+    },
+    "shadows": [
+      {
+        "name": "ambient-low",
+        "value": "0 4px 24px rgba(0,0,0,0.24)",
+        "purpose": "Dialogs, popovers, selects — anything over a scrim or detached from the grid."
+      },
+      {
+        "name": "ambient-high",
+        "value": "0 12px 40px rgba(0,0,0,0.32)",
+        "purpose": "Sticky workspace action bar and full-screen overlays."
+      },
+      {
+        "name": "lift-hover",
+        "value": "0 6px 20px rgba(0,0,0,0.18)",
+        "purpose": "Interactive cards on hover, paired with the border-colour shift."
+      },
+      {
+        "name": "ambient-low-light",
+        "value": "0 4px 24px rgba(26,29,36,0.12)",
+        "purpose": "Light-mode dialogs and popovers (warm ink, not black)."
+      },
+      {
+        "name": "ring-hairline",
+        "value": "0 0 0 1px color-mix(in oklch, var(--color-foreground) 10%, transparent)",
+        "purpose": "The at-rest card edge — the incumbent elevation, kept alongside the shadow direction."
+      }
+    ],
+    "motion": [
+      {
+        "name": "pop-in",
+        "value": "0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Dialogs and anything that appears over the console."
+      },
+      {
+        "name": "fade-in",
+        "value": "0.25s ease-out",
+        "purpose": "Content entering a section (6px rise)."
+      },
+      {
+        "name": "slide-in",
+        "value": "0.25s ease-out",
+        "purpose": "Panels sliding in from the edge (14px travel)."
+      },
+      {
+        "name": "press",
+        "value": "transform 0.1s ease",
+        "purpose": "Tactile press: active:translate-y-px on buttons and tabs."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one action a surface wants taken: save, create, launch.",
+      "html": "<button class=\"ds-btn ds-btn-primary\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 5v14M5 12h14\"/></svg>Create &amp; launch</button>",
+      "css": ".ds-btn{display:inline-flex;height:28px;align-items:center;justify-content:center;gap:6px;border-radius:var(--radius-hex,10px);border:1px solid transparent;padding:0 10px;font-size:14px;font-weight:500;font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif);white-space:nowrap;cursor:pointer;transition:background-color .15s ease,border-color .15s ease,transform .1s ease}.ds-btn-primary{background:var(--color-accent,#55bbda);color:var(--color-background,#0a0c10)}.ds-btn-primary:hover{background:color-mix(in oklch,var(--color-accent,#55bbda) 80%,var(--color-background,#0a0c10))}.ds-btn:focus-visible{outline:2px solid var(--color-accent,#55bbda);outline-offset:2px}.ds-btn:active{transform:translateY(1px)}.ds-btn:disabled{opacity:.5;pointer-events:none}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "In-card workhorse action next to a primary.",
+      "html": "<button class=\"ds-btn ds-btn-secondary\">Edit event</button>",
+      "css": ".ds-btn{display:inline-flex;height:28px;align-items:center;justify-content:center;gap:6px;border-radius:var(--radius-hex,10px);border:1px solid transparent;padding:0 10px;font-size:14px;font-weight:500;font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif);white-space:nowrap;cursor:pointer;transition:background-color .15s ease,border-color .15s ease,transform .1s ease}.ds-btn-secondary{background:var(--color-surface-2,#191e28);color:var(--color-foreground,#eef2f7)}.ds-btn-secondary:hover{background:color-mix(in oklch,var(--color-surface-2,#191e28) 92%,var(--color-foreground,#eef2f7))}.ds-btn:focus-visible{outline:2px solid var(--color-accent,#55bbda);outline-offset:2px}.ds-btn:active{transform:translateY(1px)}.ds-btn:disabled{opacity:.5;pointer-events:none}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Tertiary and icon actions; keeps destructive confirms away from the main flow.",
+      "html": "<button class=\"ds-btn ds-btn-ghost\">Copy id</button>",
+      "css": ".ds-btn{display:inline-flex;height:28px;align-items:center;justify-content:center;gap:6px;border-radius:var(--radius-hex,10px);border:1px solid transparent;padding:0 10px;font-size:14px;font-weight:500;font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif);white-space:nowrap;cursor:pointer;transition:background-color .15s ease,border-color .15s ease,transform .1s ease}.ds-btn-ghost{background:transparent;color:var(--color-muted-foreground,#8e97ab)}.ds-btn-ghost:hover{background:var(--color-surface-2,#191e28);color:var(--color-foreground,#eef2f7)}.ds-btn:focus-visible{outline:2px solid var(--color-accent,#55bbda);outline-offset:2px}.ds-btn:active{transform:translateY(1px)}.ds-btn:disabled{opacity:.5;pointer-events:none}"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "End event / delete: danger tint, never a solid red slab.",
+      "html": "<button class=\"ds-btn ds-btn-danger\">End event</button>",
+      "css": ".ds-btn{display:inline-flex;height:28px;align-items:center;justify-content:center;gap:6px;border-radius:var(--radius-hex,10px);border:1px solid transparent;padding:0 10px;font-size:14px;font-weight:500;font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif);white-space:nowrap;cursor:pointer;transition:background-color .15s ease,border-color .15s ease,transform .1s ease}.ds-btn-danger{background:color-mix(in oklch,var(--color-danger,#ef4444) 10%,transparent);color:var(--color-danger,#ef4444)}.ds-btn-danger:hover{background:color-mix(in oklch,var(--color-danger,#ef4444) 20%,transparent)}.ds-btn:focus-visible{outline:2px solid var(--color-accent,#55bbda);outline-offset:2px}.ds-btn:active{transform:translateY(1px)}.ds-btn:disabled{opacity:.5;pointer-events:none}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "The single field shell reused by inputs, selects and pickers.",
+      "html": "<input class=\"ds-input\" placeholder=\"Event name\" value=\"ChasHack Spring 2026\" aria-label=\"Event name\">",
+      "css": ".ds-input{height:32px;width:100%;min-width:0;border-radius:var(--radius-hex,10px);border:1px solid var(--color-border,#262c3a);background:color-mix(in oklch,var(--color-border,#262c3a) 30%,transparent);color:var(--color-foreground,#eef2f7);padding:0 10px;font-size:14px;font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif);transition:border-color .15s ease,box-shadow .15s ease}.ds-input::placeholder{color:var(--color-muted-foreground,#8e97ab)}.ds-input:focus-visible{outline:none;border-color:var(--color-accent,#55bbda);box-shadow:0 0 0 3px color-mix(in oklch,var(--color-accent,#55bbda) 50%,transparent)}"
+    },
+    {
+      "name": "Status Chip — live",
+      "kind": "chip",
+      "refersTo": "badge-success",
+      "description": "Live/running state; always paired with its label.",
+      "html": "<span class=\"ds-chip ds-chip-live\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"/></svg>live</span>",
+      "css": ".ds-chip{display:inline-flex;height:20px;align-items:center;gap:4px;border-radius:26px;padding:0 8px;font-size:12px;font-weight:500;font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif);white-space:nowrap;border:1px solid transparent}.ds-chip-live{background:color-mix(in oklch,var(--color-ok,#4e8780) 15%,transparent);color:var(--color-ok,#4e8780)}"
+    },
+    {
+      "name": "Status Chip — draft",
+      "kind": "chip",
+      "refersTo": "badge-warning",
+      "description": "Warning state: not launched, needs attention.",
+      "html": "<span class=\"ds-chip ds-chip-draft\">draft</span>",
+      "css": ".ds-chip{display:inline-flex;height:20px;align-items:center;gap:4px;border-radius:26px;padding:0 8px;font-size:12px;font-weight:500;font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif);white-space:nowrap;border:1px solid transparent}.ds-chip-draft{background:color-mix(in oklch,var(--color-warn,#f0b429) 15%,transparent);color:var(--color-warn,#f0b429)}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "One cell of the comb: one tonal step above the floor, hairline ring, flat at rest.",
+      "html": "<article class=\"ds-card\"><header class=\"ds-card-head\"><h3 class=\"ds-card-title\">ChasHack Spring 2026</h3><span class=\"ds-chip ds-chip-live\">live</span></header><p class=\"ds-card-body\">48h hackathon — 12 signups, 3 teams</p></article>",
+      "css": ".ds-card{border-radius:14px;background:var(--color-card,#11141b);color:var(--color-foreground,#eef2f7);box-shadow:0 0 0 1px color-mix(in oklch,var(--color-foreground,#eef2f7) 10%,transparent);padding:16px;display:flex;flex-direction:column;gap:16px;max-width:360px;font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif)}.ds-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.ds-card-title{margin:0;font-family:var(--font-display,Nunito,sans-serif);font-weight:800;font-size:20px;letter-spacing:-0.02em}.ds-card-body{margin:0;font-size:14px;color:var(--color-muted-foreground,#8e97ab)}.ds-card:hover{box-shadow:0 6px 20px rgba(0,0,0,.18)}"
+    },
+    {
+      "name": "Tab — line variant",
+      "kind": "nav",
+      "refersTo": "card",
+      "description": "Surface modes (Overview / open event); active state is an underline, not a pill.",
+      "html": "<div class=\"ds-tabs\" role=\"tablist\"><button class=\"ds-tab\" role=\"tab\" aria-selected=\"true\">Overview</button><button class=\"ds-tab\" role=\"tab\" aria-selected=\"false\"><span class=\"ds-tab-dot\"></span>ChasHack Spring 2026</button></div>",
+      "css": ".ds-tabs{display:inline-flex;align-items:center;gap:4px;border-bottom:1px solid var(--color-border,#262c3a);font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif)}.ds-tab{position:relative;display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 6px;background:none;border:0;cursor:pointer;font-size:14px;font-weight:500;color:color-mix(in oklch,var(--color-foreground,#eef2f7) 60%,transparent);transition:color .15s ease}.ds-tab:hover{color:var(--color-foreground,#eef2f7)}.ds-tab[aria-selected=\"true\"]{color:var(--color-foreground,#eef2f7)}.ds-tab[aria-selected=\"true\"]::after{content:\"\";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--color-foreground,#eef2f7)}.ds-tab:focus-visible{outline:2px solid var(--color-accent,#55bbda);outline-offset:2px}.ds-tab-dot{width:6px;height:6px;border-radius:50%;background:var(--color-ok,#4e8780)}"
+    },
+    {
+      "name": "Hex Count Badge",
+      "kind": "custom",
+      "refersTo": "badge-success",
+      "description": "Signature motif: count/status badges clipped into hexagon cells.",
+      "html": "<span class=\"ds-hexbadge\">3</span>",
+      "css": ".ds-hexbadge{display:inline-flex;width:24px;height:26px;align-items:center;justify-content:center;clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);background:var(--color-accent-soft,rgba(85,187,218,.14));color:var(--color-accent,#55bbda);font-size:12px;font-weight:600;font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Honeycomb playtech",
+    "overview": "The console is a comb of cells: each team is a hexagon in a hive, and the organizer's job is to keep the hive organized while the weekend runs. The world is near-black comb at night and warm paper by day — the same family, inverted, so an organizer who works the event at 3am and reviews it the next morning never feels like they changed tools. Sky blue leads everything interactive; coral, teal, lilac and amber carry meaning rather than decoration.\n\nDensity is operational: this is an app an organizer drives under time pressure, so the layout is scannable grids of compact cards, 28px control heights, and status made visible as colour-coded pills rather than prose. Personality lives in the flex — hexagon-clipped badges, a faint honeycomb weave behind hero surfaces, chunky press-down feedback on buttons, pop-in for anything that appears — not in illustration or ornament. Playful where it costs nothing, exact where an action has consequences.\n\nThe system is deliberately dual-theme and deliberately one world: both themes share the same token names, the same radius language and the same accent hierarchy, so components never need theme-specific branches. New screens should feel like a new cell in an existing comb — same edges, same light, no new material.",
+    "keyCharacteristics": [
+      "Near-black comb (dark, default) and warm paper (light) as one inverted family.",
+      "Sky-blue accent that marks what is interactive or live — and little else.",
+      "Flat surfaces with hairline rings today; soft ambient shadow is the confirmed direction for anything that lifts.",
+      "Hexagon motifs as the recurring signature: clipped badges, weave backgrounds, cell-shaped hero panels.",
+      "Compact, tactile controls (28px default height, press-down feedback) over airy marketing spacing.",
+      "Semantic colour trio (ok / warn / danger) reserved for state, never mood."
+    ],
+    "rules": [
+      {
+        "name": "The Sky Leads Rule",
+        "body": "Sky is reserved for what the organizer can act on or what is currently live. If a surface is neither interactive nor live, it does not get accent — it gets a neutral step of the comb. Its scarcity is what makes the live pulse readable across the room.",
+        "section": "colors"
+      },
+      {
+        "name": "The Inverted Family Rule",
+        "body": "Light mode is not a second palette; it is the same token names with paper values. Never introduce a token that only exists in one theme, and never hard-code a hex in a component.",
+        "section": "colors"
+      },
+      {
+        "name": "The Semantic Trio Rule",
+        "body": "ok / warn / danger mean state and nothing else. Coral, lilac and pink are identity colours (teams, charts) and must never be used where a state colour is expected.",
+        "section": "colors"
+      },
+      {
+        "name": "The Eyebrow Rule",
+        "body": "Section separation inside a page is expressed as an uppercase 12px eyebrow in muted-foreground with a count badge — never as a second font family, a rule line, or a heavier weight.",
+        "section": "typography"
+      },
+      {
+        "name": "The Micro Budget Rule",
+        "body": "10-11px exists only for metadata attached to a control (counts, chips, inline hints). Anything a reader must scan as prose — a description, an empty state, a warning — is 12px or larger, and no screen uses more than two micro sizes at once.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Display Rule",
+        "body": "Nunito is for the top of a surface: page title and card title. Body copy, labels, controls and data never use the display face.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-At-Rest Rule",
+        "body": "Cells are flat when they are part of the grid. Shadow is a state or a modality: floating (dialog, popover, sticky bar) or hovered — not a default decoration on every card.",
+        "section": "elevation"
+      },
+      {
+        "name": "The One Ring Rule",
+        "body": "Elevation never adds borders. A surface either has its hairline ring (at rest) or an ambient shadow (lifting) — never both, never a thicker border to fake height.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do reference tokens (--color-accent, bg-surface-2, text-muted-foreground) so dark and light stay true to each other.",
+      "Do keep control heights compact: 28px buttons in console chrome, 32px for the primary page action, 32px inputs, 20px chips.",
+      "Do give every interactive element the same focus treatment — 3px ring at 50% accent, focus-visible only.",
+      "Do express state with the semantic trio and tinted chips, and pair colour with a label (live, locked, Not scheduled).",
+      "Do keep press feedback tactile: active:translate-y-px on buttons and tabs.",
+      "Do place the destructive action away from the primary flow (ghost/danger tint, right-aligned, behind a confirm dialog with the consequence stated in hours)."
+    ],
+    "donts": [
+      "Don't add drop shadows to cards at rest — the comb is flat; lift only for modality or hover.",
+      "Don't use the accent colour for decoration; if it isn't actionable or live, it's neutral.",
+      "Don't introduce a new radius, a new surface step, or a second font to solve a one-screen problem.",
+      "Don't clip working surfaces into hexagons or apply the weave behind content you have to read carefully.",
+      "Don't ship a screen in one theme only, or hard-code a hex that exists as a token.",
+      "Don't let colour alone carry meaning: coral/lilac/pink are identity, the trio is state, and every chip says what it means."
+    ]
+  }
+}
