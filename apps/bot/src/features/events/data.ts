@@ -678,6 +678,22 @@ export function planMaintenance(events: HackathonEvent[], now: number): Maintena
       if (event.matchAt !== null && event.matchAt <= now && !event.matchLocked) {
         actions.push({ type: 'auto_match', eventId: event.id });
       }
+      // Fallback: once the hackathon has started, run matching + lock even when
+      // the organizer never wired it up — no auto_match/assign_random action on
+      // any schedule block and no match_at from the slash command. Explicit
+      // config always wins; the lock never blocks manual match runs.
+      const hasMatchAction = (event.schedule ?? []).some((s) =>
+        (s.actions ?? []).some((a) => a.type === 'auto_match' || a.type === 'assign_random'),
+      );
+      if (
+        event.startsAt !== null &&
+        event.startsAt <= now &&
+        !event.matchLocked &&
+        event.matchAt === null &&
+        !hasMatchAction
+      ) {
+        actions.push({ type: 'auto_match', eventId: event.id });
+      }
       if (event.endsAt !== null && event.endsAt <= now) {
         actions.push({ type: 'end_event', eventId: event.id });
       }

@@ -77,7 +77,8 @@ test('planner: 24h reminder before start', () => {
 
 test('planner: auto-end after end time', () => {
   const starts = 1000 * H;
-  const e = ev({ status: 'active', startsAt: starts, endsAt: starts + 48 * H, id: 'evB' });
+  // matchLocked: matching is already handled for this event — isolate the auto-end assertion
+  const e = ev({ status: 'active', startsAt: starts, endsAt: starts + 48 * H, matchLocked: true, id: 'evB' });
   const actions = planMaintenance([e], starts + 49 * H);
   assert.deepEqual(actions, [{ type: 'end_event', eventId: 'evB' }]);
 });
@@ -110,10 +111,46 @@ test('planner: auto_match skipped when locked or not active', () => {
   assert.ok(!actions.some((a) => a.type === 'auto_match'));
 });
 
-test('planner: no auto_match scheduled when match_at is unset', () => {
+test('planner: no auto_match scheduled when match_at is unset and start not reached', () => {
   const now = 5000 * H;
   const e = ev({ status: 'active', matchAt: null, id: 'evM' });
   assert.deepEqual(planMaintenance([e], now), []);
+});
+
+test('planner: start-time fallback auto_matches when nothing is configured', () => {
+  const now = 5000 * H;
+  // active, started, no match_at, no match action on any block -> fallback fires
+  const e = ev({ status: 'active', startsAt: now - 1, id: 'evF' });
+  assert.deepEqual(planMaintenance([e], now), [{ type: 'auto_match', eventId: 'evF' }]);
+  // due exactly at start counts as due
+  const eExact = ev({ status: 'active', startsAt: now, id: 'evF2' });
+  assert.deepEqual(planMaintenance([eExact], now), [{ type: 'auto_match', eventId: 'evF2' }]);
+  // not yet started: nothing (reminded24h set so the 24h reminder doesn't fire either)
+  const future = ev({ status: 'active', startsAt: now + 10 * H, reminded24h: true, id: 'evF3' });
+  assert.deepEqual(planMaintenance([future], now), []);
+});
+
+test('planner: start-time fallback skipped when matching is configured explicitly', () => {
+  const now = 5000 * H;
+  // an auto_match action on a schedule block takes precedence (block dated in
+  // the future so the schedule branch itself has nothing due yet)
+  const withAction = ev({
+    status: 'active', startsAt: now - 1, id: 'evF4',
+    schedule: [{ id: '__start__', time: now + H, title: 'Event starts', kind: 'custom', actions: [{ id: 'a1', type: 'auto_match' }] }],
+  });
+  assert.deepEqual(planMaintenance([withAction], now), []);
+  // legacy assign_random counts as configured too (and on any block, not just Start)
+  const withAlias = ev({
+    status: 'active', startsAt: now - 1, id: 'evF5',
+    schedule: [{ id: 'mid', time: now + H, title: 'Later', kind: 'custom', actions: [{ id: 'a2', type: 'assign_random' }] }],
+  });
+  assert.deepEqual(planMaintenance([withAlias], now), []);
+  // an explicit match_at wins — the fallback must not preempt a later scheduled run
+  const withMatchAt = ev({ status: 'active', startsAt: now - 1, matchAt: now + 60 * 1000, id: 'evF6' });
+  assert.deepEqual(planMaintenance([withMatchAt], now), []);
+  // already locked: nothing
+  const locked = ev({ status: 'active', startsAt: now - 1, matchLocked: true, id: 'evF7' });
+  assert.deepEqual(planMaintenance([locked], now), []);
 });
 
 test('planner: auto_match fires alongside other active-event actions', () => {
