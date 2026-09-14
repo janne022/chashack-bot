@@ -9,6 +9,7 @@ import { createEventSchema, announceSchema, cleanupDelaySchema } from '@/lib/sch
 import type { Assignment, AssignmentStrategy, FormConfig, HackathonEvent, Participant } from '@/types'
 import { STRATEGY_OPTIONS } from '@/lib/assignment-strategy'
 import { DEFAULT_FORM } from '@/lib/default-form'
+import { SYNTHETIC_BLOCK_IDS, resolveScheduleAnchors } from '@/lib/schedule-anchor'
 import { FormConfigEditor } from '@/components/FormConfigEditor'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -195,6 +196,7 @@ function NewEventButton() {
   const [guildChannels, setGuildChannels] = useState<{ id: string; name: string }[]>([])
   const [startActions, setStartActions] = useState<import('@/types').ScheduleAction[]>([])
   const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>([])
+  const [signupActions, setSignupActions] = useState<import('@/types').ScheduleAction[]>([])
   useEffect(() => {
     api.getGuildChannels().then(r=>setGuildChannels(r.channels ?? [])).catch(()=>undefined)
   }, [])
@@ -212,6 +214,21 @@ function NewEventButton() {
       }
     }
   }, [startsAt])
+
+  // Anchored (template-authored) blocks follow the dates while the user edits
+  // them — same rule the server applies on save.
+  useEffect(() => {
+    const dates = {
+      startsAt: dateInputToMs(startsAt),
+      endsAt: dateInputToMs(endsAt),
+      signupStartsAt: dateInputToMs(signupStartsAt),
+      signupEndsAt: dateInputToMs(signupEndsAt),
+    }
+    setSchedule(prev => {
+      const next = resolveScheduleAnchors(prev, dates)
+      return next.some((it, i) => it.time !== prev[i]!.time) ? next : prev
+    })
+  }, [startsAt, endsAt, signupStartsAt, signupEndsAt])
 
   const eventTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'event')
   const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
@@ -267,7 +284,24 @@ function NewEventButton() {
       if (parsed.name) setName(parsed.name)
       if (parsed.description) setDescription(parsed.description)
       if (typeof parsed.cleanupDelayHours === 'number') setCleanupDelayHours(parsed.cleanupDelayHours)
-      if (Array.isArray(parsed.schedule)) setSchedule(parsed.schedule)
+      if (Array.isArray(parsed.schedule)) {
+        // Templates carry block actions on synthetic items (__start__/__signup__/
+        // __end__) and real blocks with anchors — split them so the block actions
+        // land in the pinned blocks the user can see, and the itinerary resolves
+        // onto this event's dates.
+        const blocks = parsed.schedule.filter(s => SYNTHETIC_BLOCK_IDS.includes(s.id))
+        const items = parsed.schedule.filter(s => !SYNTHETIC_BLOCK_IDS.includes(s.id))
+        const pickActions = (blockId: string) => blocks.find(b => b.id === blockId)?.actions ?? []
+        setStartActions(pickActions('__start__'))
+        setSignupActions(pickActions('__signup__'))
+        setEndActions(pickActions('__end__'))
+        setSchedule(resolveScheduleAnchors(items, {
+          startsAt: dateInputToMs(startsAt),
+          endsAt: dateInputToMs(endsAt),
+          signupStartsAt: dateInputToMs(signupStartsAt),
+          signupEndsAt: dateInputToMs(signupEndsAt),
+        }))
+      }
       // Prefer a collection reference; fall back to legacy embedded pools (pre-collections templates).
       if (typeof parsed.assignmentCollectionId === 'string' && parsed.assignmentCollectionId !== '') {
         setAssignmentCollectionId(parsed.assignmentCollectionId)
@@ -310,17 +344,18 @@ function NewEventButton() {
         effectiveFormTemplateId = created.template.id
         toast.info(t('events.form_created', { name: tplName }))
       }
-      // Build schedule + announcements from start/end pinned blocks: announce types → announcements, ops → synthetic schedule items at that time
+      // Block actions (announcements included) ride the synthetic schedule blocks
+      // so the planner fires them at the block time. The old on_activate/on_start
+      // announcement rows are gone — nothing ever sent those.
       const startTime = startsAt ? Date.parse(startsAt) : null
       const endTime = endsAt ? Date.parse(endsAt) : null
-      const startAnn = startActions.filter(a=>a.type==='announce').map(a=>({ id: a.id, title: a.title || 'Starts — announcement', message: a.message!, trigger: 'on_activate' as const, channelId: a.channelId ?? null }))
-      const endAnn = endActions.filter(a=>a.type==='announce').map(a=>({ id: a.id, title: a.title || 'Ends — announcement', message: a.message!, trigger: 'on_start' as const, channelId: a.channelId ?? null }))
-      const startOps = startActions.filter(a=>a.type!=='announce')
-      const endOps = endActions.filter(a=>a.type!=='announce')
-      const extraSchedule: typeof schedule = []
-      if (startOps.length && startTime) extraSchedule.push({ id: '__start__', time: startTime, title: 'Event starts', kind: 'custom' as const, actions: startOps as never })
-      if (endOps.length && endTime) extraSchedule.push({ id: '__end__', time: endTime, title: 'Event ends', kind: 'custom' as const, actions: endOps as never })
-      const mergedSchedule = [...schedule, ...extraSchedule]
+      const signupTime = signupStartsAt ? Date.parse(signupStartsAt) : null
+      const mergedSchedule: typeof schedule = [
+        ...schedule.filter(s => !SYNTHETIC_BLOCK_IDS.includes(s.id)),
+        ...syntheticBlock('__signup__', signupTime, 'Signups open', signupActions),
+        ...syntheticBlock('__start__', startTime, 'Event starts', startActions),
+        ...syntheticBlock('__end__', endTime, 'Event ends', endActions),
+      ]
 
       // Resolve the assignment pool from the picked collection (snapshot semantics —
       // later edits to the collection don't retroactively change this event).
@@ -340,7 +375,6 @@ function NewEventButton() {
         announcementChannelId: announceChannelId || null,
         scheduleChannelId: scheduleChannelId || null,
         ...(mergedSchedule.length > 0 ? { schedule: mergedSchedule } : {}),
-        ...((startAnn.length > 0 || endAnn.length > 0) ? { announcements: [...startAnn, ...endAnn] } : {}),
         ...(pool.length > 0 ? { assignments: pool, assignmentStrategy } : {}),
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
@@ -365,6 +399,7 @@ function NewEventButton() {
       setSignupEndsAt('')
       setStartActions([])
       setEndActions([])
+      setSignupActions([])
       setSaveAsTemplate(false)
       setCleanupDelayHours(48)
       setAssignmentCollectionId('')
@@ -479,8 +514,10 @@ function NewEventButton() {
                 onSignupEndChange={setSignupEndsAt}
                 startActions={startActions}
                 endActions={endActions}
+                signupActions={signupActions}
                 onStartActionsChange={setStartActions}
                 onEndActionsChange={setEndActions}
+                onSignupActionsChange={setSignupActions}
                 disablePast
               />
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
@@ -683,7 +720,7 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
   const t = useT()
   const [editOpen, setEditOpen] = useState(false)
   const sorted = [...(event.schedule ?? [])]
-    .filter((s) => s.id !== '__start__' && s.id !== '__end__')
+    .filter((s) => !SYNTHETIC_BLOCK_IDS.includes(s.id))
     .sort((a, b) => a.time - b.time)
 
   return (
@@ -823,6 +860,27 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
 const DISTRIBUTE_ACTION_ID = '__distribute_assignments__'
 
 /**
+ * Synthetic schedule blocks are the carriers of block actions: the planner
+ * fires their actions at the block's time. Returns [] when the block has no
+ * time or no actions, so an empty block never lands in the event.
+ */
+function syntheticBlock(
+  id: string,
+  time: number | null,
+  title: string,
+  actions: import('@/types').ScheduleAction[],
+): import('@/types').ScheduleItem[] {
+  if (time === null || actions.length === 0) return []
+  return [{ id, time, title, kind: 'custom', actions }]
+}
+
+function dateInputToMs(v: string): number | null {
+  if (v === '') return null
+  const ms = Date.parse(v)
+  return Number.isNaN(ms) ? null : ms
+}
+
+/**
  * Keep the Start block's distribute action in step with the event's assignment
  * pool — the same contract `createEvent` applies server-side via
  * `withAssignmentDistribution`: non-empty pool ⇒ a distribute action on Start,
@@ -846,20 +904,22 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const { state } = useAppContext()
   const t = useT()
   const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
-  // Derive start/end actions from both announcements (announce) and synthetic schedule items (__start__/__end__ for ops)
+  // Block actions live on the synthetic schedule items (__start__/__signup__/
+  // __end__) — announcements included. Legacy on_activate/on_start announcement
+  // rows are still read so events created before the migration load correctly.
   const deriveStart = (ev: HackathonEvent) => {
     const ann = (ev.announcements ?? []).filter(a=>a.trigger==='on_activate').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null } as import('@/types').ScheduleAction))
     const syn = (ev.schedule ?? []).find(s=>s.id==='__start__')
-    const ops = (syn?.actions ?? []).filter(a=>a.type!=='announce') as import('@/types').ScheduleAction[]
-    return [...ann, ...ops]
+    return [...ann, ...((syn?.actions ?? []) as import('@/types').ScheduleAction[])]
   }
   const deriveEnd = (ev: HackathonEvent) => {
     const ann = (ev.announcements ?? []).filter(a=>a.trigger==='on_start').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null } as import('@/types').ScheduleAction))
     const syn = (ev.schedule ?? []).find(s=>s.id==='__end__')
-    const ops = (syn?.actions ?? []).filter(a=>a.type!=='announce') as import('@/types').ScheduleAction[]
-    return [...ann, ...ops]
+    return [...ann, ...((syn?.actions ?? []) as import('@/types').ScheduleAction[])]
   }
-  const deriveItems = (ev: HackathonEvent) => (ev.schedule ?? []).filter(s=>s.id!=='__start__' && s.id!=='__end__')
+  const deriveSignup = (ev: HackathonEvent) =>
+    ((ev.schedule ?? []).find(s=>s.id==='__signup__')?.actions ?? []) as import('@/types').ScheduleAction[]
+  const deriveItems = (ev: HackathonEvent) => (ev.schedule ?? []).filter(s=>!SYNTHETIC_BLOCK_IDS.includes(s.id))
 
   const [items, setItems] = useState(()=>deriveItems(event))
   const [start, setStart] = useState(event.startsAt ? toLocalIso(new Date(event.startsAt)) : "")
@@ -872,7 +932,22 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [editFormTemplateId, setEditFormTemplateId] = useState<string>('')
   const [startActions, setStartActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveStart(event))
   const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveEnd(event))
+  const [signupActions, setSignupActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveSignup(event))
   const [busy, setBusy] = useState(false)
+
+  // Anchored blocks follow the dates while the user edits them.
+  useEffect(() => {
+    const dates = {
+      startsAt: dateInputToMs(start),
+      endsAt: dateInputToMs(end),
+      signupStartsAt: dateInputToMs(signupStart),
+      signupEndsAt: dateInputToMs(signupEnd),
+    }
+    setItems(prev => {
+      const next = resolveScheduleAnchors(prev, dates)
+      return next.some((it, i) => it.time !== prev[i]!.time) ? next : prev
+    })
+  }, [start, end, signupStart, signupEnd])
 
   // No reset effect needed: the parent mounts this dialog only while it is open,
   // so the useState initializers above already take a fresh snapshot of the event
@@ -881,18 +956,17 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   async function save() {
     setBusy(true)
     try {
-      const startAnn = startActions.filter(a=>a.type==='announce').map(a=>({ id: a.id, title: a.title || 'Starts — announcement', message: a.message!, trigger: 'on_activate' as const, channelId: a.channelId ?? null }))
-      const endAnn = endActions.filter(a=>a.type==='announce').map(a=>({ id: a.id, title: a.title || 'Ends — announcement', message: a.message!, trigger: 'on_start' as const, channelId: a.channelId ?? null }))
-      const startOps = syncDistribute(startActions.filter(a=>a.type!=='announce'), editAssignments)
-      const endOps = endActions.filter(a=>a.type!=='announce')
-      const startTime = start ? Date.parse(start) : null
-      const endTime = end ? Date.parse(end) : null
-      const extra: typeof items = []
-      if (startOps.length && startTime) extra.push({ id: '__start__', time: startTime, title: 'Event starts', kind: 'custom' as const, actions: startOps as never })
-      if (endOps.length && endTime) extra.push({ id: '__end__', time: endTime, title: 'Event ends', kind: 'custom' as const, actions: endOps as never })
-      const merged = [...items, ...extra]
-      const other = (event.announcements ?? []).filter(a=>a.trigger !== 'on_activate' && a.trigger !== 'on_start')
-      const nextAnnouncements = [...other, ...startAnn, ...endAnn]
+      // Block actions ride the synthetic blocks. The legacy on_activate/on_start
+      // announcement rows are dropped here — nothing sends them, their content
+      // lives in the block actions now.
+      const startOps = syncDistribute(startActions, editAssignments)
+      const extra: typeof items = [
+        ...syntheticBlock('__signup__', signupStart ? Date.parse(signupStart) : null, 'Signups open', signupActions),
+        ...syntheticBlock('__start__', start ? Date.parse(start) : null, 'Event starts', startOps),
+        ...syntheticBlock('__end__', end ? Date.parse(end) : null, 'Event ends', endActions),
+      ]
+      const merged = [...items.filter(s => !SYNTHETIC_BLOCK_IDS.includes(s.id)), ...extra]
+      const nextAnnouncements = (event.announcements ?? []).filter(a=>a.trigger !== 'on_activate' && a.trigger !== 'on_start')
       await api.updateEvent(event.id, {
         name: editName.trim(),
         description: editDescription,
@@ -948,8 +1022,10 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 onSignupEndChange={setSignupEnd}
                 startActions={startActions}
                 endActions={endActions}
+                signupActions={signupActions}
                 onStartActionsChange={setStartActions}
                 onEndActionsChange={setEndActions}
+                onSignupActionsChange={setSignupActions}
                 disablePast
               />
               <AssignmentsEditor value={editAssignments} onChange={setEditAssignments} />

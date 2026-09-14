@@ -71,11 +71,11 @@ export function EventTemplateEditor({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <div><CardTitle>Schedule</CardTitle><CardDescription>Reusable itinerary (12:00 Fika, 18:00 Dinner, Voting…). Times are relative — actual dates set on creation.</CardDescription></div>
+            <div><CardTitle>Schedule</CardTitle><CardDescription>Reusable itinerary — every block hangs off an anchor (hackathon start/end, signup open/close) and gets real times when you create the event from this template.</CardDescription></div>
           </div>
         </CardHeader>
         <CardContent>
-          <ScheduleEditor value={value.schedule} onChange={sched=>onChange({ ...value, schedule: sched })} />
+          <ScheduleEditor value={value.schedule} onChange={sched=>onChange({ ...value, schedule: sched })} timeMode="relative" />
         </CardContent>
       </Card>
 

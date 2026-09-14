@@ -140,7 +140,13 @@ export interface ScheduleItem {
   description?: string
   kind?: 'food' | 'break' | 'voting' | 'prize' | 'talk' | 'custom'
   actions?: ScheduleAction[]
+  /** Template placement: resolved against the event's dates (see lib/schedule-anchor). */
+  anchor?: ScheduleAnchor
+  /** Minutes from the anchor date's 00:00; negative = earlier. */
+  offsetMinutes?: number
 }
+
+export type ScheduleAnchor = 'hackathon_start' | 'signup_start' | 'signup_end' | 'hackathon_end'
 
 export interface ScheduleAction {
   id: string

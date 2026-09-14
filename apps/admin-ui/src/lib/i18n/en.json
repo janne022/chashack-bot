@@ -17,7 +17,6 @@
   "common.no_team": "No team",
   "common.not_set": "not set",
   "common.no_data_yet": "No data yet",
-
   "nav.events": "Events",
   "nav.operations": "Operations",
   "nav.participants": "Participants",
@@ -26,13 +25,11 @@
   "nav.templates": "Templates",
   "nav.config": "Config",
   "nav.audit": "Audit log",
-
   "login.tagline": "Organizer console — sign in to run the event",
   "login.password": "Admin password",
   "login.wrong_password": "Wrong password. Try again.",
   "login.signing_in": "Signing in…",
   "login.enter": "Enter the hive",
-
   "events.title": "Events",
   "events.subtitle": "Create, configure and run hackathon events",
   "events.all": "All events ({count})",
@@ -105,9 +102,9 @@
   "events.new_event": "New event",
   "events.new_event_desc": "Start blank",
   "events.new_event_hint": "Create a fresh event from scratch.",
-  "events.from_template": "From template",
+  "events.from_template": "From template:",
   "events.from_template_desc": "Reuse a saved event",
-  "events.pick_template": "Choose template",
+  "events.pick_template": "Pick announcement template…",
   "events.chooser_title": "Create event",
   "events.chooser_desc": "Start blank or from a saved event template.",
   "events.change_template": "Change template",
@@ -147,8 +144,6 @@
   "events.schedule_distribute_desc": "Sends the event's assignment pool to each team's channel when this block hits.",
   "events.schedule_actions_add_hint": "No actions — click to add",
   "events.schedule_actions_empty": "Nothing runs when this block hits yet — add an action below. Type { in an announcement message for tag suggestions.",
-  "events.from_template": "From template:",
-  "events.pick_template": "Pick announcement template…",
   "events.channel_label": "Channel",
   "events.title_label": "Title",
   "events.message_label": "Message",
@@ -174,7 +169,6 @@
   "events.pick_form_template": "Pick a form template",
   "events.form_updated": "Event form updated",
   "events.form_update_failed": "Could not update form",
-
   "participants.title": "Participants",
   "participants.desc": "Move people between teams, block or remove signups",
   "participants.none_title": "No signups yet",
@@ -208,7 +202,6 @@
   "participants.block_title": "Block {name}?",
   "participants.block_desc": "They can no longer sign up or update their signup, and they are removed from any team. You can unblock them later.",
   "participants.blocked": "Blocked",
-
   "teams.count": "{count} teams · team size limit {size}",
   "teams.none_title": "No teams yet",
   "teams.none_desc": "Teams appear here when participants create them, or when you run matching.",
@@ -242,7 +235,6 @@
   "teams.role_color_aria": "Role color",
   "teams.save_changes": "Save changes",
   "teams.updated": "Team updated",
-
   "matching.title": "Compatibility matching",
   "matching.desc": "Builds teams from unteamed participants who opted into matching. Mutual friend requests are kept together; scores blend role complementarity, skill overlap/diversity and experience mix.",
   "matching.ready_count": "participants ready to match",
@@ -266,7 +258,6 @@
   "matching.commit_desc": "Previous matched teams are dissolved, these become permanent, and the lineups are announced in Discord. You can re-run matching later if people drop.",
   "matching.back": "Back",
   "matching.commit_announce": "Commit & announce",
-
   "form.title": "Signup form",
   "form.desc": "Controls the /hackathon join modal: title, intro text, team size and the option lists.",
   "form.form_title": "Title (Discord modal, max 45 chars)",
@@ -306,10 +297,8 @@
   "form.delete_template": "Delete",
   "form.template_deleted": "Template deleted",
   "form.template_delete_failed": "Could not delete template",
-
   "operate.title": "Operations",
   "operate.subtitle": "Participants, teams and matching — one flow.",
-
   "templates.title": "Templates",
   "templates.subtitle": "Form and event templates — create once, reuse everywhere. Events can pick a specific form.",
   "templates.event_templates": "Event templates",
@@ -330,7 +319,6 @@
   "templates.new_form_template_desc": "Saves the current global form as a new template.",
   "templates.apply_to_global": "Apply to global form",
   "templates.form_applied": "Form “{name}” applied to global form",
-
   "config.title": "Config",
   "config.subtitle": "Guild defaults — new events inherit these unless you override them.",
   "config.defaults": "Defaults",
@@ -357,7 +345,6 @@
   "config.save_failed": "Could not save config",
   "config.cleanup_invalid": "Cleanup delay must be 0–720.",
   "config.no_channels_hint": "No channels found — is the bot in the guild? You can still paste IDs.",
-
   "audit.title": "Audit log",
   "audit.desc": "Every mutation, newest first (latest 100)",
   "audit.filter_placeholder": "Filter actions…",
@@ -369,11 +356,20 @@
   "audit.col_actor": "Actor",
   "audit.col_target": "Target",
   "audit.col_details": "Details",
-
   "charts.signups_over_time": "Signups over time",
   "charts.signups_desc": "Cumulative registrations by day · {count} total",
   "charts.signups": "Signups",
   "charts.signups_count": "{count} signups",
   "charts.composition": "Team composition",
-  "charts.composition_desc": "Active signups by role track, split by experience · {count} active"
+  "charts.composition_desc": "Active signups by role track, split by experience · {count} active",
+  "anchor.hackathon_start": "Hackathon start",
+  "anchor.signup_start": "Signups open",
+  "anchor.signup_end": "Signups close",
+  "anchor.hackathon_end": "Hackathon end",
+  "events.schedule_anchor_label": "Relative to",
+  "events.schedule_day_label": "Day (1 = the anchor's day)",
+  "events.schedule_offset_hint": "Day 1 is the anchor's own day — 0 or negative numbers are earlier days. Real dates are set when the event is created.",
+  "events.schedule_relative_hint": "Template schedule — blocks are placed relative to an anchor, so the itinerary adapts to whatever dates the event gets.",
+  "events.schedule_relative_empty": "No blocks yet — add dinner, breaks, voting etc. and pick what each one is relative to.",
+  "events.schedule_signup_hack_hint": "Nothing runs when signups open yet — add “Post signup” to open the panel on a timer."
 }

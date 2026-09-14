@@ -59,6 +59,11 @@ export interface Assignment {
   imageUrl?: string;
 }
 
+/** Anchors a template-authored schedule item can hang off; resolved per event. */
+export type ScheduleAnchor = 'hackathon_start' | 'signup_start' | 'signup_end' | 'hackathon_end';
+
+export const SCHEDULE_ANCHORS: readonly ScheduleAnchor[] = ['hackathon_start', 'signup_start', 'signup_end', 'hackathon_end'];
+
 export interface ScheduleItem {
   id: string;
   time: number;
@@ -66,6 +71,15 @@ export interface ScheduleItem {
   description?: string;
   kind?: 'food' | 'break' | 'voting' | 'prize' | 'talk' | 'custom';
   actions?: ScheduleAction[];
+  /**
+   * Template-style placement (event templates only): when set together with
+   * `offsetMinutes`, `time` is recomputed from the anchor's date whenever the
+   * event's dates change, so a template itinerary adapts to whatever dates the
+   * event gets. Hand-editing a time clears both fields (becomes absolute).
+   */
+  anchor?: ScheduleAnchor;
+  /** Minutes from the anchor date's 00:00 (negative = earlier than that day). */
+  offsetMinutes?: number;
 }
 
 export interface ScheduleAction {
@@ -81,7 +95,73 @@ export interface ScheduleAction {
 /** How an event's assignment pool is dealt out to teams. */
 export type AssignmentStrategy = 'random' | 'same';
 
+export interface ScheduleDates {
+  startsAt?: number | null;
+  endsAt?: number | null;
+  signupStartsAt?: number | null;
+  signupEndsAt?: number | null;
+}
+
+function startOfDay(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * Resolve template-authored anchored items onto an event's real dates.
+ * Anchor fallbacks: signup_start → startsAt, signup_end → startsAt,
+ * hackathon_end → startsAt. An item whose anchor has no date anywhere keeps its
+ * literal `time` (there is nothing to compute it from), and `anchor`/
+ * `offsetMinutes` are preserved so a later date change re-resolves the item.
+ */
+export function resolveScheduleAnchors(items: ScheduleItem[], dates: ScheduleDates): ScheduleItem[] {
+  return items.map((item) => {
+    if (item.anchor === undefined || item.offsetMinutes === undefined) return item;
+    const anchorTime =
+      item.anchor === 'hackathon_start'
+        ? dates.startsAt ?? null
+        : item.anchor === 'hackathon_end'
+          ? dates.endsAt ?? dates.startsAt ?? null
+          : item.anchor === 'signup_start'
+            ? dates.signupStartsAt ?? dates.startsAt ?? null
+            : dates.signupEndsAt ?? dates.startsAt ?? null;
+    if (anchorTime === null || !Number.isFinite(anchorTime)) return item;
+    return { ...item, time: startOfDay(anchorTime) + item.offsetMinutes * 60_000 };
+  });
+}
+
 export const DISTRIBUTE_ACTION_ID = '__distribute_assignments__';
+
+/** Synthetic block ids and the anchor they stand for. */
+export const SYNTHETIC_ANCHORS: Readonly<Record<string, ScheduleAnchor>> = {
+  __start__: 'hackathon_start',
+  __signup__: 'signup_start',
+  __end__: 'hackathon_end',
+};
+
+/** Synthetic blocks carry block actions and are never shown in itineraries. */
+export const SYNTHETIC_BLOCK_IDS: readonly string[] = Object.keys(SYNTHETIC_ANCHORS);
+
+/**
+ * Convert an event's absolute itinerary into template form: real blocks are
+ * anchored to the hackathon start with the offset they had, so applying the
+ * template onto other dates keeps the relative spacing. Synthetic blocks keep
+ * their symbolic anchor (`__start__` → hackathon start, `__signup__` → signup
+ * open, `__end__` → hackathon end) — they are the carriers of block actions.
+ *
+ * Without a start date there is no reference, so the literal times are kept
+ * (legacy behaviour) rather than inventing offsets.
+ */
+export function toRelativeSchedule(items: ScheduleItem[], startsAt: number | null | undefined): ScheduleItem[] {
+  return items.map((item) => {
+    const synthetic = SYNTHETIC_ANCHORS[item.id];
+    if (synthetic !== undefined) return { ...item, anchor: synthetic, offsetMinutes: 0 };
+    if (startsAt == null || !Number.isFinite(startsAt)) return item;
+    const offsetMinutes = Math.round((item.time - startOfDay(startsAt)) / 60_000);
+    return { ...item, anchor: 'hackathon_start' as ScheduleAnchor, offsetMinutes };
+  });
+}
 
 /**
  * Inject a `distribute_assignments` action into the pinned Start block so the
@@ -271,11 +351,19 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
   // No pool chosen → nothing is distributed (no silent defaults).
   const assignments = normalizeAssignments(input.assignments ?? []);
   const strategy: AssignmentStrategy = input.assignmentStrategy === 'same' ? 'same' : 'random';
+  // Template-authored items carry an anchor instead of a date — resolve them
+  // onto this event's dates before anything else looks at `time`.
+  const anchored = resolveScheduleAnchors(normalizeSchedule(input.schedule ?? []), {
+    startsAt: input.startsAt ?? null,
+    endsAt: input.endsAt ?? null,
+    signupStartsAt: input.signupStartsAt ?? null,
+    signupEndsAt: input.signupEndsAt ?? null,
+  });
   // Assignments go out when the hackathon starts: inject a distribute action into
   // the pinned Start block — but only when there is actually a pool to deal.
   const schedule = assignments.length > 0
-    ? withAssignmentDistribution(normalizeSchedule(input.schedule ?? []), strategy, input.startsAt ?? null)
-    : normalizeSchedule(input.schedule ?? []);
+    ? withAssignmentDistribution(anchored, strategy, input.startsAt ?? null)
+    : anchored;
   db.prepare(
     `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, signup_starts_at, signup_ends_at, status, form_json, panel_channel_id, category_id, cleanup_delay_hours, match_at, match_locked, discord_event_ids, announcement_channel_id, schedule_channel_id, schedule_json, announcements_json, assignments_json, announced_schedule_ids, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, 0, '[]', ?, ?, ?, ?, ?, '[]', ?, ?)`,
@@ -373,7 +461,11 @@ export function updateEvent(
     cleanupDelayHours,
     update.matchAt !== undefined ? update.matchAt : event.matchAt,
     update.discordEventIds !== undefined ? JSON.stringify(update.discordEventIds) : JSON.stringify(event.discordEventIds),
-    update.schedule !== undefined ? JSON.stringify(normalizeSchedule(update.schedule)) : JSON.stringify(event.schedule),
+    update.schedule !== undefined
+      ? JSON.stringify(
+          resolveScheduleAnchors(normalizeSchedule(update.schedule), { startsAt, endsAt, signupStartsAt, signupEndsAt }),
+        )
+      : JSON.stringify(event.schedule),
     update.announcements !== undefined ? JSON.stringify(normalizeAnnouncements(update.announcements)) : JSON.stringify(event.announcements),
     update.assignments !== undefined ? JSON.stringify(normalizeAssignments(update.assignments)) : JSON.stringify(event.assignments),
     Date.now(),
@@ -564,7 +656,15 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
   if (!Array.isArray(items)) return [];
   const out: ScheduleItem[] = [];
   for (const raw of items) {
-    if (!raw || typeof raw.time !== 'number' || !Number.isFinite(raw.time)) continue;
+    const rec = raw as unknown as Record<string, unknown>;
+    const anchorRaw = String(rec.anchor ?? '').trim();
+    const offsetRaw = rec.offsetMinutes;
+    const hasAnchor = (SCHEDULE_ANCHORS as readonly string[]).includes(anchorRaw)
+      && typeof offsetRaw === 'number' && Number.isFinite(offsetRaw);
+    // An anchored item may arrive without a usable `time` (templates carry the
+    // relation, not a date) — 0 is only a placeholder, resolution replaces it.
+    const rawTime = typeof rec.time === 'number' && Number.isFinite(rec.time) ? rec.time : hasAnchor ? 0 : null;
+    if (rawTime === null) continue;
     const title = String((raw as unknown as Record<string, unknown>).title ?? '').trim().slice(0, 80);
     if (!title) continue;
     const id = String((raw as unknown as Record<string, unknown>).id ?? '').trim() || newId('sch');
@@ -603,7 +703,7 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
       }
       if (norm.length > 0) actions = norm.slice(0, 10)
     }
-    out.push({ id, time: raw.time, title, ...(description ? { description } : {}), ...(kind ? { kind } : {}), ...(actions ? { actions } : {}) });
+    out.push({ id, time: rawTime, title, ...(description ? { description } : {}), ...(kind ? { kind } : {}), ...(actions ? { actions } : {}), ...(hasAnchor ? { anchor: anchorRaw as ScheduleAnchor, offsetMinutes: Math.round(offsetRaw as number) } : {}) });
   }
   out.sort((a, b) => a.time - b.time);
   return out.slice(0, 50);

@@ -17,7 +17,6 @@
   "common.no_team": "Inget team",
   "common.not_set": "ej angivet",
   "common.no_data_yet": "Ingen data än",
-
   "nav.events": "Events",
   "nav.operations": "Hantera",
   "nav.participants": "Deltagare",
@@ -26,13 +25,11 @@
   "nav.templates": "Mallar",
   "nav.config": "Konfig",
   "nav.audit": "Logg",
-
   "login.tagline": "Organizerkonsol — logga in för att köra eventet",
   "login.password": "Adminlösenord",
   "login.wrong_password": "Fel lösenord. Försök igen.",
   "login.signing_in": "Loggar in…",
   "login.enter": "Kliva in i kupan",
-
   "events.title": "Events",
   "events.subtitle": "Skapa, konfigurera och kör hackathon-events",
   "events.all": "Alla events ({count})",
@@ -105,9 +102,9 @@
   "events.new_event": "Nytt event",
   "events.new_event_desc": "Börja tomt",
   "events.new_event_hint": "Skapa ett nytt event från grunden.",
-  "events.from_template": "Från mall",
+  "events.from_template": "Från mall:",
   "events.from_template_desc": "Återanvänd sparad mall",
-  "events.pick_template": "Välj mall",
+  "events.pick_template": "Välj meddelandemall…",
   "events.chooser_title": "Skapa event",
   "events.chooser_desc": "Börja tomt eller från en sparad eventmall.",
   "events.change_template": "Byt mall",
@@ -147,8 +144,6 @@
   "events.schedule_distribute_desc": "Skickar eventets uppgiftspool till varje teams kanal när detta block träffar.",
   "events.schedule_actions_add_hint": "Inga åtgärder — klicka för att lägga till",
   "events.schedule_actions_empty": "Inget körs när detta block träffas än — lägg till en åtgärd nedan. Skriv { i ett meddelande för taggförslag.",
-  "events.from_template": "Från mall:",
-  "events.pick_template": "Välj meddelandemall…",
   "events.channel_label": "Kanal",
   "events.title_label": "Titel",
   "events.message_label": "Meddelande",
@@ -174,7 +169,6 @@
   "events.pick_form_template": "Välj formulärmall",
   "events.form_updated": "Eventformulär uppdaterat",
   "events.form_update_failed": "Kunde inte uppdatera formulär",
-
   "participants.title": "Deltagare",
   "participants.desc": "Flytta personer mellan team, blockera eller ta bort anmälningar",
   "participants.none_title": "Inga anmälningar än",
@@ -208,7 +202,6 @@
   "participants.block_title": "Blockera {name}?",
   "participants.block_desc": "De kan inte längre anmäla sig eller uppdatera sin anmälan, och de tas bort från alla team. Du kan avblockera dem senare.",
   "participants.blocked": "Blockerad",
-
   "teams.count": "{count} team · storleksgräns {size}",
   "teams.none_title": "Inga team än",
   "teams.none_desc": "Team syns här när deltagare skapar dem, eller när du kör matchning.",
@@ -242,7 +235,6 @@
   "teams.role_color_aria": "Rollfärg",
   "teams.save_changes": "Spara ändringar",
   "teams.updated": "Team uppdaterat",
-
   "matching.title": "Kompatibilitetsmatchning",
   "matching.desc": "Bygger team av deltagare utan team som valt matchning. Ömsesidiga kompisönskningar hålls ihop; poängen blandar rollkomplementaritet, färdighetsöverlapp/mångfald och erfarenhetsmix.",
   "matching.ready_count": "deltagare redo att matchas",
@@ -266,7 +258,6 @@
   "matching.commit_desc": "Tidigare matchade team upplöses, dessa blir permanenta och lagen utannonseras i Discord. Du kan köra matchningen igen om folk hoppar av.",
   "matching.back": "Tillbaka",
   "matching.commit_announce": "Genomför & utannonsera",
-
   "form.title": "Anmälningsformulär",
   "form.desc": "Styr /hackathon join-modalen: rubrik, introtext, teamstorlek och listorna med alternativ.",
   "form.form_title": "Rubrik (Discord-modal, max 45 tecken)",
@@ -306,10 +297,8 @@
   "form.delete_template": "Ta bort",
   "form.template_deleted": "Mallen borttagen",
   "form.template_delete_failed": "Kunde inte ta bort mallen",
-
   "operate.title": "Operations",
   "operate.subtitle": "Deltagare, team och matchning — ett flöde.",
-
   "templates.title": "Mallar",
   "templates.subtitle": "Formulär- och eventmallar — skapa en gång, återanvänd överallt. Events kan välja specifikt formulär.",
   "templates.event_templates": "Eventmallar",
@@ -330,7 +319,6 @@
   "templates.new_form_template_desc": "Sparar aktuellt globalt formulär som ny mall.",
   "templates.apply_to_global": "Applicera på globalt formulär",
   "templates.form_applied": "Formuläret “{name}” applicerat på globalt formulär",
-
   "config.title": "Konfig",
   "config.subtitle": "Guild-standard — nya events ärver dessa om du inte åsidosätter dem.",
   "config.defaults": "Standardvärden",
@@ -357,7 +345,6 @@
   "config.save_failed": "Kunde inte spara konfig",
   "config.cleanup_invalid": "Städfördröjning måste vara 0–720.",
   "config.no_channels_hint": "Inga kanaler hittades — är boten i guilden? Du kan fortfarande klistra in ID:n.",
-
   "audit.title": "Logg",
   "audit.desc": "Varje ändring, senaste först (senaste 100)",
   "audit.filter_placeholder": "Filtrera åtgärder…",
@@ -369,11 +356,20 @@
   "audit.col_actor": "Aktör",
   "audit.col_target": "Mål",
   "audit.col_details": "Detaljer",
-
   "charts.signups_over_time": "Anmälningar över tid",
   "charts.signups_desc": "Kumulativa registreringar per dag · {count} totalt",
   "charts.signups": "Anmälningar",
   "charts.signups_count": "{count} anmälningar",
   "charts.composition": "Teamssammansättning",
-  "charts.composition_desc": "Aktiva anmälningar per rollspår, delat på erfarenhet · {count} aktiva"
+  "charts.composition_desc": "Aktiva anmälningar per rollspår, delat på erfarenhet · {count} aktiva",
+  "anchor.hackathon_start": "Hackathon startar",
+  "anchor.signup_start": "Anmälan öppnar",
+  "anchor.signup_end": "Anmälan stänger",
+  "anchor.hackathon_end": "Hackathon slutar",
+  "events.schedule_anchor_label": "Relativt till",
+  "events.schedule_day_label": "Dag (1 = ankardagen)",
+  "events.schedule_offset_hint": "Dag 1 är ankardagen — 0 eller negativa tal är tidigare dagar. Riktiga datum sätts när eventet skapas.",
+  "events.schedule_relative_hint": "Mallschema — blocken placeras relativt en ankare, så schemat anpassas till de datum eventet får.",
+  "events.schedule_relative_empty": "Inga block än — lägg till middag, pauser, röstning m.m. och välj vad varje block är relativt till.",
+  "events.schedule_signup_hack_hint": "Inget körs när anmälan öppnar än — lägg till “Posta signup” för att öppna panelen på timer."
 }

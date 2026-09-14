@@ -388,12 +388,15 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         // Read the strategy back off the Start block so the template round-trips it.
         const startBlock = savedEvent.schedule.find((s) => s.id === '__start__')
         const savedStrategy = startBlock?.actions?.find((a) => a.type === 'distribute_assignments')?.mode
+        const { toRelativeSchedule } = await import('../features/events/data.js')
         const payload = {
           name: savedEvent.name,
           description: savedEvent.description,
           cleanupDelayHours: savedEvent.cleanupDelayHours,
           form: getEventForm(db, savedEvent, DEFAULT_FORM),
-          schedule: savedEvent.schedule,
+          // Store the itinerary relative to its anchors so the template adapts to
+          // whatever dates the next event gets instead of freezing these epochs.
+          schedule: toRelativeSchedule(savedEvent.schedule, savedEvent.startsAt),
           assignments: savedEvent.assignments,
           assignmentStrategy: savedStrategy === 'same' ? 'same' : 'random',
         }
