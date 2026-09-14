@@ -104,7 +104,6 @@
   "events.new_event_hint": "Skapa ett nytt event från grunden.",
   "events.from_template": "Från mall:",
   "events.from_template_desc": "Återanvänd sparad mall",
-  "events.pick_template": "Välj meddelandemall…",
   "events.chooser_title": "Skapa event",
   "events.chooser_desc": "Börja tomt eller från en sparad eventmall.",
   "events.change_template": "Byt mall",
@@ -112,7 +111,6 @@
   "events.continue_with_template": "Fortsätt med mall",
   "events.when": "När",
   "events.schedule": "Schema",
-  "events.schedule_empty": "Inget schema än — lägg till middag, fika, röstning osv.",
   "events.schedule_start_hint": "första blocket — eventstart",
   "events.schedule_end_hint": "sista blocket — eventslut",
   "events.add_schedule": "Lägg till",
@@ -121,7 +119,6 @@
   "events.edit_schedule_desc": "Tider visas lokalt. Idéer: 12:00 Fika, 18:00 Middag, 14:00 Röstning, Prisutdelning.",
   "events.schedule_saved": "Schema sparat",
   "events.schedule_save_failed": "Kunde inte spara schema",
-  "events.items": "punkter",
   "events.hackathon_starts": "Hackathon startar",
   "events.hackathon_ends": "Hackathon slutar",
   "events.signup_window": "Anmälningsfönster",
@@ -398,5 +395,11 @@
   "events.teams_unlocked": "Team upplåsta",
   "events.ended_readonly": "Avslutat — åtgärder inaktiverade",
   "events.cleanup_delay_hint": "Timmar efter eventets slut innan teamkanaler och roller städas.",
-  "events.schedule_edit_hint": "Redigera block, tider och åtgärder via Redigera event."
+  "events.schedule_edit_hint": "Redigera block, tider och åtgärder via Redigera event.",
+  "events.schedule_hint": "Blocken körs på sina tider — varje block kan meddela, posta signup eller låsa team.",
+  "events.quick_add": "Snabbval",
+  "events.schedule_empty_title": "Inga block än",
+  "events.schedule_empty_desc": "Lägg till schemat — middag, pauser, röstning, priser. Varje block kan posta ett meddelande, öppna anmälan eller låsa team när det nås.",
+  "events.pick_event_template": "Välj eventmall…",
+  "events.pick_announcement_template": "Välj ett sparat meddelande…"
 }

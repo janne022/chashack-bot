@@ -1,8 +1,9 @@
 "use client"
 import { useEffect, useState } from "react"
-import { Plus, Trash2, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle, UsersRound, ClipboardList, Lock, Shuffle, CalendarRange } from "lucide-react"
+import { Plus, Trash2, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle, UsersRound, ClipboardList, Lock, Shuffle, CalendarRange, CalendarPlus } from "lucide-react"
 import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/textarea-label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -119,7 +120,7 @@ function ActionCard({ action, channels, templates, announceTitlePlaceholder, ann
               <div className="flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
                 <span className="shrink-0 text-[11px] text-muted-foreground">{t('events.from_template')}</span>
                 <Select onValueChange={v => { const tpl = templates.find(x => x.id === v); if (tpl) onUpdate(action.id, { title: tpl.title, message: tpl.message }) }}>
-                  <SelectTrigger className="h-7 min-w-0 flex-1 text-xs [&>span]:truncate"><SelectValue placeholder={t('events.pick_template')} /></SelectTrigger>
+                  <SelectTrigger className="h-7 min-w-0 flex-1 text-xs [&>span]:truncate"><SelectValue placeholder={t('events.pick_announcement_template')} /></SelectTrigger>
                   <SelectContent position="popper" align="start" className="max-h-72 w-[22rem] max-w-[90vw]">
                     {templates.map(tp => (
                       <SelectItem key={tp.id} value={tp.id}>
@@ -361,11 +362,48 @@ export function ScheduleEditor({
     { title: "Prize ceremony", kind: "prize" as const, hour: 16 },
   ]
 
+  /** Quick-adds land on the hackathon start day at a fixed hour. */
+  function addQuick(q: (typeof quickAdds)[number]) {
+    if (relative) {
+      add({ title: q.title, kind: q.kind, anchor: 'hackathon_start', offsetMinutes: q.hour * 60 })
+      return
+    }
+    const base = (()=>{ if (startValue) { const d = new Date(startValue); if (!isNaN(d.getTime())) return d; } return new Date() })()
+    const d = new Date(base)
+    d.setHours(q.hour, 0, 0, 0)
+    add({ title: q.title, kind: q.kind, time: d.getTime() })
+  }
+
+  const quickLabel = (q: (typeof quickAdds)[number]) => `${relative ? `Day 1 ${q.hour}:00` : `${q.hour}:00`} · ${q.title}`
+
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-2/40 p-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">{t("events.schedule") as string ?? "Schedule"}</span>
-        <span className="text-xs text-muted-foreground">{value.length} {t("events.items" as never) ?? "items"}</span>
+        <Badge variant="secondary" className="text-[10px]">{sorted.length}</Badge>
+        <span className="hidden text-xs text-muted-foreground sm:inline">{t('events.schedule_hint')}</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button size="sm" onClick={() => add()}>
+            <Plus /> {t("events.add_schedule" as never) ?? "Add item"}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" aria-label={t('events.quick_add')}>
+                <ChevronDown /> {t('events.quick_add')}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {quickAdds.map((q) => {
+                const QIcon = KINDS.find((k) => k.id === q.kind)?.icon ?? Clock
+                return (
+                  <DropdownMenuItem key={q.title} onClick={() => addQuick(q)}>
+                    <QIcon /> {quickLabel(q)}
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {relative && <p className="text-xs text-muted-foreground">{t('events.schedule_relative_hint')}</p>}
@@ -424,7 +462,22 @@ export function ScheduleEditor({
       )}
 
       {sorted.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{relative ? t('events.schedule_relative_empty') : (t("events.schedule_empty" as never) ?? "No schedule yet — add dinner, breaks, voting etc.")}</p>
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-background px-4 py-6 text-center">
+          <CalendarPlus className="size-5 text-muted-foreground" />
+          <div>
+            <p className="text-sm font-medium">{t('events.schedule_empty_title')}</p>
+            <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+              {relative ? t('events.schedule_relative_empty') : t('events.schedule_empty_desc')}
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-1.5">
+            {quickAdds.map((q) => (
+              <Button key={q.title} variant="outline" size="sm" onClick={() => addQuick(q)}>
+                <Plus className="size-3" /> {q.title}
+              </Button>
+            ))}
+          </div>
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
           {sorted.map((item) => {
@@ -539,29 +592,6 @@ export function ScheduleEditor({
           })}
         </div>
       )}
-
-      <div className="flex flex-wrap gap-1.5">
-        <Button variant="secondary" size="sm" onClick={() => add()}>
-          <Plus /> {t("events.add_schedule" as never) ?? "Add item"}
-        </Button>
-        <span className="mx-1 self-center text-xs text-muted-foreground">· quick:</span>
-        {quickAdds.map((q) => (
-          <Button
-            key={q.title}
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (relative) { add({ title: q.title, kind: q.kind, anchor: 'hackathon_start', offsetMinutes: q.hour * 60 }); return }
-              const base = (()=>{ if (startValue) { const d = new Date(startValue); if (!isNaN(d.getTime())) return d; } return new Date() })()
-              const d = new Date(base)
-              d.setHours(q.hour, 0, 0, 0)
-              add({ title: q.title, kind: q.kind, time: d.getTime() })
-            }}
-          >
-            {relative ? `Day 1 ${q.hour}:00` : `${q.hour}:00`} {q.title}
-          </Button>
-        ))}
-      </div>
 
       {hasRange && (
         <PinnedBlock

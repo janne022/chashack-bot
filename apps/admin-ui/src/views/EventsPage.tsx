@@ -590,7 +590,7 @@ function NewEventButton() {
                   <>
                     <Select value={chooserTemplateId} onValueChange={setChooserTemplateId}>
                       <SelectTrigger>
-                        <SelectValue placeholder={t('events.pick_template')} />
+                        <SelectValue placeholder={t('events.pick_event_template')} />
                       </SelectTrigger>
                       <SelectContent>
                         {eventTemplates.map((tpl) => (
@@ -1486,7 +1486,7 @@ function EventCard({ event, isSelected, onOpen, refresh }: { event: HackathonEve
           {t(statusKey)}
         </Badge>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+      <CardContent className="flex flex-1 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {event.signupStartsAt !== null && event.signupEndsAt !== null && (
             <span className="flex items-center gap-1">
@@ -1507,9 +1507,9 @@ function EventCard({ event, isSelected, onOpen, refresh }: { event: HackathonEve
             </span>
           )}
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="truncate font-mono text-[11px] text-muted-foreground">{event.id}</span>
-          <div className="flex shrink-0 gap-2">
+        <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{event.id}</span>
+          <div className="flex shrink-0 items-center gap-2">
             {event.status === 'draft' && (
               <Button size="sm" variant="secondary" onClick={() => void activate()}>
                 <Rocket />

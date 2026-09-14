@@ -104,7 +104,6 @@
   "events.new_event_hint": "Create a fresh event from scratch.",
   "events.from_template": "From template:",
   "events.from_template_desc": "Reuse a saved event",
-  "events.pick_template": "Pick announcement template…",
   "events.chooser_title": "Create event",
   "events.chooser_desc": "Start blank or from a saved event template.",
   "events.change_template": "Change template",
@@ -112,7 +111,6 @@
   "events.continue_with_template": "Continue with template",
   "events.when": "When",
   "events.schedule": "Schedule",
-  "events.schedule_empty": "No schedule yet — add dinner, breaks, voting etc.",
   "events.schedule_start_hint": "first block — event start",
   "events.schedule_end_hint": "last block — event end",
   "events.add_schedule": "Add item",
@@ -121,7 +119,6 @@
   "events.edit_schedule_desc": "Times are shown locally. Drag ideas: 12:00 Fika, 18:00 Dinner, 14:00 Voting, Prize ceremony.",
   "events.schedule_saved": "Schedule saved",
   "events.schedule_save_failed": "Could not save schedule",
-  "events.items": "items",
   "events.hackathon_starts": "Hackathon Starts",
   "events.hackathon_ends": "Hackathon Ends",
   "events.signup_window": "Signup window",
@@ -398,5 +395,11 @@
   "events.teams_unlocked": "Teams unlocked",
   "events.ended_readonly": "Ended — actions disabled",
   "events.cleanup_delay_hint": "Hours after the event ends before team channels and roles are cleaned up.",
-  "events.schedule_edit_hint": "Edit blocks, times and actions via Edit event."
+  "events.schedule_edit_hint": "Edit blocks, times and actions via Edit event.",
+  "events.schedule_hint": "Blocks run at their times — each can announce, post signup or lock teams.",
+  "events.quick_add": "Quick add",
+  "events.schedule_empty_title": "No blocks yet",
+  "events.schedule_empty_desc": "Add the itinerary — dinner, breaks, voting, prizes. Each block can post an announcement, open signups or lock teams when it hits.",
+  "events.pick_event_template": "Pick an event template…",
+  "events.pick_announcement_template": "Pick a saved announcement…"
 }
