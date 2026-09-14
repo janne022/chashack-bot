@@ -597,7 +597,7 @@ function NewEventButton() {
                         {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <span className="text-xs text-muted-foreground">The whole schedule (+ live <span className="font-mono">&lt;t:…&gt;</span> timers) is posted here as one message — auto-updated on Activate.</span>
+                    <span className="text-xs text-muted-foreground">One message with the full schedule (live countdowns) is posted here — and kept up to date — whenever you edit the schedule on a live event.</span>
                   </label>
                 </div>
               ) : (
