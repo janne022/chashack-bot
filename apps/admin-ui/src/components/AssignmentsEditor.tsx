@@ -37,7 +37,7 @@ export function AssignmentsEditor({ value, onChange }: { value: Assignment[]; on
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {value.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">No assignments yet — add one below. You can keep the same brief for every team or let the zap randomly deal distinct ones.</div>
+          <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">No assignments yet — add one below. You can keep the same brief for every team, or let the schedule deal distinct ones out at random.</div>
         ) : (
           <ul className="flex flex-col gap-2">
             {value.map(a=>(

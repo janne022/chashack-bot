@@ -70,7 +70,7 @@ export function TagCheatSheet({ compact=false }: { compact?: boolean }) {
           <div className="rounded-md bg-surface-2/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
             <b>Examples:</b> <code className="rounded bg-background px-1">Listen up {"{everyone}"} **{"{event}"}** starts {"{timer}"} — {"{panel}"}</code> → pings everyone + relative timer.{" "}
             <code className="rounded bg-background px-1">⏰ {"{schedule_title}"} — {"{schedule_desc}"} {"{timer_schedule}"}</code> → per-block announcement.
-            <br /><b>Context:</b> <code>{"{schedule_title}"}</code> family only works inside a <Badge variant="outline" className="mx-1 text-[10px]">For each schedule item</Badge> trigger or per-block Zapier action; otherwise they’re empty. <code>{"{timer}"}</code> needs a start date.
+            <br /><b>Context:</b> <code>{"{schedule_title}"}</code> family only works inside a <Badge variant="outline" className="mx-1 text-[10px]">For each schedule item</Badge> trigger or a per-block action; otherwise they’re empty. <code>{"{timer}"}</code> needs a start date.
           </div>
         </CardContent>
       </Card>

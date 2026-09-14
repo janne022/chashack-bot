@@ -597,7 +597,6 @@ function NewEventButton() {
                         {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <span className="text-xs text-muted-foreground">One message with the full schedule (live countdowns) is posted here — and kept up to date — whenever you edit the schedule on a live event.</span>
                   </label>
                 </div>
               ) : (
@@ -775,6 +774,24 @@ function ActiveEventCard({ event, refresh }: { event: HackathonEvent; refresh: (
   )
 }
 
+const DISTRIBUTE_ACTION_ID = '__distribute_assignments__'
+
+/**
+ * Keep the Start block's distribute action in step with the event's assignment
+ * pool — the same contract `createEvent` applies server-side via
+ * `withAssignmentDistribution`: non-empty pool ⇒ a distribute action on Start,
+ * empty pool ⇒ none. The create dialog picks the strategy in its Assignments
+ * card; here the mode is edited on the Start block's distribute card itself.
+ */
+function syncDistribute(ops: import('@/types').ScheduleAction[], pool: Assignment[]): import('@/types').ScheduleAction[] {
+  const hasDistribute = ops.some(a => a.type === 'distribute_assignments')
+  if (pool.length > 0 && !hasDistribute) {
+    return [...ops, { id: DISTRIBUTE_ACTION_ID, type: 'distribute_assignments', mode: 'random' }]
+  }
+  if (pool.length === 0) return ops.filter(a => a.type !== 'distribute_assignments')
+  return ops
+}
+
 /**
  * The event edit dialog. Rendered on demand by its parent (which owns the
  * open/close state) so the trigger button can live anywhere on the card.
@@ -820,7 +837,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
     try {
       const startAnn = startActions.filter(a=>a.type==='announce').map(a=>({ id: a.id, title: a.title || 'Starts — announcement', message: a.message!, trigger: 'on_activate' as const, channelId: a.channelId ?? null }))
       const endAnn = endActions.filter(a=>a.type==='announce').map(a=>({ id: a.id, title: a.title || 'Ends — announcement', message: a.message!, trigger: 'on_start' as const, channelId: a.channelId ?? null }))
-      const startOps = startActions.filter(a=>a.type!=='announce')
+      const startOps = syncDistribute(startActions.filter(a=>a.type!=='announce'), editAssignments)
       const endOps = endActions.filter(a=>a.type!=='announce')
       const startTime = start ? Date.parse(start) : null
       const endTime = end ? Date.parse(end) : null

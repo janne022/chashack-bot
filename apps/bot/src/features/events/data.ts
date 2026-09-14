@@ -571,7 +571,7 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
     const description = String((raw as unknown as Record<string, unknown>).description ?? '').trim().slice(0, 200) || undefined;
     const kindRaw = String((raw as unknown as Record<string, unknown>).kind ?? 'custom').trim() as ScheduleItem['kind'];
     const kind: ScheduleItem['kind'] = ['food', 'break', 'voting', 'prize', 'talk', 'custom'].includes(kindRaw ?? '') ? kindRaw : 'custom';
-    // actions: zapier-like per-item ops (announce + lock/assign + signup + assignments)
+    // actions: per-item ops (announce + lock/match + signup + assignments)
     let actions: ScheduleAction[] | undefined = undefined
     const rawActions = (raw as unknown as Record<string, unknown>).actions
     if (Array.isArray(rawActions)) {
