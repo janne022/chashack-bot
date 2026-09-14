@@ -566,49 +566,45 @@ function NewEventButton() {
                 </span>
               </div>
 
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">{t('events.panel_channel')}</span>
-                {guildChannels.length > 0 ? (
-                  <Select value={panelChannelId || '__none'} onValueChange={(v)=>setPanelChannelId(v==='__none'?'':v)}>
-                    <SelectTrigger><SelectValue placeholder="Pick a Discord channel" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none">Not set (use default)</SelectItem>
-                      {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input value={panelChannelId} onChange={(e) => setPanelChannelId(e.target.value)} placeholder="Discord channel ID" maxLength={30} />
-                )}
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">{t('events.announce_channel')}</span>
-                {guildChannels.length > 0 ? (
-                  <Select value={announceChannelId || '__none'} onValueChange={(v)=>setAnnounceChannelId(v==='__none'?'':v)}>
-                    <SelectTrigger><SelectValue placeholder="Discord channel ID (defaults to panel)" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none">Not set (use default/panel)</SelectItem>
-                      {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input value={announceChannelId} onChange={(e) => setAnnounceChannelId(e.target.value)} placeholder="Discord channel ID (defaults to panel)" maxLength={30} />
-                )}
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">Schedule / itinerary channel</span>
-                {guildChannels.length > 0 ? (
-                  <Select value={scheduleChannelId || '__none'} onValueChange={(v)=>setScheduleChannelId(v==='__none'?'':v)}>
-                    <SelectTrigger><SelectValue placeholder="Channel for full itinerary with timers" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none">Not set (use Config default)</SelectItem>
-                      {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input value={scheduleChannelId} onChange={(e) => setScheduleChannelId(e.target.value)} placeholder="Discord channel for full itinerary with timers (e.g. #schedule)" maxLength={30} />
-                )}
-                <span className="text-xs text-muted-foreground">The whole schedule (+ live <span className="font-mono">&lt;t:…&gt;</span> timers) is posted here as one message — auto-updated on Activate.</span>
-              </label>
+              {guildChannels.length > 0 ? (
+                <div className="grid items-start gap-4 lg:grid-cols-3">
+                  <label className="flex flex-col gap-1.5 text-sm">
+                    <span className="font-medium">{t('events.panel_channel')}</span>
+                    <Select value={panelChannelId || '__none'} onValueChange={(v)=>setPanelChannelId(v==='__none'?'':v)}>
+                      <SelectTrigger><SelectValue placeholder="Pick a Discord channel" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">Not set (use default)</SelectItem>
+                        {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm">
+                    <span className="font-medium">{t('events.announce_channel')}</span>
+                    <Select value={announceChannelId || '__none'} onValueChange={(v)=>setAnnounceChannelId(v==='__none'?'':v)}>
+                      <SelectTrigger><SelectValue placeholder="Defaults to panel channel" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">Not set (use default/panel)</SelectItem>
+                        {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm">
+                    <span className="font-medium">Schedule / itinerary channel</span>
+                    <Select value={scheduleChannelId || '__none'} onValueChange={(v)=>setScheduleChannelId(v==='__none'?'':v)}>
+                      <SelectTrigger><SelectValue placeholder="Channel for the full itinerary" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">Not set (use Config default)</SelectItem>
+                        {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-xs text-muted-foreground">The whole schedule (+ live <span className="font-mono">&lt;t:…&gt;</span> timers) is posted here as one message — auto-updated on Activate.</span>
+                  </label>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2.5 text-sm text-muted-foreground">
+                  Channel pickers appear once the bot connection is live. Leave them unset to use the Config defaults.
+                </div>
+              )}
 
               <label className="flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm">
                 <Checkbox checked={saveAsTemplate} onCheckedChange={setSaveAsTemplate} />
