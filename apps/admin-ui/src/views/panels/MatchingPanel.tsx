@@ -52,6 +52,8 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
   const [draggingUser, setDraggingUser] = useState<string | null>(null)
 
   const activeEvent = state.events.find((e) => e.id === state.activeEventId) ?? null
+  // Pin every action to the event being viewed, not "newest active".
+  const eventId = state.selectedEventId ?? undefined
   const candidates = state.stats.matchingOptIn
   const unteamed = useMemo(
     () => state.participants.filter((p) => p.status === 'active' && p.teamId === null),
@@ -65,7 +67,7 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
       const results = await Promise.all(
         unteamed.map(async (p) => {
           try {
-            return [p.userId, await api.matchSuggestions(p.userId)] as const
+            return [p.userId, await api.matchSuggestions(p.userId, eventId)] as const
           } catch {
             return [p.userId, [] as TeamSuggestion[]] as const
           }
@@ -75,7 +77,7 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
     } finally {
       setSuggestionsLoading(false)
     }
-  }, [unteamed])
+  }, [unteamed, eventId])
 
   useEffect(() => {
     void loadSuggestions()
@@ -84,7 +86,7 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
   async function runPreview() {
     setBusy(true)
     try {
-      const result = await api.matchPreview()
+      const result = await api.matchPreview(eventId)
       setPreview(result)
       toast.success(t('matching.drafted', { count: result.teams.length }))
     } catch (e) {
@@ -98,7 +100,7 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
   async function commit() {
     setBusy(true)
     try {
-      const result = await api.matchCommit()
+      const result = await api.matchCommit(eventId)
       setPreview(null)
       toast.success(t('matching.committed', { count: result.teams.length }))
       await refresh()
@@ -112,7 +114,7 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
 
   async function place(userId: string, teamId: string | null, teamName?: string) {
     try {
-      await api.assignTeam(userId, teamId)
+      await api.assignTeam(userId, teamId, eventId)
       toast.success(teamName !== undefined ? `${nameOf(userId)} → ${teamName}` : `${nameOf(userId)} unassigned`)
       await refresh()
       await loadSuggestions()

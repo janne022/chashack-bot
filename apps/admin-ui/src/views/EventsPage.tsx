@@ -1120,6 +1120,7 @@ function EndEventButton({ event, refresh }: { event: HackathonEvent; refresh: ()
 }
 
 function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActive: boolean; refresh: () => Promise<void> }) {
+  const { selectEvent } = useAppContext()
   const t = useT()
 
   async function activate() {
@@ -1160,6 +1161,12 @@ function EventCard({ event, isActive, refresh }: { event: HackathonEvent; isActi
           <Button size="sm" variant="secondary" onClick={() => void activate()}>
             <Rocket />
             Launch event
+          </Button>
+        ) : event.status === 'active' && !isActive ? (
+          // Another live event is being managed — make this one selectable here.
+          <Button size="sm" variant="secondary" onClick={() => selectEvent(event.id)}>
+            <Layers />
+            Manage
           </Button>
         ) : (
           <Button size="sm" variant="ghost" asChild>

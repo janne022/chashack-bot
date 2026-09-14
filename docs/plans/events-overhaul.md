@@ -132,6 +132,13 @@ New backend logic gets unit tests. Final: push to `origin/main`.
   `eventId` from query or body, else falls back to newest-active → newest-any.
   The UI persists the pick in `localStorage['chas-event']` and only renders the
   switcher when 2+ events are live.
+- Multi-event actions: the event-scoped api calls (participant actions, team
+  assignment/creation, match preview/commit/lock/unlock/suggestions, reset) all
+  carry the selected eventId so actions pin to the event being VIEWED — not
+  "newest active". Team delete/settings/remove-member are team-id-scoped and
+  need no eventId. Events-tab mutations were already path-scoped (`:eventId`).
+- Event cards for live events other than the one being managed get a "Manage"
+  button that selects them.
 - Bug found by tests: `withAssignmentDistribution` originally returned early on an
   empty schedule, so an event created with no schedule never got the distribute
   action — assignments silently would not fire. Now the Start block is

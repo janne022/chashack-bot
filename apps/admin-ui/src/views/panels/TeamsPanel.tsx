@@ -54,6 +54,8 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
   const [settingsTeam, setSettingsTeam] = useState<Team | null>(null)
 
   const teamSize = state.config.teamSize
+  // New teams land on the event being viewed.
+  const eventId = state.selectedEventId ?? undefined
 
   async function act(fn: () => Promise<void>, okMsg: string) {
     try {
@@ -67,7 +69,7 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
 
   async function createTeam() {
     try {
-      await api.createTeam(newName.trim(), newKind)
+      await api.createTeam(newName.trim(), newKind, undefined, eventId)
       toast.success(t('teams.created', { name: newName.trim() }))
       setCreateOpen(false)
       setNewName('')

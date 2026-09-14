@@ -49,24 +49,25 @@ export const api = {
     return request<AppState>(`/api/state${qs}`)
   },
 
-  async participantAction(userId: string, action: string, reason?: string): Promise<void> {
+  /** All event-scoped calls accept an explicit eventId; omit it to let the server pick the default event. */
+  async participantAction(userId: string, action: string, reason?: string, eventId?: string): Promise<void> {
     await request(`/api/participants/${userId}/status`, {
       method: 'POST',
-      body: JSON.stringify({ action, reason }),
+      body: JSON.stringify({ action, reason, ...(eventId ? { eventId } : {}) }),
     })
   },
 
-  async assignTeam(userId: string, teamId: string | null): Promise<void> {
+  async assignTeam(userId: string, teamId: string | null, eventId?: string): Promise<void> {
     await request(`/api/participants/${userId}/team`, {
       method: 'POST',
-      body: JSON.stringify({ teamId }),
+      body: JSON.stringify({ teamId, ...(eventId ? { eventId } : {}) }),
     })
   },
 
-  async createTeam(name: string, kind: 'public' | 'private', ownerId?: string): Promise<Team> {
+  async createTeam(name: string, kind: 'public' | 'private', ownerId?: string, eventId?: string): Promise<Team> {
     const res = await request<{ team: Team }>('/api/teams', {
       method: 'POST',
-      body: JSON.stringify({ name, kind, ownerId }),
+      body: JSON.stringify({ name, kind, ownerId, ...(eventId ? { eventId } : {}) }),
     })
     return res.team
   },
@@ -130,30 +131,42 @@ export const api = {
     })
   },
 
-  async matchPreview(): Promise<MatchResult> {
-    const res = await request<{ result: MatchResult }>('/api/match/preview', { method: 'POST' })
+  async matchPreview(eventId?: string): Promise<MatchResult> {
+    const res = await request<{ result: MatchResult }>('/api/match/preview', {
+      method: 'POST',
+      body: JSON.stringify({ ...(eventId ? { eventId } : {}) }),
+    })
     return res.result
   },
 
-  async matchCommit(): Promise<MatchResult> {
-    const res = await request<{ result: MatchResult }>('/api/match/commit', { method: 'POST' })
+  async matchCommit(eventId?: string): Promise<MatchResult> {
+    const res = await request<{ result: MatchResult }>('/api/match/commit', {
+      method: 'POST',
+      body: JSON.stringify({ ...(eventId ? { eventId } : {}) }),
+    })
     return res.result
   },
 
-  async matchSuggestions(participantId: string): Promise<TeamSuggestion[]> {
+  async matchSuggestions(participantId: string, eventId?: string): Promise<TeamSuggestion[]> {
     const res = await request<{ suggestions: TeamSuggestion[] }>('/api/match/suggestions', {
       method: 'POST',
-      body: JSON.stringify({ participantId }),
+      body: JSON.stringify({ participantId, ...(eventId ? { eventId } : {}) }),
     })
     return res.suggestions
   },
 
-  async matchLock(): Promise<void> {
-    await request('/api/match/lock', { method: 'POST' })
+  async matchLock(eventId?: string): Promise<void> {
+    await request('/api/match/lock', {
+      method: 'POST',
+      body: JSON.stringify({ ...(eventId ? { eventId } : {}) }),
+    })
   },
 
-  async matchUnlock(): Promise<void> {
-    await request('/api/match/unlock', { method: 'POST' })
+  async matchUnlock(eventId?: string): Promise<void> {
+    await request('/api/match/unlock', {
+      method: 'POST',
+      body: JSON.stringify({ ...(eventId ? { eventId } : {}) }),
+    })
   },
 
   async updateForm(config: Partial<FormConfig>): Promise<FormConfig> {
@@ -169,8 +182,11 @@ export const api = {
     return res.config
   },
 
-  async resetEvent(): Promise<void> {
-    await request('/api/event/reset', { method: 'POST' })
+  async resetEvent(eventId?: string): Promise<void> {
+    await request('/api/event/reset', {
+      method: 'POST',
+      body: JSON.stringify({ ...(eventId ? { eventId } : {}) }),
+    })
   },
 
   async createEvent(input: {

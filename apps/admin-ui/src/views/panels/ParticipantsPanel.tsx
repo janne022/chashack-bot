@@ -69,6 +69,8 @@ export function ParticipantsPanel({
   const { state: ctxState, refresh: ctxRefresh } = useAppContext()
   const state = stateProp ?? ctxState
   const refresh = refreshProp ?? ctxRefresh
+  // Pin actions to the event being viewed.
+  const eventId = state.selectedEventId ?? undefined
   const t = useT()
 
   const [query, setQuery] = useState('')
@@ -108,7 +110,7 @@ export function ParticipantsPanel({
       teams: state.teams,
       assignTeam: (userId: string, teamId: string | null) =>
         void act(
-          () => api.assignTeam(userId, teamId),
+          () => api.assignTeam(userId, teamId, eventId),
           teamId === null ? t('participants.removed_from_team') : t('participants.team_updated'),
         ),
       onBlockRequest: (participant: Participant) => setConfirmBlock(participant),
@@ -118,12 +120,12 @@ export function ParticipantsPanel({
           withdraw: t('participants.signup_removed'),
           reactivate: t('participants.reactivated'),
         }
-        void act(() => api.participantAction(participant.userId, action), messages[action])
+        void act(() => api.participantAction(participant.userId, action, undefined, eventId), messages[action])
       },
     }),
     // `act` closes over `refresh`; t is stable per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.teams, refresh, t],
+    [state.teams, refresh, t, eventId],
   )
 
   const columns = useMemo<ParticipantsColumnDef[]>(() => {
@@ -471,7 +473,7 @@ export function ParticipantsPanel({
                 const p = confirmBlock
                 setConfirmBlock(null)
                 if (p !== null) {
-                  void act(() => api.participantAction(p.userId, 'block'), t('participants.blocked'))
+                  void act(() => api.participantAction(p.userId, 'block', undefined, eventId), t('participants.blocked'))
                 }
               }}
             >
