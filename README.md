@@ -5,7 +5,7 @@ web admin panel for organizers.
 
 ## Features
 
-**Discord bot** (`/hackathon`)
+**Discord bot** (`/hackathon` for participants, `/hackathon-admin` for organizers) — Discord hides the admin command from anyone without Manage Server
 
 - `join` — modern Discord modal (labels + select menus, discord.js ≥ 14.23):
   name, experience level, role track, skills (multi-select), and how you want
@@ -41,7 +41,7 @@ Every team (created or matched) gets:
 
 - a Discord role in the team's color,
 - a private text channel + voice channel under a category chosen by server
-  admins (`/hackathon admin team-category`, the admin web UI, or the
+  admins (`/hackathon-admin team-category`, the admin web UI, or the
   `TEAM_CATEGORY_ID` env fallback),
 - join/leave role management, welcome messages on every new member, and full
   teardown on team delete or event reset.
@@ -102,7 +102,7 @@ apps/admin-ui    React admin panel (Vite)
 pnpm install                      # workspace install (supply-chain gated)
 cp .env.example .env              # fill in Discord creds + admin password
 pnpm build                        # bot (tsc) + admin UI (vite)
-pnpm register:commands            # register /hackathon (guild = instant)
+pnpm register:commands            # register the commands in every guild the bot is in (instant)
 pnpm --filter bot start           # bot + admin UI on ADMIN_PORT
 ```
 
