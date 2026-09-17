@@ -9,7 +9,7 @@ import { audit } from './shared/audit.js';
 import { registerInteractionHandlers } from './discord/dispatch.js';
 import { startAdminServer } from './adminweb/server.js';
 import { runMaintenance } from './discord/notify.js';
-import { registerCommands } from './register-commands-lib.js';
+import { registerCommands, registerCommandsInGuild } from './register-commands-lib.js';
 
 const config = env();
 const db = openDb(resolveDbPath(config.dbPath));
@@ -23,14 +23,26 @@ const client = new Client({
 client.once(Events.ClientReady, async (ready) => {
   console.log(`Logged in as ${ready.user.tag}`);
   if (config.guildId) {
-    console.log(`Single-guild mode: ${config.guildId}`);
+    console.log(`Configured guild (fallback for password sessions): ${config.guildId}`);
   }
+  console.log(`Serving ${ready.guilds.cache.size} guild(s).`);
   // Register slash commands on every boot — idempotent (PUT to the exact set),
   // so new installs and upgrades just work without a separate script.
   try {
     await registerCommands();
   } catch (error) {
     console.error('Slash command registration failed (bot keeps running; fix and restart or run register:commands):', error);
+  }
+});
+
+// Invited somewhere new → make /hackathon available there immediately instead of
+// waiting for the next restart.
+client.on(Events.GuildCreate, async (guild) => {
+  try {
+    await registerCommandsInGuild(guild);
+    console.log(`Joined ${guild.name} (${guild.id}) — commands registered.`);
+  } catch (error) {
+    console.error(`Joined ${guild.name} (${guild.id}) but command registration failed:`, error);
   }
 });
 

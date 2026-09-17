@@ -318,6 +318,59 @@ const EN: Catalog = {
   'form.err_experience': 'Pick an experience level.',
   'form.err_teampref': 'Pick a team preference.',
   'form.err_role': 'Pick a role track.',
+
+  // ── slash command text (discord/commands.ts reads these) ───────────────
+  'cmd.root.desc': 'Hackathon signup, teams and matching',
+  'cmd.admin-root.desc': 'Organizer tools for the active hackathon',
+  'cmd.join.desc': 'Sign up (or update your signup) — opens the form',
+  'cmd.leave.desc': 'Withdraw your signup completely',
+  'cmd.status.desc': 'Show your signup and team',
+  'cmd.event.desc': 'Show info about the current hackathon event',
+  'cmd.create-team.desc': 'Create your own team — opens a form (name, visibility, color)',
+  'cmd.teams.desc': 'Browse teams and send a join request',
+  'cmd.invite.desc': 'Invite someone to your team (they get a DM with accept/decline)',
+  'cmd.team-settings.desc': 'Rename your team, flip public/private or change the role color',
+  'cmd.invitations.desc': 'Your pending invites and join requests',
+  'cmd.team-requests.desc': 'Team owners: review join requests and sent invites',
+  'cmd.leave-team.desc': 'Leave your current team (keeps your signup)',
+  'cmd.join-code.desc': 'Join a private team with its code',
+  'cmd.team-code.desc': 'Show the join code for your private team',
+  'cmd.teammates.desc': 'Say who you want on your team (they must sign up too)',
+  'cmd.group-admin.desc': 'Organizer tools',
+  'cmd.block.desc': 'Block a user from signing up',
+  'cmd.unblock.desc': 'Unblock a user',
+  'cmd.remove.desc': 'Remove a signup entirely',
+  'cmd.move.desc': 'Move a user into a team (or out of one)',
+  'cmd.team-category.desc': 'Set the category where team text/voice channels are created',
+  'cmd.panel.desc': 'Post or refresh the signup panel (embed + buttons) in a channel',
+  'cmd.match-preview.desc': 'Preview team matching without changing anything',
+  'cmd.match-run.desc': 'Run team matching and commit the teams',
+  'cmd.match-lock.desc': 'Lock the teams so matching cannot run again',
+  'cmd.match-unlock.desc': 'Allow matching to run again',
+  'cmd.itinerary.desc': 'Post or refresh the schedule itinerary in its channel',
+  'cmd.reset.desc': 'Reset the event — clears signups and teams (form stays)',
+  'cmd.form.desc': 'Show the current signup form configuration',
+  'cmd.console.desc': 'Get the link to the organizer console (schedule, forms, assignments)',
+  'cmd.event-create.desc': 'Create a new event (draft)',
+  'cmd.event-config.desc': 'Configure the active event',
+  'cmd.event-activate.desc': 'Activate an event (ends the previous one)',
+  'cmd.event-end.desc': 'End the active event now (starts the cleanup countdown)',
+  'cmd.auto-match.desc': 'Schedule automatic team matching (runs at the next maintenance tick, ≤5 min later)',
+  'cmd.announce.desc': 'Announce to the panel channel and (optionally) DM all participants',
+  'cmd.discord-event.desc': 'Create Discord scheduled events for the hackathon',
+  'cmd.template-save.desc': 'Save the active event (settings + form) as a reusable template',
+  'cmd.templates.desc': 'List saved templates',
+
+  // ── new admin subcommand replies (match lock/unlock, itinerary, console) ─
+  'discord.events.match_locked_title': 'Matching locked',
+  'discord.events.match_locked_body': 'Teams are final — matching cannot run again until an organizer unlocks it.',
+  'discord.events.match_unlocked_title': 'Matching unlocked',
+  'discord.events.match_unlocked_body': 'Matching can run again.',
+  'discord.events.itinerary_posted_title': 'Schedule posted',
+  'discord.events.itinerary_updated_title': 'Schedule updated',
+  'discord.events.itinerary_body': 'Live timers in <#{channel}>.',
+  'discord.events.itinerary_failed': 'Could not post the schedule: {reason}',
+  'discord.events.console_link': 'Organizer console: {url}',
 };
 
 const SV: Catalog = {
@@ -624,6 +677,59 @@ const SV: Catalog = {
   'form.err_experience': 'Välj en erfarenhetsnivå.',
   'form.err_teampref': 'Välj en teampreferens.',
   'form.err_role': 'Välj ett rollspår.',
+
+  // ── slash command text (discord/commands.ts reads these) ───────────────
+  'cmd.root.desc': 'Anmälan, lag och matchning för hackathon',
+  'cmd.admin-root.desc': 'Arrangörsverktyg för det aktiva hackathonet',
+  'cmd.join.desc': 'Anmäl dig (eller uppdatera din anmälan) — öppnar formuläret',
+  'cmd.leave.desc': 'Ångra din anmälan helt',
+  'cmd.status.desc': 'Visa din anmälan och ditt lag',
+  'cmd.event.desc': 'Visa info om det aktuella hackathon-eventet',
+  'cmd.create-team.desc': 'Skapa ett eget lag — öppnar ett formulär (namn, synlighet, färg)',
+  'cmd.teams.desc': 'Bläddra bland lag och skicka en förfrågan om att gå med',
+  'cmd.invite.desc': 'Bjud in någon till ditt lag (de får ett DM med acceptera/avböj)',
+  'cmd.team-settings.desc': 'Byt namn på laget, växla publikt/privat eller ändra rollfärgen',
+  'cmd.invitations.desc': 'Dina väntande inbjudningar och förfrågningar',
+  'cmd.team-requests.desc': 'Lagägare: granska förfrågningar och skickade inbjudningar',
+  'cmd.leave-team.desc': 'Lämna ditt nuvarande lag (din anmälan finns kvar)',
+  'cmd.join-code.desc': 'Gå med i ett privat lag med dess kod',
+  'cmd.team-code.desc': 'Visa anslutningskoden för ditt privata lag',
+  'cmd.teammates.desc': 'Ange vilka du vill ha i laget (de måste också anmäla sig)',
+  'cmd.group-admin.desc': 'Arrangörsverktyg',
+  'cmd.block.desc': 'Blockera en användare från att anmäla sig',
+  'cmd.unblock.desc': 'Avblockera en användare',
+  'cmd.remove.desc': 'Ta bort en anmälan helt',
+  'cmd.move.desc': 'Flytta en användare till ett lag (eller ut ur ett)',
+  'cmd.team-category.desc': 'Ange kategorin där lagens text- och röstkanaler skapas',
+  'cmd.panel.desc': 'Publicera eller uppdatera anmälningspanelen (embed + knappar) i en kanal',
+  'cmd.match-preview.desc': 'Förhandsgranska matchningen utan att ändra något',
+  'cmd.match-run.desc': 'Kör matchningen och fastställ lagen',
+  'cmd.match-lock.desc': 'Lås lagen så att matchningen inte kan köras igen',
+  'cmd.match-unlock.desc': 'Tillåt att matchningen körs igen',
+  'cmd.itinerary.desc': 'Publicera eller uppdatera schemat i dess kanal',
+  'cmd.reset.desc': 'Återställ eventet — rensar anmälningar och lag (formuläret finns kvar)',
+  'cmd.form.desc': 'Visa den aktuella konfigurationen för anmälningsformuläret',
+  'cmd.console.desc': 'Länk till arrangörskonsolen (schema, formulär, uppdrag)',
+  'cmd.event-create.desc': 'Skapa ett nytt event (utkast)',
+  'cmd.event-config.desc': 'Konfigurera det aktiva eventet',
+  'cmd.event-activate.desc': 'Aktivera ett event (avslutar det föregående)',
+  'cmd.event-end.desc': 'Avsluta det aktiva eventet nu (startar nedstädningen)',
+  'cmd.auto-match.desc': 'Schemalägg automatisk matchning (körs vid nästa underhållstakt, ≤5 min senare)',
+  'cmd.announce.desc': 'Meddela i panelkanalen och (valfritt) DM:a alla anmälda',
+  'cmd.discord-event.desc': 'Skapa schemalagda Discord-event för hackathonet',
+  'cmd.template-save.desc': 'Spara det aktiva eventet (inställningar + formulär) som en återanvändbar mall',
+  'cmd.templates.desc': 'Lista sparade mallar',
+
+  // ── new admin subcommand replies (match lock/unlock, itinerary, console) ─
+  'discord.events.match_locked_title': 'Matchningen låst',
+  'discord.events.match_locked_body': 'Lagen är fastställda — matchningen kan inte köras igen förrän en arrangör låser upp den.',
+  'discord.events.match_unlocked_title': 'Matchningen upplåst',
+  'discord.events.match_unlocked_body': 'Matchningen kan köras igen.',
+  'discord.events.itinerary_posted_title': 'Schemat publicerat',
+  'discord.events.itinerary_updated_title': 'Schemat uppdaterat',
+  'discord.events.itinerary_body': 'Live-timers i <#{channel}>.',
+  'discord.events.itinerary_failed': 'Kunde inte publicera schemat: {reason}',
+  'discord.events.console_link': 'Arrangörskonsol: {url}',
 };
 
 const CATALOGS: Record<BotLocale, Catalog> = { en: EN, sv: SV };
@@ -633,6 +739,15 @@ function interpolate(template: string, params?: Record<string, string | number>)
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
     Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match,
   );
+}
+
+/**
+ * Raw catalog value for a locale, or `undefined` when that locale has no entry.
+ * `t()` falls back to English, so it cannot answer "is this translated?" — use
+ * this to decide whether to advertise a Discord localization at all.
+ */
+export function translation(locale: BotLocale, key: string): string | undefined {
+  return CATALOGS[locale][key];
 }
 
 /**

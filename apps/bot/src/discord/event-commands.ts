@@ -20,14 +20,18 @@ import {
   listTemplates,
   deleteTemplate,
   setMatchAt,
+  markMatchLocked,
+  markMatchUnlocked,
   templateToEventInput,
 } from '../features/events/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
 import { listParticipants } from '../features/signup/data.js';
 import { listTeams } from '../features/teams/data.js';
 import { postOrUpdatePanel } from './signup-panel.js';
+import { postOrUpdateScheduleItinerary } from './schedule-itinerary.js';
 import { displayErr, embedOk, eph, type Ctx } from './shared.js';
 import { t } from '../shared/i18n.js';
+import { env } from '../shared/env.js';
 
 function parseDate(raw: string | null): number | null | undefined {
   if (raw === null) return undefined;
@@ -350,6 +354,65 @@ export async function handleEventAdminCommand(
       }
       const lines = templates.map((tpl) => `• **${tpl.name}** (${tpl.kind}, \`${tpl.id}\`)`);
       await i.reply({ content: lines.join('\n'), flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    case 'match-lock': {
+      const event = getEvent(db, ctx.eventId);
+      if (event === null) {
+        await i.reply(eph(t(locale, 'discord.events.no_event_configured')));
+        return;
+      }
+      markMatchLocked(db, event.id);
+      audit(db, actor, 'match.lock', event.id, null);
+      await i.reply({ embeds: [embedOk(t(locale, 'discord.events.match_locked_title'), t(locale, 'discord.events.match_locked_body'))], flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    case 'match-unlock': {
+      const event = getEvent(db, ctx.eventId);
+      if (event === null) {
+        await i.reply(eph(t(locale, 'discord.events.no_event_configured')));
+        return;
+      }
+      markMatchUnlocked(db, event.id);
+      audit(db, actor, 'match.unlock', event.id, null);
+      await i.reply({ embeds: [embedOk(t(locale, 'discord.events.match_unlocked_title'), t(locale, 'discord.events.match_unlocked_body'))], flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    case 'itinerary': {
+      const event = getEvent(db, ctx.eventId);
+      if (event === null) {
+        await i.reply(eph(t(locale, 'discord.events.no_event_configured')));
+        return;
+      }
+      const res = await postOrUpdateScheduleItinerary(db, ctx.client, event);
+      if ('error' in res) {
+        await i.reply({ embeds: [displayErr(locale, 'failed', t(locale, 'discord.events.itinerary_failed', { reason: res.error }))], flags: MessageFlags.Ephemeral });
+        return;
+      }
+      audit(db, actor, 'schedule.itinerary', event.id, { channelId: res.channelId, edited: res.edited });
+      await i.reply({
+        embeds: [
+          embedOk(
+            res.edited ? t(locale, 'discord.events.itinerary_updated_title') : t(locale, 'discord.events.itinerary_posted_title'),
+            t(locale, 'discord.events.itinerary_body', { channel: res.channelId }),
+          ),
+        ],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    case 'console': {
+      // The rich editors (schedule blocks, signup form, assignment collections)
+      // live in the web console — point organizers there instead of pretending a
+      // slash command can replace them.
+      const base = env().publicUrl ?? `http://localhost:${env().adminPort}`;
+      const url = base.replace(/\/$/, '');
+      audit(db, actor, 'console.link', guildId, null);
+      await i.reply({ content: t(locale, 'discord.events.console_link', { url }), flags: MessageFlags.Ephemeral });
       return;
     }
 

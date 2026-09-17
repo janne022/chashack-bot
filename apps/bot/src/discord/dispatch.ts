@@ -14,6 +14,7 @@ import { getActiveEvent, getEvent, getEventForm } from '../features/events/data.
 import { handleUserCommand } from './user-commands.js';
 import { handleAdminCommand } from './admin-commands.js';
 import { handleEventAdminCommand, handleEventInfo } from './event-commands.js';
+import { HACKATHON_ADMIN_NAME } from './commands.js';
 import { onComponent, onModalSubmit } from './components.js';
 import { eph, type Ctx } from './shared.js';
 import { t } from '../shared/i18n.js';
@@ -145,8 +146,16 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
           'discord-event',
           'template-save',
           'templates',
+          'match-lock',
+          'match-unlock',
+          'itinerary',
+          'console',
         ];
-        if (group === 'admin' && eventAdminSubs.includes(sub)) {
+        // Organizer tools live in their own command (Discord only gates
+        // permissions at the command level); `group === 'admin'` still routes so a
+        // client with a cached old command list keeps working.
+        const adminInvocation = group === 'admin' || interaction.commandName === HACKATHON_ADMIN_NAME;
+        if (adminInvocation && eventAdminSubs.includes(sub)) {
           if (!ctx.isAdmin) {
             await interaction.reply(eph(t(locale, 'discord.admin.organizer_only')));
             return;
@@ -154,7 +163,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
           await handleEventAdminCommand(interaction, ctx, sub);
           return;
         }
-        if (group === 'admin') {
+        if (adminInvocation) {
           if (!ctx.isAdmin) {
             await interaction.reply(eph(t(locale, 'discord.admin.organizer_only')));
             return;
