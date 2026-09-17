@@ -95,15 +95,18 @@ grep -ohE "case '[a-z-]+'" user-commands.ts admin-commands.ts event-commands.ts 
 comm -23 /tmp/declared.txt /tmp/handled.txt    # anything here is unroutable
 ```
 
-Read back what **Discord** stored instead of trusting what you sent:
+Read back what **Discord** stored instead of trusting what you sent: list the
+application's commands (`GET /applications/{application_id}/commands` for the
+global set, `.../guilds/{guild_id}/commands` for a guild) and inspect each entry.
 
-```bash
-curl -s -H "Authorization: Bot $DISCORD_TOKEN" \
-  "https://discord.com/api/v10/applications/$CID/commands?with_localizations=true"
-```
+- `description_localizations` — an `sv-SE` value on every command *and* subcommand
+  means the Swedish help text survived registration.
+- `default_member_permissions` — must be `32` (Manage Server) on `hackathon-admin`
+  and absent on `hackathon`.
 
-(`with_localizations` is accepted only on the **global** list endpoint, and
-`default_member_permissions` is stored only on the top-level command.)
+Two details that cost time to rediscover: `with_localizations=true` is accepted
+only on the **global** command list (the guild-scoped one rejects it), and Discord
+stores `default_member_permissions` only on the top-level command.
 
 ## Running it locally without touching Discord
 
