@@ -107,8 +107,23 @@ pnpm --filter bot start           # bot + admin UI on ADMIN_PORT
 ```
 
 Environment variables: see `.env.example`. `DISCORD_GUILD_ID` is recommended
-(single-guild, instant command registration). Admins = `ADMIN_IDS` + anyone
-with Manage Server. The admin panel lives at `http://localhost:8420`.
+(instant command registration, and the fallback guild for password sessions).
+Admins = `ADMIN_IDS` + anyone with Manage Server. The admin panel lives at
+`http://localhost:8420`.
+
+### Signing in to the console
+
+Password (`ADMIN_PASSWORD`) always works and is pinned to `DISCORD_GUILD_ID`.
+Add `DISCORD_CLIENT_SECRET` to also offer **Sign in with Discord**: an organizer
+then sees every server they administer *and* where the bot is present, and picks
+one from the sidebar. Register the callback URL in the Discord developer portal
+(OAuth2 → Redirects — `http://localhost:8420/auth/discord/callback` by default)
+and set the same value in `OAUTH_REDIRECT_URI`, or set `PUBLIC_URL` and it is
+derived from there. Without a client secret the console stays password-only and
+behaves exactly as before.
+
+`PUBLIC_URL` should be set in any real deployment: it decides the `Secure` cookie
+flag and is the origin trusted by the API's CSRF check.
 
 ## Development
 

@@ -1,8 +1,25 @@
 # Multi-guild console + Discord OAuth login
 
-Status: implementing
+Status: **implemented** — commit `a125505` (multi-guild scoping, OAuth login,
+security hardening, UI). Not yet deployed; a real Discord login also needs
+`DISCORD_CLIENT_SECRET` and the redirect URI registered in the developer portal.
 Owner: janne
 Related: `PRODUCT.md` (single Discord guild was a *held-true fact* — this plan replaces it)
+
+## Security posture (the checklist this was built against)
+
+| Concern | How it is handled |
+| --- | --- |
+| `state` (login CSRF) | 32-hex nonce per attempt, in its own `HttpOnly; SameSite=Lax` cookie, 10 min TTL, cleared on use, compared with `timingSafeEqual`. |
+| PKCE | S256 on every attempt. The verifier lives in an `HttpOnly` cookie and never appears in a URL; the challenge goes in the authorize URL. Guards against authorization-code injection even though we are a confidential client. |
+| Callback validation | Fails closed with a reason (`/?auth=…`): missing/mismatched state, missing PKCE cookie, `error=access_denied`, failed exchange, no shared guild. One-shot cookies, `Cache-Control: no-store`. |
+| Redirect URI | Never derived from the `Host` header — `OAUTH_REDIRECT_URI`, else `PUBLIC_URL`, else a loopback-only fallback. A spoofed Host cannot aim the code at another origin. |
+| Cookies | Session: `HttpOnly; SameSite=Strict; Path=/`, 7 days. OAuth pair: `HttpOnly; SameSite=Lax`, 10 min. `Secure` is added automatically when the public origin is https. |
+| Session fixation | Session ids are server-minted and never accepted from the client; a fresh row is created per login, and any session presented at login is invalidated first. |
+| Token handling | The OAuth access token is used once for `/users/@me` + `/users/@me/guilds` and discarded. No refresh token is stored, nothing is logged, and the exchange body is never echoed into logs. |
+| CSRF (API) | The session cookie is `SameSite=Strict`; in addition, state-changing requests whose `Origin` disagrees with the host we serve are rejected with `origin_mismatch`. |
+| Revocation | The `web_sessions` row **is** the session: a valid HMAC over a deleted row authenticates nothing. Logout deletes the row and the cookie stops resolving immediately. |
+| Authorisation | Two conditions: the person administers the guild (`MANAGE_GUILD` bit 5 or `ADMINISTRATOR` bit 3) **and** the bot is present in it. Guild switching is validated server-side against the session's stored guild list — the client never names a guild. |
 
 ## Goal
 
