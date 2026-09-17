@@ -100,7 +100,10 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.Connect,
         PermissionFlagsBits.ManageChannels,
-        PermissionFlagsBits.ManageRoles,
+        // NOTE: no ManageRoles here. Discord rejects a member overwrite that
+        // grants MANAGE_ROLES to the bot's own member with 50013 Missing
+        // Permissions — a bot cannot hold MANAGE_ROLES "over itself". The bot
+        // manages the channel via its guild-level permissions.
       ],
     });
   }
