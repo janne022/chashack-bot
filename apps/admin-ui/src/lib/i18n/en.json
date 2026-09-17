@@ -407,5 +407,18 @@
   "events.expand_block": "Expand",
   "events.collapse_block": "Collapse",
   "events.remove_block": "Remove block",
-  "events.hint_right_click": "Right-click for actions"
+  "events.hint_right_click": "Right-click for actions",
+  "login.with_discord": "Sign in with Discord",
+  "login.discord_hint": "You need the “Manage Server” permission on a server where the bot is installed.",
+  "login.use_password": "Use password instead",
+  "login.checking": "Checking sign-in options…",
+  "login.auth_cancelled": "Sign-in was cancelled at Discord.",
+  "login.auth_failed": "Discord sign-in did not complete. Please try again.",
+  "login.auth_no_guild": "You do not manage any server the bot is in. Ask an organizer for access, or invite the bot to your server.",
+  "login.auth_misconfigured": "Discord sign-in is not configured correctly (redirect URI). An organizer must fix the setup.",
+  "server.label": "Server",
+  "server.switch": "Switch server",
+  "server.none": "No server",
+  "server.signed_in_as": "Signed in as {name} · sign out",
+  "server.sign_out": "Sign out"
 }

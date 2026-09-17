@@ -203,6 +203,20 @@ export interface AppState {
   stats: Stats
 }
 
+export interface AuthGuild {
+  id: string
+  name: string | null
+  icon: string | null
+}
+
+/** `GET /api/auth/me` — who is signed in and what they may manage. */
+export interface AuthMe {
+  kind: 'discord' | 'password'
+  user: { id: string; username: string; avatar: string | null } | null
+  guild: { id: string | null; name: string | null }
+  guilds: AuthGuild[]
+}
+
 export const TEAM_COLOR_SWATCHES: { id: string; label: string; hex: string }[] = [
   { id: 'blurple', label: 'Blurple', hex: '#5865F2' },
   { id: 'green', label: 'Green', hex: '#3EC46D' },

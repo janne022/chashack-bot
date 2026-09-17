@@ -407,5 +407,18 @@
   "events.expand_block": "Expandera",
   "events.collapse_block": "Fäll ihop",
   "events.remove_block": "Ta bort block",
-  "events.hint_right_click": "Högerklicka för åtgärder"
+  "events.hint_right_click": "Högerklicka för åtgärder",
+  "login.with_discord": "Logga in med Discord",
+  "login.discord_hint": "Du behöver behörigheten ”Hantera server” på en server där boten är installerad.",
+  "login.use_password": "Använd lösenord i stället",
+  "login.checking": "Kontrollerar inloggningssätt…",
+  "login.auth_cancelled": "Inloggningen avbröts hos Discord.",
+  "login.auth_failed": "Inloggningen med Discord slutfördes inte. Försök igen.",
+  "login.auth_no_guild": "Du hanterar ingen server som boten finns i. Be en organisatör om åtkomst, eller bjud in boten till din server.",
+  "login.auth_misconfigured": "Discord-inloggningen är inte korrekt konfigurerad (redirect-URI). En organisatör måste åtgärda det.",
+  "server.label": "Server",
+  "server.switch": "Byt server",
+  "server.none": "Ingen server",
+  "server.signed_in_as": "Inloggad som {name} · logga ut",
+  "server.sign_out": "Logga ut"
 }

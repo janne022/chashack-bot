@@ -35,6 +35,12 @@ export interface Env {
   adminPort: number;
   adminPassword: string;
   adminSessionSecret: string;
+  /** OAuth2 client secret — when set, the console offers "Sign in with Discord". */
+  discordClientSecret: string | undefined;
+  /** Callback URL registered in the Discord Developer Portal. */
+  oauthRedirectUri: string | undefined;
+  /** Public origin when the console sits behind a proxy. */
+  publicUrl: string | undefined;
   dbPath: string;
   announceChannelId: string | undefined;
   auditChannelId: string | undefined;
@@ -82,6 +88,9 @@ export function env(): Env {
     adminPort: Number(get('ADMIN_PORT') || '8420'),
     adminPassword: adminPassword,
     adminSessionSecret: get('ADMIN_SESSION_SECRET') || adminPassword,
+    discordClientSecret: get('DISCORD_CLIENT_SECRET') || undefined,
+    oauthRedirectUri: get('OAUTH_REDIRECT_URI') || undefined,
+    publicUrl: get('PUBLIC_URL') || undefined,
     dbPath: get('DB_PATH') || 'data/chashack.db',
     announceChannelId: get('ANNOUNCE_CHANNEL_ID') || undefined,
     auditChannelId: get('AUDIT_CHANNEL_ID') || undefined,

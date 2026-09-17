@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { ServerSwitcher } from '@/components/ServerSwitcher'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAppContext } from '@/lib/app-context'
 import { useLocale, useT, setLocale } from '@/lib/i18n'
@@ -113,6 +114,7 @@ export function AppShell({
             </Link>
           ))}
         </nav>
+        <ServerSwitcher />
         <EventSwitcher state={state} />
         <div className="mt-auto flex flex-col gap-2 pb-1">
           <div className="hex-bg rounded-xl border border-border p-3">

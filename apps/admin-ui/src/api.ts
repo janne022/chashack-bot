@@ -1,4 +1,4 @@
-import type { AppState, FormConfig, HackathonEvent, MatchResult, Team, TeamSuggestion } from './types'
+import type { AppState, AuthMe, FormConfig, HackathonEvent, MatchResult, Team, TeamSuggestion } from './types'
 
 class ApiError extends Error {
   constructor(
@@ -323,6 +323,24 @@ export const api = {
 
   async deleteTemplate(templateId: string): Promise<void> {
     await request(`/api/templates/${templateId}`, { method: 'DELETE' })
+  },
+
+  // ─── session (multi-server + Discord login) ───
+
+  async authMode(): Promise<{ oauth: boolean; password: boolean }> {
+    return request('/api/auth/mode')
+  },
+
+  async authMe(): Promise<AuthMe> {
+    return request('/api/auth/me')
+  },
+
+  async switchGuild(guildId: string): Promise<{ ok: true; guildId: string }> {
+    return request('/api/auth/guild', { method: 'POST', body: JSON.stringify({ guildId }) })
+  },
+
+  async logout(): Promise<void> {
+    await request('/api/auth/logout', { method: 'POST' })
   },
 }
 
