@@ -88,43 +88,19 @@ Consequences worth remembering:
   everyone else. Discord only supports that field on the top-level command —
   a per-subcommand value is dropped at registration.
 
-## Change propagation (update every twin, or it silently half-works)
+## Change propagation, verification, local testing
 
-| When you change… | Also update | Failure mode when you forget |
-| --- | --- | --- |
-| An event/template field | DB column + `INSERT`/`UPDATE` value lists · row mapper · type · `normalizeX()` · `createEvent`/`updateEvent` · `templateToEventInput()` · admin `types.ts` + `api.ts` · the dialogs · the `notify.ts` consumer | Column missing from the INSERT list stays `NULL` — no error, just never persists |
-| A user-facing string | `admin-ui .../i18n/en.json` **and** `sv.json` · bot strings in `shared/i18n.ts` (en + sv) | Swedish is first-class for participants and organizers |
-| A slash command / subcommand | `discord/commands.ts` · `cmd.<name>.desc` in both catalogs · `dispatch.ts` routing (`eventAdminSubs` for event tools) · the handler | A declared-but-unhandled subcommand fails only at runtime |
-| A schedule action type | `ScheduleAction` union · `normalizeSchedule` · `schedule-editor.tsx` · the `notify.ts` runner · planner tests | Three editors render actions; `assign_random` is a legacy alias of `auto_match` |
-| A guild-scoped setting | `guild_settings` column (+ `addColumnIfMissing`) · type · `updateGuildSettings` · `POST /api/guild/settings` validation · `ConfigPage` · every bot reader | Works in the console, ignored in Discord |
-| An HTTP endpoint | `routes.ts` with `guildOf(req)` / `resolveEventId(req)` · `api.ts` method + input type · the caller | Unscoped route reads the wrong server |
-| Auth/session logic | `features/auth/domain.ts` + `data.ts` + `routes.ts` · `web_sessions` · the login/picker UI · keep `/api/login` and `/api/auth/mode` the only public routes | A valid cookie whose row is gone must authenticate nothing |
-| Public env keys | `.env.example` · README setup · `shared/env.ts` | `PUBLIC_URL` drives the cookie `Secure` flag and the CSRF origin check |
-| Visual tokens | `DESIGN.md` · re-run `impeccable detect` | The detector reports drift |
-| Product facts | `PRODUCT.md` — rewrite the changed "held-true fact" | The next reader trusts a stale fact |
+**`AGENTS.md` is the reference for these** — keep one copy, not two:
 
-## Verify before committing
+- the change-propagation table (what else to touch when you change a field, string,
+  command, schedule action, guild setting, route, auth path, env key or design token),
+  with the failure mode for each;
+- the deliberate choices not to "fix" (two commands split by audience, rich editors
+  staying in the web console, per-guild registration);
+- the verify recipes: `npm run build && npm test`, the declared-vs-handled
+  subcommand grep, and the Discord read-back (which is the only ground truth for
+  what is actually registered);
+- how to run the stack locally without touching Discord.
 
-```bash
-cd apps/bot && npm run build && npm test      # tests run dist/**, so build first
-cd apps/admin-ui && npx tsc --noEmit && npm run build
-```
-
-Command coverage — every declared subcommand needs a handler:
-
-```bash
-cd apps/bot/src/discord
-grep -oE "sub\('[a-z-]+'" commands.ts | sed "s/sub('//;s/'//" | sort -u > /tmp/declared.txt
-grep -ohE "case '[a-z-]+'" user-commands.ts admin-commands.ts event-commands.ts | sed "s/case '//;s/'//" | sort -u > /tmp/handled.txt
-comm -23 /tmp/declared.txt /tmp/handled.txt    # anything listed here is unroutable
-```
-
-Discord ground truth — read back what Discord stored, not what you sent:
-
-```bash
-curl -s -H "Authorization: Bot $DISCORD_TOKEN" \
-  "https://discord.com/api/v10/applications/$CID/commands?with_localizations=true"
-```
-
-(`with_localizations` is accepted only on the **global** list endpoint, and
-`default_member_permissions` is stored only on the top-level command.)
+If you change how the layers connect, update `AGENTS.md` first — it is what the
+next person reads before touching code.
