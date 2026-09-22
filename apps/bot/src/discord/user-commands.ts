@@ -289,7 +289,7 @@ export async function handleUserCommand(
         return;
       }
       const { buildParticipantEmbed } = await import('./shared.js');
-      await i.reply({ embeds: [buildParticipantEmbed(db, config, p, locale)], flags: MessageFlags.Ephemeral });
+      await i.reply({ embeds: [await buildParticipantEmbed(db, config, p, locale)], flags: MessageFlags.Ephemeral });
       return;
     }
 
