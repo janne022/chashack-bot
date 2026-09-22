@@ -1,7 +1,42 @@
 # Program: multi-guild at scale + participant web surface
 
-Status: **in flight** — issues #9–#16, workstreams dispatched to reviewed PRs.
+Status: **in flight** — issues #9–#24. Product model changed mid-program (see below).
 Owner: janne. Related: `multi-guild-oauth.md` (console-side multi-guild, shipped `a125505`).
+
+## Product model: hosted multi-tenant SaaS (changed mid-program)
+
+The original framing was a **self-hosted, single-guild, single-tenant** bot with a shared console
+password. The target is now the opposite:
+
+- **Hosted once, publicly**, by the owner; **many independent organizations** (schools) install the bot
+  into their own Discord servers and run their own hackathons.
+- **Login is Discord OAuth only.** No shared password, no operator session, no env-guild fallback. Your
+  authority is exactly *the servers where you have Manage Server **and** the bot is installed*.
+- Tenants are **untrusted third parties**. Cross-tenant isolation stops being defence-in-depth and
+  becomes the core security control.
+
+Held-true facts this invalidates (a `PRODUCT.md` rewrite is required in WS8 #22):
+
+| Held-true fact | Status |
+| --- | --- |
+| "One Discord guild" | dead — many guilds, many organizations |
+| "Single-tenant by design" | dead — untrusted multi-tenant |
+| "everyone shares one password" | dead — per-person Discord identity |
+| "no organizer onboarding" | dead — onboarding is inviting the bot |
+| "participants never touch the console" | unchanged for the console; participants get WS4's own surface |
+
+## Launch gates (before any public exposure)
+
+Public hosting concentrates risk, so three things land first:
+
+1. **#20** — the two live cross-tenant leaks (one global `form_config`, a guild-less `audit_log`).
+2. **WS7 #19** — database-enforced tenant isolation (RLS), so a forgotten filter cannot disclose.
+3. **WS10 #24** — privacy policy and terms, which **Discord's verification process requires**: bot
+   verification applies at 100 servers and an app awaiting review is blocked from joining new servers, so
+   the paperwork gates growth rather than trailing it.
+
+Plus **WS9 #23** for tenant lifecycle, quotas and shared-token fairness (Discord rate limits are
+per-token, so one tenant's burst degrades every tenant).
 
 ## Why
 
@@ -38,6 +73,9 @@ Owner: janne. Related: `multi-guild-oauth.md` (console-side multi-guild, shipped
 | 6 | #16 Redis cache with explicit invalidation | 2b, 3 (for the resource) | `apps/bot/src/shared/cache.ts` (new) + read/write call sites |
 | 7 | #19 Postgres row-level security (tenant context + policies) | 2b | `apps/bot/src/shared/tenant/**` (new), migrations, docs |
 | - | #20 Cross-tenant leaks: global `form_config` + unfiltered `audit_log` | 2a | `apps/bot/src/features/form/**`, `shared/audit.ts`, the console form page |
+| 8 | #22 Discord OAuth only (retire the shared password) | 2a | `apps/bot/src/features/auth/**`, auth routes, login UI, `.env.example` |
+| 9 | #23 Public hosting readiness (lifecycle, quotas, fairness) | 2a, 8 | `apps/bot/src/features/tenant/**` (new), `discord/**` guild lifecycle, docs |
+| 10 | #24 Compliance docs (privacy, terms, retention, minors) | — | `docs/legal/**` (new), `PRODUCT.md` |
 
 Dependency graph:
 
@@ -146,6 +184,12 @@ application-level routes.
   not a performance one.
 - Tenant isolation is enforced at the database (RLS, WS7) *in addition to* application scoping — never
   instead of it. A missing `WHERE guild_id` must be a correctness bug, not a data breach.
+- **Privilege must not be stale.** A login-time snapshot of "guilds this person administers" is a
+  multi-tenant vulnerability: a helper demoted or removed mid-event keeps console authority until the
+  cookie expires. Authorisation is re-checked, or the staleness window is bounded and documented
+  (WS8 #22 R6).
+- **A cross-tenant read is a disclosure between customers** — reported as a security defect regardless of
+  how small it looks, because tenants are untrusted third parties.
 
 ## Out of scope
 
