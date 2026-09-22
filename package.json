@@ -13,9 +13,14 @@
     "test": "pnpm -r test",
     "dev:admin": "pnpm --filter admin-ui dev",
     "build:admin": "pnpm --filter admin-ui build",
-    "register:commands": "pnpm --filter bot register:commands"
+    "register:commands": "pnpm --filter bot register:commands",
+    "aspire": "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0 aspire",
+    "aspire:restore": "pnpm run aspire restore --non-interactive",
+    "dev": "pnpm run aspire:restore && pnpm run aspire start && pnpm run aspire ps",
+    "dev:stop": "pnpm run aspire stop"
   },
   "devDependencies": {
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vscode-jsonrpc": "8.2.1"
   }
 }
