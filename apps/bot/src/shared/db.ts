@@ -8,20 +8,183 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes } from 'node:crypto';
 
-export type Db = DatabaseSync;
+/**
+ * Async statement facade over the dialect's connection.
+ *
+ * `all`/`get`/`run` mirror the prepared-statement primitives with positional
+ * parameters; `transaction` runs a callback atomically and is serialised against
+ * every other async statement and transaction on the handle, so a
+ * read-modify-write sequence inside it cannot interleave with concurrent
+ * callers (the guarantee the old synchronous code had for free).
+ *
+ * Dialect-portability contract for WS2b: a Postgres driver implements this same
+ * interface (`all/get/run/transaction` over a pooled client); slices never see
+ * the driver. `exec` is deliberately NOT part of this facade — multi-statement
+ * DDL and PRAGMAs stay on the driver-specific open/migrate path.
+ */
+export interface AsyncDb {
+  /** Run a SELECT (or any row-returning statement) → all rows. */
+  all<T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T[]>;
+  /** Run a statement expected to return at most one row. */
+  get<T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T | undefined>;
+  /** Run a mutating statement → { changes, lastInsertRowid }. */
+  run(sql: string, ...params: unknown[]): Promise<{ changes: number | bigint; lastInsertRowid: number | bigint }>;
+  /**
+   * Run fn atomically: BEGIN … COMMIT, ROLLBACK on throw. Nested calls become
+   * SAVEPOINTs. Serialised per handle (single-writer queue) — statements issued
+   * from inside fn join the transaction; statements from outside queue until it
+   * finishes, which is what keeps check-then-write sequences safe at await points.
+   */
+  transaction<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+/**
+ * The database handle: the raw driver face (used by migrations, tests, the
+ * Kysely adapter and index.ts bootstrap) PLUS the async facade used by every
+ * slice data module.
+ */
+export type Db = DatabaseSync & AsyncDb;
 
 export function openDb(dbPath: string): Db {
   if (dbPath !== ':memory:') {
     mkdirSync(dirname(dbPath), { recursive: true });
   }
-  const db = new DatabaseSync(dbPath);
+  const db = new DatabaseSync(dbPath) as Db;
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
+  attachAsyncFacade(db);
   migrate(db);
   return db;
+}
+
+// ─── async facade plumbing ───────────────────────────────────────────────────
+
+interface FacadeState {
+  /** Tail of the single-writer queue: every transaction chains onto it. */
+  queue: Promise<unknown>;
+  /** AsyncLocalStorage marking statements that belong to the open transaction. */
+  tx: AsyncLocalStorage<{ depth: number }>;
+}
+
+const facadeStates = new WeakMap<DatabaseSync, FacadeState>();
+
+function stateOf(db: DatabaseSync): FacadeState {
+  let s = facadeStates.get(db);
+  if (s === undefined) {
+    s = { queue: Promise.resolve(), tx: new AsyncLocalStorage() };
+    facadeStates.set(db, s);
+  }
+  return s;
+}
+
+function attachAsyncFacade(db: Db): void {
+  const state = stateOf(db);
+
+  const execDirect = (sql: string, params: unknown[]): { rows: Record<string, unknown>[]; changes: number | bigint } => {
+    const stmt = db.prepare(sql);
+    const isRead = /^\s*(SELECT|WITH|PRAGMA|RETURNING)\b/i.test(sql);
+    if (isRead) {
+      return { rows: stmt.all(...(params as never[])) as unknown as Record<string, unknown>[], changes: 0 };
+    }
+    const info = stmt.run(...(params as never[]));
+    return { rows: stmt.all(...(params as never[])) as unknown as Record<string, unknown>[], changes: info.changes };
+  };
+
+  const execute = async <T>(
+    sql: string,
+    params: unknown[],
+    mode: 'all' | 'get' | 'run',
+  ): Promise<T> => {
+    // Inside a transaction's async context: run directly — we are already
+    // serialised by the transaction slot and must join its connection state.
+    if (state.tx.getStore() !== undefined) {
+      return finish(sql, params, mode);
+    }
+    // Outside: still never interleave with an open transaction. Because
+    // node:sqlite is synchronous the queue only ever gates on an in-flight
+    // transaction — plain statements remain effectively immediate.
+    const s = state;
+    const result = s.queue.then(() => finish(sql, params, mode)) as Promise<T>;
+    s.queue = result.catch(() => undefined);
+    return result;
+  };
+
+  const finish = <T>(sql: string, params: unknown[], mode: 'all' | 'get' | 'run'): Promise<T> => {
+    try {
+      const { rows, changes } = execDirect(sql, params);
+      if (mode === 'all') return Promise.resolve(rows as T);
+      if (mode === 'get') return Promise.resolve(rows[0] as T);
+      return Promise.resolve({ changes, lastInsertRowid: 0 } as T);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  };
+
+  const runDirect = (sql: string, params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint } => {
+    const info = db.prepare(sql).run(...(params as never[]));
+    return { changes: info.changes, lastInsertRowid: info.lastInsertRowid };
+  };
+
+  db.all = async <T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T[]> =>
+    execute<T>(sql, params, 'all');
+  db.get = async <T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T | undefined> =>
+    execute<T | undefined>(sql, params, 'get');
+  db.run = async (sql: string, ...params: unknown[]): Promise<{ changes: number | bigint; lastInsertRowid: number | bigint }> => {
+    if (state.tx.getStore() !== undefined) return runDirect(sql, params);
+    const s = state;
+    const result = s.queue.then(() => runDirect(sql, params));
+    s.queue = result.catch(() => undefined);
+    return result;
+  };
+
+  db.transaction = <T>(fn: () => Promise<T>): Promise<T> => {
+    const store = state.tx.getStore();
+    if (store !== undefined) {
+      // Nested transaction → savepoint, so an inner failure rolls back only
+      // the inner part while the outer transaction stays in control.
+      const sp = `sp_${store.depth + 1}`;
+      store.depth += 1;
+      db.exec(`SAVEPOINT ${sp}`);
+      return (async () => {
+        try {
+          const value = await fn();
+          db.exec(`RELEASE SAVEPOINT ${sp}`);
+          store.depth -= 1;
+          return value;
+        } catch (error) {
+          db.exec(`ROLLBACK TO SAVEPOINT ${sp}`);
+          store.depth -= 1;
+          throw error;
+        }
+      })();
+    }
+    // Top-level transaction: take the single-writer slot for the whole body.
+    const s = state;
+    const result = s.queue.then(
+      () =>
+        state.tx.run({ depth: 0 }, async () => {
+          db.exec('BEGIN');
+          try {
+            const value = await fn();
+            db.exec('COMMIT');
+            return value;
+          } catch (error) {
+            try {
+              db.exec('ROLLBACK');
+            } catch (rollbackError) {
+              console.warn('transaction rollback failed:', rollbackError);
+            }
+            throw error;
+          }
+        }) as Promise<T>,
+    );
+    s.queue = result.catch(() => undefined);
+    return result;
+  };
 }
 
 function addColumnIfMissing(db: Db, table: string, column: string, definition: string): void {

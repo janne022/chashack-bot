@@ -13,20 +13,26 @@ export interface AuditEntry {
   details: string | null;
 }
 
-export function audit(
+export async function audit(
   db: Db,
   actor: string,
   action: string,
   target: string | null,
   details: Record<string, unknown> | null,
-): void {
-  db.prepare(
+): Promise<void> {
+  await db.run(
     'INSERT INTO audit_log (ts, actor, action, target, details) VALUES (?, ?, ?, ?, ?)',
-  ).run(Date.now(), actor, action, target, details === null ? null : JSON.stringify(details));
+    Date.now(),
+    actor,
+    action,
+    target,
+    details === null ? null : JSON.stringify(details),
+  );
 }
 
-export function auditList(db: Db, limit: number): AuditEntry[] {
-  return db
-    .prepare('SELECT id, ts, actor, action, target, details FROM audit_log ORDER BY ts DESC, id DESC LIMIT ?')
-    .all(Math.min(Math.max(limit, 1), 500)) as unknown as AuditEntry[];
+export async function auditList(db: Db, limit: number): Promise<AuditEntry[]> {
+  return db.all<AuditEntry>(
+    'SELECT id, ts, actor, action, target, details FROM audit_log ORDER BY ts DESC, id DESC LIMIT ?',
+    Math.min(Math.max(limit, 1), 500),
+  );
 }

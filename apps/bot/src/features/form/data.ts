@@ -6,13 +6,10 @@ import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import { DEFAULT_FORM, normalizeFormUpdate, type FormConfig } from './domain.js';
 
-export function getForm(db: Db): FormConfig {
-  const row = db.prepare('SELECT json FROM form_config WHERE id = 1').get() as { json: string } | undefined;
+export async function getForm(db: Db): Promise<FormConfig> {
+  const row = await db.get<{ json: string }>('SELECT json FROM form_config WHERE id = 1');
   if (row === undefined) {
-    db.prepare('INSERT INTO form_config (id, json, updated_at) VALUES (1, ?, ?)').run(
-      JSON.stringify(DEFAULT_FORM),
-      Date.now(),
-    );
+    await db.run('INSERT INTO form_config (id, json, updated_at) VALUES (1, ?, ?)', JSON.stringify(DEFAULT_FORM), Date.now());
     return DEFAULT_FORM;
   }
   try {
@@ -24,19 +21,23 @@ export function getForm(db: Db): FormConfig {
   }
 }
 
-export function updateForm(db: Db, actor: string, update: Partial<FormConfig>): Result<FormConfig> {
-  const current = getForm(db);
-  const next = normalizeFormUpdate(current, update);
-  if (next.title === current.title && JSON.stringify(next) === JSON.stringify(current)) {
-    return err('no_change', 'Nothing changed.');
-  }
-  db.prepare('UPDATE form_config SET json = ?, updated_at = ? WHERE id = 1').run(JSON.stringify(next), Date.now());
-  audit(db, actor, 'form.update', 'form', { before: current.version, after: next.version });
-  return ok(next);
+export async function updateForm(db: Db, actor: string, update: Partial<FormConfig>): Promise<Result<FormConfig>> {
+  // Read-modify-write: the no-change comparison must see the same row it writes,
+  // so the whole sequence runs atomically (implicitly serial in the sync code).
+  return db.transaction(async () => {
+    const current = await getForm(db);
+    const next = normalizeFormUpdate(current, update);
+    if (next.title === current.title && JSON.stringify(next) === JSON.stringify(current)) {
+      return err('no_change', 'Nothing changed.');
+    }
+    await db.run('UPDATE form_config SET json = ?, updated_at = ? WHERE id = 1', JSON.stringify(next), Date.now());
+    await audit(db, actor, 'form.update', 'form', { before: current.version, after: next.version });
+    return ok(next);
+  });
 }
 
-export function resetForm(db: Db, actor: string): Result<FormConfig> {
-  db.prepare('UPDATE form_config SET json = ?, updated_at = ? WHERE id = 1').run(JSON.stringify(DEFAULT_FORM), Date.now());
-  audit(db, actor, 'form.reset', 'form', null);
+export async function resetForm(db: Db, actor: string): Promise<Result<FormConfig>> {
+  await db.run('UPDATE form_config SET json = ?, updated_at = ? WHERE id = 1', JSON.stringify(DEFAULT_FORM), Date.now());
+  await audit(db, actor, 'form.reset', 'form', null);
   return ok(DEFAULT_FORM);
 }
