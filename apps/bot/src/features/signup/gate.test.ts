@@ -13,7 +13,7 @@ const signup: ValidatedSignup = {
   teamPref: 'random_team',
 };
 
-async function seed(): Db {
+async function seed(): Promise<Db> {
   const db = openDb(':memory:');
   db.prepare(
     "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES ('ev1', 'g1', 'Active One', 'active', 1, 1)",
@@ -24,21 +24,21 @@ async function seed(): Db {
   return db;
 }
 
-test('upsertParticipant rejects when no event exists for the id', () => {
+test('upsertParticipant rejects when no event exists for the id', async () => {
   const db = seed();
   const res = await upsertParticipant(db, 'discord:42', 'ghost-event', 'g1', '42', signup);
   assert.equal(res.ok, false);
   if (!res.ok) assert.equal(res.code, 'no_event');
 });
 
-test('upsertParticipant rejects draft events', () => {
+test('upsertParticipant rejects draft events', async () => {
   const db = seed();
   const res = await upsertParticipant(db, 'discord:42', 'ev2', 'g1', '42', signup);
   assert.equal(res.ok, false);
   if (!res.ok) assert.equal(res.code, 'event_not_active');
 });
 
-test('upsertParticipant accepts active events', () => {
+test('upsertParticipant accepts active events', async () => {
   const db = seed();
   const res = await upsertParticipant(db, 'discord:42', 'ev1', 'g1', '42', signup);
   assert.equal(res.ok, true);

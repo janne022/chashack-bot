@@ -39,7 +39,7 @@ async function signup(
 }
 
 /** Fresh in-memory DB per test (node:test runs this file in one process). */
-async function freshDb(): void {
+async function freshDb(): Promise<void> {
   db = openDb(':memory:');
   // The signup data layer gates on an ACTIVE event row — seed the fixture event.
   db.prepare(
@@ -47,7 +47,7 @@ async function freshDb(): void {
   ).run(EV, G);
 }
 
-test('signup → unteamed list → matching → committed teams', () => {
+test('signup → unteamed list → matching → committed teams', async () => {
   freshDb();
   signup('1', { roleTrack: 'frontend', skills: ['frontend_react'] });
   signup('2', { roleTrack: 'backend', skills: ['backend_node'] });
@@ -74,7 +74,7 @@ test('signup → unteamed list → matching → committed teams', () => {
   }
 });
 
-test('blocked users cannot re-signup and are excluded from matching', () => {
+test('blocked users cannot re-signup and are excluded from matching', async () => {
   freshDb();
   signup('1');
   const blocked = await blockParticipant(db, 'admin', EV, '1', 'test reason');
@@ -95,7 +95,7 @@ test('blocked users cannot re-signup and are excluded from matching', () => {
   assert.equal(await listMatchable(db, EV).length, 0);
 });
 
-test('public team create → join → capacity enforced', () => {
+test('public team create → join → capacity enforced', async () => {
   freshDb();
   signup('1');
   signup('2');
@@ -127,7 +127,7 @@ test('public team create → join → capacity enforced', () => {
   if (!over2.ok) assert.equal(over2.code, 'team_full');
 });
 
-test('private team join code round-trip', () => {
+test('private team join code round-trip', async () => {
   freshDb();
   signup('1');
   signup('2');
@@ -146,7 +146,7 @@ test('private team join code round-trip', () => {
   assert.ok(leave.ok);
 });
 
-test('setTeammates validates ids, dedupes and persists', () => {
+test('setTeammates validates ids, dedupes and persists', async () => {
   freshDb();
   signup('1');
   const res = await setTeammates(db, 'test', EV, '1', ['123456789012345678', 'bad-id!', '123456789012345678']);
