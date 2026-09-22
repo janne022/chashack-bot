@@ -249,14 +249,14 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
     allEvents = [];
     const guildRows = db.prepare('SELECT DISTINCT guild_id FROM events').all() as unknown as { guild_id: string }[];
     for (const { guild_id } of guildRows) {
-      allEvents.push(...listEvents(db, guild_id));
+      allEvents.push(...await listEvents(db, guild_id));
     }
   }
   const actions = planMaintenance(allEvents, now);
   if (actions.length === 0) return summary;
 
   for (const action of actions) {
-    const event = getEventRef(db, action.eventId);
+    const event = await getEventRef(db, action.eventId);
     if (event === null) continue;
     try {
       switch (action.type) {
@@ -282,7 +282,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             warnInvalidGuild(event.guildId, 'remind_24h');
           }
           // DM participants
-          for (const p of listParticipants(db, event.id, 'active')) {
+          for (const p of await listParticipants(db, event.id, 'active')) {
             await client.users.fetch(p.userId).then((u) => u.send({ embeds: [embed] })).catch(() => undefined);
           }
           if (kysely !== undefined) {
@@ -483,7 +483,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 const assigns = (event.assignments ?? []) as { id:string; title:string; instructions:string; imageUrl?:string }[]
                 if (assigns.length > 0) {
                   const { listTeams } = await import('../features/teams/data.js')
-                  const teams = await listTeams(db, event.guildId).filter((t: { eventId: string })=>t.eventId===event.id)
+                  const teams = (await listTeams(db, event.guildId)).filter((t: { eventId: string })=>t.eventId===event.id)
                   if (teams.length > 0) {
                     const mode = op.mode === 'same' ? 'same' : 'random'
                     const perTeam = mode === 'same'

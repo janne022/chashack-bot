@@ -119,7 +119,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
   await i.reply({
     embeds: [
       embedOk(t(locale, 'discord.join.saved_title'), t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })),
-      buildParticipantEmbed(ctx.db, ctx.config, saved.value, locale),
+      await buildParticipantEmbed(ctx.db, ctx.config, saved.value, locale),
     ],
     components: actions.components.length > 0 ? [actions] : [],
     flags: MessageFlags.Ephemeral,
@@ -243,7 +243,7 @@ export async function onComponent(
       return;
     }
     const { teamsBrowser } = await import('./user-commands.js');
-    const browser = teamsBrowser(ctx);
+    const browser = await teamsBrowser(ctx);
     if (browser === null) {
       await i.reply(eph(t(locale, 'discord.teams.none_open')));
       return;
@@ -275,7 +275,7 @@ export async function onComponent(
       return;
     }
     const { teamsBrowser } = await import('./user-commands.js');
-    const browser = teamsBrowser(ctx);
+    const browser = await teamsBrowser(ctx);
     if (browser === null) {
       await i.reply({ content: t(locale, 'discord.teams.none_open'), embeds: [], components: [] });
       return;
