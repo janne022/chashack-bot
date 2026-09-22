@@ -110,6 +110,35 @@ stores `default_member_permissions` only on the top-level command.
 
 ## Running it locally without touching Discord
 
+**AppHost path (recommended):** `pnpm dev` at the root — Postgres + Redis +
+bot API + admin console under the Aspire dashboard. See `docs/DEV.md`. Traps
+encoded there and in `apphost.mts`:
+
+- **Run `aspire` only through the root `aspire` pnpm script** (or
+  `pnpm dev`/`pnpm dev:stop`). This VM exports
+  `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`, which **crashes the Aspire
+  dashboard** (TypeInitializationException, OTLP `DEADLINE_EXCEEDED`); the
+  script pins it to `0`. Running the bare `aspire` binary fails confusingly —
+  the dashboard dies without mentioning globalization.
+- **`.aspire/` is gitignored and generated.** `apphost.mts` imports its typed
+  bindings, so `aspire restore` must run before `tsc -p
+  tsconfig.apphost.json` or `aspire start` on a fresh clone. `pnpm dev` does
+  restore first; `pnpm aspire:restore` is the standalone form.
+- **`.withPnpm()` on every JS resource in `apphost.mts`** — package-manager
+  detection looks for a lockfile inside the app directory, but this workspace
+  keeps one lockfile at the root, so detection falls back to npm and fails.
+- **Aspire CLI and `Aspire.Hosting.*` package versions must match** (both
+  13.5.4, see `aspire.config.json`). A mismatch surfaces as
+  `Could not invoke 'addX': Method not found`, not a version message.
+- **Use `aspire start`, never `aspire run`** (`run` blocks the terminal), and
+  `aspire describe --format Json` keys on `displayName`, not `name` (which
+  carries a random suffix).
+- **Aspire injects ADO.NET-style connection strings**
+  (`Host=…;Port=…;…`), not `postgresql://` URLs — `DATABASE_URL`/
+  `REDIS_URL` set from resource references do not hold URLs.
+
+Direct run, no Aspire:
+
 ```bash
 cd apps/bot && SKIP_DISCORD=1 ADMIN_PASSWORD=<tmp> DISCORD_GUILD_ID=<snowflake> DB_PATH=/tmp/x.db node dist/index.js
 ```
