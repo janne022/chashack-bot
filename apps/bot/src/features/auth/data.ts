@@ -52,17 +52,25 @@ function toSession(row: Row): WebSession {
   };
 }
 
-export function createSession(
+export async function createSession(
   db: Db,
   input: { userId: string; username: string; avatar: string | null; guilds: ManageableGuild[]; now?: number },
-): WebSession {
+): Promise<WebSession> {
   const now = input.now ?? Date.now();
   const id = randomBytes(16).toString('hex');
   const selected = input.guilds[0]?.id ?? null;
-  db.prepare(
+  await db.run(
     `INSERT INTO web_sessions (id, user_id, username, avatar, guild_ids, selected_guild_id, created_at, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, input.userId, input.username, input.avatar, JSON.stringify(input.guilds), selected, now, now + SESSION_TTL_MS);
+    id,
+    input.userId,
+    input.username,
+    input.avatar,
+    JSON.stringify(input.guilds),
+    selected,
+    now,
+    now + SESSION_TTL_MS,
+  );
   return toSession({
     id,
     user_id: input.userId,
@@ -75,18 +83,25 @@ export function createSession(
   });
 }
 
-export function getSession(db: Db, id: string, now: number = Date.now()): WebSession | null {
-  const row = db.prepare('SELECT * FROM web_sessions WHERE id = ?').get(id) as unknown as Row | undefined;
-  if (row === undefined) return null;
-  if (row.expires_at < now) {
-    deleteSession(db, id);
-    return null;
-  }
-  return toSession(row);
+/**
+ * Single atomic step: read the session, delete it when expired, return it when
+ * live. In the synchronous code the expiry check and the DELETE were implicitly
+ * serialised; the transaction keeps that guarantee now that awaits interleave.
+ */
+export async function getSession(db: Db, id: string, now: number = Date.now()): Promise<WebSession | null> {
+  return db.transaction(async () => {
+    const row = await db.get<Row>('SELECT * FROM web_sessions WHERE id = ?', id);
+    if (row === undefined) return null;
+    if (row.expires_at < now) {
+      await db.run('DELETE FROM web_sessions WHERE id = ?', id);
+      return null;
+    }
+    return toSession(row);
+  });
 }
 
-export function deleteSession(db: Db, id: string): void {
-  db.prepare('DELETE FROM web_sessions WHERE id = ?').run(id);
+export async function deleteSession(db: Db, id: string): Promise<void> {
+  await db.run('DELETE FROM web_sessions WHERE id = ?', id);
 }
 
 /**
@@ -94,16 +109,18 @@ export function deleteSession(db: Db, id: string): void {
  * manage that guild — the authorisation check lives here so no route can forget
  * it.
  */
-export function selectGuild(db: Db, id: string, guildId: string): boolean {
-  const session = getSession(db, id);
-  if (session === null) return false;
-  if (!session.guilds.some((g) => g.id === guildId)) return false;
-  db.prepare('UPDATE web_sessions SET selected_guild_id = ? WHERE id = ?').run(guildId, id);
-  return true;
+export async function selectGuild(db: Db, id: string, guildId: string): Promise<boolean> {
+  return db.transaction(async () => {
+    const session = await getSession(db, id);
+    if (session === null) return false;
+    if (!session.guilds.some((g) => g.id === guildId)) return false;
+    await db.run('UPDATE web_sessions SET selected_guild_id = ? WHERE id = ?', guildId, id);
+    return true;
+  });
 }
 
 /** Drop expired rows — called on boot and on login so the table can't grow. */
-export function purgeExpiredSessions(db: Db, now: number = Date.now()): number {
-  const res = db.prepare('DELETE FROM web_sessions WHERE expires_at < ?').run(now);
+export async function purgeExpiredSessions(db: Db, now: number = Date.now()): Promise<number> {
+  const res = await db.run('DELETE FROM web_sessions WHERE expires_at < ?', now);
   return Number(res.changes);
 }
