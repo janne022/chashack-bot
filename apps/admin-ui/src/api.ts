@@ -269,13 +269,6 @@ export const api = {
     })
   },
 
-  async postScheduleItinerary(eventId: string, channelId?: string): Promise<{ ok: true; channelId: string; messageId: string; edited: boolean }> {
-    return request(`/api/events/${eventId}/schedule-itinerary`, {
-      method: 'POST',
-      body: JSON.stringify(channelId ? { channelId } : {}),
-    })
-  },
-
   async getGuildChannels(): Promise<{ channels: { id: string; name: string }[]; categories: { id: string; name: string }[]; roles: { id: string; name: string; color: string }[] }> {
     return request('/api/guild/channels')
   },
