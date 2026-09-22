@@ -27,11 +27,11 @@ import { IDS, cancelRow, decideRow, displayErr, embedOk, eph, type Ctx } from '.
 import { t } from '../shared/i18n.js';
 
 /** Browser: pick a public team with space → send join request. Shared with the panel button. */
-export function teamsBrowser(
+export async function teamsBrowser(
   ctx: Ctx,
-): { embeds: EmbedBuilder[]; components: ActionRowBuilder<StringSelectMenuBuilder>[] } | null {
+): Promise<{ embeds: EmbedBuilder[]; components: ActionRowBuilder<StringSelectMenuBuilder>[] } | null> {
   const locale = ctx.botLocale;
-  const open = listOpenPublicTeams(ctx.db, ctx.eventId, ctx.config.teamSize);
+  const open = await listOpenPublicTeams(ctx.db, ctx.eventId, ctx.config.teamSize);
   if (open.length === 0) return null;
   const select = new SelectBuilder()
     .setCustomId(IDS.teamsSelect)
@@ -69,7 +69,7 @@ export async function handleUserCommand(
         await i.reply(eph(t(locale, 'discord.gate.no_active')));
         return;
       }
-      const existing = getParticipant(db, ctx.eventId, i.user.id);
+      const existing = await getParticipant(db, ctx.eventId, i.user.id);
       if (existing?.status === 'blocked') {
         await i.reply(eph(t(locale, 'errors.blocked')));
         return;
@@ -96,7 +96,7 @@ export async function handleUserCommand(
     }
 
     case 'team-settings': {
-      const team = getTeamForUser(db, ctx.eventId, i.user.id);
+      const team = await getTeamForUser(db, ctx.eventId, i.user.id);
       if (team === null) {
         await i.reply(eph(t(locale, 'discord.teams.not_in_team')));
         return;
@@ -124,7 +124,7 @@ export async function handleUserCommand(
     }
 
     case 'invite': {
-      const team = getTeamForUser(db, ctx.eventId, i.user.id);
+      const team = await getTeamForUser(db, ctx.eventId, i.user.id);
       if (team === null) {
         await i.reply(eph(t(locale, 'discord.teams.not_in_team_create')));
         return;
@@ -143,7 +143,7 @@ export async function handleUserCommand(
         return;
       }
       const { createInvite } = await import('../features/teams/requests-data.js');
-      const res = createInvite(db, actor, ctx.eventId, guildId, team.id, target.id, config.teamSize);
+      const res = await createInvite(db, actor, ctx.eventId, guildId, team.id, target.id, config.teamSize);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -152,7 +152,7 @@ export async function handleUserCommand(
       const inviter = `${i.user.username} (from **${team.name}**)`;
       const dmSent = await ctx.dm(target.id, {
         content: t(locale, 'discord.teams.invite_dm', { inviter }),
-        embeds: [inviteEmbed(ctx, team.name, team.id)],
+        embeds: [await inviteEmbed(ctx, team.name, team.id)],
         components: [decideRow(IDS.reqAccept, res.value.id, locale)],
       });
       await i.reply({
@@ -171,23 +171,23 @@ export async function handleUserCommand(
 
     case 'invitations':
     case 'team-requests': {
-      const { incoming, outgoing } = listRequestsForUser(db, ctx.eventId, i.user.id, 'pending');
+      const { incoming, outgoing } = await listRequestsForUser(db, ctx.eventId, i.user.id, 'pending');
       if (incoming.length === 0 && outgoing.length === 0) {
         await i.reply(eph(t(locale, 'discord.teams.nothing_pending')));
         return;
       }
       const embed = new EmbedBuilder().setTitle(t(locale, 'discord.teams.pending_title')).setColor(0x5865f2);
-      const waitingOnMe = incoming.map((r) => {
-        const team = getTeam(db, r.teamId);
+      const waitingOnMe = await Promise.all(incoming.map(async (r) => {
+        const team = await getTeam(db, r.teamId);
         const label = r.kind === 'invite' ? t(locale, 'discord.teams.kind_invite') : t(locale, 'discord.teams.kind_join_request');
         return `**${label}** — ${team?.name ?? t(locale, 'discord.teams.unknown_team')} (from <@${r.requesterId}>)`;
-      });
-      const sent = outgoing.map((r) => {
-        const team = getTeam(db, r.teamId);
+      }));
+      const sent = await Promise.all(outgoing.map(async (r) => {
+        const team = await getTeam(db, r.teamId);
         return r.kind === 'invite'
           ? `Invite → <@${r.targetId}> for **${team?.name ?? '?'}**`
           : `Join request → **${team?.name ?? '?'}**`;
-      });
+      }));
       if (waitingOnMe.length > 0) embed.addFields({ name: t(locale, 'discord.teams.waiting_on_you'), value: waitingOnMe.join('\n').slice(0, 1024) });
       if (sent.length > 0) embed.addFields({ name: t(locale, 'discord.teams.you_sent'), value: sent.join('\n').slice(0, 1024) });
 
@@ -199,7 +199,7 @@ export async function handleUserCommand(
     }
 
     case 'leave': {
-      const res = withdrawParticipant(db, actor, ctx.eventId, i.user.id);
+      const res = await withdrawParticipant(db, actor, ctx.eventId, i.user.id);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -213,7 +213,7 @@ export async function handleUserCommand(
 
     case 'leave-team': {
       const { leaveTeam } = await import('../features/teams/data.js');
-      const res = leaveTeam(db, actor, ctx.eventId, i.user.id);
+      const res = await leaveTeam(db, actor, ctx.eventId, i.user.id);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -230,7 +230,7 @@ export async function handleUserCommand(
     case 'join-code': {
       const code = i.options.getString('code', true);
       const { joinPrivateTeam } = await import('../features/teams/data.js');
-      const res = joinPrivateTeam(db, actor, ctx.eventId, i.user.id, code, config.teamSize);
+      const res = await joinPrivateTeam(db, actor, ctx.eventId, i.user.id, code, config.teamSize);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -243,7 +243,7 @@ export async function handleUserCommand(
     }
 
     case 'team-code': {
-      const team = getTeamForUser(db, ctx.eventId, i.user.id);
+      const team = await getTeamForUser(db, ctx.eventId, i.user.id);
       if (team === null) {
         await i.reply(eph(t(locale, 'discord.teams.not_in_team')));
         return;
@@ -264,7 +264,7 @@ export async function handleUserCommand(
       const friendIds = [1, 2, 3, 4, 5]
         .map((n) => i.options.getUser(`friend${n}`)?.id)
         .filter((id): id is string => id !== undefined && id !== i.user.id);
-      const res = setTeammates(db, actor, ctx.eventId, i.user.id, friendIds);
+      const res = await setTeammates(db, actor, ctx.eventId, i.user.id, friendIds);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -283,13 +283,13 @@ export async function handleUserCommand(
     }
 
     case 'status': {
-      const p = getParticipant(db, ctx.eventId, i.user.id);
+      const p = await getParticipant(db, ctx.eventId, i.user.id);
       if (p === null || p.status === 'withdrawn') {
         await i.reply(eph(t(locale, 'discord.join.no_signup')));
         return;
       }
       const { buildParticipantEmbed } = await import('./shared.js');
-      await i.reply({ embeds: [buildParticipantEmbed(db, config, p, locale)], flags: MessageFlags.Ephemeral });
+      await i.reply({ embeds: [await buildParticipantEmbed(db, config, p, locale)], flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -298,9 +298,9 @@ export async function handleUserCommand(
   }
 }
 
-export function inviteEmbed(ctx: Ctx, teamName: string, teamId: string): EmbedBuilder {
+export async function inviteEmbed(ctx: Ctx, teamName: string, teamId: string): Promise<EmbedBuilder> {
   const locale = ctx.botLocale;
-  const members = countMembers(ctx.db, teamId);
+  const members = await countMembers(ctx.db, teamId);
   return new EmbedBuilder()
     .setTitle(t(locale, 'discord.teams.invite_embed_title', { name: teamName }))
     .setDescription(

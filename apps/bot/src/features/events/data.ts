@@ -328,7 +328,7 @@ export interface CreateEventInput {
   assignmentStrategy?: AssignmentStrategy;
 }
 
-export function createEvent(db: Db, actor: string, guildId: string, input: CreateEventInput): Result<HackathonEvent> {
+export async function createEvent(db: Db, actor: string, guildId: string, input: CreateEventInput): Promise<Result<HackathonEvent>> {
   const name = input.name.trim().slice(0, 100);
   if (name.length < 3) return err('bad_name', 'Event name must be at least 3 characters.');
   if (input.startsAt !== null && input.startsAt !== undefined && input.endsAt !== null && input.endsAt !== undefined) {
@@ -364,137 +364,153 @@ export function createEvent(db: Db, actor: string, guildId: string, input: Creat
   const schedule = assignments.length > 0
     ? withAssignmentDistribution(anchored, strategy, input.startsAt ?? null)
     : anchored;
-  db.prepare(
-    `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, signup_starts_at, signup_ends_at, status, form_json, panel_channel_id, category_id, cleanup_delay_hours, match_at, match_locked, discord_event_ids, announcement_channel_id, schedule_channel_id, schedule_json, announcements_json, assignments_json, announced_schedule_ids, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, 0, '[]', ?, ?, ?, ?, ?, '[]', ?, ?)`,
-  ).run(
-    id,
+  // Single INSERT is atomic on its own; the transaction keeps the audit row and
+  // the read-back (which must observe this insert) in the same unit.
+  return db.transaction(async () => {
+    await db.run(
+      `INSERT INTO events (id, guild_id, name, description, starts_at, ends_at, signup_starts_at, signup_ends_at, status, form_json, panel_channel_id, category_id, cleanup_delay_hours, match_at, match_locked, discord_event_ids, announcement_channel_id, schedule_channel_id, schedule_json, announcements_json, assignments_json, announced_schedule_ids, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, 0, '[]', ?, ?, ?, ?, ?, '[]', ?, ?)`,
+      id,
+      guildId,
+      name,
+      input.description?.trim() ?? '',
+      input.startsAt ?? null,
+      input.endsAt ?? null,
+      input.signupStartsAt ?? null,
+      input.signupEndsAt ?? null,
+      JSON.stringify(form),
+      input.panelChannelId ?? null,
+      input.categoryId ?? null,
+      Number.isFinite(Number(input.cleanupDelayHours)) ? Math.max(0, Math.min(720, Number(input.cleanupDelayHours))) : 24,
+      null,
+      input.announcementChannelId ?? null,
+      input.scheduleChannelId ?? null,
+      JSON.stringify(schedule),
+      JSON.stringify(input.announcements ?? []),
+      JSON.stringify(assignments),
+      Date.now(),
+      Date.now(),
+    );
+    await audit(db, actor, 'event.create', id, { name });
+    const created = await getEvent(db, id);
+    return ok(created!);
+  });
+}
+
+export async function getEvent(db: Db, eventId: string): Promise<HackathonEvent | null> {
+  const row = await db.get<EventRow>('SELECT * FROM events WHERE id = ?', eventId);
+  return row === undefined ? null : toEvent(row);
+}
+
+export async function listEvents(db: Db, guildId: string): Promise<HackathonEvent[]> {
+  const rows = await db.all<EventRow>('SELECT * FROM events WHERE guild_id = ? ORDER BY created_at DESC', guildId);
+  return rows.map(toEvent);
+}
+
+export async function getActiveEvent(db: Db, guildId: string): Promise<HackathonEvent | null> {
+  const row = await db.get<EventRow>(
+    "SELECT * FROM events WHERE guild_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
     guildId,
-    name,
-    input.description?.trim() ?? '',
-    input.startsAt ?? null,
-    input.endsAt ?? null,
-    input.signupStartsAt ?? null,
-    input.signupEndsAt ?? null,
-    JSON.stringify(form),
-    input.panelChannelId ?? null,
-    input.categoryId ?? null,
-    Number.isFinite(Number(input.cleanupDelayHours)) ? Math.max(0, Math.min(720, Number(input.cleanupDelayHours))) : 24,
-    null,
-    input.announcementChannelId ?? null,
-    input.scheduleChannelId ?? null,
-    JSON.stringify(schedule),
-    JSON.stringify(input.announcements ?? []),
-    JSON.stringify(assignments),
-    Date.now(),
-    Date.now(),
   );
-  audit(db, actor, 'event.create', id, { name });
-  return ok(getEvent(db, id)!);
-}
-
-export function getEvent(db: Db, eventId: string): HackathonEvent | null {
-  const row = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId) as unknown as EventRow | undefined;
   return row === undefined ? null : toEvent(row);
 }
 
-export function listEvents(db: Db, guildId: string): HackathonEvent[] {
-  return (
-    db.prepare('SELECT * FROM events WHERE guild_id = ? ORDER BY created_at DESC').all(guildId) as unknown as EventRow[]
-  ).map(toEvent);
-}
-
-export function getActiveEvent(db: Db, guildId: string): HackathonEvent | null {
-  const row = db
-    .prepare("SELECT * FROM events WHERE guild_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1")
-    .get(guildId) as unknown as EventRow | undefined;
-  return row === undefined ? null : toEvent(row);
-}
-
-export function updateEvent(
+export async function updateEvent(
   db: Db,
   actor: string,
   eventId: string,
   update: Partial<Pick<HackathonEvent, 'name' | 'description' | 'startsAt' | 'endsAt' | 'signupStartsAt' | 'signupEndsAt' | 'panelChannelId' | 'announcementChannelId' | 'scheduleChannelId' | 'categoryId' | 'cleanupDelayHours' | 'matchAt' | 'discordEventIds' | 'schedule' | 'announcements' | 'assignments'>>,
-): Result<HackathonEvent> {
-  const event = getEvent(db, eventId);
-  if (event === null) return err('not_found', 'Event not found.');
+): Promise<Result<HackathonEvent>> {
+  // Read current → validate → write → read back: a read-modify-write that must
+  // not interleave with a concurrent update (last-writer-wins per field would
+  // otherwise mix two editors' changes).
+  return db.transaction(async () => {
+    const event = await getEvent(db, eventId);
+    if (event === null) return err('not_found', 'Event not found.');
 
-  const name = update.name !== undefined ? update.name.trim().slice(0, 100) || event.name : event.name;
-  const description = update.description !== undefined ? update.description.slice(0, 1000) : event.description;
-  const startsAt = update.startsAt !== undefined ? update.startsAt : event.startsAt;
-  const endsAt = update.endsAt !== undefined ? update.endsAt : event.endsAt;
-  const signupStartsAt = update.signupStartsAt !== undefined ? update.signupStartsAt : event.signupStartsAt;
-  const signupEndsAt = update.signupEndsAt !== undefined ? update.signupEndsAt : event.signupEndsAt;
-  if (startsAt !== null && endsAt !== null && endsAt <= startsAt) {
-    return err('bad_dates', 'The event must end after it starts.');
-  }
-  if (signupStartsAt !== null && signupEndsAt !== null && signupEndsAt <= signupStartsAt) {
-    return err('bad_dates', 'Signup must end after it starts.');
-  }
-  if (signupEndsAt !== null && startsAt !== null && signupEndsAt > startsAt) {
-    return err('bad_dates', 'Signup must end before the hackathon starts.');
-  }
-  if (update.startsAt !== undefined && startsAt !== null) {
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    if (startsAt < todayStart.getTime()) return err('bad_dates', 'Event cannot start in the past.');
-  }
-  const cleanupDelayHours =
-    update.cleanupDelayHours !== undefined
-      ? Math.min(Math.max(Math.round(update.cleanupDelayHours), 0), 24 * 30)
-      : event.cleanupDelayHours;
+    const name = update.name !== undefined ? update.name.trim().slice(0, 100) || event.name : event.name;
+    const description = update.description !== undefined ? update.description.slice(0, 1000) : event.description;
+    const startsAt = update.startsAt !== undefined ? update.startsAt : event.startsAt;
+    const endsAt = update.endsAt !== undefined ? update.endsAt : event.endsAt;
+    const signupStartsAt = update.signupStartsAt !== undefined ? update.signupStartsAt : event.signupStartsAt;
+    const signupEndsAt = update.signupEndsAt !== undefined ? update.signupEndsAt : event.signupEndsAt;
+    if (startsAt !== null && endsAt !== null && endsAt <= startsAt) {
+      return err('bad_dates', 'The event must end after it starts.');
+    }
+    if (signupStartsAt !== null && signupEndsAt !== null && signupEndsAt <= signupStartsAt) {
+      return err('bad_dates', 'Signup must end after it starts.');
+    }
+    if (signupEndsAt !== null && startsAt !== null && signupEndsAt > startsAt) {
+      return err('bad_dates', 'Signup must end before the hackathon starts.');
+    }
+    if (update.startsAt !== undefined && startsAt !== null) {
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+      if (startsAt < todayStart.getTime()) return err('bad_dates', 'Event cannot start in the past.');
+    }
+    const cleanupDelayHours =
+      update.cleanupDelayHours !== undefined
+        ? Math.min(Math.max(Math.round(update.cleanupDelayHours), 0), 24 * 30)
+        : event.cleanupDelayHours;
 
-  db.prepare(
-    `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, signup_starts_at = ?, signup_ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, schedule_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, announcements_json = ?, assignments_json = ?, updated_at = ?
-     WHERE id = ?`,
-  ).run(
-    name,
-    description,
-    startsAt,
-    endsAt,
-    signupStartsAt,
-    signupEndsAt,
-    update.panelChannelId !== undefined ? update.panelChannelId : event.panelChannelId,
-    update.announcementChannelId !== undefined ? update.announcementChannelId : event.announcementChannelId,
-    update.scheduleChannelId !== undefined ? update.scheduleChannelId : event.scheduleChannelId,
-    update.categoryId !== undefined ? update.categoryId : event.categoryId,
-    cleanupDelayHours,
-    update.matchAt !== undefined ? update.matchAt : event.matchAt,
-    update.discordEventIds !== undefined ? JSON.stringify(update.discordEventIds) : JSON.stringify(event.discordEventIds),
-    update.schedule !== undefined
-      ? JSON.stringify(
-          resolveScheduleAnchors(normalizeSchedule(update.schedule), { startsAt, endsAt, signupStartsAt, signupEndsAt }),
-        )
-      : JSON.stringify(event.schedule),
-    update.announcements !== undefined ? JSON.stringify(normalizeAnnouncements(update.announcements)) : JSON.stringify(event.announcements),
-    update.assignments !== undefined ? JSON.stringify(normalizeAssignments(update.assignments)) : JSON.stringify(event.assignments),
-    Date.now(),
-    eventId,
-  );
-  audit(db, actor, 'event.update', eventId, { name, startsAt, endsAt, matchAt: update.matchAt !== undefined ? update.matchAt : undefined, schedule: update.schedule !== undefined ? update.schedule.length : undefined });
-  return ok(getEvent(db, eventId)!);
+    await db.run(
+      `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, signup_starts_at = ?, signup_ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, schedule_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, announcements_json = ?, assignments_json = ?, updated_at = ?
+       WHERE id = ?`,
+      name,
+      description,
+      startsAt,
+      endsAt,
+      signupStartsAt,
+      signupEndsAt,
+      update.panelChannelId !== undefined ? update.panelChannelId : event.panelChannelId,
+      update.announcementChannelId !== undefined ? update.announcementChannelId : event.announcementChannelId,
+      update.scheduleChannelId !== undefined ? update.scheduleChannelId : event.scheduleChannelId,
+      update.categoryId !== undefined ? update.categoryId : event.categoryId,
+      cleanupDelayHours,
+      update.matchAt !== undefined ? update.matchAt : event.matchAt,
+      update.discordEventIds !== undefined ? JSON.stringify(update.discordEventIds) : JSON.stringify(event.discordEventIds),
+      update.schedule !== undefined
+        ? JSON.stringify(
+            resolveScheduleAnchors(normalizeSchedule(update.schedule), { startsAt, endsAt, signupStartsAt, signupEndsAt }),
+          )
+        : JSON.stringify(event.schedule),
+      update.announcements !== undefined ? JSON.stringify(normalizeAnnouncements(update.announcements)) : JSON.stringify(event.announcements),
+      update.assignments !== undefined ? JSON.stringify(normalizeAssignments(update.assignments)) : JSON.stringify(event.assignments),
+      Date.now(),
+      eventId,
+    );
+    await audit(db, actor, 'event.update', eventId, { name, startsAt, endsAt, matchAt: update.matchAt !== undefined ? update.matchAt : undefined, schedule: update.schedule !== undefined ? update.schedule.length : undefined });
+    const updated = await getEvent(db, eventId);
+    return ok(updated!);
+  });
 }
 
 // ─── lifecycle ───────────────────────────────────────────────────────────────
 
-export function activateEvent(db: Db, actor: string, eventId: string): Result<HackathonEvent> {
-  const event = getEvent(db, eventId);
-  if (event === null) return err('not_found', 'Event not found.');
-  if (event.status === 'active') return ok(event);
-  if (event.status === 'ended') return err('already_ended', 'Ended events cannot be reactivated — clone it instead.');
+export async function activateEvent(db: Db, actor: string, eventId: string): Promise<Result<HackathonEvent>> {
+  // Status check → flip: atomic so two concurrent activates cannot disagree.
+  return db.transaction(async () => {
+    const event = await getEvent(db, eventId);
+    if (event === null) return err('not_found', 'Event not found.');
+    if (event.status === 'active') return ok(event);
+    if (event.status === 'ended') return err('already_ended', 'Ended events cannot be reactivated — clone it instead.');
 
-  // Multiple events can be active simultaneously.
-  db.prepare("UPDATE events SET status = 'active', updated_at = ? WHERE id = ?").run(Date.now(), eventId);
-  audit(db, actor, 'event.activate', eventId, null);
-  return ok(getEvent(db, eventId)!);
+    // Multiple events can be active simultaneously.
+    await db.run("UPDATE events SET status = 'active', updated_at = ? WHERE id = ?", Date.now(), eventId);
+    await audit(db, actor, 'event.activate', eventId, null);
+    const updated = await getEvent(db, eventId);
+    return ok(updated!);
+  });
 }
 
-export function endEvent(db: Db, actor: string, eventId: string): Result<HackathonEvent> {
-  const event = getEvent(db, eventId);
-  if (event === null) return err('not_found', 'Event not found.');
-  db.prepare("UPDATE events SET status = 'ended', updated_at = ? WHERE id = ?").run(Date.now(), eventId);
-  audit(db, actor, 'event.end', eventId, null);
-  return ok(getEvent(db, eventId)!);
+export async function endEvent(db: Db, actor: string, eventId: string): Promise<Result<HackathonEvent>> {
+  return db.transaction(async () => {
+    const event = await getEvent(db, eventId);
+    if (event === null) return err('not_found', 'Event not found.');
+    await db.run("UPDATE events SET status = 'ended', updated_at = ? WHERE id = ?", Date.now(), eventId);
+    await audit(db, actor, 'event.end', eventId, null);
+    const updated = await getEvent(db, eventId);
+    return ok(updated!);
+  });
 }
 
 // ─── event form config ───────────────────────────────────────────────────────
@@ -510,14 +526,18 @@ export function getEventForm(db: Db, event: HackathonEvent | null, guildDefault:
   }
 }
 
-export function updateEventForm(db: Db, actor: string, eventId: string, update: Partial<FormConfig>): Result<FormConfig> {
-  const event = getEvent(db, eventId);
-  if (event === null) return err('not_found', 'Event not found.');
-  const current = getEventForm(db, event, DEFAULT_FORM);
-  const next = normalizeFormUpdate(current, update);
-  db.prepare('UPDATE events SET form_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), Date.now(), eventId);
-  audit(db, actor, 'event.form_update', eventId, null);
-  return ok(next);
+export async function updateEventForm(db: Db, actor: string, eventId: string, update: Partial<FormConfig>): Promise<Result<FormConfig>> {
+  // Read current → merge → write: atomic so the stored form is the merge of one
+  // editor's update, not an interleave of two.
+  return db.transaction(async () => {
+    const event = await getEvent(db, eventId);
+    if (event === null) return err('not_found', 'Event not found.');
+    const current = getEventForm(db, event, DEFAULT_FORM);
+    const next = normalizeFormUpdate(current, update);
+    await db.run('UPDATE events SET form_json = ?, updated_at = ? WHERE id = ?', JSON.stringify(next), Date.now(), eventId);
+    await audit(db, actor, 'event.form_update', eventId, null);
+    return ok(next);
+  });
 }
 
 // ─── templates ───────────────────────────────────────────────────────────────
@@ -542,97 +562,113 @@ function templateRow(row: { id: string; guild_id: string | null; name: string; k
   };
 }
 
-export function saveTemplate(
+export async function saveTemplate(
   db: Db,
   actor: string,
   guildId: string | null,
   name: string,
   kind: Template['kind'],
   json: string,
-): Result<Template> {
+): Promise<Result<Template>> {
   const clean = name.trim().slice(0, 80);
   if (clean.length < 2) return err('bad_name', 'Template name must be at least 2 characters.');
   JSON.parse(json); // must be valid JSON
   const id = newId('tpl');
-  db.prepare(
+  await db.run(
     'INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(id, guildId, clean, kind, json, Date.now());
-  audit(db, actor, 'template.save', id, { name: clean, kind });
-  const row = db.prepare('SELECT * FROM event_templates WHERE id = ?').get(id) as unknown as Parameters<typeof templateRow>[0];
-  return ok(templateRow(row));
+    id,
+    guildId,
+    clean,
+    kind,
+    json,
+    Date.now(),
+  );
+  await audit(db, actor, 'template.save', id, { name: clean, kind });
+  const row = await db.get<Parameters<typeof templateRow>[0]>('SELECT * FROM event_templates WHERE id = ?', id);
+  return ok(templateRow(row!));
 }
 
-export function listTemplates(db: Db, guildId: string, kind?: Template['kind']): Template[] {
-  // Seed basic templates on first use for each kind
-  const seedIfEmpty = (k: Template['kind'], seeds: { name: string; json: string }[]) => {
-    const c = (db.prepare("SELECT COUNT(*) as c FROM event_templates WHERE (guild_id = ? OR guild_id IS NULL) AND kind = ?").get(guildId, k) as unknown as { c: number }).c
-    if (c === 0) {
-      for (const s of seeds) {
-        const id = newId('tpl')
-        db.prepare('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, guildId, s.name, k, s.json, Date.now())
+export async function listTemplates(db: Db, guildId: string, kind?: Template['kind']): Promise<Template[]> {
+  // Seeding is count-then-insert per kind: wrap the whole thing so two callers
+  // cannot both observe an empty kind and seed it twice.
+  return db.transaction(async () => {
+    // Seed basic templates on first use for each kind
+    const seedIfEmpty = async (k: Template['kind'], seeds: { name: string; json: string }[]): Promise<void> => {
+      const c = await db.get<{ c: number }>(
+        'SELECT COUNT(*) as c FROM event_templates WHERE (guild_id = ? OR guild_id IS NULL) AND kind = ?',
+        guildId,
+        k,
+      );
+      if ((c?.c ?? 0) === 0) {
+        for (const s of seeds) {
+          const id = newId('tpl');
+          await db.run('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, guildId, s.name, k, s.json, Date.now());
+        }
+      }
+    };
+    if (kind === undefined || kind === 'announcement') {
+      await seedIfEmpty('announcement', [
+        { name: "Initial — signups open", json: JSON.stringify({ title: "{event} — signups open!", message: "Listen up {everyone} **{event}** is live! {event_description} Starts {start_date} {timer} — sign up in {panel}\n\nFull schedule:\n{schedule}", trigger: "manual", channelId: null }) },
+        { name: "Signup panel", json: JSON.stringify({ title: "Join {event}", message: "Hey {everyone}, the signup panel is ready in {panel} — hit Join! Starts {start_date} {timer}", trigger: "manual", channelId: null }) },
+        { name: "Schedule — next up", json: JSON.stringify({ title: "{schedule_title}", message: "⏰ **{schedule_title}** — {schedule_desc} at {schedule_time} {timer_schedule} {everyone}\n\n{schedule}", trigger: "schedule", channelId: null }) },
+      ]);
+    }
+    if (kind === undefined || kind === 'form') {
+      await seedIfEmpty('form', [
+        { name: "Default signup form", json: JSON.stringify(DEFAULT_FORM) },
+      ]);
+      // If guild has no default form selected, point it at the seeded one
+      const gsRow = await db.get<{ default_form_template_id: string | null }>('SELECT default_form_template_id FROM guild_settings WHERE guild_id = ?', guildId);
+      if (gsRow && !gsRow.default_form_template_id) {
+        const seeded = await db.get<{ id: string }>("SELECT id FROM event_templates WHERE guild_id = ? AND kind = 'form' ORDER BY created_at DESC LIMIT 1", guildId);
+        if (seeded) await db.run('UPDATE guild_settings SET default_form_template_id = ?, updated_at = ? WHERE guild_id = ?', seeded.id, Date.now(), guildId);
+      } else if (!gsRow) {
+        // guild_settings row doesn't exist yet — it will be created on first Config save; seed will be picked up then via fallback in createEvent
       }
     }
-  }
-  if (kind === undefined || kind === 'announcement') {
-    seedIfEmpty('announcement', [
-      { name: "Initial — signups open", json: JSON.stringify({ title: "{event} — signups open!", message: "Listen up {everyone} **{event}** is live! {event_description} Starts {start_date} {timer} — sign up in {panel}\n\nFull schedule:\n{schedule}", trigger: "manual", channelId: null }) },
-      { name: "Signup panel", json: JSON.stringify({ title: "Join {event}", message: "Hey {everyone}, the signup panel is ready in {panel} — hit Join! Starts {start_date} {timer}", trigger: "manual", channelId: null }) },
-      { name: "Schedule — next up", json: JSON.stringify({ title: "{schedule_title}", message: "⏰ **{schedule_title}** — {schedule_desc} at {schedule_time} {timer_schedule} {everyone}\n\n{schedule}", trigger: "schedule", channelId: null }) },
-    ])
-  }
-  if (kind === undefined || kind === 'form') {
-    seedIfEmpty('form', [
-      { name: "Default signup form", json: JSON.stringify(DEFAULT_FORM) },
-    ])
-    // If guild has no default form selected, point it at the seeded one
-    const gsRow = db.prepare("SELECT default_form_template_id FROM guild_settings WHERE guild_id = ?").get(guildId) as unknown as { default_form_template_id: string | null } | undefined
-    if (gsRow && !gsRow.default_form_template_id) {
-      const seeded = db.prepare("SELECT id FROM event_templates WHERE guild_id = ? AND kind = 'form' ORDER BY created_at DESC LIMIT 1").get(guildId) as unknown as { id: string } | undefined
-      if (seeded) db.prepare("UPDATE guild_settings SET default_form_template_id = ?, updated_at = ? WHERE guild_id = ?").run(seeded.id, Date.now(), guildId)
-    } else if (!gsRow) {
-      // guild_settings row doesn't exist yet — it will be created on first Config save; seed will be picked up then via fallback in createEvent
+    if (kind === undefined || kind === 'assignments') {
+      await seedIfEmpty('assignments', [
+        { name: "Default assignments", json: JSON.stringify({ assignments: defaultAssignments() }) },
+      ]);
     }
-  }
-  if (kind === undefined || kind === 'assignments') {
-    seedIfEmpty('assignments', [
-      { name: "Default assignments", json: JSON.stringify({ assignments: defaultAssignments() }) },
-    ])
-  }
-  if (kind === undefined || kind === 'event') {
-    // Default hackathon event: signup 7 days before, 48h hackathon, a few schedule blocks with signup + announcements via schedule
-    const now = Date.now()
-    const hackStarts = now + 14 * 24 * 3600 * 1000 // 2 weeks out so it passes past-date validation
-    const hackEnds = hackStarts + 2 * 24 * 3600 * 1000
-    const signupStarts = hackStarts - 7 * 24 * 3600 * 1000
-    const signupEnds = hackStarts
-    const baseDay = new Date(hackStarts)
-    baseDay.setHours(12,0,0,0)
-    const sched = [
-      { id: "sch_signup", time: signupStarts, title: "Signups open", description: "Signup window opens — post signup panel", kind: "custom", actions: [{ id: "a1", type: "post_signup" }] },
-      { id: "sch_dinner", time: new Date(new Date(hackStarts).setHours(18,0,0,0)).getTime(), title: "Dinner", description: "Pizza in the kitchen", kind: "food", actions: [{ id: "a2", type: "announce", title: "{schedule_title}", message: "🍽️ {schedule_title} — {schedule_desc} at {schedule_time} {everyone}" }] },
-      { id: "sch_fika", time: new Date(new Date(hackStarts).setHours(15,0,0,0)).getTime(), title: "Fika", description: "Coffee & buns", kind: "break" },
-      { id: "sch_voting", time: new Date(new Date(hackEnds).setHours(14,0,0,0)).getTime(), title: "Voting", description: "Vote for your favourite", kind: "voting", actions: [{ id: "a3", type: "announce", title: "Voting time!", message: "🗳️ {schedule_title} — {schedule_desc} {timer_schedule} {everyone}" }] },
-    ]
-    seedIfEmpty('event', [
-      { name: "Default Hackathon", json: JSON.stringify({ name: "ChasHack", description: "48-hour hackathon — build, ship, demo!", cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, assignmentStrategy: 'random' }) },
-    ])
-  }
-  const rows = (
-    kind === undefined
-      ? db
-          .prepare('SELECT * FROM event_templates WHERE guild_id = ? OR guild_id IS NULL ORDER BY created_at DESC')
-          .all(guildId)
-      : db
-          .prepare('SELECT * FROM event_templates WHERE (guild_id = ? OR guild_id IS NULL) AND kind = ? ORDER BY created_at DESC')
-          .all(guildId, kind)
-  ) as unknown as Parameters<typeof templateRow>[0][];
-  return rows.map(templateRow);
+    if (kind === undefined || kind === 'event') {
+      // Default hackathon event: signup 7 days before, 48h hackathon, a few schedule blocks with signup + announcements via schedule
+      const now = Date.now();
+      const hackStarts = now + 14 * 24 * 3600 * 1000; // 2 weeks out so it passes past-date validation
+      const hackEnds = hackStarts + 2 * 24 * 3600 * 1000;
+      const signupStarts = hackStarts - 7 * 24 * 3600 * 1000;
+      const signupEnds = hackStarts;
+      const baseDay = new Date(hackStarts);
+      baseDay.setHours(12, 0, 0, 0);
+      const sched = [
+        { id: 'sch_signup', time: signupStarts, title: 'Signups open', description: 'Signup window opens — post signup panel', kind: 'custom', actions: [{ id: 'a1', type: 'post_signup' }] },
+        { id: 'sch_dinner', time: new Date(new Date(hackStarts).setHours(18, 0, 0, 0)).getTime(), title: 'Dinner', description: 'Pizza in the kitchen', kind: 'food', actions: [{ id: 'a2', type: 'announce', title: '{schedule_title}', message: '🍽️ {schedule_title} — {schedule_desc} at {schedule_time} {everyone}' }] },
+        { id: 'sch_fika', time: new Date(new Date(hackStarts).setHours(15, 0, 0, 0)).getTime(), title: 'Fika', description: 'Coffee & buns', kind: 'break' },
+        { id: 'sch_voting', time: new Date(new Date(hackEnds).setHours(14, 0, 0, 0)).getTime(), title: 'Voting', description: 'Vote for your favourite', kind: 'voting', actions: [{ id: 'a3', type: 'announce', title: 'Voting time!', message: '🗳️ {schedule_title} — {schedule_desc} {timer_schedule} {everyone}' }] },
+      ];
+      await seedIfEmpty('event', [
+        { name: 'Default Hackathon', json: JSON.stringify({ name: 'ChasHack', description: '48-hour hackathon — build, ship, demo!', cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, assignmentStrategy: 'random' }) },
+      ]);
+    }
+    const rows =
+      kind === undefined
+        ? await db.all<Parameters<typeof templateRow>[0]>(
+            'SELECT * FROM event_templates WHERE guild_id = ? OR guild_id IS NULL ORDER BY created_at DESC',
+            guildId,
+          )
+        : await db.all<Parameters<typeof templateRow>[0]>(
+            'SELECT * FROM event_templates WHERE (guild_id = ? OR guild_id IS NULL) AND kind = ? ORDER BY created_at DESC',
+            guildId,
+            kind,
+          );
+    return rows.map(templateRow);
+  });
 }
 
-export function deleteTemplate(db: Db, actor: string, templateId: string): Result<void> {
-  const res = db.prepare('DELETE FROM event_templates WHERE id = ?').run(templateId);
+export async function deleteTemplate(db: Db, actor: string, templateId: string): Promise<Result<void>> {
+  const res = await db.run('DELETE FROM event_templates WHERE id = ?', templateId);
   if (res.changes === 0) return err('not_found', 'Template not found.');
-  audit(db, actor, 'template.delete', templateId, null);
+  await audit(db, actor, 'template.delete', templateId, null);
   return ok(undefined);
 }
 
@@ -882,9 +918,9 @@ export function markMatchUnlocked(db: import('../../shared/db.js').Db, eventId: 
 }
 
 /** Set or clear the scheduled auto-match time (null clears it). */
-export function setMatchAt(db: import('../../shared/db.js').Db, actor: string, eventId: string, matchAt: number | null): Result<HackathonEvent> {
-  const res = updateEvent(db, actor, eventId, { matchAt });
-  if (res.ok) audit(db, actor, 'event.match_schedule', eventId, { matchAt });
+export async function setMatchAt(db: import('../../shared/db.js').Db, actor: string, eventId: string, matchAt: number | null): Promise<Result<HackathonEvent>> {
+  const res = await updateEvent(db, actor, eventId, { matchAt });
+  if (res.ok) await audit(db, actor, 'event.match_schedule', eventId, { matchAt });
   return res;
 }
 
@@ -941,8 +977,8 @@ export function renderAnnouncementTags(template: string, event: HackathonEvent, 
 }
 
 /** Mark a schedule item as announced so planMaintenance won't re-fire. */
-export function markScheduleAnnounced(db: import('../../shared/db.js').Db, eventId: string, scheduleId: string): void {
-  const event = getEvent(db, eventId)
+export async function markScheduleAnnounced(db: import('../../shared/db.js').Db, eventId: string, scheduleId: string): Promise<void> {
+  const event = await getEvent(db, eventId)
   if (!event) return
   const next = [...new Set([...(event.announcedScheduleIds ?? []), scheduleId])]
   db.prepare('UPDATE events SET announced_schedule_ids = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), Date.now(), eventId)

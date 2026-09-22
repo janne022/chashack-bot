@@ -10,45 +10,45 @@ const G = 'g1';
  * relies on: events are per-guild, activation is independent per event, and
  * listing returns every event so the UI can offer a switcher.
  */
-test('multi-event: events are independent and all are listed', () => {
+test('multi-event: events are independent and all are listed', async () => {
   const db = openDb(':memory:');
-  const a = createEvent(db, 'test', G, { name: 'Event A' });
-  const b = createEvent(db, 'test', G, { name: 'Event B' });
+  const a = await createEvent(db, 'test', G, { name: 'Event A' });
+  const b = await createEvent(db, 'test', G, { name: 'Event B' });
   assert.ok(a.ok && b.ok);
 
   // Both start as drafts, both listed.
-  let all = listEvents(db, G);
+  let all = await listEvents(db, G);
   assert.equal(all.length, 2);
   assert.deepEqual(all.map((e) => e.status), ['draft', 'draft']);
 
   // Activating one does not touch the other.
-  assert.ok(activateEvent(db, 'test', a.value.id).ok);
-  all = listEvents(db, G);
+  assert.ok((await activateEvent(db, 'test', a.value.id)).ok);
+  all = await listEvents(db, G);
   const byId = new Map(all.map((e) => [e.id, e]));
   assert.equal(byId.get(a.value.id)?.status, 'active');
   assert.equal(byId.get(b.value.id)?.status, 'draft');
 
   // Both active simultaneously — the case the switcher exists for.
-  assert.ok(activateEvent(db, 'test', b.value.id).ok);
-  all = listEvents(db, G);
+  assert.ok((await activateEvent(db, 'test', b.value.id)).ok);
+  all = await listEvents(db, G);
   assert.equal(all.filter((e) => e.status === 'active').length, 2);
 
   db.close();
 });
 
-test('multi-event: assignment distribution lands on the event it was created for', () => {
+test('multi-event: assignment distribution lands on the event it was created for', async () => {
   const db = openDb(':memory:');
   const starts = Date.now() + 7 * 24 * 3600 * 1000;
-  const a = createEvent(db, 'test', G, {
+  const a = await createEvent(db, 'test', G, {
     name: 'With Assignments',
     startsAt: starts,
     assignments: [{ id: 'asg1', title: 'Demo prep', instructions: 'Prep a demo' }],
     assignmentStrategy: 'same',
   });
-  const b = createEvent(db, 'test', G, { name: 'Plain' });
+  const b = await createEvent(db, 'test', G, { name: 'Plain' });
   assert.ok(a.ok && b.ok);
 
-  const startA = a.value.schedule.find((s) => s.id === '__start__');
+  const startA = a.value.schedule.find(async (s) => s.id === '__start__');
   assert.equal(
     startA?.actions?.find((x) => x.type === 'distribute_assignments')?.mode,
     'same',
@@ -64,22 +64,22 @@ test('multi-event: assignment distribution lands on the event it was created for
   db.close();
 });
 
-test('multi-event: no pool means no distribute action is wired', () => {
+test('multi-event: no pool means no distribute action is wired', async () => {
   const db = openDb(':memory:');
   const starts = Date.now() + 7 * 24 * 3600 * 1000;
-  const bare = createEvent(db, 'test', G, { name: 'No pool', startsAt: starts });
+  const bare = await createEvent(db, 'test', G, { name: 'No pool', startsAt: starts });
   assert.ok(bare.ok);
   assert.equal(bare.value.assignments.length, 0);
   assert.equal(bare.value.schedule.find((s) => s.id === '__start__'), undefined);
   db.close();
 });
 
-test('multi-event: events in another guild are never returned', () => {
+test('multi-event: events in another guild are never returned', async () => {
   const db = openDb(':memory:');
-  assert.ok(createEvent(db, 'test', 'g1', { name: 'Guild One Event' }).ok);
-  assert.ok(createEvent(db, 'test', 'g2', { name: 'Guild Two Event' }).ok);
+  assert.ok((await createEvent(db, 'test', 'g1', { name: 'Guild One Event' })).ok);
+  assert.ok((await createEvent(db, 'test', 'g2', { name: 'Guild Two Event' })).ok);
 
-  const g1 = listEvents(db, 'g1');
+  const g1 = await listEvents(db, 'g1');
   assert.equal(g1.length, 1);
   assert.equal(g1[0]?.name, 'Guild One Event');
 

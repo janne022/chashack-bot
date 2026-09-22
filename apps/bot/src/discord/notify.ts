@@ -147,7 +147,7 @@ export async function sendAnnouncement(
   let dmSent = 0;
   let dmFailed = 0;
   if (dmParticipants) {
-    const participants = listParticipants(db, event.id, 'active');
+    const participants = await listParticipants(db, event.id, 'active');
     const renderedDM = renderTags(event, title, message)
     const embed = buildAnnouncementEmbed(event, renderedDM.title, renderedDM.message);
     for (const p of participants) {
@@ -161,7 +161,7 @@ export async function sendAnnouncement(
     }
   }
 
-  audit(db, actor, 'announce.send', event.id, { title, posted, dmSent, dmFailed });
+  await audit(db, actor, 'announce.send', event.id, { title, posted, dmSent, dmFailed });
   return { posted, reason, channelId, dmSent, dmFailed };
 }
 
@@ -222,7 +222,7 @@ export async function createDiscordEvents(
     updateEvent(db, actor, event.id, {
       discordEventIds: [...event.discordEventIds, ...created.map((c) => c.id)],
     });
-    audit(db, actor, 'discord_events.create', event.id, { count: created.length });
+    await audit(db, actor, 'discord_events.create', event.id, { count: created.length });
   }
   return { created, errors };
 }
@@ -249,14 +249,14 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
     allEvents = [];
     const guildRows = db.prepare('SELECT DISTINCT guild_id FROM events').all() as unknown as { guild_id: string }[];
     for (const { guild_id } of guildRows) {
-      allEvents.push(...listEvents(db, guild_id));
+      allEvents.push(...await listEvents(db, guild_id));
     }
   }
   const actions = planMaintenance(allEvents, now);
   if (actions.length === 0) return summary;
 
   for (const action of actions) {
-    const event = getEventRef(db, action.eventId);
+    const event = await getEventRef(db, action.eventId);
     if (event === null) continue;
     try {
       switch (action.type) {
@@ -282,7 +282,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             warnInvalidGuild(event.guildId, 'remind_24h');
           }
           // DM participants
-          for (const p of listParticipants(db, event.id, 'active')) {
+          for (const p of await listParticipants(db, event.id, 'active')) {
             await client.users.fetch(p.userId).then((u) => u.send({ embeds: [embed] })).catch(() => undefined);
           }
           if (kysely !== undefined) {
@@ -291,7 +291,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           } else {
             db.prepare('UPDATE events SET reminded_24h = 1, updated_at = ? WHERE id = ?').run(Date.now(), event.id);
           }
-          audit(db, 'system', 'event.remind_24h', event.id, null);
+          await audit(db, 'system', 'event.remind_24h', event.id, null);
           summary.push(`reminded: ${event.name}`);
           break;
         }
@@ -322,7 +322,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
         case 'cleanup_warn': {
           // Grace-window notice: channels stay up so people can grab photos.
           const hoursLeft = action.hoursLeft;
-          const teams2 = listTeams(db, event.id);
+          const teams2 = await listTeams(db, event.id);
           if (!isSnowflake(event.guildId)) {
             warnInvalidGuild(event.guildId, 'cleanup_warn');
           } else {
@@ -355,12 +355,12 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             }
           }
           markCleanupWarned(db, event.id, hoursLeft > 24 ? '72h' : '24h');
-          audit(db, 'system', 'event.cleanup_warn', event.id, { hoursLeft, teams: teams2.length });
+          await audit(db, 'system', 'event.cleanup_warn', event.id, { hoursLeft, teams: teams2.length });
           summary.push(`cleanup warning (${hoursLeft}h): ${event.name}`);
           break;
         }
         case 'cleanup': {
-          const teams = listTeams(db, event.id);
+          const teams = await listTeams(db, event.id);
           const provisionDeps = { db, client, categoryIdFor: () => event.categoryId ?? undefined };
           for (const team of teams) {
             await destroyTeamSpace(provisionDeps, team);
@@ -376,14 +376,14 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           } else {
             warnInvalidGuild(event.guildId, 'cleanup');
           }
-          deleteEventTeams(db, 'system', event.id);
+          await deleteEventTeams(db, 'system', event.id);
           if (kysely !== undefined) {
             const { markCleanupDone } = await import('../features/events/data.js');
             await markCleanupDone(kysely, event.id);
           } else {
             db.prepare('UPDATE events SET cleanup_done = 1, updated_at = ? WHERE id = ?').run(Date.now(), event.id);
           }
-          audit(db, 'system', 'event.cleanup', event.id, { teams: teams.length });
+          await audit(db, 'system', 'event.cleanup', event.id, { teams: teams.length });
           summary.push(`cleaned up: ${event.name} (${teams.length} team spaces)`);
           break;
         }
@@ -392,16 +392,16 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           // match itself fails (e.g. not enough opt-ins) we still lock so a
           // broken schedule can't re-fire every tick — check the logs.
           const config = getEventFormLocal(db, event);
-          const preview = previewMatch(db, event.id, config);
+          const preview = await previewMatch(db, event.id, config);
           if (!preview.ok) {
             console.warn(`auto_match for ${event.name} failed: ${preview.code} — ${preview.message} (marking locked anyway)`);
             summary.push(`auto-match failed (${preview.code}), locked anyway: ${event.name}`);
           } else {
-            commitMatch(db, 'system', event.id, event.guildId, config);
+            await commitMatch(db, 'system', event.id, event.guildId, config);
             summary.push(`auto-matched: ${event.name} (${preview.value.teams.length} teams)`);
           }
           markMatchLocked(db, event.id);
-          audit(db, 'system', 'event.auto_match', event.id, { ok: preview.ok, code: preview.ok ? undefined : preview.code });
+          await audit(db, 'system', 'event.auto_match', event.id, { ok: preview.ok, code: preview.ok ? undefined : preview.code });
           const autoChannelId = event.panelChannelId ?? readGuildPanel(db, event.guildId);
           if (autoChannelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId).catch(() => null);
@@ -469,12 +469,12 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 }
               } else if (op.type === 'assign_random' || op.type === 'auto_match') {
                 const config = getEventFormLocal(db, event)
-                const preview = previewMatch(db, event.id, config)
+                const preview = await previewMatch(db, event.id, config)
                 if (!preview.ok) {
                   console.warn(`schedule ${op.type} for ${event.name} failed: ${preview.code} — ${preview.message}`)
                   summary.push(`schedule ${op.type} failed (${preview.code}): ${event.name}`)
                 } else {
-                  commitMatch(db, 'system', event.id, event.guildId, config)
+                  await commitMatch(db, 'system', event.id, event.guildId, config)
                   markMatchLocked(db, event.id)
                   summary.push(`schedule ${op.type}: ${event.name} (${preview.value.teams.length} teams)`)
                 }
@@ -483,7 +483,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 const assigns = (event.assignments ?? []) as { id:string; title:string; instructions:string; imageUrl?:string }[]
                 if (assigns.length > 0) {
                   const { listTeams } = await import('../features/teams/data.js')
-                  const teams = listTeams(db, event.guildId).filter((t: { eventId: string })=>t.eventId===event.id)
+                  const teams = (await listTeams(db, event.guildId)).filter((t: { eventId: string })=>t.eventId===event.id)
                   if (teams.length > 0) {
                     const mode = op.mode === 'same' ? 'same' : 'random'
                     const perTeam = mode === 'same'
@@ -550,8 +550,8 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
   return summary;
 }
 
-function getEventRef(db: Db, eventId: string): HackathonEvent | null {
-  return getEvent(db, eventId);
+async function getEventRef(db: Db, eventId: string): Promise<HackathonEvent | null> {
+  return await getEvent(db, eventId);
 }
 
 /** The event's form config (falls back to the guild default). */

@@ -42,7 +42,7 @@ export async function handleAdminCommand(
 
   switch (sub) {
     case 'form': {
-      const c = getForm(db);
+      const c = await getForm(db);
       const lines = [
         t(locale, 'discord.admin.form_title_line', { title: c.title }),
         t(locale, 'discord.admin.form_team_size', { size: c.teamSize }),
@@ -60,7 +60,7 @@ export async function handleAdminCommand(
     case 'block': {
       const user = i.options.getUser('user', true);
       const reason = i.options.getString('reason') ?? t(locale, 'discord.admin.no_reason');
-      const res = blockParticipant(db, actor, ctx.eventId, user.id, reason);
+      const res = await blockParticipant(db, actor, ctx.eventId, user.id, reason);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -74,7 +74,7 @@ export async function handleAdminCommand(
 
     case 'unblock': {
       const user = i.options.getUser('user', true);
-      const res = unblockParticipant(db, actor, ctx.eventId, user.id);
+      const res = await unblockParticipant(db, actor, ctx.eventId, user.id);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -85,7 +85,7 @@ export async function handleAdminCommand(
 
     case 'remove': {
       const user = i.options.getUser('user', true);
-      const p = getParticipant(db, ctx.eventId, user.id);
+      const p = await getParticipant(db, ctx.eventId, user.id);
       if (p === null) {
         await i.reply(eph(t(locale, 'discord.admin.they_have_no_signup')));
         return;
@@ -103,7 +103,7 @@ export async function handleAdminCommand(
       const teamArg = i.options.getString('team');
       if (teamArg === null) {
         // No team argument: show a team picker select.
-        const teams = listTeams(db, ctx.eventId);
+        const teams = await listTeams(db, ctx.eventId);
         if (teams.length === 0) {
           await i.reply(eph(t(locale, 'discord.admin.no_teams_yet')));
           return;
@@ -121,23 +121,23 @@ export async function handleAdminCommand(
         await i.reply({ content: t(locale, 'discord.admin.move_which', { name: user.username }), components: [row], flags: MessageFlags.Ephemeral });
         return;
       }
-      const teams = listTeams(db, ctx.eventId);
-      const found = teams.find((team) => team.id === teamArg || team.name.toLowerCase() === teamArg.toLowerCase());
+      const teams = await listTeams(db, ctx.eventId);
+      const found = teams.find(async (team) => team.id === teamArg || team.name.toLowerCase() === teamArg.toLowerCase());
       if (found === undefined) {
         await i.reply(eph(t(locale, 'discord.admin.no_such_team', { arg: teamArg })));
         return;
       }
-      const res = adminAssign(db, actor, ctx.eventId, user.id, found.id);
+      const res = await adminAssign(db, actor, ctx.eventId, user.id, found.id);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
       // Provision + role + welcome, best effort (never block the reply).
-      const moved = getTeam(db, found.id);
+      const moved = await getTeam(db, found.id);
       if (moved !== null) {
         const provisionDeps = { db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
         void provisionTeamSpace(provisionDeps, moved)
-          .then((team) => grantTeamRole(provisionDeps, team, user.id))
+          .then(async (team) => await grantTeamRole(provisionDeps, team, user.id))
           .catch((err) => console.warn('admin move provisioning failed:', err));
       }
       await i.reply({
@@ -150,11 +150,11 @@ export async function handleAdminCommand(
     case 'team-category': {
       const category = i.options.getChannel('category');
       if (category === null) {
-        setGuildCategory(db, actor, guildId, null);
+        await setGuildCategory(db, actor, guildId, null);
         await i.reply({ embeds: [embedOk(t(locale, 'discord.admin.category_cleared_title'), t(locale, 'discord.admin.category_cleared_body'))], flags: MessageFlags.Ephemeral });
         return;
       }
-      setGuildCategory(db, actor, guildId, category.id);
+      await setGuildCategory(db, actor, guildId, category.id);
       const categoryName = category.name ?? category.id;
       await i.reply({
         embeds: [embedOk(t(locale, 'discord.admin.category_set_title'), t(locale, 'discord.admin.category_set_body', { name: categoryName }))],
@@ -197,7 +197,7 @@ export async function handleAdminCommand(
     }
 
     case 'match-preview': {
-      const res = previewMatch(db, ctx.eventId, config);
+      const res = await previewMatch(db, ctx.eventId, config);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -211,7 +211,7 @@ export async function handleAdminCommand(
     }
 
     case 'match-run': {
-      const res = previewMatch(db, ctx.eventId, config);
+      const res = await previewMatch(db, ctx.eventId, config);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -225,8 +225,8 @@ export async function handleAdminCommand(
     }
 
     case 'reset': {
-      const counts = listParticipants(db, ctx.eventId).length;
-      const teams = listTeams(db, ctx.eventId).length;
+      const counts = (await listParticipants(db, ctx.eventId)).length;
+      const teams = (await listTeams(db, ctx.eventId)).length;
       await i.reply({
         content: t(locale, 'discord.admin.reset_warning', { signups: counts, teams }),
         components: [confirmRow(IDS.resetConfirm, IDS.resetCancel, t(locale, 'discord.admin.reset_confirm_btn'), locale)],
@@ -247,7 +247,7 @@ export async function commitMatchAndAnnounce(
   announce: (guildId: string, content: string) => Promise<void>,
 ): Promise<void> {
   const locale = ctx.botLocale;
-  const res = commitMatch(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, ctx.config);
+  const res = await commitMatch(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, ctx.config);
   if (!res.ok) {
     await i.update({ embeds: [displayErr(locale, res.code, res.message)], components: [] });
     return;
@@ -257,9 +257,9 @@ export async function commitMatchAndAnnounce(
   const provisionDeps = { db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
   const { getTeam } = await import('../features/teams/data.js');
   const { listParticipants } = await import('../features/signup/data.js');
-  const allParticipants = listParticipants(ctx.db, ctx.eventId);
+  const allParticipants = await listParticipants(ctx.db, ctx.eventId);
   for (const matchTeam of res.value.teams) {
-    const stored = (await import('../features/teams/data.js')).listTeams(ctx.db, ctx.eventId).find((team) => team.name === matchTeam.name);
+    const stored = (await (await import('../features/teams/data.js')).listTeams(ctx.db, ctx.eventId)).find((team) => team.name === matchTeam.name);
     if (stored === undefined) continue;
     const provisioned = await provisionTeamSpace(provisionDeps, stored);
     for (const memberId of matchTeam.memberIds) {
@@ -293,13 +293,13 @@ export async function resetEventConfirmed(
 ): Promise<void> {
   const locale = ctx.botLocale;
   // Tear down Discord spaces for all teams first (we lose the ids after reset).
-  const teams = listTeams(ctx.db, ctx.guildId);
+  const teams = await listTeams(ctx.db, ctx.guildId);
   const provisionDeps = { db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
   for (const team of teams) {
     await destroyTeamSpace(provisionDeps, team);
   }
-  const participants = purgeEventParticipants(ctx.db, ctx.actor, ctx.eventId);
-  const teamCount = deleteEventTeams(ctx.db, ctx.actor, ctx.eventId);
+  const participants = await purgeEventParticipants(ctx.db, ctx.actor, ctx.eventId);
+  const teamCount = await deleteEventTeams(ctx.db, ctx.actor, ctx.eventId);
   await i.update({
     content: t(locale, 'discord.admin.reset_done', { signups: participants, teams: teamCount }),
     components: [],

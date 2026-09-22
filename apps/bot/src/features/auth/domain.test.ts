@@ -24,7 +24,7 @@ const guild = (id: string, name: string, permissions: bigint) => ({
   permissions: permissions.toString(),
 });
 
-test('canManage: MANAGE_GUILD or ADMINISTRATOR, nothing else', () => {
+test('canManage: MANAGE_GUILD or ADMINISTRATOR, nothing else', async () => {
   assert.equal(canManage(MANAGE_GUILD), true);
   assert.equal(canManage(ADMINISTRATOR), true);
   assert.equal(canManage(ADMINISTRATOR | MANAGE_GUILD), true);
@@ -37,7 +37,7 @@ test('canManage: MANAGE_GUILD or ADMINISTRATOR, nothing else', () => {
   assert.equal(canManage('2048'), false, '2048 = SEND_MESSAGES only');
 });
 
-test('manageableGuilds: user rights AND bot presence', () => {
+test('manageableGuilds: user rights AND bot presence', async () => {
   const user = [
     guild('1', 'Zeta', MANAGE_GUILD),
     guild('2', 'Alpha', ADMINISTRATOR),
@@ -51,7 +51,7 @@ test('manageableGuilds: user rights AND bot presence', () => {
   assert.deepEqual(all.map((g) => g.id), ['2', '4', '1'], 'no gateway → trust the OAuth list');
 });
 
-test('tokens: operator format is unchanged, discord format carries a session id', () => {
+test('tokens: operator format is unchanged, discord format carries a session id', async () => {
   const now = 1_000_000;
   const operator = makeOperatorToken(SECRET, now);
   assert.equal(operator.split('.').length, 2, 'legacy shape preserved');
@@ -69,13 +69,13 @@ test('tokens: operator format is unchanged, discord format carries a session id'
   assert.equal(verifyToken(SECRET, makeDiscordToken(SECRET, 'abc', now).replace('abc', 'xyz'), now), null, 'swapped id');
 });
 
-test('makeState: unique per call, url-safe', () => {
+test('makeState: unique per call, url-safe', async () => {
   const a = makeState();
   assert.match(a, /^[0-9a-f]{32}$/);
   assert.notEqual(a, makeState());
 });
 
-test('PKCE: S256 challenge derived from the verifier, RFC 7636 alphabet', () => {
+test('PKCE: S256 challenge derived from the verifier, RFC 7636 alphabet', async () => {
   const { verifier, challenge } = makePkcePair();
   assert.match(verifier, /^[A-Za-z0-9\-_]{43,128}$/, 'verifier uses the unreserved alphabet');
   assert.equal(challenge, base64Url(createHash('sha256').update(verifier).digest()), 'challenge = S256(verifier)');
@@ -85,16 +85,16 @@ test('PKCE: S256 challenge derived from the verifier, RFC 7636 alphabet', () => 
   assert.notEqual(other.challenge, challenge);
 });
 
-test('safeEqual: compares without leaking length or content by short-circuit', () => {
+test('safeEqual: compares without leaking length or content by short-circuit', async () => {
   assert.equal(safeEqual('abc', 'abc'), true);
   assert.equal(safeEqual('abc', 'abd'), false);
   assert.equal(safeEqual('abc', 'abcd'), false);
   assert.equal(safeEqual('', ''), true);
 });
 
-test('sessions: create, select an authorised guild, refuse an unauthorised one', () => {
+test('sessions: create, select an authorised guild, refuse an unauthorised one', async () => {
   const db = openDb(':memory:');
-  const session = createSession(db, {
+  const session = await createSession(db, {
     userId: 'u1',
     username: 'janne',
     avatar: null,
@@ -104,26 +104,26 @@ test('sessions: create, select an authorised guild, refuse an unauthorised one',
     ],
   });
   assert.equal(session.selectedGuildId, 'g1', 'first guild is selected by default');
-  assert.equal(getSession(db, session.id)?.username, 'janne');
+  assert.equal((await getSession(db, session.id))?.username, 'janne');
 
-  assert.equal(selectGuild(db, session.id, 'g2'), true);
-  assert.equal(getSession(db, session.id)?.selectedGuildId, 'g2');
-  assert.equal(selectGuild(db, session.id, 'not-mine'), false, 'must not be able to switch to a foreign guild');
-  assert.equal(getSession(db, session.id)?.selectedGuildId, 'g2', 'refusal leaves the selection alone');
+  assert.equal(await selectGuild(db, session.id, 'g2'), true);
+  assert.equal((await getSession(db, session.id))?.selectedGuildId, 'g2');
+  assert.equal(await selectGuild(db, session.id, 'not-mine'), false, 'must not be able to switch to a foreign guild');
+  assert.equal((await getSession(db, session.id))?.selectedGuildId, 'g2', 'refusal leaves the selection alone');
 
-  deleteSession(db, session.id);
-  assert.equal(getSession(db, session.id), null);
+  await deleteSession(db, session.id);
+  assert.equal(await getSession(db, session.id), null);
 });
 
-test('sessions: expired rows are dropped, not served', () => {
+test('sessions: expired rows are dropped, not served', async () => {
   const db = openDb(':memory:');
-  const session = createSession(db, {
+  const session = await createSession(db, {
     userId: 'u2',
     username: 'ghost',
     avatar: null,
     guilds: [{ id: 'g1', name: 'One', icon: null }],
   });
   const later = Date.now() + 8 * 24 * 3600 * 1000;
-  assert.equal(getSession(db, session.id, later), null, 'expired session is not returned');
-  assert.equal(purgeExpiredSessions(db, later), 0, 'it deleted itself on read');
+  assert.equal(await getSession(db, session.id, later), null, 'expired session is not returned');
+  assert.equal(await purgeExpiredSessions(db, later), 0, 'it deleted itself on read');
 });

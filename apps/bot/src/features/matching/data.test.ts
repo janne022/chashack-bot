@@ -13,7 +13,7 @@ const EVENT = 'ev1';
  * the event-scoped one. One match must create exactly the previewed teams, all
  * scoped to the event.
  */
-function seed(): ReturnType<typeof openDb> {
+async function seed(): Promise<ReturnType<typeof openDb>> {
   const db = openDb(':memory:');
   db.prepare(
     "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES (?, ?, 'Match Test', 'active', 1, 1)",
@@ -30,14 +30,14 @@ function seed(): ReturnType<typeof openDb> {
   return db;
 }
 
-test('commitMatch creates one team row per previewed team, all event-scoped', () => {
-  const db = seed();
-  const preview = previewMatch(db, EVENT, DEFAULT_FORM);
+test('commitMatch creates one team row per previewed team, all event-scoped', async () => {
+  const db = await seed();
+  const preview = await previewMatch(db, EVENT, DEFAULT_FORM);
   assert.equal(preview.ok, true, 'preview should succeed');
   if (!preview.ok) return;
   assert.equal(preview.value.teams.length, 1, 'two opt-ins make one team');
 
-  const res = commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
+  const res = await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
   assert.equal(res.ok, true);
 
   const forEvent = db.prepare('SELECT id FROM teams WHERE event_id = ?').all(EVENT) as unknown as { id: string }[];
@@ -52,10 +52,10 @@ test('commitMatch creates one team row per previewed team, all event-scoped', ()
   assert.deepEqual(members.map((m) => m.user_id), ['u1', 'u2'], 'opt-ins land in the team');
 });
 
-test('commitMatch replaces previous matched teams instead of stacking them', () => {
-  const db = seed();
-  commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
-  commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
+test('commitMatch replaces previous matched teams instead of stacking them', async () => {
+  const db = await seed();
+  await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
+  await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
   const rows = db.prepare('SELECT id FROM teams WHERE event_id = ?').all(EVENT) as unknown as { id: string }[];
   assert.equal(rows.length, 1, 'second commit must not stack teams');
 });

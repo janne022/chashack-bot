@@ -52,7 +52,7 @@ export interface Ctx {
   isAdmin: boolean;
   client: Client;
   /** Category for team channels: guild setting, with env fallback applied by the host. */
-  categoryIdFor: (guildId: string) => string | undefined;
+  categoryIdFor: (guildId: string) => string | undefined | Promise<string | undefined>;
   /** DM a user; returns false when the user has DMs closed. */
   dm: (userId: string, payload: { content?: string; embeds?: EmbedBuilder[]; components?: ActionRowBuilder<ButtonBuilder>[] }) => Promise<boolean>;
 }
@@ -96,12 +96,12 @@ export function displayErr(locale: BotLocale, code: string, message: string): Em
   return embedErr(t(locale, 'discord.admin.something_broke_title'), text);
 }
 
-export function buildParticipantEmbed(db: Db, config: FormConfig, p: Participant, locale: BotLocale): EmbedBuilder {
-  const team = p.teamId === null ? null : getTeam(db, p.teamId);
+export async function buildParticipantEmbed(db: Db, config: FormConfig, p: Participant, locale: BotLocale): Promise<EmbedBuilder> {
+  const team = p.teamId === null ? null : await getTeam(db, p.teamId);
   const teamLine =
     team === null
       ? t(locale, 'discord.join.no_team_yet')
-      : `**${team.name}** (${team.kind}, ${countMembers(db, team.id)}/${config.teamSize} ${t(locale, 'discord.join.members_suffix')})`;
+      : `**${team.name}** (${team.kind}, ${await countMembers(db, team.id)}/${config.teamSize} ${t(locale, 'discord.join.members_suffix')})`;
   return new EmbedBuilder()
     .setTitle(t(locale, 'discord.join.your_signup'))
     .setColor(0x5865f2)

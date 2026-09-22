@@ -55,7 +55,7 @@ export async function onModalSubmit(i: ModalSubmitInteraction, ctx: Ctx & Announ
 async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<void> {
   const locale = ctx.botLocale;
   // Blocked users must not pass, even with a stale modal open.
-  const existing = getParticipant(ctx.db, ctx.eventId, i.user.id);
+  const existing = await getParticipant(ctx.db, ctx.eventId, i.user.id);
   if (existing?.status === 'blocked') {
     await i.reply(eph(t(locale, 'errors.blocked')));
     return;
@@ -83,7 +83,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
     return;
   }
 
-  const saved = upsertParticipant(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, i.user.id, result.value);
+  const saved = await upsertParticipant(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, i.user.id, result.value);
   if (!saved.ok) {
     await i.reply({ embeds: [displayErr(locale, saved.code, saved.message)], flags: MessageFlags.Ephemeral });
     return;
@@ -119,7 +119,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
   await i.reply({
     embeds: [
       embedOk(t(locale, 'discord.join.saved_title'), t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })),
-      buildParticipantEmbed(ctx.db, ctx.config, saved.value, locale),
+      await buildParticipantEmbed(ctx.db, ctx.config, saved.value, locale),
     ],
     components: actions.components.length > 0 ? [actions] : [],
     flags: MessageFlags.Ephemeral,
@@ -136,7 +136,7 @@ async function handleCreateTeamModal(i: ModalSubmitInteraction, ctx: Ctx & Annou
     return;
   }
 
-  const res = createTeam(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, name, kind, i.user.id, colorId);
+  const res = await createTeam(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, name, kind, i.user.id, colorId);
   if (!res.ok) {
     await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
     return;
@@ -171,7 +171,7 @@ async function handleCreateTeamModal(i: ModalSubmitInteraction, ctx: Ctx & Annou
 
 async function handleTeamSettingsModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<void> {
   const locale = ctx.botLocale;
-  const team = getTeamForUser(ctx.db, ctx.eventId, i.user.id);
+  const team = await getTeamForUser(ctx.db, ctx.eventId, i.user.id);
   if (team === null || team.ownerId !== i.user.id) {
     await i.reply(eph(t(locale, 'discord.teams.not_owner')));
     return;
@@ -189,7 +189,7 @@ async function handleTeamSettingsModal(i: ModalSubmitInteraction, ctx: Ctx & Ann
     return;
   }
 
-  const res = updateTeamSettings(ctx.db, ctx.actor, team.id, {
+  const res = await updateTeamSettings(ctx.db, ctx.actor, team.id, {
     name,
     kind,
     colorId: colorId !== null ? colorId : undefined,
@@ -229,7 +229,7 @@ export async function onComponent(
       await i.reply(eph(t(locale, 'discord.gate.no_active')));
       return;
     }
-    const existing = getParticipant(ctx.db, ctx.eventId, i.user.id);
+    const existing = await getParticipant(ctx.db, ctx.eventId, i.user.id);
     if (existing?.status === 'blocked') {
       await i.reply(eph(t(locale, 'errors.blocked')));
       return;
@@ -243,7 +243,7 @@ export async function onComponent(
       return;
     }
     const { teamsBrowser } = await import('./user-commands.js');
-    const browser = teamsBrowser(ctx);
+    const browser = await teamsBrowser(ctx);
     if (browser === null) {
       await i.reply(eph(t(locale, 'discord.teams.none_open')));
       return;
@@ -275,7 +275,7 @@ export async function onComponent(
       return;
     }
     const { teamsBrowser } = await import('./user-commands.js');
-    const browser = teamsBrowser(ctx);
+    const browser = await teamsBrowser(ctx);
     if (browser === null) {
       await i.reply({ content: t(locale, 'discord.teams.none_open'), embeds: [], components: [] });
       return;
@@ -294,7 +294,7 @@ export async function onComponent(
     }
 
     if (base === IDS.reqCancel) {
-      const res = cancelRequest(ctx.db, ctx.actor, requestId);
+      const res = await cancelRequest(ctx.db, ctx.actor, requestId);
       await i.update({
         content: res.ok ? t(locale, 'discord.teams.cancelled') : t(locale, 'discord.teams.cancel_failed', { message: res.message }),
         embeds: [],
@@ -304,7 +304,7 @@ export async function onComponent(
     }
 
     const decision = base === IDS.reqAccept ? 'accept' : 'decline';
-    const res = decideRequest(ctx.db, ctx.actor, requestId, decision, ctx.config.teamSize);
+    const res = await decideRequest(ctx.db, ctx.actor, requestId, decision, ctx.config.teamSize);
     if (!res.ok) {
       await i.update({ content: `⚠️ ${res.message}`, embeds: [], components: [] });
       return;
@@ -357,12 +357,12 @@ export async function onComponent(
       return;
     }
     const teamId = (i as StringSelectMenuInteraction).values[0] ?? '';
-    const team = getTeam(ctx.db, teamId);
+    const team = await getTeam(ctx.db, teamId);
     if (team === null) {
       await i.update({ content: t(locale, 'discord.teams.gone'), embeds: [], components: [] });
       return;
     }
-    const res = createJoinRequest(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, i.user.id, teamId, ctx.config.teamSize);
+    const res = await createJoinRequest(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, i.user.id, teamId, ctx.config.teamSize);
     if (!res.ok) {
       await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
       return;
@@ -422,7 +422,7 @@ export async function onComponent(
     }
     const userId = id.slice(IDS.adminMoveSelect.length + 1);
     const value = (i as StringSelectMenuInteraction).values[0] ?? '';
-    const res = adminAssign(ctx.db, ctx.actor, ctx.eventId, userId, value === '__none__' ? null : value);
+    const res = await adminAssign(ctx.db, ctx.actor, ctx.eventId, userId, value === '__none__' ? null : value);
     await i.update({
       content: res.ok ? t(locale, 'discord.admin.moved_done', { user: userId }) : t(locale, 'discord.admin.failed_label', { message: res.message }),
       components: [],

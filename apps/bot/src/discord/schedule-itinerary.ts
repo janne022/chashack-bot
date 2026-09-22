@@ -68,7 +68,7 @@ export async function postOrUpdateScheduleItinerary(
   if (!guild) return { error: 'Guild not found' }
   // Resolve channel: override → event's schedule channel → guild default
   const { getGuildSettings } = await import('../features/teams/data.js')
-  const gs = getGuildSettings(db, event.guildId)
+  const gs = await getGuildSettings(db, event.guildId)
   const channelId = overrideChannelId ?? event.scheduleChannelId ?? gs.defaultScheduleChannelId ?? null
   if (!channelId) return { error: 'No schedule channel set — pick one in the event or Config → Default schedule channel.' }
   const channel = await guild.channels.fetch(channelId).catch(()=>null)
