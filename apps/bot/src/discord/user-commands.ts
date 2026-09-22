@@ -181,7 +181,7 @@ export async function handleUserCommand(
         const team = await getTeam(db, r.teamId);
         const label = r.kind === 'invite' ? t(locale, 'discord.teams.kind_invite') : t(locale, 'discord.teams.kind_join_request');
         return `**${label}** — ${team?.name ?? t(locale, 'discord.teams.unknown_team')} (from <@${r.requesterId}>)`;
-      });
+      }));
       const sent = await Promise.all(outgoing.map(async (r) => {
         const team = await getTeam(db, r.teamId);
         return r.kind === 'invite'
