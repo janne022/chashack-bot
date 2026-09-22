@@ -107,19 +107,18 @@ Two clocks, and they are the same clocks the bot already runs on:
 
 **Event data: torn down on the event's cleanup delay.**
 Every event has a `cleanup_delay_hours` setting — the number of hours after the event
-ends before the bot tears down what it created for that event (team channels, the team
-role, and event-scoped data). The default is **48 hours** (`events.cleanup_delay_hours`,
+ends before the bot tears down the Discord side of that event (its team channels and
+the team role). The default is **48 hours** (`events.cleanup_delay_hours`,
 default 48, in `apps/bot/src/shared/db.ts`). An organizer can change it per event, or
 set a server-wide default (`guild_settings.default_cleanup_delay_hours`).
 The bot warns in the event channel **72 hours** and again **24 hours** before the
 teardown runs (`events.cleanup_warned_72h` / `events.cleanup_warned_24h`), so nobody is
 surprised.
 
-<!-- NOT YET IMPLEMENTED -->
-Purging event-scoped *database rows* on this same 48-hour clock is the documented
-goal (issue #23) but the purge job does not exist yet — today the cleanup clock
-removes the Discord artefacts (channels, role), while the rows stay until an erasure
-request or a tenant purge (see below).
+> **Planned, not built yet.** Deleting the event's database rows on this same 48-hour
+> clock is the documented goal (issue #23), but the purge job does not exist yet.
+> Today the clock removes the Discord artefacts only, and the rows stay until an
+> erasure request or a tenant purge (see below).
 
 **Console sessions: 7 days.** A web-console session row lives 7 days and is deleted
 when it expires (`SESSION_TTL_MS = 7 days`; expired rows are deleted when the bot starts up and when someone signs in).
@@ -138,11 +137,9 @@ everything is still there.
 > (issue #23 R1).
 
 **Audit log rows** are kept as accountability records; erasure requests remove rows
-identifying you. A fixed retention period for audit rows is not yet set in code.
-
-<!-- NOT YET IMPLEMENTED -->
-No automatic audit-log retention is implemented; any number given here would be
-invented. The operator will set one and this policy will state it.
+identifying you. **No retention period is set yet** — nothing currently deletes old
+audit rows automatically, so any number printed here would be invented. The operator
+will set one, and this policy will state it in the same change.
 
 ## Getting your data, or getting it deleted
 
@@ -155,11 +152,10 @@ and which event. That is the whole procedure; no forms, no verification maze.
 - **Deletion**: we (or your organizer) delete those rows. If the event is still
   running, the practical effect (team, channels) is explained to you before we do it.
 
-<!-- NOT YET IMPLEMENTED -->
-Per-guild export and erasure are specified in issue #23 (R2: one export operation, one
-erasure operation, each with a dry-run and a confirmation step) but are **not built
-yet**. Until they ship, an erasure request is handled manually by the operator with a
-direct database operation, and it is logged.
+> **How it works today.** Both are done by hand, by the operator, against the database
+> — and an erasure is always written to the audit log, so a deletion is itself
+> accountable. Self-serve export and a one-step erasure operation are specified in
+> issue #23 (R2) with a dry-run and a confirmation step, and are **not built yet**.
 
 Every erasure leaves a trace in the audit log — who deleted what, and when — so a
 deletion is itself accountable.
