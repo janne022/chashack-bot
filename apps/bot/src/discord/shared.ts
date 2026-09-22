@@ -52,7 +52,7 @@ export interface Ctx {
   isAdmin: boolean;
   client: Client;
   /** Category for team channels: guild setting, with env fallback applied by the host. */
-  categoryIdFor: (guildId: string) => string | undefined;
+  categoryIdFor: (guildId: string) => string | undefined | Promise<string | undefined>;
   /** DM a user; returns false when the user has DMs closed. */
   dm: (userId: string, payload: { content?: string; embeds?: EmbedBuilder[]; components?: ActionRowBuilder<ButtonBuilder>[] }) => Promise<boolean>;
 }

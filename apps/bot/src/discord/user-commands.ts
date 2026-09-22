@@ -152,7 +152,7 @@ export async function handleUserCommand(
       const inviter = `${i.user.username} (from **${team.name}**)`;
       const dmSent = await ctx.dm(target.id, {
         content: t(locale, 'discord.teams.invite_dm', { inviter }),
-        embeds: [inviteEmbed(ctx, team.name, team.id)],
+        embeds: [await inviteEmbed(ctx, team.name, team.id)],
         components: [decideRow(IDS.reqAccept, res.value.id, locale)],
       });
       await i.reply({

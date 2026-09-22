@@ -25,21 +25,21 @@ async function seed(): Promise<Db> {
 }
 
 test('upsertParticipant rejects when no event exists for the id', async () => {
-  const db = seed();
+  const db = await seed();
   const res = await upsertParticipant(db, 'discord:42', 'ghost-event', 'g1', '42', signup);
   assert.equal(res.ok, false);
   if (!res.ok) assert.equal(res.code, 'no_event');
 });
 
 test('upsertParticipant rejects draft events', async () => {
-  const db = seed();
+  const db = await seed();
   const res = await upsertParticipant(db, 'discord:42', 'ev2', 'g1', '42', signup);
   assert.equal(res.ok, false);
   if (!res.ok) assert.equal(res.code, 'event_not_active');
 });
 
 test('upsertParticipant accepts active events', async () => {
-  const db = seed();
+  const db = await seed();
   const res = await upsertParticipant(db, 'discord:42', 'ev1', 'g1', '42', signup);
   assert.equal(res.ok, true);
 });

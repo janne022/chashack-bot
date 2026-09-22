@@ -22,14 +22,14 @@ test('multi-event: events are independent and all are listed', async () => {
   assert.deepEqual(all.map((e) => e.status), ['draft', 'draft']);
 
   // Activating one does not touch the other.
-  assert.ok(await activateEvent(db, 'test', a.value.id).ok);
+  assert.ok((await activateEvent(db, 'test', a.value.id)).ok);
   all = await listEvents(db, G);
   const byId = new Map(all.map((e) => [e.id, e]));
   assert.equal(byId.get(a.value.id)?.status, 'active');
   assert.equal(byId.get(b.value.id)?.status, 'draft');
 
   // Both active simultaneously — the case the switcher exists for.
-  assert.ok(await activateEvent(db, 'test', b.value.id).ok);
+  assert.ok((await activateEvent(db, 'test', b.value.id)).ok);
   all = await listEvents(db, G);
   assert.equal(all.filter((e) => e.status === 'active').length, 2);
 
@@ -76,8 +76,8 @@ test('multi-event: no pool means no distribute action is wired', async () => {
 
 test('multi-event: events in another guild are never returned', async () => {
   const db = openDb(':memory:');
-  assert.ok(await createEvent(db, 'test', 'g1', { name: 'Guild One Event' }).ok);
-  assert.ok(await createEvent(db, 'test', 'g2', { name: 'Guild Two Event' }).ok);
+  assert.ok((await createEvent(db, 'test', 'g1', { name: 'Guild One Event' })).ok);
+  assert.ok((await createEvent(db, 'test', 'g2', { name: 'Guild Two Event' })).ok);
 
   const g1 = await listEvents(db, 'g1');
   assert.equal(g1.length, 1);

@@ -97,7 +97,7 @@ export async function handleEventAdminCommand(
 
       let form: Parameters<typeof createEvent>[3]['form'];
       if (templateId !== null) {
-        const tpl = await listTemplates(db, guildId, 'event').find((tplItem) => tplItem.id === templateId);
+        const tpl = (await listTemplates(db, guildId, 'event')).find((tplItem) => tplItem.id === templateId);
         if (tpl === undefined) {
           await i.reply(eph(t(locale, 'discord.events.template_not_found')));
           return;
@@ -161,7 +161,7 @@ export async function handleEventAdminCommand(
       const idArg = i.options.getString('id');
       let eventId = idArg ?? '';
       if (eventId === '') {
-        const drafts = await listEvents(db, guildId).filter((e) => e.status === 'draft');
+        const drafts = (await listEvents(db, guildId)).filter((e) => e.status === 'draft');
         if (drafts.length === 0) {
           await i.reply(eph(t(locale, 'discord.events.no_drafts')));
           return;
@@ -217,7 +217,7 @@ export async function handleEventAdminCommand(
       }
       const clear = i.options.getBoolean('clear') ?? false;
       if (clear) {
-        const res = setMatchAt(db, actor, event.id, null);
+        const res = await setMatchAt(db, actor, event.id, null);
         if (!res.ok) {
           await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
           return;
@@ -260,7 +260,7 @@ export async function handleEventAdminCommand(
         await i.reply(eph(t(locale, 'discord.match.schedule_bad_time')));
         return;
       }
-      const res = setMatchAt(db, actor, event.id, at);
+      const res = await setMatchAt(db, actor, event.id, at);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;

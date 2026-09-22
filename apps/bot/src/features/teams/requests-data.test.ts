@@ -58,7 +58,7 @@ test('invite flow: wrong decider rejected, invitee accept joins, members updated
   const accept = await decideRequest(db, actorOf('alice'), invite.value.id, 'accept', DEFAULT_FORM.teamSize);
   assert.ok(accept.ok);
 
-  const members = await listTeams(db, EV).find((t) => t.id === team.value.id)!.members;
+  const members = (await listTeams(db, EV)).find((t) => t.id === team.value.id)!.members;
   assert.ok(members.some((m) => m.userId === 'alice'));
 
   // Double-accept is rejected.
@@ -89,7 +89,7 @@ test('join request flow: owner decides, duplicates blocked while pending', async
 
   const ownerAccepts = await decideRequest(db, actorOf('owner'), req1.value.id, 'accept', DEFAULT_FORM.teamSize);
   assert.ok(ownerAccepts.ok);
-  const members = await listTeams(db, EV).find(async (t) => t.id === team.value.id)!.members;
+  const members = (await listTeams(db, EV)).find((t) => t.id === team.value.id)!.members;
   assert.ok(members.some((m) => m.userId === 'bob'));
 });
 
@@ -158,7 +158,7 @@ test('users already in a team cannot be invited elsewhere', async () => {
   const inv = await createInvite(db, actorOf('owner1'), EV, G, t1.value.id, 'member', DEFAULT_FORM.teamSize);
   assert.ok(inv.ok);
   if (!inv.ok) return;
-  assert.ok(await decideRequest(db, actorOf('member'), inv.value.id, 'accept', DEFAULT_FORM.teamSize).ok);
+  assert.ok((await decideRequest(db, actorOf('member'), inv.value.id, 'accept', DEFAULT_FORM.teamSize)).ok);
 
   const poach = await createInvite(db, actorOf('owner2'), EV, G, t2.value.id, 'member', DEFAULT_FORM.teamSize);
   assert.equal(poach.ok, false);

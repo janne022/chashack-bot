@@ -85,7 +85,7 @@ export function makeDm(client: Client): Ctx['dm'] {
 
 export function registerInteractionHandlers(client: Client, deps: RouterDeps): void {
   const categoryIdFor = async (guildId: string): Promise<string | undefined> =>
-    await getGuildSettings(deps.db, guildId).teamCategoryId ?? deps.teamCategoryId;
+    (await getGuildSettings(deps.db, guildId)).teamCategoryId ?? deps.teamCategoryId;
   const dm = makeDm(client);
 
   client.on('interactionCreate', async (interaction: Interaction) => {
@@ -122,7 +122,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         hasActiveEvent: activeEvent !== null,
         guildId,
         actor: `discord:${interaction.user.id}`,
-        isAdmin: isAdminMemberWithRoles(interaction, deps.adminIds, deps.db),
+        isAdmin: await isAdminMemberWithRoles(interaction, deps.adminIds, deps.db),
         client,
         categoryIdFor,
         dm,
@@ -133,7 +133,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         const sub = interaction.options.getSubcommand(false) ?? '';
         if (sub === 'event' && group === null) {
           // Public event info card.
-          await interaction.reply({ embeds: [handleEventInfo(ctx)], flags: 64 });
+          await interaction.reply({ embeds: [await handleEventInfo(ctx)], flags: 64 });
           return;
         }
         const eventAdminSubs = [
@@ -223,7 +223,7 @@ async function handleAutocomplete(interaction: AutocompleteInteraction, deps: Ro
     return;
   }
   if (focused.name === 'id') {
-    const events = await listEvents(deps.db, interaction.guildId).filter((e) => e.status === 'draft');
+    const events = (await listEvents(deps.db, interaction.guildId)).filter((e) => e.status === 'draft');
     await interaction.respond(
       events.slice(0, 25).map((e) => ({ name: `${e.name} (${e.status})`, value: e.id })),
     );

@@ -137,7 +137,7 @@ export async function handleAdminCommand(
       if (moved !== null) {
         const provisionDeps = { db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
         void provisionTeamSpace(provisionDeps, moved)
-          .then((team) => await grantTeamRole(provisionDeps, team, user.id))
+          .then(async (team) => await grantTeamRole(provisionDeps, team, user.id))
           .catch((err) => console.warn('admin move provisioning failed:', err));
       }
       await i.reply({
@@ -225,8 +225,8 @@ export async function handleAdminCommand(
     }
 
     case 'reset': {
-      const counts = await listParticipants(db, ctx.eventId).length;
-      const teams = await listTeams(db, ctx.eventId).length;
+      const counts = (await listParticipants(db, ctx.eventId)).length;
+      const teams = (await listTeams(db, ctx.eventId)).length;
       await i.reply({
         content: t(locale, 'discord.admin.reset_warning', { signups: counts, teams }),
         components: [confirmRow(IDS.resetConfirm, IDS.resetCancel, t(locale, 'discord.admin.reset_confirm_btn'), locale)],
@@ -259,7 +259,7 @@ export async function commitMatchAndAnnounce(
   const { listParticipants } = await import('../features/signup/data.js');
   const allParticipants = await listParticipants(ctx.db, ctx.eventId);
   for (const matchTeam of res.value.teams) {
-    const stored = (await import('../features/teams/data.js')).listTeams(ctx.db, ctx.eventId).find((team) => team.name === matchTeam.name);
+    const stored = (await (await import('../features/teams/data.js')).listTeams(ctx.db, ctx.eventId)).find((team) => team.name === matchTeam.name);
     if (stored === undefined) continue;
     const provisioned = await provisionTeamSpace(provisionDeps, stored);
     for (const memberId of matchTeam.memberIds) {
