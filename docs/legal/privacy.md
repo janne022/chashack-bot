@@ -43,8 +43,12 @@ username and avatar. We need the id to know who is on which team, and to create 
 clean up team channels and roles on the Discord server.
 
 - `participants.user_id`, `participants.display_name` — every participant.
+- `participants.guild_id`, `participants.created_at`, `participants.updated_at` —
+  which server the entry belongs to, and when it was created or last changed.
 - `web_sessions.user_id`, `web_sessions.username`, `web_sessions.avatar` —
   organizers using the web console.
+- `web_sessions.guild_ids`, `web_sessions.selected_guild_id` — which servers a console
+  session may manage, and which one it is currently showing.
 
 **Your signup answers.** Whatever the event's signup form asks: your experience
 level, role track, skills, whether you want a team, and who you would like to team up
@@ -118,20 +122,20 @@ removes the Discord artefacts (channels, role), while the rows stay until an era
 request or a tenant purge (see below).
 
 **Console sessions: 7 days.** A web-console session row lives 7 days and is deleted
-when it expires (`SESSION_TTL_MS = 7 days`; expired sessions are deleted on access).
+when it expires (`SESSION_TTL_MS = 7 days`; expired rows are deleted when the bot starts up and when someone signs in).
 
 **After the bot is removed from a server.**
-Removing the bot does not immediately delete the server's data. It is kept for a grace
-period — the documented default is **30 days** — and then removed in one bulk sweep.
-The grace period exists so that accidentally kicking the bot, or moving to a new
-server, does not lose the event. If the bot is re-invited inside the grace window,
+Removing the bot does not immediately delete the server's data. The grace period
+exists so that accidentally kicking the bot, or moving to a new server, does not lose
+the event. If the bot is re-invited inside the grace window,
 everything is still there.
 
-<!-- NOT YET IMPLEMENTED -->
-The 30-day grace period and the bulk sweep are **not built yet** (issue #23 R1). The
-30 days is a *proposed* default that the owner has not confirmed; when it lands in
-code as a configuration value, this policy will be updated in the same change to name
-the same number and the same variable.
+> **Planned, not built yet.** The grace period and the bulk sweep that follows it do
+> **not** exist today: removing the bot leaves that server's data in place, and
+> nothing purges it automatically. We intend the window to be **30 days**, but that
+> number is not final and nothing enforces it yet. This page will state the real
+> number, and name the setting behind it, in the same change that adds it to the code
+> (issue #23 R1).
 
 **Audit log rows** are kept as accountability records; erasure requests remove rows
 identifying you. A fixed retention period for audit rows is not yet set in code.
@@ -164,8 +168,9 @@ deletion is itself accountable.
 
 The bot's own content stays out of your Discord server (channels it created are not
 deleted on removal — that would delete other people's screenshots and work; the
-event's normal cleanup clock handles them). The data we hold for that server follows
-the grace-period rule above: kept 30 days, then purged in bulk.
+event's normal cleanup clock handles them). The data we hold for that server is covered by
+the rule above — which is planned rather than built, so today nothing is purged
+automatically after removal.
 
 ## Suspension
 
