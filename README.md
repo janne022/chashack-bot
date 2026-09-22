@@ -98,6 +98,12 @@ apps/admin-ui    React admin panel (Vite)
 
 ## Setup
 
+**One-command local stack (recommended):** `pnpm install && pnpm build && pnpm dev`
+— brings up Postgres (web DB UI), Redis, the bot API and the admin console under
+the Aspire dashboard. Full guide: [docs/DEV.md](docs/DEV.md).
+
+Manual setup (bot only, no Aspire):
+
 ```bash
 pnpm install                      # workspace install (supply-chain gated)
 cp .env.example .env              # fill in Discord creds + admin password
