@@ -36,13 +36,17 @@ Owner: janne. Related: `multi-guild-oauth.md` (console-side multi-guild, shipped
 | 4 | #13 Participant web surface | 2a | `apps/web/**` (new), `apps/bot/src/features/participant/**` (new), `apps/bot/src/adminweb/participant-routes.ts` (new) |
 | 5 | #14 Multi-guild isolation audit | 2a | `apps/bot/src/**/*.test.ts` (new tests only) |
 | 6 | #16 Redis cache with explicit invalidation | 2b, 3 (for the resource) | `apps/bot/src/shared/cache.ts` (new) + read/write call sites |
+| 7 | #19 Postgres row-level security (tenant context + policies) | 2b | `apps/bot/src/shared/tenant/**` (new), migrations, docs |
+| - | #20 Cross-tenant leaks: global `form_config` + unfiltered `audit_log` | 2a | `apps/bot/src/features/form/**`, `shared/audit.ts`, the console form page |
 
 Dependency graph:
 
 ```
 WS1  (apps/admin-ui)  ──┐  disjoint trees: run in parallel
-WS2a (apps/bot)       ──┴──> WS2a ──┬──> WS2b ──> WS6
-                                    ├──> WS3   (AppHost: Postgres + Redis resources)
+WS2a (apps/bot)       ──┴──> WS2a ──┬──> WS2b ──┬──> WS6  (cache)
+                                    │           └──> WS7  (row-level security)
+                                    ├──> #20  (fix the two live tenant leaks)
+                                    ├──> WS3  (AppHost: Postgres + Redis resources)
                                     ├──> WS4
                                     └──> WS5
 ```
@@ -74,6 +78,33 @@ and must never run git commands in the primary checkout while another worker is 
 - **A product fact changes → `PRODUCT.md` changes** ("One Discord guild", "participants never touch
   the console", "one SQLite file" are all facts WS2–WS4 invalidate).
 - **Changes land through a reviewed PR** — never a direct push to `main`.
+
+## Multi-tenancy: what Postgres is actually for here
+
+The reason to run Postgres is not throughput, it is **enforced tenant isolation**. Before this program,
+`guild_id` scoping is an application convention: every query must remember to filter, and a single
+forgotten `WHERE` returns another guild's rows. That is a real risk, and two instances of it are already
+live (#20).
+
+The target: **`guild_id` is the tenant key and the database enforces it.**
+
+- **Policy:** every tenant-scoped table gets a row-level-security policy on `guild_id`; a query that
+  forgets to filter returns *zero rows*, not another tenant's rows.
+- **Context is transaction-scoped, never connection-scoped** (`SET LOCAL`): a pooled connection must not
+  carry tenant A's context into tenant B's request. This is the single most common way RLS deployments
+  leak.
+- **Fail closed:** no tenant context means no rows. System-wide operations (maintenance planner,
+  migrations, cleanup) use an explicit, enumerated escape hatch.
+- **Enforcement must be proven, not assumed:** policies are silently ignored for the table owner, so the
+  app connects as a purpose-made role with no `BYPASSRLS` and no DDL, and a test removes the guild filter
+  on purpose and asserts zero rows.
+- **Honest parity:** RLS is Postgres-only. A SQLite install keeps application-level scoping and is
+  single-tenant by design. That asymmetry is documented, not papered over.
+- Tenancy is **shared-schema, many guilds in one database**. Schema-per-tenant and database-per-tenant
+  are explicitly out of scope; they buy isolation at an operational cost this project does not want.
+
+WS7 (#19) owns this. WS2b (#11) builds the dialect and runs no policies; WS5 (#14) keeps auditing the
+application-level routes.
 
 ## Known papercuts found while planning
 
@@ -113,6 +144,8 @@ and must never run git commands in the primary checkout while another worker is 
   field ids and oversized payloads.
 - Cache keys are guild/event-scoped and versioned; a cross-guild cache read is a **security defect**,
   not a performance one.
+- Tenant isolation is enforced at the database (RLS, WS7) *in addition to* application scoping — never
+  instead of it. A missing `WHERE guild_id` must be a correctness bug, not a data breach.
 
 ## Out of scope
 
