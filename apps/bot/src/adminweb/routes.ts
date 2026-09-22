@@ -138,8 +138,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
    * back to the configured guild. The client never names the guild, which is what
    * keeps one guild's console from reading another's data.
    */
-  const guildOf = (req: FastifyRequest): string => {
-    const live = sessionFrom(req);
+  const guildOf = async (req: FastifyRequest): Promise<string> => {
+    const live = await sessionFrom(req);
     if (live !== null && live.session !== null && live.session.selectedGuildId !== null) {
       return live.session.selectedGuildId;
     }
@@ -185,7 +185,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     // session (operator or Discord).
     const isPublic = req.url === '/api/login' || req.url === '/api/auth/mode';
     if (!isApi || isPublic) return;
-    if (sessionFrom(req) === null) {
+    if ((await sessionFrom(req)) === null) {
       await reply.code(401).send({ error: 'unauthorized' });
     }
   });
@@ -400,7 +400,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   /** Who am I, what am I managing, what may I switch to. */
   app.get('/api/auth/me', async (req) => {
-    const live = sessionFrom(req);
+    const live = await sessionFrom(req);
     const guildName = (id: string | null): string | null => {
       if (id === null || deps.client === null) return null;
       const cached = deps.client.guilds.cache.get(id);
@@ -430,7 +430,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   /** Switch the guild this session manages. Validated server-side. */
   app.post('/api/auth/guild', async (req, reply) => {
-    const live = sessionFrom(req);
+    const live = await sessionFrom(req);
     const body = req.body as { guildId?: string } | null;
     const target = body?.guildId ?? '';
     if (live === null || live.session === null) {
@@ -446,7 +446,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/auth/logout', async (req, reply) => {
-    const live = sessionFrom(req);
+    const live = await sessionFrom(req);
     if (live !== null && live.session !== null) {
       // Deleting the row is what actually revokes: the cookie stops resolving.
       await deleteSession(db, live.session.id);
@@ -458,12 +458,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/guild/channels', async (req) => {
     if (deps.client === null) return { channels: [], categories: [], roles: [] };
-    if (!isSnowflake(guildOf(req))) {
-      console.warn(`GET /api/guild/channels: DISCORD_GUILD_ID not set or invalid ("${guildOf(req)}") — returning empty. Set it in .env.`);
+    if (!isSnowflake(await guildOf(req))) {
+      console.warn(`GET /api/guild/channels: DISCORD_GUILD_ID not set or invalid ("${await guildOf(req)}") — returning empty. Set it in .env.`);
       return { channels: [], categories: [], roles: [] };
     }
     try {
-      const guild = await deps.client.guilds.fetch(guildOf(req));
+      const guild = await deps.client.guilds.fetch(await guildOf(req));
       const channels = await guild.channels.fetch();
       const textChannels = channels
         .filter((c) => c !== null && c.type === 0) // GUILD_TEXT
@@ -485,9 +485,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/guild/roles', async (req) => {
     if (deps.client === null) return { roles: [] };
-    if (!isSnowflake(guildOf(req))) return { roles: [] };
+    if (!isSnowflake(await guildOf(req))) return { roles: [] };
     try {
-      const guild = await deps.client.guilds.fetch(guildOf(req));
+      const guild = await deps.client.guilds.fetch(await guildOf(req));
       const roles = [...guild.roles.cache.values()]
         .filter(r => r.id !== guild.roles.everyone.id)
         .map(r => ({ id: r.id, name: r.name, color: r.hexColor }))
@@ -499,8 +499,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/diag/channel-test', async (req, reply) => {
     const body = req.body as { channelId?: string } | null
     const channelId = body?.channelId?.trim() ?? ''
-    if (!isSnowflake(guildOf(req))) {
-      await reply.code(400).send({ ok: false, code: 'guild_not_configured', message: `DISCORD_GUILD_ID="${guildOf(req)}" is not a snowflake — set it in .env and restart.` })
+    if (!isSnowflake(await guildOf(req))) {
+      await reply.code(400).send({ ok: false, code: 'guild_not_configured', message: `DISCORD_GUILD_ID="${await guildOf(req)}" is not a snowflake — set it in .env and restart.` })
       return
     }
     if (!isSnowflake(channelId)) {
@@ -512,10 +512,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return
     }
     try {
-      const guild = await deps.client.guilds.fetch(guildOf(req))
+      const guild = await deps.client.guilds.fetch(await guildOf(req))
       const channel = await guild.channels.fetch(channelId)
       if (channel === null) {
-        await reply.code(404).send({ ok: false, code: 'not_found', message: `Channel ${channelId} not found in guild ${guildOf(req)}. Is the ID correct?` })
+        await reply.code(404).send({ ok: false, code: 'not_found', message: `Channel ${channelId} not found in guild ${await guildOf(req)}. Is the ID correct?` })
         return
       }
       if (!channel.isTextBased()) {
@@ -544,13 +544,13 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.get('/api/state', async (req, reply) => {
-    const eventId = resolveEventId(req, guildOf(req));
+    const eventId = resolveEventId(req, await guildOf(req));
     const participants = await listParticipants(db, eventId);
     const teams = await listTeams(db, eventId);
-    const events = await listEvents(db, guildOf(req));
+    const events = await listEvents(db, await guildOf(req));
     const selected = events.find((e) => e.id === eventId) ?? null;
     // surface guild mis-config so UI can warn
-    const guildOk = isSnowflake(guildOf(req));
+    const guildOk = isSnowflake(await guildOf(req));
     if (!guildOk) {
       reply.header('x-guild-warning', 'DISCORD_GUILD_ID not set');
     }
@@ -560,11 +560,11 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       config: await getForm(db),
       audit: await auditList(db, 100),
       lastMatch: await lastMatchInfo(db, eventId),
-      guildSettings: await getGuildSettings(db, guildOf(req)),
+      guildSettings: await getGuildSettings(db, await guildOf(req)),
       guildConfigured: guildOk,
-      guildId: guildOf(req),
+      guildId: await guildOf(req),
       events,
-      templates: await listTemplates(db, guildOf(req)),
+      templates: await listTemplates(db, await guildOf(req)),
       // The event these participants/teams belong to (explicit pick, else default).
       activeEventId: selected?.id ?? null,
       selectedEventId: selected?.id ?? null,
@@ -584,7 +584,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   // ── events ────────────────────────────────────────────────────────────────
 
   app.post('/api/events', async (req, reply) => {
-    if (!isSnowflake(guildOf(req))) {
+    if (!isSnowflake(await guildOf(req))) {
       await reply.code(400).send({ ok: false, code: 'guild_not_configured', message: 'DISCORD_GUILD_ID is not set or not a snowflake. Set it in .env and restart the bot.' });
       return;
     }
@@ -618,7 +618,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     // Parse the event template once — it seeds form, schedule, assignments and strategy.
     let tplInput: Partial<Parameters<typeof createEvent>[3]> | undefined;
     if (body.templateId !== undefined) {
-      const tpl = await listTemplates(db, guildOf(req), 'event').find((t) => t.id === body.templateId);
+      const tpl = (await listTemplates(db, await guildOf(req), 'event')).find((t) => t.id === body.templateId);
       if (tpl === undefined) {
         await reply.code(400).send({ ok: false, code: 'not_found', message: 'Template not found.' });
         return;
@@ -628,7 +628,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       form = tplInput.form;
     }
     if (body.formTemplateId !== undefined) {
-      const tpl = await listTemplates(db, guildOf(req), 'form').find((t) => t.id === body.formTemplateId);
+      const tpl = (await listTemplates(db, await guildOf(req), 'form')).find((t) => t.id === body.formTemplateId);
       if (tpl === undefined) {
         await reply.code(400).send({ ok: false, code: 'not_found', message: 'Form template not found.' });
         return;
@@ -642,21 +642,21 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
     // Default form fallback: guild default form template → else global form_config fallback is handled inside createEvent
     if (form === undefined && body.formTemplateId === undefined) {
-      const gs2 = await getGuildSettings(db, guildOf(req))
+      const gs2 = await getGuildSettings(db, await guildOf(req))
       if (gs2.defaultFormTemplateId) {
-        const tpl = await listTemplates(db, guildOf(req), 'form').find(t => t.id === gs2.defaultFormTemplateId)
+        const tpl = (await listTemplates(db, await guildOf(req), 'form')).find(t => t.id === gs2.defaultFormTemplateId)
         if (tpl) {
           try { form = JSON.parse(tpl.json) as Parameters<typeof createEvent>[3]['form'] } catch { /* ignore */ }
         }
       }
     }
     // Fall back to guild defaults when not explicitly provided
-    const gs = await getGuildSettings(db, guildOf(req))
+    const gs = await getGuildSettings(db, await guildOf(req))
     // Template seeds the schedule + assignment pool when the caller didn't supply them.
     const schedule = body.schedule ?? tplInput?.schedule
     const assignments = body.assignments ?? tplInput?.assignments
     const strategy = body.assignmentStrategy ?? tplInput?.assignmentStrategy
-    const res = await createEvent(db, 'web', guildOf(req), {
+    const res = await createEvent(db, 'web', await guildOf(req), {
       name: body.name,
       ...(body.description !== undefined ? { description: body.description } : {}),
       ...(body.startsAt != null ? { startsAt: body.startsAt } : {}),
@@ -704,7 +704,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
           assignments: savedEvent.assignments,
           assignmentStrategy: savedStrategy === 'same' ? 'same' : 'random',
         }
-        await saveTemplate(db, 'web', guildOf(req), tplName, 'event', JSON.stringify(payload))
+        await saveTemplate(db, 'web', await guildOf(req), tplName, 'event', JSON.stringify(payload))
       }
     }
     return { ok: true, event: await getEvent(db, res.value.id) ?? res.value };
@@ -794,12 +794,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/events/announce', async (req, reply) => {
-    if (!isSnowflake(guildOf(req))) {
+    if (!isSnowflake(await guildOf(req))) {
       await reply.code(400).send({ ok: false, code: 'guild_not_configured', message: 'DISCORD_GUILD_ID is not set or not a snowflake. Configure it in .env or Config → Guild defaults.' });
       return;
     }
     const body = req.body as { eventId?: string; title?: string; message?: string; dm?: boolean; channelId?: string } | null
-    const event = body?.eventId !== undefined ? await getEvent(db, body.eventId) : await getActiveEvent(db, guildOf(req))
+    const event = body?.eventId !== undefined ? await getEvent(db, body.eventId) : await getActiveEvent(db, await guildOf(req))
     if (event === null) {
       await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found.' })
       return
@@ -833,7 +833,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' });
       return;
     }
-    const res = await postOrUpdatePanel(db, deps.client, guildOf(req), channelId).catch((e: unknown) => ({
+    const res = await postOrUpdatePanel(db, deps.client, await guildOf(req), channelId).catch((e: unknown) => ({
       error: e instanceof Error ? e.message : 'Unknown error',
     }));
     if ('error' in res) {
@@ -868,7 +868,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/templates', async (req) => {
     const kind = (req.query as { kind?: string } | undefined)?.kind
-    const templates = await listTemplates(db, guildOf(req), kind as never)
+    const templates = await listTemplates(db, await guildOf(req), kind as never)
     return { templates }
   })
 
@@ -909,7 +909,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       if (body?.json !== undefined) {
         try { JSON.parse(body.json); json = body.json } catch { await reply.code(400).send({ ok: false, code: 'bad_json', message: 'Event template json is not valid JSON.' }); return }
       } else {
-        const event = body?.eventId !== undefined ? await getEvent(db, body.eventId) : await getActiveEvent(db, guildOf(req))
+        const event = body?.eventId !== undefined ? await getEvent(db, body.eventId) : await getActiveEvent(db, await guildOf(req))
         if (event === null) {
           await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found. Provide json or eventId.' })
           return
@@ -926,7 +926,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         json = JSON.stringify(payload)
       }
     }
-    const res = await saveTemplate(db, 'web', guildOf(req), body?.name ?? '', kind, json)
+    const res = await saveTemplate(db, 'web', await guildOf(req), body?.name ?? '', kind, json)
     if (!res.ok) {
       await reply.code(400).send(res)
       return
@@ -937,7 +937,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.patch('/api/templates/:templateId', async (req, reply) => {
     const { templateId } = req.params as { templateId: string }
     const body = req.body as { name?: string; json?: string; formJson?: string } | null
-    const existing = await listTemplates(db, guildOf(req)).find(t => t.id === templateId)
+    const existing = (await listTemplates(db, await guildOf(req))).find(t => t.id === templateId)
     if (!existing) { await reply.code(404).send({ ok: false, code: 'not_found', message: 'Template not found.' }); return }
     const name = body?.name !== undefined ? body.name.trim().slice(0, 80) : existing.name
     if (name.length < 2) { await reply.code(400).send({ ok: false, code: 'bad_name', message: 'Name must be at least 2 characters.' }); return }
@@ -954,7 +954,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       }
     } catch (e) { await reply.code(400).send({ ok: false, code: 'bad_json', message: e instanceof Error ? e.message : 'Invalid JSON' }); return }
     db.prepare('UPDATE event_templates SET name = ?, json = ? WHERE id = ?').run(name, json, templateId)
-    const updated = await listTemplates(db, guildOf(req)).find(t => t.id === templateId)!
+    const updated = (await listTemplates(db, await guildOf(req))).find(t => t.id === templateId)!
     return { ok: true, template: updated }
   })
 
@@ -978,7 +978,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
     let form: Partial<FormConfig>
     if (body?.formTemplateId) {
-      const tpl = await listTemplates(db, guildOf(req), 'form').find((t) => t.id === body.formTemplateId)
+      const tpl = (await listTemplates(db, await guildOf(req), 'form')).find((t) => t.id === body.formTemplateId)
       if (!tpl) {
         await reply.code(404).send({ ok: false, code: 'not_found', message: 'Form template not found.' })
         return
@@ -1040,7 +1040,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
     if ('defaultFormTemplateId' in body) {
       const id = body.defaultFormTemplateId
-      if (id !== null && id !== '' && await listTemplates(db, guildOf(req), 'form').find(t => t.id === id) === undefined) {
+      if (id !== null && id !== '' && (await listTemplates(db, await guildOf(req), 'form')).find(t => t.id === id) === undefined) {
         await reply.code(400).send({ ok: false, code: 'not_found', message: 'Form template not found.' }); return
       }
       cleaned.defaultFormTemplateId = id ?? null
@@ -1053,7 +1053,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       }
       cleaned.defaultCleanupDelayHours = n
     }
-    const settings = await updateGuildSettings(db, 'web', guildOf(req), cleaned)
+    const settings = await updateGuildSettings(db, 'web', await guildOf(req), cleaned)
     return { ok: true, settings }
   });
 
@@ -1061,7 +1061,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const { userId } = req.params as { userId: string };
     const body = req.body as { action?: string; reason?: string } | null;
     const actor = 'web';
-    const eventId = resolveEventId(req, guildOf(req));
+    const eventId = resolveEventId(req, await guildOf(req));
     let res;
     switch (body?.action) {
       case 'block':
@@ -1101,7 +1101,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/participants/:userId/team', async (req, reply) => {
     const { userId } = req.params as { userId: string };
     const body = req.body as { teamId?: string | null } | null;
-    const res = await adminAssign(db, 'web', resolveEventId(req, guildOf(req)), userId, body?.teamId ?? null);
+    const res = await adminAssign(db, 'web', resolveEventId(req, await guildOf(req)), userId, body?.teamId ?? null);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1115,12 +1115,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be public|private' });
       return;
     }
-    if (body.ownerId !== undefined && await getParticipant(db, resolveEventId(req, guildOf(req)), body.ownerId) === null) {
+    if (body.ownerId !== undefined && await getParticipant(db, resolveEventId(req, await guildOf(req)), body.ownerId) === null) {
       await reply.code(400).send({ ok: false, code: 'not_found', message: 'Owner has no signup.' });
       return;
     }
     const ownerId = body.ownerId ?? `admin-${Date.now()}`;
-    const res = await createTeam(db, 'web', resolveEventId(req, guildOf(req)), guildOf(req), body.name ?? '', body.kind, ownerId);
+    const res = await createTeam(db, 'web', resolveEventId(req, await guildOf(req)), await guildOf(req), body.name ?? '', body.kind, ownerId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1173,7 +1173,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/match/preview', async (req, reply) => {
-    const res = await previewMatch(db, resolveEventId(req, guildOf(req)), await getForm(db));
+    const res = await previewMatch(db, resolveEventId(req, await guildOf(req)), await getForm(db));
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1182,17 +1182,17 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
 app.post('/api/match/commit', async (req) => {
-    const eventId = resolveEventId(req, guildOf(req));
-    const res = await commitMatch(db, 'web', eventId, guildOf(req), await getForm(db));
+    const eventId = resolveEventId(req, await guildOf(req));
+    const res = await commitMatch(db, 'web', eventId, await guildOf(req), await getForm(db));
     if (!res.ok) {
       return { ok: false, code: res.code, message: res.message };
     }
     // Provision matched team spaces + roles (parity with the Discord commit flow).
     if (deps.client !== null) {
-      const categoryId = await getGuildSettings(db, guildOf(req)).teamCategoryId ?? config.teamCategoryId;
+      const categoryId = (await getGuildSettings(db, await guildOf(req))).teamCategoryId ?? config.teamCategoryId;
       const provisionDeps = { db, client: deps.client, categoryIdFor: () => categoryId ?? undefined };
       const { provisionTeamSpace, grantTeamRole, sendJoinWelcome } = await import('../discord/provision.js');
-      const matched = await listTeams(db, eventId).filter((t) => t.kind === 'matched');
+      const matched = (await listTeams(db, eventId)).filter((t) => t.kind === 'matched');
       for (const team of matched) {
         const provisioned = await provisionTeamSpace(provisionDeps, team);
         for (const member of team.members) {
@@ -1212,7 +1212,7 @@ app.post('/api/match/commit', async (req) => {
     const lines = res.value.teams
       .map((t) => `**${t.name}** — compatibility ${t.score}\n${t.memberIds.map((id) => `<@${id}>`).join(', ')}`)
       .join('\n\n');
-    await deps.announce(guildOf(req), `🏁 **Teams are locked in!**\n\n${lines}`);
+    await deps.announce(await guildOf(req), `🏁 **Teams are locked in!**\n\n${lines}`);
     return { ok: true, result: res.value };
   });
 
@@ -1220,7 +1220,7 @@ app.post('/api/match/commit', async (req) => {
   app.post('/api/match/suggestions', async (req, reply) => {
     const body = req.body as { participantId?: string } | null;
     const participantId = body?.participantId ?? '';
-    const eventId = resolveEventId(req, guildOf(req));
+    const eventId = resolveEventId(req, await guildOf(req));
     const participant = await getParticipant(db, eventId, participantId);
     if (participant === null) {
       await reply.code(404).send({ ok: false, code: 'not_found', message: 'Participant not found in this event.' });
@@ -1236,15 +1236,15 @@ app.post('/api/match/commit', async (req) => {
 
   /** Lock teams in now: skips future auto-match (manual match runs still allowed). */
 app.post('/api/match/lock', async (req) => {
-    markMatchLocked(db, resolveEventId(req, guildOf(req)));
-    await audit(db, 'web', 'match.lock', resolveEventId(req, guildOf(req)), null);
+    markMatchLocked(db, resolveEventId(req, await guildOf(req)));
+    await audit(db, 'web', 'match.lock', resolveEventId(req, await guildOf(req)), null);
     return { ok: true };
   });
 
   /** Clear the lock so auto-match can fire again. */
   app.post('/api/match/unlock', async (req) => {
-    markMatchUnlocked(db, resolveEventId(req, guildOf(req)));
-    await audit(db, 'web', 'match.unlock', resolveEventId(req, guildOf(req)), null);
+    markMatchUnlocked(db, resolveEventId(req, await guildOf(req)));
+    await audit(db, 'web', 'match.unlock', resolveEventId(req, await guildOf(req)), null);
     return { ok: true };
   });
 
@@ -1256,7 +1256,7 @@ app.post('/api/match/lock', async (req) => {
       return;
     }
     // Keep the Discord signup panel in sync with the new form config.
-    const formGuild = guildOf(req);
+    const formGuild = await guildOf(req);
     if (deps.client !== null && isSnowflake(formGuild)) {
       void refreshSignupPanel(db, deps.client, formGuild).catch(() => undefined);
     }
@@ -1269,7 +1269,7 @@ app.post('/api/match/lock', async (req) => {
   });
 
 app.post('/api/event/reset', async (req) => {
-    const eventId = resolveEventId(req, guildOf(req));
+    const eventId = resolveEventId(req, await guildOf(req));
     const { purgeEventParticipants } = await import('../features/signup/data.js');
     const { deleteEventTeams } = await import('../features/teams/data.js');
     const participants = await purgeEventParticipants(db, 'web', eventId);
@@ -1279,7 +1279,7 @@ app.post('/api/event/reset', async (req) => {
 
   app.post('/api/guild/category', async (req) => {
     const body = req.body as { categoryId?: string | null } | null;
-    await setGuildCategory(db, 'web', guildOf(req), body?.categoryId ?? null);
+    await setGuildCategory(db, 'web', await guildOf(req), body?.categoryId ?? null);
     return { ok: true };
   });
 }

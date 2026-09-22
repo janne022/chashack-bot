@@ -36,7 +36,7 @@ export interface ProvisionDeps {
   db: Db;
   client: Client;
   /** Category for team spaces (guild_settings or env fallback). */
-  categoryIdFor: (guildId: string) => string | undefined;
+  categoryIdFor: (guildId: string) => string | undefined | Promise<string | undefined>;
 }
 
 async function ensureCategory(guild: Guild, categoryId: string | undefined): Promise<CategoryChannelResolvable | undefined> {
@@ -109,7 +109,7 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
   }
   overwrites.push({ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] });
 
-  const category = await ensureCategory(guild, deps.categoryIdFor(team.guildId));
+  const category = await ensureCategory(guild, await deps.categoryIdFor(team.guildId));
 
   // ── text channel ─────────────────────────────────────────────────────────
   let textChannelId = team.textChannelId;

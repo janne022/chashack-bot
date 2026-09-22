@@ -134,7 +134,7 @@ function attachAsyncFacade(db: Db): void {
   };
 
   db.all = async <T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T[]> =>
-    execute<T>(sql, params, 'all');
+    execute<T[]>(sql, params, 'all');
   db.get = async <T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T | undefined> =>
     execute<T | undefined>(sql, params, 'get');
   db.run = async (sql: string, ...params: unknown[]): Promise<{ changes: number | bigint; lastInsertRowid: number | bigint }> => {

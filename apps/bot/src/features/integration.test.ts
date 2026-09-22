@@ -54,7 +54,7 @@ test('signup → unteamed list → matching → committed teams', async () => {
   signup('3', { roleTrack: 'design', skills: ['ui_design'] });
   signup('4', { roleTrack: 'devops', skills: ['devops'] });
 
-  assert.equal(await listMatchable(db, EV).length, 4);
+  assert.equal((await listMatchable(db, EV)).length, 4);
 
   const preview = await previewMatch(db, EV, DEFAULT_FORM);
   assert.ok(preview.ok);
@@ -92,7 +92,7 @@ test('blocked users cannot re-signup and are excluded from matching', async () =
   assert.equal(res.ok, false);
   if (!res.ok) assert.equal(res.code, 'blocked');
 
-  assert.equal(await listMatchable(db, EV).length, 0);
+  assert.equal((await listMatchable(db, EV)).length, 0);
 });
 
 test('public team create → join → capacity enforced', async () => {
@@ -105,10 +105,10 @@ test('public team create → join → capacity enforced', async () => {
   assert.ok(created.ok);
   if (!created.ok) return;
 
-  assert.ok(await joinTeam(db, 'test', EV, '2', created.value.id, DEFAULT_FORM.teamSize).ok);
+  assert.ok((await joinTeam(db, 'test', EV, '2', created.value.id, DEFAULT_FORM.teamSize)).ok);
 
   // capacity: default team size is 4 → 1 slot left
-  assert.ok(await joinTeam(db, 'test', EV, '3', created.value.id, DEFAULT_FORM.teamSize).ok);
+  assert.ok((await joinTeam(db, 'test', EV, '3', created.value.id, DEFAULT_FORM.teamSize)).ok);
 
   // unsigned-up user cannot join
   const noSignup = await joinTeam(db, 'test', EV, '99', created.value.id, DEFAULT_FORM.teamSize);
@@ -117,8 +117,8 @@ test('public team create → join → capacity enforced', async () => {
 
   // fill the last slot with a signed-up user, then it is full
   signup('5');
-  assert.ok(await joinTeam(db, 'test', EV, '5', created.value.id, DEFAULT_FORM.teamSize).ok);
-  assert.equal(await listOpenPublicTeams(db, EV, DEFAULT_FORM.teamSize).length, 0);
+  assert.ok((await joinTeam(db, 'test', EV, '5', created.value.id, DEFAULT_FORM.teamSize)).ok);
+  assert.equal((await listOpenPublicTeams(db, EV, DEFAULT_FORM.teamSize)).length, 0);
 
   const over = await joinTeam(db, 'test', EV, '6', created.value.id, DEFAULT_FORM.teamSize);
   signup('6');

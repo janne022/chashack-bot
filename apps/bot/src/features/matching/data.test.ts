@@ -31,7 +31,7 @@ async function seed(): Promise<ReturnType<typeof openDb>> {
 }
 
 test('commitMatch creates one team row per previewed team, all event-scoped', async () => {
-  const db = seed();
+  const db = await seed();
   const preview = await previewMatch(db, EVENT, DEFAULT_FORM);
   assert.equal(preview.ok, true, 'preview should succeed');
   if (!preview.ok) return;
@@ -53,7 +53,7 @@ test('commitMatch creates one team row per previewed team, all event-scoped', as
 });
 
 test('commitMatch replaces previous matched teams instead of stacking them', async () => {
-  const db = seed();
+  const db = await seed();
   await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
   await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
   const rows = db.prepare('SELECT id FROM teams WHERE event_id = ?').all(EVENT) as unknown as { id: string }[];

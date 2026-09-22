@@ -104,12 +104,12 @@ test('sessions: create, select an authorised guild, refuse an unauthorised one',
     ],
   });
   assert.equal(session.selectedGuildId, 'g1', 'first guild is selected by default');
-  assert.equal(await getSession(db, session.id)?.username, 'janne');
+  assert.equal((await getSession(db, session.id))?.username, 'janne');
 
   assert.equal(await selectGuild(db, session.id, 'g2'), true);
-  assert.equal(await getSession(db, session.id)?.selectedGuildId, 'g2');
+  assert.equal((await getSession(db, session.id))?.selectedGuildId, 'g2');
   assert.equal(await selectGuild(db, session.id, 'not-mine'), false, 'must not be able to switch to a foreign guild');
-  assert.equal(await getSession(db, session.id)?.selectedGuildId, 'g2', 'refusal leaves the selection alone');
+  assert.equal((await getSession(db, session.id))?.selectedGuildId, 'g2', 'refusal leaves the selection alone');
 
   await deleteSession(db, session.id);
   assert.equal(await getSession(db, session.id), null);
