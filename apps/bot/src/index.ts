@@ -48,7 +48,7 @@ client.on(Events.GuildCreate, async (guild) => {
 
 /** Mirror audit lines to a Discord channel when configured. */
 async function announce(guildId: string, content: string): Promise<void> {
-  audit(db, 'system', 'announce', guildId, { content: content.slice(0, 200) });
+  await audit(db, 'system', 'announce', guildId, { content: content.slice(0, 200) });
   if (config.auditChannelId === undefined) return;
   try {
     const channel = await client.channels.fetch(config.auditChannelId);

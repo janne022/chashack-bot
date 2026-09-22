@@ -83,7 +83,7 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
         reason: t(locale, 'discord.provision.reason_create_role', { team: team.name }),
       });
       roleId = role.id;
-      setRole(deps.db, team.id, roleId);
+      await setRole(deps.db, team.id, roleId);
     } catch (error) {
       console.warn(`provision role failed for ${team.name}:`, error);
     }
@@ -123,7 +123,7 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
         permissionOverwrites: overwrites,
       });
       textChannelId = channel.id;
-      setTextChannel(deps.db, team.id, textChannelId);
+      await setTextChannel(deps.db, team.id, textChannelId);
     } catch (error) {
       console.warn(`provision text channel failed for ${team.name}:`, error);
     }
@@ -140,14 +140,14 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
         permissionOverwrites: overwrites,
       });
       voiceChannelId = channel.id;
-      setVoiceChannel(deps.db, team.id, voiceChannelId);
+      await setVoiceChannel(deps.db, team.id, voiceChannelId);
     } catch (error) {
       console.warn(`provision voice channel failed for ${team.name}:`, error);
     }
   }
 
   if (roleId !== null && textChannelId !== null && voiceChannelId !== null) {
-    setProvisioning(deps.db, team.id, { roleId, textChannelId, voiceChannelId });
+    await setProvisioning(deps.db, team.id, { roleId, textChannelId, voiceChannelId });
   }
 
   return {
