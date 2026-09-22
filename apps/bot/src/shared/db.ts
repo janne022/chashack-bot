@@ -84,14 +84,19 @@ function stateOf(db: DatabaseSync): FacadeState {
 function attachAsyncFacade(db: Db): void {
   const state = stateOf(db);
 
-  const execDirect = (sql: string, params: unknown[]): { rows: Record<string, unknown>[]; changes: number | bigint } => {
+  const execDirect = (sql: string, params: unknown[]): { rows: Record<string, unknown>[]; changes: number | bigint; lastInsertRowid: number | bigint } => {
     const stmt = db.prepare(sql);
     const isRead = /^\s*(SELECT|WITH|PRAGMA|RETURNING)\b/i.test(sql);
     if (isRead) {
-      return { rows: stmt.all(...(params as never[])) as unknown as Record<string, unknown>[], changes: 0 };
+      return { rows: stmt.all(...(params as never[])) as unknown as Record<string, unknown>[], changes: 0, lastInsertRowid: 0 };
     }
+    // A mutating statement executes exactly ONCE, via stmt.run. Never follow it
+    // with stmt.all to "collect rows": on node:sqlite a prepared INSERT is not
+    // exhausted by run(), so .all() would execute the write a second time
+    // (duplicate rows). Statements that return rows (RETURNING) must go through
+    // db.all/db.get, which take the read branch above.
     const info = stmt.run(...(params as never[]));
-    return { rows: stmt.all(...(params as never[])) as unknown as Record<string, unknown>[], changes: info.changes };
+    return { rows: [], changes: info.changes, lastInsertRowid: info.lastInsertRowid };
   };
 
   const execute = async <T>(
@@ -115,18 +120,17 @@ function attachAsyncFacade(db: Db): void {
 
   const finish = <T>(sql: string, params: unknown[], mode: 'all' | 'get' | 'run'): Promise<T> => {
     try {
-      const { rows, changes } = execDirect(sql, params);
+      const { rows, changes, lastInsertRowid } = execDirect(sql, params);
       if (mode === 'all') return Promise.resolve(rows as T);
       if (mode === 'get') return Promise.resolve(rows[0] as T);
-      return Promise.resolve({ changes, lastInsertRowid: 0 } as T);
+      return Promise.resolve({ changes, lastInsertRowid } as T);
     } catch (error) {
       return Promise.reject(error);
     }
   };
 
   const runDirect = (sql: string, params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint } => {
-    const info = db.prepare(sql).run(...(params as never[]));
-    return { changes: info.changes, lastInsertRowid: info.lastInsertRowid };
+    return execDirect(sql, params);
   };
 
   db.all = async <T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T[]> =>
