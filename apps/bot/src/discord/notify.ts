@@ -550,7 +550,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
   return summary;
 }
 
-async function getEventRef(db: Db, eventId: string): HackathonEvent | null {
+async function getEventRef(db: Db, eventId: string): Promise<HackathonEvent | null> {
   return await getEvent(db, eventId);
 }
 

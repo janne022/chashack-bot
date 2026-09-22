@@ -918,7 +918,7 @@ export function markMatchUnlocked(db: import('../../shared/db.js').Db, eventId: 
 }
 
 /** Set or clear the scheduled auto-match time (null clears it). */
-export async function setMatchAt(db: import('../../shared/db.js').Db, actor: string, eventId: string, matchAt: number | null): Result<HackathonEvent> {
+export async function setMatchAt(db: import('../../shared/db.js').Db, actor: string, eventId: string, matchAt: number | null): Promise<Result<HackathonEvent>> {
   const res = await updateEvent(db, actor, eventId, { matchAt });
   if (res.ok) await audit(db, actor, 'event.match_schedule', eventId, { matchAt });
   return res;
@@ -977,7 +977,7 @@ export function renderAnnouncementTags(template: string, event: HackathonEvent, 
 }
 
 /** Mark a schedule item as announced so planMaintenance won't re-fire. */
-export async function markScheduleAnnounced(db: import('../../shared/db.js').Db, eventId: string, scheduleId: string): void {
+export async function markScheduleAnnounced(db: import('../../shared/db.js').Db, eventId: string, scheduleId: string): Promise<void> {
   const event = await getEvent(db, eventId)
   if (!event) return
   const next = [...new Set([...(event.announcedScheduleIds ?? []), scheduleId])]

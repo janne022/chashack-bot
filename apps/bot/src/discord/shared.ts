@@ -96,7 +96,7 @@ export function displayErr(locale: BotLocale, code: string, message: string): Em
   return embedErr(t(locale, 'discord.admin.something_broke_title'), text);
 }
 
-export async function buildParticipantEmbed(db: Db, config: FormConfig, p: Participant, locale: BotLocale): EmbedBuilder {
+export async function buildParticipantEmbed(db: Db, config: FormConfig, p: Participant, locale: BotLocale): Promise<EmbedBuilder> {
   const team = p.teamId === null ? null : await getTeam(db, p.teamId);
   const teamLine =
     team === null

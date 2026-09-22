@@ -124,7 +124,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
    * the row IS the session, so logout, expiry or a leaked cookie for a deleted
    * session must stop working immediately — the HMAC alone is not authorisation.
    */
-  const sessionFrom = async (req: FastifyRequest): { ref: SessionRef; session: WebSession | null } | null => {
+  const sessionFrom = async (req: FastifyRequest): Promise<{ ref: SessionRef; session: WebSession | null } | null> => {
     const ref = sessionRefFrom(req, config);
     if (ref === null) return null;
     if (ref.kind === 'operator') return { ref, session: null };

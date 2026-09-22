@@ -60,7 +60,7 @@ export function eventInfoEmbed(
 }
 
 /** GET /hackathon event — the public event card. */
-export async function handleEventInfo(ctx: Ctx): EmbedBuilder {
+export async function handleEventInfo(ctx: Ctx): Promise<EmbedBuilder> {
   const locale = ctx.botLocale;
   const participants = await listParticipants(ctx.db, ctx.eventId, 'active');
   const teams = await listTeams(ctx.db, ctx.eventId);
