@@ -64,7 +64,7 @@ test('signup → unteamed list → matching → committed teams', async () => {
   const commit = await commitMatch(db, 'test', EV, G, DEFAULT_FORM);
   assert.ok(commit.ok);
   if (commit.ok) {
-    const placed = commit.value.teams.flatMap(async (t) => t.memberIds);
+    const placed = commit.value.teams.flatMap((t) => t.memberIds);
     assert.equal(new Set(placed).size, 4);
     // participants now have team_id set
     for (const id of ['1', '2', '3', '4']) {

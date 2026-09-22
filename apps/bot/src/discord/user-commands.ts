@@ -177,17 +177,17 @@ export async function handleUserCommand(
         return;
       }
       const embed = new EmbedBuilder().setTitle(t(locale, 'discord.teams.pending_title')).setColor(0x5865f2);
-      const waitingOnMe = incoming.map(async (r) => {
+      const waitingOnMe = await Promise.all(incoming.map(async (r) => {
         const team = await getTeam(db, r.teamId);
         const label = r.kind === 'invite' ? t(locale, 'discord.teams.kind_invite') : t(locale, 'discord.teams.kind_join_request');
         return `**${label}** — ${team?.name ?? t(locale, 'discord.teams.unknown_team')} (from <@${r.requesterId}>)`;
       });
-      const sent = outgoing.map(async (r) => {
+      const sent = await Promise.all(outgoing.map(async (r) => {
         const team = await getTeam(db, r.teamId);
         return r.kind === 'invite'
           ? `Invite → <@${r.targetId}> for **${team?.name ?? '?'}**`
           : `Join request → **${team?.name ?? '?'}**`;
-      });
+      }));
       if (waitingOnMe.length > 0) embed.addFields({ name: t(locale, 'discord.teams.waiting_on_you'), value: waitingOnMe.join('\n').slice(0, 1024) });
       if (sent.length > 0) embed.addFields({ name: t(locale, 'discord.teams.you_sent'), value: sent.join('\n').slice(0, 1024) });
 
