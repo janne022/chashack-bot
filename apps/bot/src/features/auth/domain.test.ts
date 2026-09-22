@@ -17,7 +17,7 @@ import { createSession, getSession, selectGuild, deleteSession, purgeExpiredSess
 
 const SECRET = 'test-secret';
 
-const guild = (id: string, name: string, permissions: bigint) => ({
+const guild = async (id: string, name: string, permissions: bigint) => ({
   id,
   name,
   icon: null,
@@ -94,7 +94,7 @@ test('safeEqual: compares without leaking length or content by short-circuit', (
 
 test('sessions: create, select an authorised guild, refuse an unauthorised one', () => {
   const db = openDb(':memory:');
-  const session = createSession(db, {
+  const session = await createSession(db, {
     userId: 'u1',
     username: 'janne',
     avatar: null,
@@ -104,26 +104,26 @@ test('sessions: create, select an authorised guild, refuse an unauthorised one',
     ],
   });
   assert.equal(session.selectedGuildId, 'g1', 'first guild is selected by default');
-  assert.equal(getSession(db, session.id)?.username, 'janne');
+  assert.equal(await getSession(db, session.id)?.username, 'janne');
 
-  assert.equal(selectGuild(db, session.id, 'g2'), true);
-  assert.equal(getSession(db, session.id)?.selectedGuildId, 'g2');
-  assert.equal(selectGuild(db, session.id, 'not-mine'), false, 'must not be able to switch to a foreign guild');
-  assert.equal(getSession(db, session.id)?.selectedGuildId, 'g2', 'refusal leaves the selection alone');
+  assert.equal(await selectGuild(db, session.id, 'g2'), true);
+  assert.equal(await getSession(db, session.id)?.selectedGuildId, 'g2');
+  assert.equal(await selectGuild(db, session.id, 'not-mine'), false, 'must not be able to switch to a foreign guild');
+  assert.equal(await getSession(db, session.id)?.selectedGuildId, 'g2', 'refusal leaves the selection alone');
 
-  deleteSession(db, session.id);
-  assert.equal(getSession(db, session.id), null);
+  await deleteSession(db, session.id);
+  assert.equal(await getSession(db, session.id), null);
 });
 
 test('sessions: expired rows are dropped, not served', () => {
   const db = openDb(':memory:');
-  const session = createSession(db, {
+  const session = await createSession(db, {
     userId: 'u2',
     username: 'ghost',
     avatar: null,
     guilds: [{ id: 'g1', name: 'One', icon: null }],
   });
   const later = Date.now() + 8 * 24 * 3600 * 1000;
-  assert.equal(getSession(db, session.id, later), null, 'expired session is not returned');
-  assert.equal(purgeExpiredSessions(db, later), 0, 'it deleted itself on read');
+  assert.equal(await getSession(db, session.id, later), null, 'expired session is not returned');
+  assert.equal(await purgeExpiredSessions(db, later), 0, 'it deleted itself on read');
 });

@@ -106,7 +106,7 @@ export async function postOrUpdatePanel(
     return { error: t(locale, 'discord.events.not_text_channel') };
   }
 
-  const payload = buildPanelPayload(getForm(db), locale);
+  const payload = buildPanelPayload(await getForm(db), locale);
   const existing = getPanelRef(db, guildId);
 
   try {

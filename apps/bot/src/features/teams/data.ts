@@ -215,7 +215,7 @@ export async function leaveTeam(db: Db, actor: string, eventId: string, userId: 
     if (team.ownerId === userId) {
       const members = await countMembers(db, team.id);
       if (members > 1) return err('owner_leave', 'You own this team. Members must leave first, or ask an organizer to delete it.');
-      return deleteTeam(db, actor, team.id);
+      return await deleteTeam(db, actor, team.id);
     }
     await db.run('UPDATE participants SET team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?', Date.now(), eventId, userId);
     await audit(db, actor, 'team.leave', eventId, { teamId: team.id, userId });

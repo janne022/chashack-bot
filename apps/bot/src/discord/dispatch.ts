@@ -41,12 +41,12 @@ export function isAdminMember(interaction: Interaction, adminIds: string[]): boo
   return false;
 }
 
-export function isAdminMemberWithRoles(interaction: Interaction, adminIds: string[], db: Db): boolean {
+export async function isAdminMemberWithRoles(interaction: Interaction, adminIds: string[], db: Db): boolean {
   if (isAdminMember(interaction, adminIds)) return true;
   if (!interaction.inGuild()) return false;
   try {
     const guildId = interaction.guildId!;
-    const settings = getGuildSettings(db, guildId);
+    const settings = await getGuildSettings(db, guildId);
     const modIds = settings.modRoleIds ?? [];
     if (modIds.length === 0) return false;
     const member: unknown = (interaction as unknown as { member: unknown }).member;
@@ -84,8 +84,8 @@ export function makeDm(client: Client): Ctx['dm'] {
 }
 
 export function registerInteractionHandlers(client: Client, deps: RouterDeps): void {
-  const categoryIdFor = (guildId: string): string | undefined =>
-    getGuildSettings(deps.db, guildId).teamCategoryId ?? deps.teamCategoryId;
+  const categoryIdFor = async (guildId: string): string | undefined =>
+    await getGuildSettings(deps.db, guildId).teamCategoryId ?? deps.teamCategoryId;
   const dm = makeDm(client);
 
   client.on('interactionCreate', async (interaction: Interaction) => {
@@ -110,8 +110,8 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         return;
       }
 
-      const activeEvent = getActiveEvent(deps.db, guildId);
-      const guildDefault = getForm(deps.db);
+      const activeEvent = await getActiveEvent(deps.db, guildId);
+      const guildDefault = await getForm(deps.db);
       const locale = deps.botLanguage;
       const ctx: Ctx = {
         db: deps.db,
@@ -204,26 +204,26 @@ async function handleAutocomplete(interaction: AutocompleteInteraction, deps: Ro
   const focused = interaction.options.getFocused(true);
   const { listEvents, listTemplates } = await import('../features/events/data.js');
   if (focused.name === 'team') {
-    const activeEvent = getActiveEvent(deps.db, interaction.guildId);
+    const activeEvent = await getActiveEvent(deps.db, interaction.guildId);
     if (activeEvent === null) {
       await interaction.respond([]);
       return;
     }
-    const teams = listTeams(deps.db, activeEvent.id);
+    const teams = await listTeams(deps.db, activeEvent.id);
     await interaction.respond(
       teams.slice(0, 25).map((t) => ({ name: `${t.name} (${t.kind})`, value: t.id })),
     );
     return;
   }
   if (focused.name === 'template') {
-    const templates = listTemplates(deps.db, interaction.guildId, 'event');
+    const templates = await listTemplates(deps.db, interaction.guildId, 'event');
     await interaction.respond(
       templates.slice(0, 25).map((t) => ({ name: `${t.name} (event template)`, value: t.id })),
     );
     return;
   }
   if (focused.name === 'id') {
-    const events = listEvents(deps.db, interaction.guildId).filter((e) => e.status === 'draft');
+    const events = await listEvents(deps.db, interaction.guildId).filter((e) => e.status === 'draft');
     await interaction.respond(
       events.slice(0, 25).map((e) => ({ name: `${e.name} (${e.status})`, value: e.id })),
     );

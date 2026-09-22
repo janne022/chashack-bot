@@ -13,7 +13,7 @@ import { buildTeams, type MatchResult } from './domain.js';
 
 /** Teams for an event with their active members — input for placement suggestions. */
 export async function listTeamsWithMembers(db: Db, eventId: string): Promise<TeamWithMembers[]> {
-  return listTeams(db, eventId);
+  return await listTeams(db, eventId);
 }
 
 export async function previewMatch(db: Db, eventId: string, config: FormConfig): Promise<Result<MatchResult>> {

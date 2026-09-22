@@ -96,12 +96,12 @@ export function displayErr(locale: BotLocale, code: string, message: string): Em
   return embedErr(t(locale, 'discord.admin.something_broke_title'), text);
 }
 
-export function buildParticipantEmbed(db: Db, config: FormConfig, p: Participant, locale: BotLocale): EmbedBuilder {
-  const team = p.teamId === null ? null : getTeam(db, p.teamId);
+export async function buildParticipantEmbed(db: Db, config: FormConfig, p: Participant, locale: BotLocale): EmbedBuilder {
+  const team = p.teamId === null ? null : await getTeam(db, p.teamId);
   const teamLine =
     team === null
       ? t(locale, 'discord.join.no_team_yet')
-      : `**${team.name}** (${team.kind}, ${countMembers(db, team.id)}/${config.teamSize} ${t(locale, 'discord.join.members_suffix')})`;
+      : `**${team.name}** (${team.kind}, ${await countMembers(db, team.id)}/${config.teamSize} ${t(locale, 'discord.join.members_suffix')})`;
   return new EmbedBuilder()
     .setTitle(t(locale, 'discord.join.your_signup'))
     .setColor(0x5865f2)

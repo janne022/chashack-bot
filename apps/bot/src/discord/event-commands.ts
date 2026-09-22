@@ -60,11 +60,11 @@ export function eventInfoEmbed(
 }
 
 /** GET /hackathon event — the public event card. */
-export function handleEventInfo(ctx: Ctx): EmbedBuilder {
+export async function handleEventInfo(ctx: Ctx): EmbedBuilder {
   const locale = ctx.botLocale;
-  const participants = listParticipants(ctx.db, ctx.eventId, 'active');
-  const teams = listTeams(ctx.db, ctx.eventId);
-  const event = getEvent(ctx.db, ctx.eventId);
+  const participants = await listParticipants(ctx.db, ctx.eventId, 'active');
+  const teams = await listTeams(ctx.db, ctx.eventId);
+  const event = await getEvent(ctx.db, ctx.eventId);
   return eventInfoEmbed(
     event ?? {
       name: ctx.eventName,
@@ -97,7 +97,7 @@ export async function handleEventAdminCommand(
 
       let form: Parameters<typeof createEvent>[3]['form'];
       if (templateId !== null) {
-        const tpl = listTemplates(db, guildId, 'event').find((tplItem) => tplItem.id === templateId);
+        const tpl = await listTemplates(db, guildId, 'event').find((tplItem) => tplItem.id === templateId);
         if (tpl === undefined) {
           await i.reply(eph(t(locale, 'discord.events.template_not_found')));
           return;
@@ -105,7 +105,7 @@ export async function handleEventAdminCommand(
         form = templateToEventInput(tpl.json).form;
       }
 
-      const res = createEvent(db, actor, guildId, {
+      const res = await createEvent(db, actor, guildId, {
         name,
         ...(description !== '' ? { description } : {}),
         ...(startsAt !== null ? { startsAt } : {}),
@@ -117,7 +117,7 @@ export async function handleEventAdminCommand(
         return;
       }
       const activationHint =
-        getActiveEvent(db, guildId) === null
+        await getActiveEvent(db, guildId) === null
           ? t(locale, 'discord.events.created_first_hint')
           : t(locale, 'discord.events.created_activate_hint');
       await i.reply({
@@ -128,7 +128,7 @@ export async function handleEventAdminCommand(
     }
 
     case 'event-config': {
-      const event = getActiveEvent(db, guildId) ?? getEvent(db, ctx.eventId);
+      const event = await getActiveEvent(db, guildId) ?? await getEvent(db, ctx.eventId);
       if (event === null) {
         await i.reply(eph(t(locale, 'discord.events.none_to_configure')));
         return;
@@ -139,7 +139,7 @@ export async function handleEventAdminCommand(
       const endsAt = parseDate(i.options.getString('ends'));
       const cleanupHours = i.options.getInteger('cleanup-hours') ?? undefined;
 
-      const res = updateEvent(db, actor, event.id, {
+      const res = await updateEvent(db, actor, event.id, {
         ...(name !== undefined ? { name } : {}),
         ...(description !== undefined ? { description } : {}),
         ...(startsAt !== undefined ? { startsAt } : {}),
@@ -161,14 +161,14 @@ export async function handleEventAdminCommand(
       const idArg = i.options.getString('id');
       let eventId = idArg ?? '';
       if (eventId === '') {
-        const drafts = listEvents(db, guildId).filter((e) => e.status === 'draft');
+        const drafts = await listEvents(db, guildId).filter((e) => e.status === 'draft');
         if (drafts.length === 0) {
           await i.reply(eph(t(locale, 'discord.events.no_drafts')));
           return;
         }
         eventId = drafts[0]!.id;
       }
-      const res = activateEvent(db, actor, eventId);
+      const res = await activateEvent(db, actor, eventId);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -187,12 +187,12 @@ export async function handleEventAdminCommand(
     }
 
     case 'event-end': {
-      const event = getActiveEvent(db, guildId);
+      const event = await getActiveEvent(db, guildId);
       if (event === null) {
         await i.reply(eph(t(locale, 'discord.events.no_active')));
         return;
       }
-      const res = endEvent(db, actor, event.id);
+      const res = await endEvent(db, actor, event.id);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -210,7 +210,7 @@ export async function handleEventAdminCommand(
     }
 
     case 'auto-match': {
-      const event = getActiveEvent(db, guildId);
+      const event = await getActiveEvent(db, guildId);
       if (event === null) {
         await i.reply(eph(t(locale, 'discord.match.no_active')));
         return;
@@ -275,7 +275,7 @@ export async function handleEventAdminCommand(
     }
 
     case 'announce': {
-      const event = getActiveEvent(db, guildId);
+      const event = await getActiveEvent(db, guildId);
       if (event === null) {
         await i.reply(eph(t(locale, 'discord.events.no_active_to_announce')));
         return;
@@ -295,7 +295,7 @@ export async function handleEventAdminCommand(
     }
 
     case 'discord-event': {
-      const event = getActiveEvent(db, guildId);
+      const event = await getActiveEvent(db, guildId);
       if (event === null) {
         await i.reply(eph(t(locale, 'discord.events.no_active')));
         return;
@@ -322,7 +322,7 @@ export async function handleEventAdminCommand(
     }
 
     case 'template-save': {
-      const event = getActiveEvent(db, guildId);
+      const event = await getActiveEvent(db, guildId);
       if (event === null) {
         await i.reply(eph(t(locale, 'discord.events.no_active_to_save')));
         return;
@@ -334,7 +334,7 @@ export async function handleEventAdminCommand(
         cleanupDelayHours: event.cleanupDelayHours,
         form: getEventFormLocal(db, event),
       };
-      const res = saveTemplate(db, actor, guildId, name, 'event', JSON.stringify(payload));
+      const res = await saveTemplate(db, actor, guildId, name, 'event', JSON.stringify(payload));
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
@@ -347,7 +347,7 @@ export async function handleEventAdminCommand(
     }
 
     case 'templates': {
-      const templates = listTemplates(db, guildId);
+      const templates = await listTemplates(db, guildId);
       if (templates.length === 0) {
         await i.reply(eph(t(locale, 'discord.events.no_templates')));
         return;
@@ -358,31 +358,31 @@ export async function handleEventAdminCommand(
     }
 
     case 'match-lock': {
-      const event = getEvent(db, ctx.eventId);
+      const event = await getEvent(db, ctx.eventId);
       if (event === null) {
         await i.reply(eph(t(locale, 'discord.events.no_event_configured')));
         return;
       }
       markMatchLocked(db, event.id);
-      audit(db, actor, 'match.lock', event.id, null);
+      await audit(db, actor, 'match.lock', event.id, null);
       await i.reply({ embeds: [embedOk(t(locale, 'discord.events.match_locked_title'), t(locale, 'discord.events.match_locked_body'))], flags: MessageFlags.Ephemeral });
       return;
     }
 
     case 'match-unlock': {
-      const event = getEvent(db, ctx.eventId);
+      const event = await getEvent(db, ctx.eventId);
       if (event === null) {
         await i.reply(eph(t(locale, 'discord.events.no_event_configured')));
         return;
       }
       markMatchUnlocked(db, event.id);
-      audit(db, actor, 'match.unlock', event.id, null);
+      await audit(db, actor, 'match.unlock', event.id, null);
       await i.reply({ embeds: [embedOk(t(locale, 'discord.events.match_unlocked_title'), t(locale, 'discord.events.match_unlocked_body'))], flags: MessageFlags.Ephemeral });
       return;
     }
 
     case 'itinerary': {
-      const event = getEvent(db, ctx.eventId);
+      const event = await getEvent(db, ctx.eventId);
       if (event === null) {
         await i.reply(eph(t(locale, 'discord.events.no_event_configured')));
         return;
@@ -392,7 +392,7 @@ export async function handleEventAdminCommand(
         await i.reply({ embeds: [displayErr(locale, 'failed', t(locale, 'discord.events.itinerary_failed', { reason: res.error }))], flags: MessageFlags.Ephemeral });
         return;
       }
-      audit(db, actor, 'schedule.itinerary', event.id, { channelId: res.channelId, edited: res.edited });
+      await audit(db, actor, 'schedule.itinerary', event.id, { channelId: res.channelId, edited: res.edited });
       await i.reply({
         embeds: [
           embedOk(
@@ -411,7 +411,7 @@ export async function handleEventAdminCommand(
       // slash command can replace them.
       const base = env().publicUrl ?? `http://localhost:${env().adminPort}`;
       const url = base.replace(/\/$/, '');
-      audit(db, actor, 'console.link', guildId, null);
+      await audit(db, actor, 'console.link', guildId, null);
       await i.reply({ content: t(locale, 'discord.events.console_link', { url }), flags: MessageFlags.Ephemeral });
       return;
     }
