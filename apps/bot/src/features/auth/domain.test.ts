@@ -17,14 +17,14 @@ import { createSession, getSession, selectGuild, deleteSession, purgeExpiredSess
 
 const SECRET = 'test-secret';
 
-const guild = async (id: string, name: string, permissions: bigint) => ({
+const guild = (id: string, name: string, permissions: bigint) => ({
   id,
   name,
   icon: null,
   permissions: permissions.toString(),
 });
 
-test('canManage: MANAGE_GUILD or ADMINISTRATOR, nothing else', () => {
+test('canManage: MANAGE_GUILD or ADMINISTRATOR, nothing else', async () => {
   assert.equal(canManage(MANAGE_GUILD), true);
   assert.equal(canManage(ADMINISTRATOR), true);
   assert.equal(canManage(ADMINISTRATOR | MANAGE_GUILD), true);
@@ -37,7 +37,7 @@ test('canManage: MANAGE_GUILD or ADMINISTRATOR, nothing else', () => {
   assert.equal(canManage('2048'), false, '2048 = SEND_MESSAGES only');
 });
 
-test('manageableGuilds: user rights AND bot presence', () => {
+test('manageableGuilds: user rights AND bot presence', async () => {
   const user = [
     guild('1', 'Zeta', MANAGE_GUILD),
     guild('2', 'Alpha', ADMINISTRATOR),
@@ -51,7 +51,7 @@ test('manageableGuilds: user rights AND bot presence', () => {
   assert.deepEqual(all.map((g) => g.id), ['2', '4', '1'], 'no gateway → trust the OAuth list');
 });
 
-test('tokens: operator format is unchanged, discord format carries a session id', () => {
+test('tokens: operator format is unchanged, discord format carries a session id', async () => {
   const now = 1_000_000;
   const operator = makeOperatorToken(SECRET, now);
   assert.equal(operator.split('.').length, 2, 'legacy shape preserved');
@@ -69,13 +69,13 @@ test('tokens: operator format is unchanged, discord format carries a session id'
   assert.equal(verifyToken(SECRET, makeDiscordToken(SECRET, 'abc', now).replace('abc', 'xyz'), now), null, 'swapped id');
 });
 
-test('makeState: unique per call, url-safe', () => {
+test('makeState: unique per call, url-safe', async () => {
   const a = makeState();
   assert.match(a, /^[0-9a-f]{32}$/);
   assert.notEqual(a, makeState());
 });
 
-test('PKCE: S256 challenge derived from the verifier, RFC 7636 alphabet', () => {
+test('PKCE: S256 challenge derived from the verifier, RFC 7636 alphabet', async () => {
   const { verifier, challenge } = makePkcePair();
   assert.match(verifier, /^[A-Za-z0-9\-_]{43,128}$/, 'verifier uses the unreserved alphabet');
   assert.equal(challenge, base64Url(createHash('sha256').update(verifier).digest()), 'challenge = S256(verifier)');
@@ -85,14 +85,14 @@ test('PKCE: S256 challenge derived from the verifier, RFC 7636 alphabet', () => 
   assert.notEqual(other.challenge, challenge);
 });
 
-test('safeEqual: compares without leaking length or content by short-circuit', () => {
+test('safeEqual: compares without leaking length or content by short-circuit', async () => {
   assert.equal(safeEqual('abc', 'abc'), true);
   assert.equal(safeEqual('abc', 'abd'), false);
   assert.equal(safeEqual('abc', 'abcd'), false);
   assert.equal(safeEqual('', ''), true);
 });
 
-test('sessions: create, select an authorised guild, refuse an unauthorised one', () => {
+test('sessions: create, select an authorised guild, refuse an unauthorised one', async () => {
   const db = openDb(':memory:');
   const session = await createSession(db, {
     userId: 'u1',
@@ -115,7 +115,7 @@ test('sessions: create, select an authorised guild, refuse an unauthorised one',
   assert.equal(await getSession(db, session.id), null);
 });
 
-test('sessions: expired rows are dropped, not served', () => {
+test('sessions: expired rows are dropped, not served', async () => {
   const db = openDb(':memory:');
   const session = await createSession(db, {
     userId: 'u2',

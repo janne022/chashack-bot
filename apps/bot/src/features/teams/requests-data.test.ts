@@ -31,7 +31,7 @@ async function signup(userId: string) {
   if (!res.ok) throw new Error(res.message);
 }
 
-async function freshDb(): void {
+async function freshDb(): Promise<void> {
   db = openDb(':memory:');
   // The signup data layer gates on an ACTIVE event row — seed the fixture event.
   db.prepare(
@@ -39,7 +39,7 @@ async function freshDb(): void {
   ).run(EV, G);
 }
 
-test('invite flow: wrong decider rejected, invitee accept joins, members updated', () => {
+test('invite flow: wrong decider rejected, invitee accept joins, members updated', async () => {
   freshDb();
   signup('owner');
   signup('alice');
@@ -58,7 +58,7 @@ test('invite flow: wrong decider rejected, invitee accept joins, members updated
   const accept = await decideRequest(db, actorOf('alice'), invite.value.id, 'accept', DEFAULT_FORM.teamSize);
   assert.ok(accept.ok);
 
-  const members = await listTeams(db, EV).find(async (t) => t.id === team.value.id)!.members;
+  const members = await listTeams(db, EV).find((t) => t.id === team.value.id)!.members;
   assert.ok(members.some((m) => m.userId === 'alice'));
 
   // Double-accept is rejected.
@@ -66,7 +66,7 @@ test('invite flow: wrong decider rejected, invitee accept joins, members updated
   assert.equal(again.ok, false);
 });
 
-test('join request flow: owner decides, duplicates blocked while pending', () => {
+test('join request flow: owner decides, duplicates blocked while pending', async () => {
   freshDb();
   signup('owner');
   signup('bob');
@@ -93,7 +93,7 @@ test('join request flow: owner decides, duplicates blocked while pending', () =>
   assert.ok(members.some((m) => m.userId === 'bob'));
 });
 
-test('capacity is enforced at accept time, not just request time', () => {
+test('capacity is enforced at accept time, not just request time', async () => {
   freshDb();
   signup('owner');
   for (const u of ['m1', 'm2', 'm3', 'late']) signup(u);
@@ -123,7 +123,7 @@ test('capacity is enforced at accept time, not just request time', () => {
   if (!invLate.ok) assert.equal(invLate.code, 'team_full');
 });
 
-test('cancel flow: sender can cancel their own pending request, then re-request', () => {
+test('cancel flow: sender can cancel their own pending request, then re-request', async () => {
   freshDb();
   signup('owner');
   signup('dave');
@@ -145,7 +145,7 @@ test('cancel flow: sender can cancel their own pending request, then re-request'
   assert.ok(reRequest.ok);
 });
 
-test('users already in a team cannot be invited elsewhere', () => {
+test('users already in a team cannot be invited elsewhere', async () => {
   freshDb();
   signup('owner1');
   signup('owner2');

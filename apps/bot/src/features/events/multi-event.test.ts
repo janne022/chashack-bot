@@ -10,7 +10,7 @@ const G = 'g1';
  * relies on: events are per-guild, activation is independent per event, and
  * listing returns every event so the UI can offer a switcher.
  */
-test('multi-event: events are independent and all are listed', () => {
+test('multi-event: events are independent and all are listed', async () => {
   const db = openDb(':memory:');
   const a = await createEvent(db, 'test', G, { name: 'Event A' });
   const b = await createEvent(db, 'test', G, { name: 'Event B' });
@@ -24,7 +24,7 @@ test('multi-event: events are independent and all are listed', () => {
   // Activating one does not touch the other.
   assert.ok(await activateEvent(db, 'test', a.value.id).ok);
   all = await listEvents(db, G);
-  const byId = new Map(all.map(async (e) => [e.id, e]));
+  const byId = new Map(all.map((e) => [e.id, e]));
   assert.equal(byId.get(a.value.id)?.status, 'active');
   assert.equal(byId.get(b.value.id)?.status, 'draft');
 
@@ -36,7 +36,7 @@ test('multi-event: events are independent and all are listed', () => {
   db.close();
 });
 
-test('multi-event: assignment distribution lands on the event it was created for', () => {
+test('multi-event: assignment distribution lands on the event it was created for', async () => {
   const db = openDb(':memory:');
   const starts = Date.now() + 7 * 24 * 3600 * 1000;
   const a = await createEvent(db, 'test', G, {
@@ -64,7 +64,7 @@ test('multi-event: assignment distribution lands on the event it was created for
   db.close();
 });
 
-test('multi-event: no pool means no distribute action is wired', () => {
+test('multi-event: no pool means no distribute action is wired', async () => {
   const db = openDb(':memory:');
   const starts = Date.now() + 7 * 24 * 3600 * 1000;
   const bare = await createEvent(db, 'test', G, { name: 'No pool', startsAt: starts });
@@ -74,7 +74,7 @@ test('multi-event: no pool means no distribute action is wired', () => {
   db.close();
 });
 
-test('multi-event: events in another guild are never returned', () => {
+test('multi-event: events in another guild are never returned', async () => {
   const db = openDb(':memory:');
   assert.ok(await createEvent(db, 'test', 'g1', { name: 'Guild One Event' }).ok);
   assert.ok(await createEvent(db, 'test', 'g2', { name: 'Guild Two Event' }).ok);

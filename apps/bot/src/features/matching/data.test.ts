@@ -13,7 +13,7 @@ const EVENT = 'ev1';
  * the event-scoped one. One match must create exactly the previewed teams, all
  * scoped to the event.
  */
-async function seed(): ReturnType<typeof openDb> {
+async function seed(): Promise<ReturnType<typeof openDb>> {
   const db = openDb(':memory:');
   db.prepare(
     "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES (?, ?, 'Match Test', 'active', 1, 1)",
@@ -30,7 +30,7 @@ async function seed(): ReturnType<typeof openDb> {
   return db;
 }
 
-test('commitMatch creates one team row per previewed team, all event-scoped', () => {
+test('commitMatch creates one team row per previewed team, all event-scoped', async () => {
   const db = seed();
   const preview = await previewMatch(db, EVENT, DEFAULT_FORM);
   assert.equal(preview.ok, true, 'preview should succeed');
@@ -52,7 +52,7 @@ test('commitMatch creates one team row per previewed team, all event-scoped', ()
   assert.deepEqual(members.map((m) => m.user_id), ['u1', 'u2'], 'opt-ins land in the team');
 });
 
-test('commitMatch replaces previous matched teams instead of stacking them', () => {
+test('commitMatch replaces previous matched teams instead of stacking them', async () => {
   const db = seed();
   await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
   await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
