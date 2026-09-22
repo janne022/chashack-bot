@@ -1,6 +1,6 @@
 # Program: multi-guild at scale + participant web surface
 
-Status: **planned** — issues opened, execution delegated to reviewed PRs.
+Status: **in flight** — issues #9–#16, workstreams dispatched to reviewed PRs.
 Owner: janne. Related: `multi-guild-oauth.md` (console-side multi-guild, shipped `a125505`).
 
 ## Why
@@ -12,8 +12,8 @@ Owner: janne. Related: `multi-guild-oauth.md` (console-side multi-guild, shipped
    for a managed/external database, or for per-guild databases.
 2. **Participants have no web surface.** Discord is their only interface — no browser view of
    status, form answers, team, or schedule.
-3. **Local dev has no orchestrator.** Bot + console + (new) participant app + a database is a set of
-   manual steps; there is no single entry point and no disposable Postgres for verification.
+3. **Local dev has no orchestrator.** Bot + console + (new) participant app + datastores is a set of
+   manual steps; there is no single entry point and no disposable Postgres or Redis.
 
 ## What already exists — do not rebuild
 
@@ -29,24 +29,31 @@ Owner: janne. Related: `multi-guild-oauth.md` (console-side multi-guild, shipped
 
 | WS | Issue | Depends on | Exclusive file ownership |
 | --- | --- | --- | --- |
-| 1 | Residual dead code | — | `apps/admin-ui/src/**` only |
-| 2a | Async, dialect-portable data layer | 1 | `apps/bot/src/shared/{db,kysely,env}.ts`, `apps/bot/src/features/*/data.ts`, `apps/bot/src/discord/*` + `adminweb/routes.ts` (call sites) |
-| 2b | Postgres dialect + dual-dialect tests | 2a | `apps/bot/src/shared/db/**`, `apps/bot/scripts/**`, CI/docker |
-| 3 | Aspire TypeScript AppHost | 2a | `apphost.mts`, `.aspire/`, `tsconfig.apphost.json`, root `package.json` scripts, `docs/DEV.md` |
-| 4 | Participant web surface | 2a | `apps/web/**` (new), `apps/bot/src/features/participant/**` (new), `apps/bot/src/adminweb/participant-routes.ts` (new) |
-| 5 | Multi-guild isolation audit | 2a | `apps/bot/src/**/*.test.ts` (new tests only) |
+| 1 | #9 Residual dead code | — (disjoint from 2a) | `apps/admin-ui/src/**` |
+| 2a | #10 Async, dialect-portable data layer | — (disjoint from 1) | `apps/bot/**` |
+| 2b | #11 Postgres dialect + dual-dialect tests | 2a | `apps/bot/src/shared/db/**`, `apps/bot/scripts/**`, CI/docker |
+| 3 | #12 Aspire TypeScript AppHost (Postgres + Redis) | 2a (disjoint) | `apphost.mts`, `.aspire/`, `tsconfig.apphost.json`, root scripts, `docs/DEV.md` |
+| 4 | #13 Participant web surface | 2a | `apps/web/**` (new), `apps/bot/src/features/participant/**` (new), `apps/bot/src/adminweb/participant-routes.ts` (new) |
+| 5 | #14 Multi-guild isolation audit | 2a | `apps/bot/src/**/*.test.ts` (new tests only) |
+| 6 | #16 Redis cache with explicit invalidation | 2b, 3 (for the resource) | `apps/bot/src/shared/cache.ts` (new) + read/write call sites |
 
 Dependency graph:
 
 ```
-WS1 ──> WS2a ──┬──> WS2b
-               ├──> WS3
-               ├──> WS4
-               └──> WS5
+WS1  (apps/admin-ui)  ──┐  disjoint trees: run in parallel
+WS2a (apps/bot)       ──┴──> WS2a ──┬──> WS2b ──> WS6
+                                    ├──> WS3   (AppHost: Postgres + Redis resources)
+                                    ├──> WS4
+                                    └──> WS5
 ```
 
-WS2b, WS3, WS4 and WS5 may run in parallel once WS2a lands: their file sets are disjoint
-(routes.ts call-site edits belong to WS2a; WS4 adds a *new* route module and only registers it).
+WS1 and WS2a touch disjoint trees, so the bot-side dead code is owned by WS2a — one file set, one PR,
+no double-handling. WS2b, WS3, WS4 and WS5 are file-disjoint and may run in parallel once WS2a lands
+(WS4 adds a *new* route module; WS3 owns the AppHost; WS5 adds only tests).
+
+**Concurrency note (learned the hard way):** parallel workers share the filesystem and the git index.
+Each worker must run in its own `git worktree` (`git worktree add <scratch path> -b <branch> origin/main`)
+and must never run git commands in the primary checkout while another worker is using it.
 
 ## Contracts every workstream must honour
 
@@ -55,12 +62,27 @@ WS2b, WS3, WS4 and WS5 may run in parallel once WS2a lands: their file sets are 
   its guild from the session and the event, never from the client.
 - **Both language catalogs** (`en.json` + `sv.json`, `shared/i18n.ts`) in the same commit as any
   user-facing string.
-- **No new dependency without janne's review.** Prefer hand-writing small things. A dependency
-  published less than 3 days ago is refused by `minimumReleaseAge: 4320` (strict) — report the
-  refusal, never lower the gate.
+- **No new dependency without janne's review.** Approved so far: `pg` (WS2b) and the official `redis`
+  client (WS6). A dependency published less than 3 days ago is refused by
+  `minimumReleaseAge: 4320` (strict) — pin an older version, and report a refusal rather than
+  lowering the gate.
+- **Redis is optional at runtime.** An unset `REDIS_URL` or an unreachable Redis means *no caching and
+  a fully working app* (fail-open). The single-container self-hosted install keeps working with no
+  Redis at all.
+- **Nothing security-relevant is cached.** `web_sessions` stays authoritative in the database — a
+  session served from a cache would destroy revocation-by-row-delete.
 - **A product fact changes → `PRODUCT.md` changes** ("One Discord guild", "participants never touch
   the console", "one SQLite file" are all facts WS2–WS4 invalidate).
 - **Changes land through a reviewed PR** — never a direct push to `main`.
+
+## Known papercuts found while planning
+
+- `shared/env.ts` resolves `.env` relative to **`apps/bot`**, not the repo root, while `AGENTS.md`
+  and `.env.example` both imply a root-level `.env`. A root `.env` is silently never read. Local
+  credentials belong in `apps/bot/.env` (gitignored). Worth a docs fix.
+- The console owns `GET /auth/discord/callback`; the participant flow needs its **own** callback path
+  (proposed `/auth/participant/callback`) registered in the Discord developer portal. Sharing the
+  path would mix session kinds and let organiser scope leak into the participant flow.
 
 ## Review process (applies to every workstream)
 
@@ -89,8 +111,11 @@ WS2b, WS3, WS4 and WS5 may run in parallel once WS2a lands: their file sets are 
 - Participant reads are self-scoped (own row, own team) — no enumeration of other participants.
 - Server-side validation of every form submission against the guild's form config; reject unknown
   field ids and oversized payloads.
+- Cache keys are guild/event-scoped and versioned; a cross-guild cache read is a **security defect**,
+  not a performance one.
 
 ## Out of scope
 
 Per-guild deployment configuration, sharding, migrations of live production data, participant→Discord
-role sync beyond what the bot already does, payments/accounts beyond Discord identity.
+role sync beyond what the bot already does, payments/accounts beyond Discord identity, Redis as a
+session store or job queue.
