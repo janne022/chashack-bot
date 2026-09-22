@@ -41,7 +41,7 @@ export function isAdminMember(interaction: Interaction, adminIds: string[]): boo
   return false;
 }
 
-export async function isAdminMemberWithRoles(interaction: Interaction, adminIds: string[], db: Db): boolean {
+export async function isAdminMemberWithRoles(interaction: Interaction, adminIds: string[], db: Db): Promise<boolean> {
   if (isAdminMember(interaction, adminIds)) return true;
   if (!interaction.inGuild()) return false;
   try {
@@ -84,7 +84,7 @@ export function makeDm(client: Client): Ctx['dm'] {
 }
 
 export function registerInteractionHandlers(client: Client, deps: RouterDeps): void {
-  const categoryIdFor = async (guildId: string): string | undefined =>
+  const categoryIdFor = async (guildId: string): Promise<string | undefined> =>
     await getGuildSettings(deps.db, guildId).teamCategoryId ?? deps.teamCategoryId;
   const dm = makeDm(client);
 

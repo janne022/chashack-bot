@@ -29,7 +29,7 @@ import { t } from '../shared/i18n.js';
 /** Browser: pick a public team with space → send join request. Shared with the panel button. */
 export async function teamsBrowser(
   ctx: Ctx,
-): { embeds: EmbedBuilder[]; components: ActionRowBuilder<StringSelectMenuBuilder>[] } | null {
+): Promise<{ embeds: EmbedBuilder[]; components: ActionRowBuilder<StringSelectMenuBuilder>[] } | null> {
   const locale = ctx.botLocale;
   const open = await listOpenPublicTeams(ctx.db, ctx.eventId, ctx.config.teamSize);
   if (open.length === 0) return null;
@@ -298,7 +298,7 @@ export async function handleUserCommand(
   }
 }
 
-export async function inviteEmbed(ctx: Ctx, teamName: string, teamId: string): EmbedBuilder {
+export async function inviteEmbed(ctx: Ctx, teamName: string, teamId: string): Promise<EmbedBuilder> {
   const locale = ctx.botLocale;
   const members = await countMembers(ctx.db, teamId);
   return new EmbedBuilder()
