@@ -23,7 +23,7 @@ class PipelineAdoptionTest(unittest.TestCase):
             self.assertEqual(ci.count(command), 1, command)
         self.assertIn("fetch-depth: 0", ci)
         self.assertIn("HPIPE_DIFF_SOURCE", ci)
-        self.assertIn("run_gate.py g0 secrets db-guard pr-checklist supply-chain decision-citation", ci)
+        self.assertIn("run_gate.py g0-laziness secrets db-guard pr-checklist supply-chain decision-citation", ci)
 
     def test_checklist_gate_refuses_missing_acceptance_heading(self):
         valid = check_pr_body("## Requirements\n- item\n## Acceptance\n- evidence")
