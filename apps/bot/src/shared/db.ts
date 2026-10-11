@@ -219,7 +219,7 @@ function migrateFormConfig(db: Db): void {
     if (legacy !== undefined) {
       db.prepare('INSERT INTO form_config (guild_id, json, updated_at) VALUES (?, ?, ?)').run(guilds[0]!.guild_id, legacy.json, legacy.updated_at);
     }
-    db.exec('DROP TABLE form_config_legacy');
+    // Keep the legacy bytes for operator recovery; they are never read by tenant code.
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
