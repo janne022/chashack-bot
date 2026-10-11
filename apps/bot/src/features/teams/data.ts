@@ -233,13 +233,15 @@ export async function removeMember(db: Db, actor: string, teamId: string, userId
 
 /** Admin move: silently assigns a participant to a team (no capacity check — admin override). */
 export async function adminAssign(db: Db, actor: string, eventId: string, userId: string, teamId: string | null): Promise<Result<void>> {
+  const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
+  if (event === undefined) return err('not_found', 'Event not found.');
   if (teamId !== null) {
     const team = await getTeam(db, teamId);
     if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
   }
   const res = await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', teamId, Date.now(), eventId, userId);
   if (res.changes === 0) return err('not_found', 'Participant not found in this event.');
-  await audit(db, actor, 'team.assign', eventId, { userId, teamId }, (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId))?.guild_id ?? null);
+  await audit(db, actor, 'team.assign', eventId, { userId, teamId }, event.guild_id);
   return ok(undefined);
 }
 
@@ -275,12 +277,14 @@ export async function countMembers(db: Db, teamId: string): Promise<number> {
 /** Delete all teams of an event (event reset / cleanup). Returns count. */
 export async function deleteEventTeams(db: Db, actor: string, eventId: string): Promise<number> {
   return db.transaction(async () => {
+    const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
+    if (event === undefined) return 0;
     const row = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM teams WHERE event_id = ?', eventId);
     const count = row?.n ?? 0;
     await db.run('UPDATE participants SET team_id = NULL WHERE team_id IN (SELECT id FROM teams WHERE event_id = ?)', eventId);
     await db.run('DELETE FROM team_requests WHERE event_id = ?', eventId);
     await db.run('DELETE FROM teams WHERE event_id = ?', eventId);
-    await audit(db, actor, 'team.purge', eventId, { count }, (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId))?.guild_id ?? null);
+    if (count > 0) await audit(db, actor, 'team.purge', eventId, { count }, event.guild_id);
     return count;
   });
 }

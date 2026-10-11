@@ -29,6 +29,8 @@ export async function commitMatch(db: Db, actor: string, eventId: string, guildI
   // statement deletes). The transaction + the handle's single-writer queue
   // restore that guarantee across await points.
   return db.transaction(async () => {
+    const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
+    if (event === undefined || event.guild_id !== guildId) return err('not_found', 'Event not found in this guild.');
     const preview = await previewMatch(db, eventId, config);
     if (!preview.ok) return preview;
 
@@ -62,7 +64,7 @@ export async function commitMatch(db: Db, actor: string, eventId: string, guildI
       `last_match:${eventId}`,
       JSON.stringify({ at: Date.now(), teams: preview.value.teams.length }),
     );
-    await audit(db, actor, 'match.commit', eventId, { teams: preview.value.teams.length }, (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId))?.guild_id ?? null);
+    await audit(db, actor, 'match.commit', eventId, { teams: preview.value.teams.length }, event.guild_id);
 
     return ok(preview.value);
   });
