@@ -6,3 +6,4 @@ data/
 .DS_Store
 # Local pipeline artifacts (written by .hermes/pipeline/ — never committed)
 .hermes/artifacts/
+__pycache__/
