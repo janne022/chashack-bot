@@ -1,6 +1,0 @@
-version: 1
-
-# PROPOSED by hpipe init — review, edit, then commit as .hermes/pipeline.yaml
-gates:
-  typecheck: { cmd: "tsc --noEmit" }
-  unit: { cmd: "pnpm test" }
