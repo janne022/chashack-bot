@@ -258,11 +258,11 @@ export async function onComponent(
       await i.reply(eph(t(locale, 'discord.gate.no_active')));
       return;
     }
-    if (getParticipant(ctx.db, ctx.eventId, i.user.id) === null) {
+    if ((await getParticipant(ctx.db, ctx.eventId, i.user.id)) === null) {
       await i.reply(eph(t(locale, 'discord.teams.signup_first')));
       return;
     }
-    if (getTeamForUser(ctx.db, ctx.eventId, i.user.id) !== null) {
+    if ((await getTeamForUser(ctx.db, ctx.eventId, i.user.id)) !== null) {
       await i.reply(eph(t(locale, 'errors.already_in_team')));
       return;
     }

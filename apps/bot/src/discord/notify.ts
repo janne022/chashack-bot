@@ -439,7 +439,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
         case 'schedule': {
           const scheduleId = (action as { type: 'schedule'; eventId: string; scheduleId: string }).scheduleId
           const item = event.schedule.find(s => s.id === scheduleId)
-          if (!item) { markScheduleAnnounced(db, event.id, scheduleId); break }
+          if (!item) { await markScheduleAnnounced(db, event.id, scheduleId); break }
           // Split per-block actions by type
           const perBlock = item.actions ?? []
           const announceActions = perBlock.filter(a=>a.type==='announce') as { id: string; type: 'announce'; title: string; message: string; channelId?: string | null }[]
@@ -510,21 +510,21 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             // no announcements, just ops
             audit(db, 'system', 'schedule.ops', event.id, { scheduleId, title: item.title, ops: opActions.map(o=>o.type) })
             if (opActions.length > 0) summary.push(`schedule ops: ${event.name} — ${item.title} (${opActions.map(o=>o.type).join(', ')})`)
-            markScheduleAnnounced(db, event.id, scheduleId)
+            await markScheduleAnnounced(db, event.id, scheduleId)
             break
           }
 
           const channelId = event.announcementChannelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
           if (channelId === null || !isSnowflake(event.guildId) || !isSnowflake(channelId)) {
             if (channelId !== null) warnInvalidGuild(event.guildId, 'schedule')
-            markScheduleAnnounced(db, event.id, scheduleId)
+            await markScheduleAnnounced(db, event.id, scheduleId)
             audit(db, 'system', 'schedule.skipped', event.id, { scheduleId, reason: 'no_channel' })
             break
           }
           try {
             const guild = await client.guilds.fetch(event.guildId)
             const baseChannel = await guild.channels.fetch(channelId).catch(()=>null)
-            if (baseChannel === null || !baseChannel.isTextBased()) { markScheduleAnnounced(db, event.id, scheduleId); break }
+            if (baseChannel === null || !baseChannel.isTextBased()) { await markScheduleAnnounced(db, event.id, scheduleId); break }
             for (const tpl of toSend.slice(0,5)) {
               const targetId = tpl.channelId && isSnowflake(tpl.channelId) ? tpl.channelId : channelId
               const target = targetId === channelId ? baseChannel : await guild.channels.fetch(targetId).catch(()=>null)
@@ -539,7 +539,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             audit(db, 'system', 'schedule.announce', event.id, { scheduleId, title: item.title, count: toSend.length })
             summary.push(`schedule: ${event.name} — ${item.title}`)
           } catch (e) { console.warn('schedule announce failed', e) }
-          markScheduleAnnounced(db, event.id, scheduleId)
+          await markScheduleAnnounced(db, event.id, scheduleId)
           break;
         }
       }
