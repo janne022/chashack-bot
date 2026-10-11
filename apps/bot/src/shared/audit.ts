@@ -23,7 +23,8 @@ export async function audit(
 ): Promise<void> {
   const owner = guildId === null && target !== null
     ? await db.get<{ guild_id: string }>(
-      'SELECT guild_id FROM events WHERE id = ? UNION ALL SELECT guild_id FROM teams WHERE id = ? UNION ALL SELECT guild_id FROM guild_settings WHERE guild_id = ? LIMIT 1',
+      'SELECT guild_id FROM events WHERE id = ? UNION ALL SELECT guild_id FROM teams WHERE id = ? UNION ALL SELECT guild_id FROM guild_settings WHERE guild_id = ? UNION ALL SELECT guild_id FROM event_templates WHERE id = ? LIMIT 1',
+      target,
       target,
       target,
       target,
