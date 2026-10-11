@@ -148,6 +148,30 @@ test('migration: is idempotent — second openDb on the same file, same schema',
   }
 });
 
+test('facade: transaction failure rolls back and does not poison queued writes', async () => {
+  const db = openDb(':memory:');
+  try {
+    seedEvent(db);
+    await assert.rejects(db.transaction(async () => {
+      await db.run(
+        `INSERT INTO participants (event_id, user_id, guild_id, display_name, experience, role_track, skills, team_pref, teammates, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        EVENT, 'rolled-back', GUILD, 'Rolled Back', 'x', 'backend', '[]', 'random_team', '[]', 'active', 1, 1,
+      );
+      throw new Error('abort transaction');
+    }), /abort transaction/);
+    await db.run(
+      `INSERT INTO participants (event_id, user_id, guild_id, display_name, experience, role_track, skills, team_pref, teammates, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      EVENT, 'after-error', GUILD, 'After Error', 'x', 'backend', '[]', 'random_team', '[]', 'active', 2, 2,
+    );
+    const rows = db.prepare('SELECT user_id FROM participants WHERE event_id = ?').all(EVENT) as unknown as { user_id: string }[];
+    assert.deepEqual(rows.map((row) => row.user_id), ['after-error']);
+  } finally {
+    db.close();
+  }
+});
+
 test('kysely: adapter reads and writes through the shared node:sqlite handle', async () => {
   const db = openDb(':memory:');
   try {
