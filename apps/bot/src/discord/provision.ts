@@ -15,6 +15,7 @@ import {
   type Guild,
 } from 'discord.js';
 import type { Db } from '../shared/db.js';
+import { listTeamRoster } from '../features/signup/data.js';
 import { setProvisioning, setRole, setTextChannel, setVoiceChannel } from '../features/teams/data.js';
 import type { Team } from '../features/teams/data.js';
 import { teamColor } from '../features/form/domain.js';
@@ -270,13 +271,7 @@ export async function applyTeamJoin(
   const provisioned = await provisionTeamSpace(deps, team);
   await grantTeamRole(deps, provisioned, joinerId);
 
-  const roster = (
-    deps.db
-      .prepare(
-        "SELECT user_id, display_name FROM participants WHERE team_id = ? AND status = 'active' ORDER BY created_at",
-      )
-      .all(provisioned.id) as unknown as { user_id: string; display_name: string }[]
-  ).map((r) => ({ userId: r.user_id, displayName: r.display_name }));
+  const roster = await listTeamRoster(deps.db, provisioned.id);
   await sendJoinWelcome(deps, provisioned, joinerId, roster);
   return provisioned;
 }

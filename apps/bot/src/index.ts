@@ -3,7 +3,7 @@
  */
 import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
 import { env } from './shared/env.js';
-import { openDb, resolveDbPath } from './shared/db.js';
+import { openDatabase } from './shared/db.js';
 import { createKysely } from './shared/kysely.js';
 import { audit } from './shared/audit.js';
 import { registerInteractionHandlers } from './discord/dispatch.js';
@@ -12,7 +12,7 @@ import { runMaintenance } from './discord/notify.js';
 import { registerCommands, registerCommandsInGuild } from './register-commands-lib.js';
 
 const config = env();
-const db = openDb(resolveDbPath(config.dbPath));
+const db = await openDatabase(config.dbPath, config.databaseUrl);
 const kysely = createKysely(db);
 
 const client = new Client({
@@ -96,7 +96,8 @@ async function shutdown(signal: string): Promise<void> {
     await server.stop();
     await client.destroy();
   } finally {
-    db.close();
+    await kysely.destroy();
+    await db.close();
     process.exit(0);
   }
 }

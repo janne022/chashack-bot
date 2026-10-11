@@ -9,10 +9,10 @@ process.env.ADMIN_PORT = '8491';
 process.env.ADMIN_SESSION_SECRET = 'smoke-secret';
 
 const { startAdminServer } = await import('../dist/adminweb/server.js');
-const { openDb } = await import('../dist/shared/db.js');
+const { openTestDb } = await import('../dist/shared/test-db.js');
 const { env } = await import('../dist/shared/env.js');
 
-const db = openDb(':memory:');
+const db = await openTestDb();
 const server = await startAdminServer({ db, config: env(), announce: async () => {}, client: null });
 
 const base = 'http://localhost:8491';
@@ -94,5 +94,5 @@ const tampered = await fetch(`${base}/api/state`, { headers: { cookie: 'hacksess
 check('tampered session cookie is 401', tampered.status === 401);
 
 await server.stop();
-db.close();
+await db.close();
 console.log(results.join('\n'));

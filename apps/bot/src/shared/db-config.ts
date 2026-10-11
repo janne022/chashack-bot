@@ -4,6 +4,10 @@ export interface DatabaseConnection {
   user: string;
   password: string | undefined;
   database: string;
+  ssl?: { rejectUnauthorized: true } | false;
+  application_name?: string;
+  connectionTimeoutMillis?: number;
+  options?: string;
 }
 
 export function parseDatabaseUrl(value: string): DatabaseConnection {
@@ -11,12 +15,13 @@ export function parseDatabaseUrl(value: string): DatabaseConnection {
   if (input === '') throw new Error('DATABASE_URL must not be empty');
   if (!input.includes('://')) {
     const fields = new Map<string, string>();
+    const allowedFields = new Set(['host', 'server', 'data source', 'database', 'initial catalog', 'username', 'user id', 'userid', 'user', 'port', 'password']);
     for (const part of input.split(';')) {
       if (!part.trim()) continue;
       const at = part.indexOf('=');
       if (at < 1) throw new Error('Invalid ADO.NET database connection string');
       const key = part.slice(0, at).trim().toLowerCase();
-      if (fields.has(key)) throw new Error(`Duplicate database connection field: ${key}`);
+      if (!allowedFields.has(key) || fields.has(key)) throw new Error('DATABASE_URL has an unknown or duplicate connection field');
       fields.set(key, part.slice(at + 1).trim());
     }
     const get = (...keys: string[]): string | undefined => {
@@ -48,6 +53,24 @@ export function parseDatabaseUrl(value: string): DatabaseConnection {
   } catch {
     throw new Error('Invalid percent-encoding in DATABASE_URL');
   }
-  if (!user || !database || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('DATABASE_URL requires valid username, database, and port');
-  return { host: url.hostname, port, user, password, database };
+  if (!user || !database || database.includes('/') || /[\x00-\x1f]/.test(database + user + (password ?? '')) || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('DATABASE_URL requires valid username, database, and port');
+  const config: DatabaseConnection = { host: url.hostname.replace(/^\[|\]$/g, ''), port, user, password, database };
+  const sslmode = url.searchParams.get('sslmode');
+  if (sslmode !== null) {
+    if (!['disable', 'require', 'verify-ca', 'verify-full'].includes(sslmode)) throw new Error('DATABASE_URL has an unsupported sslmode');
+    config.ssl = sslmode === 'disable' ? false : { rejectUnauthorized: true };
+  }
+  const timeout = url.searchParams.get('connect_timeout');
+  if (timeout !== null) {
+    if (!/^\d+$/.test(timeout) || Number(timeout) < 1 || Number(timeout) > 600) throw new Error('DATABASE_URL has an invalid connect_timeout');
+    config.connectionTimeoutMillis = Number(timeout) * 1000;
+  }
+  for (const key of ['application_name', 'options'] as const) {
+    const option = url.searchParams.get(key);
+    if (option !== null) {
+      if (/[\x00-\x1f]/.test(option)) throw new Error('DATABASE_URL has an invalid option');
+      config[key] = option;
+    }
+  }
+  return config;
 }

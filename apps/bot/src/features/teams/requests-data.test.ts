@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb, type Db } from '../../shared/db.js';
+import type { Db } from '../../shared/db.js';
+import { openTestDb } from '../../shared/test-db.js';
 import { upsertParticipant } from '../signup/data.js';
 import { validateSignupInput, DEFAULT_FORM } from '../form/domain.js';
 import { createTeam, listTeams } from './data.js';
@@ -32,17 +33,18 @@ async function signup(userId: string) {
 }
 
 async function freshDb(): Promise<void> {
-  db = openDb(':memory:');
+  db = await openTestDb();
   // The signup data layer gates on an ACTIVE event row — seed the fixture event.
-  db.prepare(
+  await db.run(
     "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES (?, ?, 'Requests Fixture', 'active', 1, 1)",
-  ).run(EV, G);
+    EV, G,
+  );
 }
 
 test('invite flow: wrong decider rejected, invitee accept joins, members updated', async () => {
-  freshDb();
-  signup('owner');
-  signup('alice');
+  await freshDb();
+  await signup('owner');
+  await signup('alice');
   const team = await createTeam(db, actorOf('owner'), EV, G, 'Alpha', 'public', 'owner');
   assert.ok(team.ok);
   if (!team.ok) return;
@@ -67,10 +69,10 @@ test('invite flow: wrong decider rejected, invitee accept joins, members updated
 });
 
 test('join request flow: owner decides, duplicates blocked while pending', async () => {
-  freshDb();
-  signup('owner');
-  signup('bob');
-  signup('carol');
+  await freshDb();
+  await signup('owner');
+  await signup('bob');
+  await signup('carol');
   const team = await createTeam(db, actorOf('owner'), EV, G, 'Bravo', 'public', 'owner');
   assert.ok(team.ok);
   if (!team.ok) return;
@@ -94,9 +96,9 @@ test('join request flow: owner decides, duplicates blocked while pending', async
 });
 
 test('capacity is enforced at accept time, not just request time', async () => {
-  freshDb();
-  signup('owner');
-  for (const u of ['m1', 'm2', 'm3', 'late']) signup(u);
+  await freshDb();
+  await signup('owner');
+  for (const u of ['m1', 'm2', 'm3', 'late']) await signup(u);
   const team = await createTeam(db, actorOf('owner'), EV, G, 'Charlie', 'public', 'owner');
   assert.ok(team.ok);
   if (!team.ok) return;
@@ -124,9 +126,9 @@ test('capacity is enforced at accept time, not just request time', async () => {
 });
 
 test('cancel flow: sender can cancel their own pending request, then re-request', async () => {
-  freshDb();
-  signup('owner');
-  signup('dave');
+  await freshDb();
+  await signup('owner');
+  await signup('dave');
   const team = await createTeam(db, actorOf('owner'), EV, G, 'Delta', 'public', 'owner');
   assert.ok(team.ok);
   if (!team.ok) return;
@@ -146,10 +148,10 @@ test('cancel flow: sender can cancel their own pending request, then re-request'
 });
 
 test('users already in a team cannot be invited elsewhere', async () => {
-  freshDb();
-  signup('owner1');
-  signup('owner2');
-  signup('member');
+  await freshDb();
+  await signup('owner1');
+  await signup('owner2');
+  await signup('member');
   const t1 = await createTeam(db, actorOf('owner1'), EV, G, 'Echo-1', 'public', 'owner1');
   const t2 = await createTeam(db, actorOf('owner2'), EV, G, 'Echo-2', 'public', 'owner2');
   assert.ok(t1.ok && t2.ok);

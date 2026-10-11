@@ -902,22 +902,22 @@ export async function markCleanupDone(kysely: KyselyDb, eventId: string): Promis
 }
 
 /** Mark the 72h/24h cleanup warning as posted. Tier selects the flag column. */
-export function markCleanupWarned(db: import('../../shared/db.js').Db, eventId: string, tier: '72h' | '24h'): void {
+export async function markCleanupWarned(db: import('../../shared/db.js').Db, eventId: string, tier: '72h' | '24h'): Promise<void> {
   const column = tier === '72h' ? 'cleanup_warned_72h' : 'cleanup_warned_24h';
-  db.prepare(`UPDATE events SET ${column} = 1, updated_at = ? WHERE id = ?`).run(Date.now(), eventId);
+  await db.run(`UPDATE events SET ${column} = 1, updated_at = ? WHERE id = ?`, Date.now(), eventId);
 }
 
 /**
  * Mark the event's teams as locked in (auto-match done, or manually locked).
  * Skips future auto-match; never blocks manual match runs.
  */
-export function markMatchLocked(db: import('../../shared/db.js').Db, eventId: string): void {
-  db.prepare('UPDATE events SET match_locked = 1, updated_at = ? WHERE id = ?').run(Date.now(), eventId);
+export async function markMatchLocked(db: import('../../shared/db.js').Db, eventId: string): Promise<void> {
+  await db.run('UPDATE events SET match_locked = 1, updated_at = ? WHERE id = ?', Date.now(), eventId);
 }
 
 /** Clear the lock so a future auto-match can fire again. */
-export function markMatchUnlocked(db: import('../../shared/db.js').Db, eventId: string): void {
-  db.prepare('UPDATE events SET match_locked = 0, updated_at = ? WHERE id = ?').run(Date.now(), eventId);
+export async function markMatchUnlocked(db: import('../../shared/db.js').Db, eventId: string): Promise<void> {
+  await db.run('UPDATE events SET match_locked = 0, updated_at = ? WHERE id = ?', Date.now(), eventId);
 }
 
 /** Set or clear the scheduled auto-match time (null clears it). */
@@ -984,5 +984,30 @@ export async function markScheduleAnnounced(db: import('../../shared/db.js').Db,
   const event = await getEvent(db, eventId)
   if (!event) return
   const next = [...new Set([...(event.announcedScheduleIds ?? []), scheduleId])]
-  db.prepare('UPDATE events SET announced_schedule_ids = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), Date.now(), eventId)
+  await db.run('UPDATE events SET announced_schedule_ids = ?, updated_at = ? WHERE id = ?', JSON.stringify(next), Date.now(), eventId)
+}
+
+export async function getMessageRef(db: Db, key: string): Promise<{ channelId: string; messageId: string } | null> {
+  const row = await db.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', key);
+  if (!row) return null;
+  try {
+    const ref = JSON.parse(row.value) as { channelId: string; messageId: string };
+    return typeof ref.channelId === 'string' && ref.channelId !== '' && typeof ref.messageId === 'string' && ref.messageId !== '' ? ref : null;
+  } catch { return null; }
+}
+
+export async function setMessageRef(db: Db, key: string, ref: { channelId: string; messageId: string }): Promise<void> {
+  await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, JSON.stringify(ref));
+}
+
+export async function listEventGuilds(db: Db): Promise<string[]> {
+  return (await db.all<{ guild_id: string }>('SELECT DISTINCT guild_id FROM events')).map((r) => r.guild_id);
+}
+
+export async function markMaintenanceDone(db: Db, eventId: string, flag: 'reminded_24h' | 'cleanup_done'): Promise<void> {
+  await db.run(`UPDATE events SET ${flag} = 1, updated_at = ? WHERE id = ?`, Date.now(), eventId);
+}
+
+export async function updateTemplateContent(db: Db, templateId: string, name: string, json: string): Promise<void> {
+  await db.run('UPDATE event_templates SET name = ?, json = ? WHERE id = ?', name, json, templateId);
 }

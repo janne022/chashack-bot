@@ -185,6 +185,18 @@ export async function unblockParticipant(db: Db, actor: string, eventId: string,
   return ok(undefined);
 }
 
+export async function reactivateParticipant(db: Db, actor: string, eventId: string, userId: string): Promise<Result<void>> {
+  const p = await getParticipant(db, eventId, userId);
+  if (p === null) return err('not_found', 'Participant not found.');
+  await db.run("UPDATE participants SET status = 'active', block_reason = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?", Date.now(), eventId, userId);
+  await audit(db, actor, 'participant.reactivate', eventId, { userId }, p.guildId);
+  return ok(undefined);
+}
+
+export async function listTeamRoster(db: Db, teamId: string): Promise<{ userId: string; displayName: string }[]> {
+  return (await db.all<{ user_id: string; display_name: string }>("SELECT user_id, display_name FROM participants WHERE team_id = ? AND status = 'active' ORDER BY created_at", teamId)).map((r) => ({ userId: r.user_id, displayName: r.display_name }));
+}
+
 export async function withdrawParticipant(db: Db, actor: string, eventId: string, userId: string): Promise<Result<void>> {
   const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
   if (event === undefined) return err('not_found', 'Event not found.');

@@ -77,7 +77,7 @@ Every team (created or matched) gets:
 | Bot           | discord.js 14.27                                             |
 | API/server    | Fastify 5 + @fastify/static (serves the built admin UI)      |
 | Admin UI      | React 19, Tailwind CSS 4, Radix primitives, lucide icons     |
-| Storage       | SQLite (WAL) at `data/chashack.db`                           |
+| Storage       | SQLite (WAL) by default; PostgreSQL when `DATABASE_URL` is set |
 | Tests         | `node:test` (16 tests: form domain, matching engine, integration) |
 
 Both apps are exact-pinned and governed by a **supply-chain risk lock**:
@@ -126,6 +126,11 @@ behaves exactly as before.
 flag and is the origin trusted by the API's CSRF check.
 
 ## Development
+
+`DATABASE_URL` takes precedence over `DB_PATH`. Empty or invalid values fail
+startup, never fall back. PostgreSQL bootstrap is additive and repeatable; it
+does not automatically import old SQLite data. See [database development and
+fake recovery](docs/DEV.md) for the disposable dual-engine checks and limitations.
 
 ```bash
 pnpm typecheck            # both apps, strict TS

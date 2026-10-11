@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { openDb } from '../../shared/db.js';
+import { openTestDb } from '../../shared/test-db.js';
 import type { Db } from '../../shared/db.js';
 import { blockParticipant, purgeEventParticipants, upsertParticipant } from './data.js';
 import type { ValidatedSignup } from '../form/domain.js';
@@ -14,13 +14,13 @@ const signup: ValidatedSignup = {
 };
 
 async function seed(): Promise<Db> {
-  const db = openDb(':memory:');
-  db.prepare(
+  const db = await openTestDb();
+  await db.run(
     "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES ('ev1', 'g1', 'Active One', 'active', 1, 1)",
-  ).run();
-  db.prepare(
+  );
+  await db.run(
     "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES ('ev2', 'g1', 'Draft One', 'draft', 2, 2)",
-  ).run();
+  );
   return db;
 }
 
@@ -49,6 +49,6 @@ test('participant audit mutations refuse missing events without host audit or da
   const blocked = await blockParticipant(db, 'admin', 'ghost-event', '42', 'reason');
   assert.equal(blocked.ok, false);
   assert.equal(await purgeEventParticipants(db, 'admin', 'ghost-event'), 0);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM participants WHERE event_id = 'ghost-event'").get()?.n, 0);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE guild_id IS NULL").get()?.n, 0);
+  assert.equal((await db.get("SELECT COUNT(*) AS n FROM participants WHERE event_id = 'ghost-event'"))?.n, 0);
+  assert.equal((await db.get("SELECT COUNT(*) AS n FROM audit_log WHERE guild_id IS NULL"))?.n, 0);
 });

@@ -10,6 +10,9 @@
  */
 import {
   Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
   SqliteAdapter,
   SqliteIntrospector,
   SqliteQueryCompiler,
@@ -18,7 +21,8 @@ import {
   type DatabaseConnection,
   type QueryResult,
 } from 'kysely';
-import type { DatabaseSync, StatementSync } from 'node:sqlite';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { Db } from './db.js';
 
 export interface ParticipantTable {
   event_id: string;
@@ -109,76 +113,70 @@ export interface DbSchema {
 
 export type KyselyDb = Kysely<DbSchema>;
 
-/** Set by createKysely so the driver closures reach the open handle. */
-let dbRef: DatabaseSync;
-
-/** Single-connection driver over node:sqlite (sync API wrapped async). */
-class NodeSqliteDriver implements Driver {
-  #connection: DatabaseConnection | null = null;
-
+/** A Kysely lease occupies the existing facade queue, on the same connection. */
+class FacadeDriver implements Driver {
+  constructor(private readonly db: Db) {}
+  private readonly leases = new WeakMap<DatabaseConnection, { release: () => void; done: Promise<void>; rollback: boolean }>();
   async init(): Promise<void> {}
 
   async acquireConnection(): Promise<DatabaseConnection> {
-    if (this.#connection === null) {
-      const conn: DatabaseConnection = {
-        executeQuery: async <R>(compiled: { sql: string; parameters: readonly unknown[] }): Promise<QueryResult<R>> => {
+    let publish!: (connection: DatabaseConnection) => void;
+    let fail!: (error: unknown) => void;
+    const ready = new Promise<DatabaseConnection>((resolve, reject) => { publish = resolve; fail = reject; });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const aborted = new Error('Kysely rollback');
+    let lease!: { release: () => void; done: Promise<void>; rollback: boolean };
+    const done = this.db.transaction(async () => {
+      const run = AsyncLocalStorage.snapshot();
+      const connection: DatabaseConnection = {
+        executeQuery: <R>(compiled: { sql: string; parameters: readonly unknown[] }): Promise<QueryResult<R>> => run(async () => {
           const { sql, parameters } = compiled;
-          const head = sql.trimStart().slice(0, 7).toUpperCase();
-          const isRead = head.startsWith('SELECT') || head.startsWith('PRAGMA') || head.startsWith('WITH');
-          const stmt = dbRef.prepare(sql) as StatementSync;
-          if (isRead) {
-            const rows = stmt.all(...(parameters as never[])) as unknown as Record<string, unknown>[];
-            return { rows: rows as R[] };
+          if (/^\s*(SELECT|PRAGMA|WITH)\b/i.test(sql) || /\bRETURNING\b/i.test(sql)) {
+            return { rows: await this.db.all<R>(sql, ...parameters) };
           }
-          const info = stmt.run(...(parameters as never[]));
-          return {
-            rows: [],
-            numAffectedRows: BigInt(info.changes),
-          };
-        },
+          const info = await this.db.run(sql, ...parameters);
+          return { rows: [], numAffectedRows: BigInt(info.changes) };
+        }),
         async *streamQuery<R>(): AsyncIterableIterator<QueryResult<R>> {
-          throw new Error('streaming queries are not supported over node:sqlite');
-          // eslint-disable-next-line no-unreachable
-          yield {} as never;
+          throw new Error('Streaming queries are not supported');
         },
       };
-      this.#connection = conn;
-    }
-    return this.#connection;
+      this.leases.set(connection, lease);
+      publish(connection);
+      await released;
+      if (lease.rollback) throw aborted;
+    }).then(() => undefined).catch((error: unknown) => {
+      fail(error);
+      if (error !== aborted) throw error;
+    });
+    lease = { release, done, rollback: false };
+    // Observe startup errors even when acquisition fails before a lease exists.
+    void done.catch(() => undefined);
+    return ready;
   }
 
-  async beginTransaction(_connection: DatabaseConnection, _settings: { isolationLevel?: string }): Promise<void> {
-    dbRef.exec('BEGIN');
+  async beginTransaction(_connection: DatabaseConnection, settings: { isolationLevel?: string; accessMode?: string }): Promise<void> {
+    if (settings.isolationLevel || settings.accessMode) throw new Error('Custom transaction settings are not supported by the shared facade');
   }
-
-  async commitTransaction(_connection: DatabaseConnection): Promise<void> {
-    dbRef.exec('COMMIT');
+  async commitTransaction(): Promise<void> {}
+  async rollbackTransaction(connection: DatabaseConnection): Promise<void> { this.leases.get(connection)!.rollback = true; }
+  async releaseConnection(connection: DatabaseConnection): Promise<void> {
+    const lease = this.leases.get(connection)!;
+    lease.release();
+    await lease.done;
+    this.leases.delete(connection);
   }
-
-  async rollbackTransaction(_connection: DatabaseConnection): Promise<void> {
-    dbRef.exec('ROLLBACK');
-  }
-
-  async endTransaction(_connection: DatabaseConnection): Promise<void> {
-    // Kysely calls commit/rollback directly; kept for interface completeness.
-  }
-
-  async releaseConnection(): Promise<void> {
-    // single shared connection — nothing to release
-  }
-
-  async destroy(): Promise<void> {
-    // the raw layer owns closing the DatabaseSync
-  }
+  async destroy(): Promise<void> {}
 }
 
-export function createKysely(db: DatabaseSync): KyselyDb {
-  dbRef = db;
+export function createKysely(db: Db): KyselyDb {
+  const postgres = 'dialect' in db && db.dialect === 'postgres';
   const dialect: Dialect = {
-    createAdapter: () => new SqliteAdapter(),
-    createDriver: () => new NodeSqliteDriver(),
-    createIntrospector: (k) => new SqliteIntrospector(k),
-    createQueryCompiler: () => new SqliteQueryCompiler(),
+    createAdapter: () => postgres ? new PostgresAdapter() : new SqliteAdapter(),
+    createDriver: () => new FacadeDriver(db),
+    createIntrospector: (k) => postgres ? new PostgresIntrospector(k) : new SqliteIntrospector(k),
+    createQueryCompiler: () => postgres ? new PostgresQueryCompiler() : new SqliteQueryCompiler(),
   };
   return new Kysely<DbSchema>({ dialect });
 }

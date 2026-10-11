@@ -7,22 +7,17 @@ import { EmbedBuilder, type Client, type TextChannel } from 'discord.js'
 import type { Db } from '../shared/db.js'
 import { t } from '../shared/i18n.js'
 import type { HackathonEvent } from '../features/events/data.js'
-import { SYNTHETIC_BLOCK_IDS } from '../features/events/data.js'
+import { SYNTHETIC_BLOCK_IDS, getMessageRef, setMessageRef } from '../features/events/data.js'
 import { botLocale } from './provision.js'
 
 const key = (eventId: string) => `schedule_itinerary:${eventId}`
 
-function getItineraryRef(db: Db, eventId: string): { channelId: string; messageId: string } | null {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key(eventId)) as { value: string } | undefined
-  if (!row) return null
-  try {
-    const p = JSON.parse(row.value) as { channelId: string; messageId: string }
-    return p.channelId && p.messageId ? p : null
-  } catch { return null }
+function getItineraryRef(db: Db, eventId: string) {
+  return getMessageRef(db, key(eventId))
 }
 
 function setItineraryRef(db: Db, eventId: string, ref: { channelId: string; messageId: string }) {
-  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key(eventId), JSON.stringify(ref))
+  return setMessageRef(db, key(eventId), ref)
 }
 
 export function buildScheduleItineraryEmbed(event: HackathonEvent): EmbedBuilder {
@@ -75,7 +70,7 @@ export async function postOrUpdateScheduleItinerary(
   if (!channel || !channel.isTextBased()) return { error: 'Schedule channel is not a text channel or not found.' }
 
   const embed = buildScheduleItineraryEmbed(event)
-  const existing = getItineraryRef(db, event.id)
+  const existing = await getItineraryRef(db, event.id)
   try {
     if (existing && existing.channelId === channelId) {
       const msg = await channel.messages.fetch(existing.messageId).catch(()=>null)
@@ -85,7 +80,7 @@ export async function postOrUpdateScheduleItinerary(
       }
     }
     const sent = await (channel as TextChannel).send({ embeds: [embed] })
-    setItineraryRef(db, event.id, { channelId, messageId: sent.id })
+    await setItineraryRef(db, event.id, { channelId, messageId: sent.id })
     return { channelId, messageId: sent.id, edited: false }
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) }

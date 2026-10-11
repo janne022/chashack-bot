@@ -42,6 +42,7 @@ export interface Env {
   /** Public origin when the console sits behind a proxy. */
   publicUrl: string | undefined;
   dbPath: string;
+  databaseUrl?: string | undefined;
   announceChannelId: string | undefined;
   auditChannelId: string | undefined;
   /** Fallback category for team channels when the guild has none configured. */
@@ -92,6 +93,7 @@ export function env(): Env {
     oauthRedirectUri: get('OAUTH_REDIRECT_URI') || undefined,
     publicUrl: get('PUBLIC_URL') || undefined,
     dbPath: get('DB_PATH') || 'data/chashack.db',
+    databaseUrl: process.env.DATABASE_URL,
     announceChannelId: get('ANNOUNCE_CHANNEL_ID') || undefined,
     auditChannelId: get('AUDIT_CHANNEL_ID') || undefined,
     teamCategoryId: get('TEAM_CATEGORY_ID') || undefined,

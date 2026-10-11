@@ -47,13 +47,24 @@ export interface AsyncDb {
  * Kysely adapter and index.ts bootstrap) PLUS the async facade used by every
  * slice data module.
  */
-export type Db = DatabaseSync & AsyncDb;
+export interface Db extends AsyncDb {
+  close(): void | Promise<void>;
+}
+export type SqliteDb = DatabaseSync & Db;
 
-export function openDb(dbPath: string): Db {
+export async function openDatabase(dbPath: string, databaseUrl?: string): Promise<Db> {
+  if (databaseUrl === undefined) return openDb(resolveDbPath(dbPath));
+  const { openPostgres, migratePostgres } = await import('./postgres.js');
+  const db = await openPostgres(databaseUrl);
+  try { await migratePostgres(db); return db; }
+  catch (error) { await db.close(); throw error; }
+}
+
+export function openDb(dbPath: string): SqliteDb {
   if (dbPath !== ':memory:') {
     mkdirSync(dirname(dbPath), { recursive: true });
   }
-  const db = new DatabaseSync(dbPath) as Db;
+  const db = new DatabaseSync(dbPath) as SqliteDb;
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
   attachAsyncFacade(db);
@@ -81,15 +92,12 @@ function stateOf(db: DatabaseSync): FacadeState {
   return s;
 }
 
-function attachAsyncFacade(db: Db): void {
+function attachAsyncFacade(db: SqliteDb): void {
   const state = stateOf(db);
 
   const execDirect = (sql: string, params: unknown[]): { rows: Record<string, unknown>[]; changes: number | bigint; lastInsertRowid: number | bigint } => {
     const stmt = db.prepare(sql);
-    const isRead = /^\s*(SELECT|WITH|PRAGMA|RETURNING)\b/i.test(sql);
-    if (isRead) {
-      return { rows: stmt.all(...(params as never[])) as unknown as Record<string, unknown>[], changes: 0, lastInsertRowid: 0 };
-    }
+
     // A mutating statement executes exactly ONCE, via stmt.run. Never follow it
     // with stmt.all to "collect rows": on node:sqlite a prepared INSERT is not
     // exhausted by run(), so .all() would execute the write a second time
@@ -120,9 +128,11 @@ function attachAsyncFacade(db: Db): void {
 
   const finish = <T>(sql: string, params: unknown[], mode: 'all' | 'get' | 'run'): Promise<T> => {
     try {
+      if (mode !== 'run') {
+        const rows = db.prepare(sql).all(...(params as never[]));
+        return Promise.resolve((mode === 'all' ? rows : rows[0]) as T);
+      }
       const { rows, changes, lastInsertRowid } = execDirect(sql, params);
-      if (mode === 'all') return Promise.resolve(rows as T);
-      if (mode === 'get') return Promise.resolve(rows[0] as T);
       return Promise.resolve({ changes, lastInsertRowid } as T);
     } catch (error) {
       return Promise.reject(error);
@@ -191,7 +201,7 @@ function attachAsyncFacade(db: Db): void {
   };
 }
 
-function addColumnIfMissing(db: Db, table: string, column: string, definition: string): void {
+function addColumnIfMissing(db: SqliteDb, table: string, column: string, definition: string): void {
   const tableExists = (
     db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) as
       | { name: string }
@@ -204,7 +214,7 @@ function addColumnIfMissing(db: Db, table: string, column: string, definition: s
   }
 }
 
-function migrateFormConfig(db: Db): void {
+function migrateFormConfig(db: SqliteDb): void {
   const columns = db.prepare('PRAGMA table_info(form_config)').all() as unknown as { name: string }[];
   if (columns.some((column) => column.name === 'guild_id')) return;
   const legacy = db.prepare('SELECT json, updated_at FROM form_config WHERE id = 1').get() as { json: string; updated_at: number } | undefined;
@@ -227,8 +237,7 @@ function migrateFormConfig(db: Db): void {
   }
 }
 
-function migrate(db: Db): void {
-  db.exec(`
+export const schemaSql = `
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -362,8 +371,10 @@ function migrate(db: Db): void {
       details TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
-  `);
+  `;
 
+function migrate(db: SqliteDb): void {
+  db.exec(schemaSql);
   // Legacy columns from earlier schemas.
   migrateFormConfig(db);
   addColumnIfMissing(db, 'audit_log', 'guild_id', 'TEXT');
@@ -414,7 +425,7 @@ function migrate(db: Db): void {
  * not-yet-adopted (`event_id IS NULL`) and already-adopted (`ev_legacy_*`) ones.
  * Real pre-events teams keep their members and are left alone. Idempotent.
  */
-function purgeOrphanTeams(db: Db): void {
+function purgeOrphanTeams(db: SqliteDb): void {
   const has = (table: string): boolean =>
     db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !== undefined;
   if (!has('teams') || !has('participants')) return;
@@ -437,7 +448,7 @@ function purgeOrphanTeams(db: Db): void {
  * schedule blocks as `announce` actions. Strip the stale key so templates
  * don't carry dead config. Idempotent: rewrites only rows that still have it.
  */
-function stripTemplateAnnouncements(db: Db): void {
+function stripTemplateAnnouncements(db: SqliteDb): void {
   const tableExists = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'event_templates'")
     .get();
@@ -462,7 +473,7 @@ function stripTemplateAnnouncements(db: Db): void {
  * Pre-events data gets grouped into an ended "Imported event" per guild so
  * nothing is orphaned.
  */
-function backfillLegacyEvents(db: Db): void {
+function backfillLegacyEvents(db: SqliteDb): void {
   // Nothing to backfill on a fresh database.
   const participantsTable = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'participants'")
@@ -498,11 +509,11 @@ function backfillLegacyEvents(db: Db): void {
  * Participants become per-event: composite PK (event_id, user_id) so the same
  * person can sign up to multiple events.
  */
-function addEventColumns(db: Db): void {
+function addEventColumns(db: SqliteDb): void {
   addColumnIfMissing(db, 'events', 'announcement_channel_id', 'TEXT');
 }
 
-function recreateParticipantsTable(db: Db): void {
+function recreateParticipantsTable(db: SqliteDb): void {
   const participantsTable = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'participants'")
     .get();
@@ -541,7 +552,7 @@ function recreateParticipantsTable(db: Db): void {
 }
 
 /** Old preference ids → the create/join/random flow. */
-function migrateTeamPrefs(db: Db): void {
+function migrateTeamPrefs(db: SqliteDb): void {
   const participantsTable = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'participants'")
     .get();
