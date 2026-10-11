@@ -193,24 +193,21 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const query = req.query as Record<string, unknown> | undefined;
     const body = req.body as Record<string, unknown> | null | undefined;
     const guildId = await guildOf(req);
-    const eventId = [params?.eventId, query?.eventId, body?.eventId].find((id) => typeof id === 'string') as string | undefined;
-    if (eventId !== undefined) {
+    for (const eventId of [params?.eventId, query?.eventId, body?.eventId].filter((id): id is string => typeof id === 'string')) {
       const event = await getEvent(db, eventId);
       if (event !== null && event.guildId !== guildId) {
         await reply.code(404).send({ ok: false, code: 'not_found', message: 'Event not found.' });
         return;
       }
     }
-    const teamId = [params?.teamId, query?.teamId, body?.teamId].find((id) => typeof id === 'string') as string | undefined;
-    if (teamId !== undefined) {
+    for (const teamId of [params?.teamId, query?.teamId, body?.teamId].filter((id): id is string => typeof id === 'string')) {
       const team = await db.get<{ guild_id: string }>('SELECT guild_id FROM teams WHERE id = ?', teamId);
       if (team !== undefined && team.guild_id !== guildId) {
         await reply.code(404).send({ ok: false, code: 'not_found', message: 'Team not found.' });
         return;
       }
     }
-    const templateId = [params?.templateId, query?.templateId, body?.templateId, body?.formTemplateId].find((id) => typeof id === 'string') as string | undefined;
-    if (templateId !== undefined) {
+    for (const templateId of [params?.templateId, query?.templateId, body?.templateId, body?.formTemplateId].filter((id): id is string => typeof id === 'string')) {
       const template = await db.get<{ guild_id: string | null }>('SELECT guild_id FROM event_templates WHERE id = ?', templateId);
       if (template !== undefined && ((template.guild_id !== null && template.guild_id !== guildId) || (template.guild_id === null && (req.method === 'PATCH' || req.method === 'DELETE')))) {
         await reply.code(404).send({ ok: false, code: 'not_found', message: 'Template not found.' });
