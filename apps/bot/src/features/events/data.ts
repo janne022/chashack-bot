@@ -11,6 +11,7 @@ import { newId } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import { DEFAULT_FORM, type FormConfig } from '../form/domain.js';
+import { getForm } from '../form/data.js';
 import { normalizeFormUpdate } from '../form/domain.js';
 
 export type EventStatus = 'draft' | 'active' | 'ended';
@@ -346,7 +347,7 @@ export async function createEvent(db: Db, actor: string, guildId: string, input:
   }
 
   const id = newId('ev');
-  const form: FormConfig = normalizeFormUpdate({ ...DEFAULT_FORM, ...(input.form ?? {}) }, {});
+  const form: FormConfig = normalizeFormUpdate({ ...await getForm(db, guildId), ...(input.form ?? {}) }, {});
   // The pool is a snapshot of the assignment collection picked at creation.
   // No pool chosen → nothing is distributed (no silent defaults).
   const assignments = normalizeAssignments(input.assignments ?? []);

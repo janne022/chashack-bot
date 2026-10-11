@@ -87,7 +87,7 @@ check('match preview without participants is a friendly 400', matchRes.status ==
 const auditRes = await fetch(`${base}/api/state`, { headers: { cookie } });
 const auditBody = await auditRes.json();
 const actions = auditBody.audit.map((a) => a.action);
-check('audit log captured form update + login', actions.includes('form.update') && actions.includes('web.login'), actions.join(', '));
+check('tenant audit log captures form update but hides host login', actions.includes('form.update') && !actions.includes('web.login'), actions.join(', '));
 
 // 10. Session cookie tamper → 401
 const tampered = await fetch(`${base}/api/state`, { headers: { cookie: 'hacksess=9999999999999.deadbeef' } });

@@ -557,8 +557,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return {
       participants,
       teams,
-      config: await getForm(db),
-      audit: await auditList(db, 100),
+      config: await getForm(db, await guildOf(req)),
+      audit: await auditList(db, 100, await guildOf(req)),
       lastMatch: await lastMatchInfo(db, eventId),
       guildSettings: await getGuildSettings(db, await guildOf(req)),
       guildConfigured: guildOk,
@@ -1173,7 +1173,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/match/preview', async (req, reply) => {
-    const res = await previewMatch(db, resolveEventId(req, await guildOf(req)), await getForm(db));
+    const res = await previewMatch(db, resolveEventId(req, await guildOf(req)), await getForm(db, await guildOf(req)));
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1183,7 +1183,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
 app.post('/api/match/commit', async (req) => {
     const eventId = resolveEventId(req, await guildOf(req));
-    const res = await commitMatch(db, 'web', eventId, await guildOf(req), await getForm(db));
+    const res = await commitMatch(db, 'web', eventId, await guildOf(req), await getForm(db, await guildOf(req)));
     if (!res.ok) {
       return { ok: false, code: res.code, message: res.message };
     }
@@ -1230,7 +1230,7 @@ app.post('/api/match/commit', async (req) => {
       await reply.code(400).send({ ok: false, code: 'already_in_team', message: 'Participant is already on a team.' });
       return;
     }
-    const suggestions = suggestTeamsForParticipant(participant, await listTeamsWithMembers(db, eventId), await getForm(db));
+    const suggestions = suggestTeamsForParticipant(participant, await listTeamsWithMembers(db, eventId), await getForm(db, await guildOf(req)));
     return { ok: true, suggestions };
   });
 
@@ -1250,7 +1250,7 @@ app.post('/api/match/lock', async (req) => {
 
   app.post('/api/form', async (req, reply) => {
     const body = req.body as Partial<FormConfig> | null;
-    const res = await updateForm(db, 'web', body ?? {});
+    const res = await updateForm(db, await guildOf(req), 'web', body ?? {});
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1263,8 +1263,8 @@ app.post('/api/match/lock', async (req) => {
     return { ok: true, config: res.value };
   });
 
-  app.post('/api/form/reset', async () => {
-    const res = await resetForm(db, 'web');
+  app.post('/api/form/reset', async (req) => {
+    const res = await resetForm(db, await guildOf(req), 'web');
     return { ok: res.ok, config: res.ok ? res.value : undefined };
   });
 

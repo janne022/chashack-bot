@@ -42,7 +42,7 @@ export async function handleAdminCommand(
 
   switch (sub) {
     case 'form': {
-      const c = await getForm(db);
+      const c = await getForm(db, guildId);
       const lines = [
         t(locale, 'discord.admin.form_title_line', { title: c.title }),
         t(locale, 'discord.admin.form_team_size', { size: c.teamSize }),
