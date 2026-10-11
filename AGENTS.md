@@ -79,6 +79,32 @@ PRODUCT.md · DESIGN.md · docs/ARCHITECTURE.md
 - **The console is multi-server; the client never names a guild.** Switching is
   validated server-side against the session's stored guild list.
 
+## Hermes pipeline
+
+`.hermes/pipeline.yaml` declares the local checks; `.hermes/pipeline/` is
+vendored from hermes-pipeline, not a separate implementation. From the repo root:
+
+```bash
+pnpm install --frozen-lockfile
+uv run --with pyyaml==6.0.3 python .hermes/pipeline/run_gate.py
+```
+
+Run on a committed feature branch against `origin/main`; the runner scans the
+committed diff, not uncommitted edits. The unit command builds before testing
+`dist/**` and then runs API smoke. PR-body gates skip locally without an event
+body; GitHub CI enforces them on pull requests. API smoke is not browser or
+accessibility evidence. Keep the existing CI checks and release cooldown.
+
+Future work belongs on board `chashack-bot` with an isolated feature worktree,
+`pipeline-worker`, a `janne022/chashack-bot` completion contract, Luna
+(`gpt-6-luna`, `openai-codex`), and an explicit 1800-second runtime bound.
+Use one same-card `qa-judge` review, one bounded repair, then targeted
+verification. Publish independent review on the exact PR head; operator merge
+requires green exact-head CI and janne's approval for workflow changes.
+The board does not install GitHub branch protection or enable automatic merge.
+Protected instruction-file edits require attended approval, not a headless
+retry through another write tool.
+
 ## Verify before you commit
 
 ```bash

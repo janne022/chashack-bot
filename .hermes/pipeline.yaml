@@ -1,0 +1,18 @@
+version: 1
+repo:
+  owner: janne022
+  name: chashack-bot
+  default_branch: main
+base: origin/main
+stacks: [node]
+supply_chain:
+  pnpm_minimumReleaseAge: 4320
+db_guard:
+  pattern: 'test|ci'
+ci:
+  provider: github-actions
+  contract: janne022/chashack-bot
+gates:
+  typecheck: {cmd: 'pnpm typecheck'}
+  # Bot tests consume dist; one command builds first and includes API smoke.
+  unit: {cmd: 'pnpm build && pnpm test && node apps/bot/scripts/smoke-admin.mjs'}
