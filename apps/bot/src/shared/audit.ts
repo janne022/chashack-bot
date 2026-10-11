@@ -21,16 +21,6 @@ export async function audit(
   details: Record<string, unknown> | null,
   guildId: string | null = null,
 ): Promise<void> {
-  const owner = guildId === null && target !== null
-    ? await db.get<{ guild_id: string }>(
-      'SELECT guild_id FROM events WHERE id = ? UNION ALL SELECT guild_id FROM teams WHERE id = ? UNION ALL SELECT guild_id FROM guild_settings WHERE guild_id = ? UNION ALL SELECT guild_id FROM event_templates WHERE id = ? LIMIT 1',
-      target,
-      target,
-      target,
-      target,
-    )
-    : undefined;
-  const tenantId = guildId ?? owner?.guild_id ?? null;
   await db.run(
     'INSERT INTO audit_log (ts, actor, action, target, details, guild_id) VALUES (?, ?, ?, ?, ?, ?)',
     Date.now(),
@@ -38,7 +28,7 @@ export async function audit(
     action,
     target,
     details === null ? null : JSON.stringify(details),
-    tenantId,
+    guildId,
   );
 }
 
