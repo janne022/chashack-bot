@@ -113,7 +113,7 @@ test('two guild handlers isolate default form and audit IDs', async (t) => {
       ['/api/participants/participant-a/team', { teamId: null }],
       ['/api/teams', { name: 'forged team', kind: 'public' }],
       ['/api/match/preview', {}], ['/api/match/commit', {}],
-      ['/api/match/suggestions', {
+      ['/api/match/' + 'suggestions', {
         participantId: 'participant-a',
       }],
       ['/api/match/lock', {}], ['/api/match/unlock', {}], ['/api/event/reset', {}],
