@@ -113,7 +113,9 @@ test('two guild handlers isolate default form and audit IDs', async (t) => {
       ['/api/participants/participant-a/team', { teamId: null }],
       ['/api/teams', { name: 'forged team', kind: 'public' }],
       ['/api/match/preview', {}], ['/api/match/commit', {}],
-      ['/api/match/suggestions', { participantId: 'participant-a' }],
+      ['/api/match/suggestions', {
+        participantId: 'participant-a',
+      }],
       ['/api/match/lock', {}], ['/api/match/unlock', {}], ['/api/event/reset', {}],
       ['/api/templates', { name: 'forged clone', kind: 'event' }],
       ['/api/events/announce', { title: 'forged', message: 'foreign event' }],
@@ -125,9 +127,17 @@ test('two guild handlers isolate default form and audit IDs', async (t) => {
     await denied('POST', '/api/participants/participant-a/team', { eventId: eventB.value.id, teamId: 'team-a' });
     await denied('POST', '/api/events', { name: 'forged clone', templateId: 'template-a' });
   });
-  await t.test('an own-guild query locator cannot mask the foreign body target used by announcement handler', async () => {
+  await t.test('own-guild query locators cannot mask foreign body targets', async () => {
     await denied('POST', `/api/events/announce?eventId=${eventB.value.id}`, {
       eventId: eventA.value.id, title: 'forged', message: 'foreign event',
+    });
+    db.prepare('INSERT INTO teams (id, event_id, guild_id, name, kind, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run('team-b', eventB.value.id, guildB, 'B team', 'open', Date.now());
+    await denied('POST', '/api/participants/participant-a/team?teamId=team-b', {
+      eventId: eventB.value.id, teamId: 'team-a',
+    });
+    await denied('POST', '/api/events?templateId=host-template', {
+      name: 'forged clone', formTemplateId: 'template-a',
     });
   });
 });
