@@ -28,6 +28,10 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
       - name: Guard supply-chain policy
         run: "grep -q 'minimumReleaseAge: 4320' pnpm-workspace.yaml"
 
