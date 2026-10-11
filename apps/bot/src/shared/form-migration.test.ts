@@ -13,7 +13,7 @@ function seedLegacy(file: string, guilds: string[]): void {
   for (const [index, guildId] of guilds.entries()) {
     db.prepare('INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(`event-${index}`, guildId, `event ${index}`, 'draft', 1, 1);
   }
-  db.exec('DROP TABLE form_config; CREATE TABLE form_config (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL, updated_at INTEGER NOT NULL)');
+  db.exec('ALTER TABLE form_config RENAME TO form_config_current; CREATE TABLE form_config (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL, updated_at INTEGER NOT NULL)');
   db.prepare('INSERT INTO form_config VALUES (1, ?, 1)').run('{"title":"legacy sentinel"}');
   db.close();
 }
