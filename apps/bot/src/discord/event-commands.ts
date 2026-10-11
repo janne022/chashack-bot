@@ -411,7 +411,7 @@ export async function handleEventAdminCommand(
       // slash command can replace them.
       const base = env().publicUrl ?? `http://localhost:${env().adminPort}`;
       const url = base.replace(/\/$/, '');
-      await audit(db, actor, 'console.link', guildId, null);
+      await audit(db, actor, 'console.link', guildId, null, guildId);
       await i.reply({ content: t(locale, 'discord.events.console_link', { url }), flags: MessageFlags.Ephemeral });
       return;
     }

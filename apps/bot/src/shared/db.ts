@@ -204,6 +204,29 @@ function addColumnIfMissing(db: Db, table: string, column: string, definition: s
   }
 }
 
+function migrateFormConfig(db: Db): void {
+  const columns = db.prepare('PRAGMA table_info(form_config)').all() as unknown as { name: string }[];
+  if (columns.some((column) => column.name === 'guild_id')) return;
+  const legacy = db.prepare('SELECT json, updated_at FROM form_config WHERE id = 1').get() as { json: string; updated_at: number } | undefined;
+  const guilds = db.prepare('SELECT guild_id FROM events UNION SELECT guild_id FROM guild_settings').all() as unknown as { guild_id: string }[];
+  if (legacy !== undefined && guilds.length !== 1) {
+    throw new Error('Cannot safely migrate legacy form_config: ownership is ambiguous. Preserve the database and manually assign the old form to exactly one guild before retrying.');
+  }
+  db.exec('BEGIN');
+  try {
+    db.exec('ALTER TABLE form_config RENAME TO form_config_legacy');
+    db.exec('CREATE TABLE form_config (guild_id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL)');
+    if (legacy !== undefined) {
+      db.prepare('INSERT INTO form_config (guild_id, json, updated_at) VALUES (?, ?, ?)').run(guilds[0]!.guild_id, legacy.json, legacy.updated_at);
+    }
+    db.exec('DROP TABLE form_config_legacy');
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
 function migrate(db: Db): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS meta (
@@ -253,7 +276,7 @@ function migrate(db: Db): void {
     );
 
     CREATE TABLE IF NOT EXISTS form_config (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
+      guild_id TEXT PRIMARY KEY,
       json TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -342,6 +365,10 @@ function migrate(db: Db): void {
   `);
 
   // Legacy columns from earlier schemas.
+  migrateFormConfig(db);
+  addColumnIfMissing(db, 'audit_log', 'guild_id', 'TEXT');
+  db.exec(`UPDATE audit_log SET guild_id = (SELECT guild_id FROM events WHERE events.id = audit_log.target) WHERE guild_id IS NULL AND EXISTS (SELECT 1 FROM events WHERE events.id = audit_log.target)`);
+  db.exec(`UPDATE audit_log SET guild_id = (SELECT guild_id FROM teams WHERE teams.id = audit_log.target) WHERE guild_id IS NULL AND EXISTS (SELECT 1 FROM teams WHERE teams.id = audit_log.target)`);
   addColumnIfMissing(db, 'guild_settings', 'default_announcement_channel_id', 'TEXT');
   addColumnIfMissing(db, 'guild_settings', 'default_panel_channel_id', 'TEXT');
   addColumnIfMissing(db, 'guild_settings', 'default_category_id', 'TEXT');

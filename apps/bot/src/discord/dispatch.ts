@@ -111,7 +111,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
       }
 
       const activeEvent = await getActiveEvent(deps.db, guildId);
-      const guildDefault = await getForm(deps.db);
+      const guildDefault = await getForm(deps.db, guildId);
       const locale = deps.botLanguage;
       const ctx: Ctx = {
         db: deps.db,
