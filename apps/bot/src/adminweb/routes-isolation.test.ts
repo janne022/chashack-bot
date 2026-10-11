@@ -17,7 +17,7 @@ const config = {
   teamCategoryId: undefined, botLanguage: 'en',
 } as Env;
 
-test('two guild handlers isolate default form and audit IDs', async () => {
+test('two guild handlers isolate default form and audit IDs', async (t) => {
   const db = openDb(':memory:');
   const guildA = '11111111111111111';
   const guildB = '22222222222222222';
@@ -27,7 +27,9 @@ test('two guild handlers isolate default form and audit IDs', async () => {
   const sessionA = await createSession(db, { userId: 'a', username: 'a', avatar: null, guilds: [{ id: guildA, name: 'A', icon: null }] });
   const sessionB = await createSession(db, { userId: 'b', username: 'b', avatar: null, guilds: [{ id: guildB, name: 'B', icon: null }] });
   const app = Fastify({ logger: false });
-  registerRoutes(app, { db, config, announce: async () => undefined, client: null });
+  t.after(async () => { await app.close(); db.close(); });
+  let announcements = 0;
+  registerRoutes(app, { db, config, announce: async () => { announcements++; }, client: null });
   const injectState = (sessionId: string) => app.inject({ url: '/api/state', headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionId))}` } });
   const stateA = await injectState(sessionA.id);
   const stateB = await injectState(sessionB.id);
@@ -83,6 +85,49 @@ test('two guild handlers isolate default form and audit IDs', async () => {
   const resetB = await app.inject({ method: 'POST', url: '/api/form/reset', headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionB.id))}` } });
   assert.equal(resetB.statusCode, 200);
   assert.equal((await (await injectState(sessionA.id)).json()).config.title, 'Guild A sentinel');
-  await app.close();
-  db.close();
+  // Exercise the actual registered handlers, not just the preHandler helper.
+  const headers = { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionB.id))}` };
+  const snapshot = () => ['events', 'teams', 'participants', 'team_requests', 'event_templates', 'audit_log']
+    .map((table) => db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
+  const denied = async (method: 'POST' | 'PATCH' | 'DELETE', url: string, payload: Record<string, unknown> = {}) => {
+    const before = snapshot();
+    const response = await app.inject({ method, url, headers, payload });
+    assert.equal(response.statusCode, 404, `${method} ${url}: ${response.body}`);
+    assert.deepEqual(snapshot(), before, `${method} ${url} changed persisted rows`);
+    assert.equal(announcements, 0, `${method} ${url} emitted an announcement`);
+  };
+  await t.test('foreign path locators refuse every event and team mutation without side effects', async () => {
+    for (const suffix of ['activate', 'schedule-itinerary', 'end', 'panel', 'discord-events', 'form']) {
+      await denied('POST', `/api/events/${eventA.value.id}/${suffix}`, { channelId: 'channel-a', formJson: '{}' });
+    }
+    await denied('PATCH', `/api/events/${eventA.value.id}`, { name: 'forged event' });
+    for (const suffix of ['delete', 'settings', 'rotate-code', 'remove-member']) {
+      await denied('POST', `/api/teams/team-a/${suffix}`, { name: 'forged team', userId: 'participant-a' });
+    }
+    await denied('PATCH', '/api/templates/template-a', { name: 'forged template' });
+    await denied('DELETE', '/api/templates/template-a');
+  });
+  await t.test('foreign query and body event locators refuse participant, team, matching and reset handlers', async () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ['/api/participants/participant-a/status', { action: 'reactivate' }],
+      ['/api/participants/participant-a/team', { teamId: null }],
+      ['/api/teams', { name: 'forged team', kind: 'public' }],
+      ['/api/match/preview', {}], ['/api/match/commit', {}],
+      ['/api/match/suggestions', { participantId: 'participant-a' }],
+      ['/api/match/lock', {}], ['/api/match/unlock', {}], ['/api/event/reset', {}],
+      ['/api/templates', { name: 'forged clone', kind: 'event' }],
+      ['/api/events/announce', { title: 'forged', message: 'foreign event' }],
+    ];
+    for (const [url, payload] of cases) {
+      await denied('POST', `${url}?eventId=${eventA.value.id}`, { ...payload, eventId: eventA.value.id });
+      await denied('POST', url, { ...payload, eventId: eventA.value.id });
+    }
+    await denied('POST', '/api/participants/participant-a/team', { eventId: eventB.value.id, teamId: 'team-a' });
+    await denied('POST', '/api/events', { name: 'forged clone', templateId: 'template-a' });
+  });
+  await t.test('an own-guild query locator cannot mask the foreign body target used by announcement handler', async () => {
+    await denied('POST', `/api/events/announce?eventId=${eventB.value.id}`, {
+      eventId: eventA.value.id, title: 'forged', message: 'foreign event',
+    });
+  });
 });
