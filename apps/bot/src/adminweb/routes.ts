@@ -437,7 +437,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send({ ok: false, code: 'not_discord_session', message: 'Password sessions are pinned to the configured server.' });
       return;
     }
-    if (!selectGuild(db, live.session.id, target)) {
+    if (!(await selectGuild(db, live.session.id, target))) {
       await reply.code(403).send({ ok: false, code: 'not_allowed', message: 'You do not manage that server.' });
       return;
     }

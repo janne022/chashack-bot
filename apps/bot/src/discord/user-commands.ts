@@ -87,7 +87,7 @@ export async function handleUserCommand(
         await i.reply(eph(t(locale, 'discord.teams.signup_first')));
         return;
       }
-      if (getTeamForUser(db, ctx.eventId, i.user.id) !== null) {
+      if ((await getTeamForUser(db, ctx.eventId, i.user.id)) !== null) {
         await i.reply(eph(t(locale, 'errors.already_in_team')));
         return;
       }
