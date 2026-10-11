@@ -118,7 +118,7 @@ export async function upsertParticipant(
       now,
       now,
     );
-    await audit(db, actor, 'participant.upsert', eventId, { userId, displayName: signup.displayName, teamPref: signup.teamPref });
+    await audit(db, actor, 'participant.upsert', eventId, { userId, displayName: signup.displayName, teamPref: signup.teamPref }, guildId);
     const created = await getParticipant(db, eventId, userId);
     return ok(created!);
   });
@@ -152,7 +152,7 @@ export async function setTeammates(db: Db, actor: string, eventId: string, userI
   if (participant === null) return err('not_found', 'Sign up first with /hackathon join.');
   const clean = [...new Set(teammateIds.map((id) => id.trim()).filter((id) => /^\d{5,25}$/.test(id)))].slice(0, 10);
   await db.run('UPDATE participants SET teammates = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', JSON.stringify(clean), Date.now(), eventId, userId);
-  await audit(db, actor, 'participant.teammates', eventId, { userId, count: clean.length });
+  await audit(db, actor, 'participant.teammates', eventId, { userId, count: clean.length }, participant.guildId);
   return ok((await getParticipant(db, eventId, userId))!);
 }
 
@@ -165,7 +165,7 @@ export async function blockParticipant(db: Db, actor: string, eventId: string, u
     userId,
   );
   if (res.changes === 0) return err('not_found', 'Participant not found in this event.');
-  await audit(db, actor, 'participant.block', eventId, { userId, reason });
+  await audit(db, actor, 'participant.block', eventId, { userId, reason }, (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId))?.guild_id ?? null);
   return ok(undefined);
 }
 
@@ -177,7 +177,7 @@ export async function unblockParticipant(db: Db, actor: string, eventId: string,
     userId,
   );
   if (res.changes === 0) return err('not_found', 'No blocked participant with that ID in this event.');
-  await audit(db, actor, 'participant.unblock', eventId, { userId });
+  await audit(db, actor, 'participant.unblock', eventId, { userId }, (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId))?.guild_id ?? null);
   return ok(undefined);
 }
 
@@ -189,7 +189,7 @@ export async function withdrawParticipant(db: Db, actor: string, eventId: string
     userId,
   );
   if (res.changes === 0) return err('not_found', 'No active signup found in this event.');
-  await audit(db, actor, 'participant.withdraw', eventId, { userId });
+  await audit(db, actor, 'participant.withdraw', eventId, { userId }, (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId))?.guild_id ?? null);
   return ok(undefined);
 }
 
@@ -199,7 +199,7 @@ export async function purgeEventParticipants(db: Db, actor: string, eventId: str
     const row = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM participants WHERE event_id = ?', eventId);
     const count = row?.n ?? 0;
     await db.run('DELETE FROM participants WHERE event_id = ?', eventId);
-    await audit(db, actor, 'participant.purge', eventId, { count });
+    await audit(db, actor, 'participant.purge', eventId, { count }, (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId))?.guild_id ?? null);
     return count;
   });
 }

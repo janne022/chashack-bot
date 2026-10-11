@@ -62,7 +62,7 @@ export async function commitMatch(db: Db, actor: string, eventId: string, guildI
       `last_match:${eventId}`,
       JSON.stringify({ at: Date.now(), teams: preview.value.teams.length }),
     );
-    await audit(db, actor, 'match.commit', eventId, { teams: preview.value.teams.length });
+    await audit(db, actor, 'match.commit', eventId, { teams: preview.value.teams.length }, (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId))?.guild_id ?? null);
 
     return ok(preview.value);
   });

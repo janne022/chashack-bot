@@ -59,6 +59,13 @@ test('two guild handlers isolate default form and audit IDs', async () => {
   assert.equal(foreignTemplate.statusCode, 404);
   assert.equal((db.prepare('SELECT count(*) AS count FROM events').get() as { count: number }).count, eventCountBefore);
   db.prepare('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, NULL, ?, ?, ?, ?)').run('host-template', 'Host default', 'form', '{}', Date.now());
+  const templateList = await app.inject({ method: 'GET', url: '/api/templates', headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionB.id))}` } });
+  assert.equal(templateList.statusCode, 200);
+  assert.equal(templateList.json().templates.some((template: { id: string }) => template.id === 'host-template'), true);
+  assert.equal(templateList.json().templates.some((template: { id: string }) => template.id === 'template-a'), false);
+  const hostClone = await app.inject({ method: 'POST', url: '/api/events', headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionB.id))}` }, payload: { name: 'B host-template clone', formTemplateId: 'host-template' } });
+  assert.equal(hostClone.statusCode, 200);
+  assert.equal((db.prepare('SELECT guild_id FROM events WHERE id = ?').get(hostClone.json().event.id) as { guild_id: string }).guild_id, guildB);
   for (const method of ['PATCH', 'DELETE'] as const) {
     const response = await app.inject({ method, url: '/api/templates/host-template', headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionB.id))}` }, payload: { name: 'stolen' } });
     assert.equal(response.statusCode, 404);

@@ -19,7 +19,7 @@ export async function audit(
   action: string,
   target: string | null,
   details: Record<string, unknown> | null,
-  guildId: string | null = null,
+  guildId: string | null,
 ): Promise<void> {
   await db.run(
     'INSERT INTO audit_log (ts, actor, action, target, details, guild_id) VALUES (?, ?, ?, ?, ?, ?)',

@@ -226,7 +226,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return;
     }
     reply.header('set-cookie', sessionCookie(makeOperatorToken(config.adminSessionSecret), secureCookies));
-    await audit(db, 'web', 'web.login', 'admin', null);
+    await audit(db, 'web', 'web.login', 'admin', null, null);
     return { ok: true };
   });
 
@@ -322,7 +322,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       transientCookie(PKCE_COOKIE, pkce.verifier, OAUTH_STATE_TTL_S, secureCookies),
     ]);
     reply.header('cache-control', 'no-store');
-    await audit(db, 'web', 'web.oauth_start', 'discord', null);
+    await audit(db, 'web', 'web.oauth_start', 'discord', null, null);
     await reply.redirect(url.toString());
   });
 
@@ -414,7 +414,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         avatar: user.avatar,
         guilds,
       });
-      await audit(db, 'discord', 'web.login', user.id, { guilds: guilds.length, via: 'oauth' });
+      await audit(db, 'discord', 'web.login', user.id, { guilds: guilds.length, via: 'oauth' }, null);
       reply.header('set-cookie', [
         sessionCookie(makeDiscordToken(config.adminSessionSecret, session.id), secureCookies),
         clearCookie(STATE_COOKIE, secureCookies),
@@ -470,7 +470,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(403).send({ ok: false, code: 'not_allowed', message: 'You do not manage that server.' });
       return;
     }
-    await audit(db, 'discord', 'web.switch_guild', target, null);
+    await audit(db, 'discord', 'web.switch_guild', target, null, target);
     return { ok: true, guildId: target };
   });
 
@@ -479,7 +479,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (live !== null && live.session !== null) {
       // Deleting the row is what actually revokes: the cookie stops resolving.
       await deleteSession(db, live.session.id);
-      await audit(db, 'discord', 'web.logout', live.session.userId, null);
+      await audit(db, 'discord', 'web.logout', live.session.userId, null, null);
     }
     reply.header('set-cookie', clearCookie(COOKIE, secureCookies));
     return { ok: true };
@@ -1113,7 +1113,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
           eventId,
           userId,
         );
-        await audit(db, actor, 'participant.reactivate', eventId, { userId });
+        await audit(db, actor, 'participant.reactivate', eventId, { userId }, p.guildId);
         res = { ok: true, value: undefined };
         break;
       }
@@ -1266,14 +1266,14 @@ app.post('/api/match/commit', async (req) => {
   /** Lock teams in now: skips future auto-match (manual match runs still allowed). */
 app.post('/api/match/lock', async (req) => {
     markMatchLocked(db, resolveEventId(req, await guildOf(req)));
-    await audit(db, 'web', 'match.lock', resolveEventId(req, await guildOf(req)), null);
+    await audit(db, 'web', 'match.lock', resolveEventId(req, await guildOf(req)), null, await guildOf(req));
     return { ok: true };
   });
 
   /** Clear the lock so auto-match can fire again. */
   app.post('/api/match/unlock', async (req) => {
     markMatchUnlocked(db, resolveEventId(req, await guildOf(req)));
-    await audit(db, 'web', 'match.unlock', resolveEventId(req, await guildOf(req)), null);
+    await audit(db, 'web', 'match.unlock', resolveEventId(req, await guildOf(req)), null, await guildOf(req));
     return { ok: true };
   });
 
