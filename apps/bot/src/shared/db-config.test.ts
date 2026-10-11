@@ -15,7 +15,24 @@ test('Aspire ADO.NET connection strings parse required fields independent of ord
 });
 
 test('ambiguous or malformed database URL is rejected', () => {
-  for (const value of ['not a URL', 'postgres://u:p@host/db?host=other', 'Host=x;Database=a;Database=b;Username=u']) {
+  for (const value of [
+    'not a URL',
+    'postgres://u:***@host/db?host=other',
+    'postgres://u:p@host/db?application_name=ok&application_name=evil',
+    'postgres://u:p@host/db#fragment',
+    'postgres://u:p@host/a/b',
+    'postgres://u:p%ZZ@host/db',
+    'Host=x;Server=y;Database=a;Username=u',
+    'Host=x;Database=a;Database=b;Username=u',
+  ]) {
     assert.throws(() => parseDatabaseUrl(value));
   }
+});
+
+test('invalid connection values never leak credentials in errors', () => {
+  assert.throws(() => parseDatabaseUrl('postgres://app:secret@host/db#bad'), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.doesNotMatch(error.message, /secret/);
+    return true;
+  });
 });
