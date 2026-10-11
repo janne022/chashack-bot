@@ -39,6 +39,15 @@ test('two guild handlers isolate default form and audit IDs', async () => {
   assert.equal(bodyB.events.some((event: { id: string }) => event.id === eventA.value.id), false);
   assert.equal(bodyA.audit.some((entry: { target: string }) => entry.target === eventB.value.id), false);
   assert.equal(bodyB.audit.some((entry: { target: string }) => entry.target === eventA.value.id), false);
+  db.prepare('INSERT INTO teams (id, event_id, guild_id, name, kind, created_at) VALUES (?, ?, ?, ?, ?, ?)').run('team-a', eventA.value.id, guildA, 'A team', 'open', Date.now());
+  const foreignForm = await app.inject({ method: 'POST', url: `/api/events/${eventA.value.id}/form`, headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionB.id))}` }, payload: { formJson: JSON.stringify({ title: 'forged' }) } });
+  assert.equal(foreignForm.statusCode, 404);
+  const foreignEnd = await app.inject({ method: 'POST', url: `/api/events/${eventA.value.id}/end`, headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionB.id))}` } });
+  assert.equal(foreignEnd.statusCode, 404);
+  const foreignTeam = await app.inject({ method: 'POST', url: '/api/teams/team-a/delete', headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionB.id))}` } });
+  assert.equal(foreignTeam.statusCode, 404);
+  assert.equal((db.prepare('SELECT status FROM events WHERE id = ?').get(eventA.value.id) as { status: string }).status, 'draft');
+  assert.equal((db.prepare('SELECT count(*) AS count FROM teams WHERE id = ?').get('team-a') as { count: number }).count, 1);
   const update = (sessionId: string, title: string) => app.inject({
     method: 'POST', url: '/api/form',
     headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionId))}` },
