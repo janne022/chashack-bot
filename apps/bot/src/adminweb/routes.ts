@@ -212,7 +212,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const templateId = [params?.templateId, query?.templateId, body?.templateId, body?.formTemplateId].find((id) => typeof id === 'string') as string | undefined;
     if (templateId !== undefined) {
       const template = await db.get<{ guild_id: string | null }>('SELECT guild_id FROM event_templates WHERE id = ?', templateId);
-      if (template !== undefined && template.guild_id !== null && template.guild_id !== guildId) {
+      if (template !== undefined && ((template.guild_id !== null && template.guild_id !== guildId) || (template.guild_id === null && (req.method === 'PATCH' || req.method === 'DELETE')))) {
         await reply.code(404).send({ ok: false, code: 'not_found', message: 'Template not found.' });
         return;
       }
