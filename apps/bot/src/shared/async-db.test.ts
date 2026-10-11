@@ -15,30 +15,35 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import fs from 'node:fs';
 import { openDb, type Db } from './db.js';
+import { openTestDb } from './test-db.js';
 import { createKysely, type KyselyDb } from './kysely.js';
 
-function cols(db: Db, table: string): string[] {
-  return (db.prepare(`PRAGMA table_info(${table})`).all() as unknown as { name: string }[]).map((c) => c.name);
+async function cols(db: Db, table: string): Promise<string[]> {
+  const rows = 'dialect' in db && db.dialect === 'postgres'
+    ? await db.all<{ name: string }>('SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?', table)
+    : await db.all<{ name: string }>(`PRAGMA table_info(${table})`);
+  return rows.map((c) => c.name);
 }
 
 const GUILD = 'g_async';
 const EVENT = 'ev_async';
 
-function seedEvent(db: Db): void {
-  db.prepare(
+async function seedEvent(db: Db): Promise<void> {
+  await db.run(
     "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES (?, ?, 'Async Facade Fixture', 'active', 1, 1)",
-  ).run(EVENT, GUILD);
+    EVENT, GUILD,
+  );
 }
 
 test('facade: one mutating run() call inserts exactly one row (double-execution regression)', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   try {
     // INSERT through the async facade (the path that used to run() then all()).
     await db.run(
       'INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
       'ev-one', GUILD, 'Once Only', 'active', 1, 1,
     );
-    const rows = db.prepare('SELECT COUNT(*) AS n FROM events WHERE id = ?').get('ev-one') as unknown as { n: number };
+    const rows = (await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM events WHERE id = ?', 'ev-one'))!;
     assert.equal(rows.n, 1, 'a single db.run INSERT must produce exactly one row');
 
     // Same guarantee for UPDATE and DELETE: changes counted once, not doubled.
@@ -46,7 +51,7 @@ test('facade: one mutating run() call inserts exactly one row (double-execution 
     assert.equal(Number(upd.changes), 1, 'one UPDATE must touch exactly one row');
     const del = await db.run('DELETE FROM events WHERE id = ?', 'ev-one');
     assert.equal(Number(del.changes), 1, 'one DELETE must remove exactly one row');
-    const left = db.prepare('SELECT COUNT(*) AS n FROM events').get() as unknown as { n: number };
+    const left = (await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM events'))!;
     assert.equal(left.n, 0, 'table must be empty after the single delete');
   } finally {
     db.close();
@@ -54,9 +59,9 @@ test('facade: one mutating run() call inserts exactly one row (double-execution 
 });
 
 test('facade: exactly one participant row per signup through run() inside a transaction', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   try {
-    seedEvent(db);
+    await seedEvent(db);
     await db.transaction(async () => {
       await db.run(
         `INSERT INTO participants (event_id, user_id, guild_id, display_name, experience, role_track, skills, team_pref, teammates, status, created_at, updated_at)
@@ -64,7 +69,7 @@ test('facade: exactly one participant row per signup through run() inside a tran
         EVENT, 'u1', GUILD, 'Once', 'x', 'backend', '[]', 'random_team', '[]', 'active', 1, 1,
       );
     });
-    const rows = db.prepare('SELECT COUNT(*) AS n FROM participants WHERE event_id = ?').all(EVENT) as unknown as { n: number }[];
+    const rows = await db.all<{ n: number }>('SELECT COUNT(*) AS n FROM participants WHERE event_id = ?', EVENT);
     assert.equal(rows.length, 1);
     assert.equal(rows[0]!.n, 1, 'transactional INSERT must not duplicate rows');
   } finally {
@@ -73,9 +78,9 @@ test('facade: exactly one participant row per signup through run() inside a tran
 });
 
 test('facade: one INSERT per mutating call through the transaction queue', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   try {
-    seedEvent(db);
+    await seedEvent(db);
     // Fire two writes concurrently through the single-writer queue; each must land exactly once.
     await Promise.all([
       db.run(
@@ -89,7 +94,7 @@ test('facade: one INSERT per mutating call through the transaction queue', async
         EVENT, 'uB', GUILD, 'B', 'x', 'frontend', '[]', 'random_team', '[]', 'active', 2, 2,
       ),
     ]);
-    const rows = db.prepare('SELECT user_id FROM participants WHERE event_id = ? ORDER BY user_id').all(EVENT) as unknown as { user_id: string }[];
+    const rows = await db.all<{ user_id: string }>('SELECT user_id FROM participants WHERE event_id = ? ORDER BY user_id', EVENT);
     assert.deepEqual(rows.map((r) => r.user_id), ['uA', 'uB'], 'two writes → exactly two rows, no duplicates');
   } finally {
     db.close();
@@ -97,9 +102,12 @@ test('facade: one INSERT per mutating call through the transaction queue', async
 });
 
 test('migration: fresh database via openDb has all expected tables and columns', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   try {
-    const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as unknown as { name: string }[]).map((r) => r.name);
+    const sql = 'dialect' in db && db.dialect === 'postgres'
+      ? 'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = current_schema()'
+      : "SELECT name FROM sqlite_master WHERE type = 'table'";
+    const tables = (await db.all<{ name: string }>(sql)).map((r) => r.name);
     for (const t of ['meta', 'events', 'event_templates', 'form_config', 'participants', 'teams', 'team_requests', 'guild_settings', 'web_sessions', 'audit_log']) {
       assert.ok(tables.includes(t), `table ${t} must exist after migrate()`);
     }
@@ -112,7 +120,7 @@ test('migration: fresh database via openDb has all expected tables and columns',
       events: ['cleanup_warned_72h', 'cleanup_warned_24h', 'match_at', 'match_locked', 'schedule_channel_id', 'signup_starts_at', 'signup_ends_at', 'assignments_json', 'schedule_json', 'announcements_json', 'announced_schedule_ids', 'announcement_channel_id'],
     };
     for (const [table, columns] of Object.entries(expected)) {
-      const have = cols(db, table);
+      const have = await cols(db, table);
       for (const c of columns) {
         assert.ok(have.includes(c), `${table}.${c} added by addColumnIfMissing must exist`);
       }
@@ -149,9 +157,9 @@ test('migration: is idempotent — second openDb on the same file, same schema',
 });
 
 test('facade: transaction failure rolls back and does not poison queued writes', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   try {
-    seedEvent(db);
+    await seedEvent(db);
     await assert.rejects(db.transaction(async () => {
       await db.run(
         `INSERT INTO participants (event_id, user_id, guild_id, display_name, experience, role_track, skills, team_pref, teammates, status, created_at, updated_at)
@@ -165,7 +173,7 @@ test('facade: transaction failure rolls back and does not poison queued writes',
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       EVENT, 'after-error', GUILD, 'After Error', 'x', 'backend', '[]', 'random_team', '[]', 'active', 2, 2,
     );
-    const rows = db.prepare('SELECT user_id FROM participants WHERE event_id = ?').all(EVENT) as unknown as { user_id: string }[];
+    const rows = await db.all<{ user_id: string }>('SELECT user_id FROM participants WHERE event_id = ?', EVENT);
     assert.deepEqual(rows.map((row) => row.user_id), ['after-error']);
   } finally {
     db.close();
@@ -173,9 +181,9 @@ test('facade: transaction failure rolls back and does not poison queued writes',
 });
 
 test('kysely: adapter reads and writes through the shared node:sqlite handle', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   try {
-    seedEvent(db);
+    await seedEvent(db);
     const kysely: KyselyDb = createKysely(db);
     const events = await kysely.selectFrom('events').selectAll().where('id', '=', EVENT).execute();
     assert.equal(events.length, 1);
@@ -193,4 +201,21 @@ test('kysely: adapter reads and writes through the shared node:sqlite handle', a
   } finally {
     db.close();
   }
+});
+
+test('kysely handles remain isolated and rollback shares the facade queue', async () => {
+  const a = await openTestDb();
+  const b = await openTestDb();
+  const ka = createKysely(a);
+  const kb = createKysely(b);
+  try {
+    await seedEvent(a);
+    assert.equal((await ka.selectFrom('events').selectAll().execute()).length, 1);
+    assert.equal((await kb.selectFrom('events').selectAll().execute()).length, 0);
+    await assert.rejects(ka.transaction().execute(async (tx) => {
+      await tx.deleteFrom('events').execute();
+      throw new Error('abort');
+    }), /abort/);
+    assert.equal((await a.all('SELECT id FROM events')).length, 1);
+  } finally { await ka.destroy(); await kb.destroy(); await a.close(); await b.close(); }
 });

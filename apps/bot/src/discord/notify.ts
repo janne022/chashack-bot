@@ -87,7 +87,7 @@ export async function sendAnnouncement(
   let reason = 'no_channel_configured'
 
   // 1) Announcement channel (override → event ann channel → panel → guild panel).
-  const channelId = overrideChannelId ?? event.announcementChannelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
+  const channelId = overrideChannelId ?? event.announcementChannelId ?? event.panelChannelId ?? await readGuildPanel(db, event.guildId)
   if (channelId === null) {
     reason = 'no_channel_configured'
   } else if (warnInvalidGuild(event.guildId, 'announcement post')) {
@@ -165,16 +165,9 @@ export async function sendAnnouncement(
   return { posted, reason, channelId, dmSent, dmFailed };
 }
 
-function readGuildPanel(db: Db, guildId: string): string | null {
-  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(`signup_panel:${guildId}`) as
-    | { value: string }
-    | undefined;
-  if (row === undefined) return null;
-  try {
-    return (JSON.parse(row.value) as { channelId: string }).channelId;
-  } catch {
-    return null;
-  }
+async function readGuildPanel(db: Db, guildId: string): Promise<string | null> {
+  const { getMessageRef } = await import('../features/events/data.js');
+  return (await getMessageRef(db, `signup_panel:${guildId}`))?.channelId ?? null;
 }
 
 // ─── Discord scheduled events ────────────────────────────────────────────────
@@ -219,7 +212,7 @@ export async function createDiscordEvents(
   }
 
   if (created.length > 0) {
-    updateEvent(db, actor, event.id, {
+    await updateEvent(db, actor, event.id, {
       discordEventIds: [...event.discordEventIds, ...created.map((c) => c.id)],
     });
     await audit(db, actor, 'discord_events.create', event.id, { count: created.length }, event.guildId);
@@ -247,9 +240,9 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
     allEvents = await listEventsForMaintenance(kysely);
   } else {
     allEvents = [];
-    const guildRows = db.prepare('SELECT DISTINCT guild_id FROM events').all() as unknown as { guild_id: string }[];
-    for (const { guild_id } of guildRows) {
-      allEvents.push(...await listEvents(db, guild_id));
+    const { listEventGuilds } = await import('../features/events/data.js');
+    for (const guildId of await listEventGuilds(db)) {
+      allEvents.push(...await listEvents(db, guildId));
     }
   }
   const actions = planMaintenance(allEvents, now);
@@ -273,7 +266,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 .join('\n'),
             )
             .setColor(0xfaa61a);
-          const channelId = event.panelChannelId ?? readGuildPanel(db, event.guildId);
+          const channelId = event.panelChannelId ?? await readGuildPanel(db, event.guildId);
           if (channelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId);
             const channel = await guild.channels.fetch(channelId).catch(() => null);
@@ -289,7 +282,8 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             const { markReminded24h } = await import('../features/events/data.js');
             await markReminded24h(kysely, event.id);
           } else {
-            db.prepare('UPDATE events SET reminded_24h = 1, updated_at = ? WHERE id = ?').run(Date.now(), event.id);
+            const { markMaintenanceDone } = await import('../features/events/data.js');
+            await markMaintenanceDone(db, event.id, 'reminded_24h');
           }
           await audit(db, 'system', 'event.remind_24h', event.id, null, event.guildId);
           summary.push(`reminded: ${event.name}`);
@@ -297,7 +291,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
         }
         case 'end_event': {
           await endEvent(db, 'system', event.id);
-          const channelId = event.panelChannelId ?? readGuildPanel(db, event.guildId);
+          const channelId = event.panelChannelId ?? await readGuildPanel(db, event.guildId);
           if (channelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId);
             const channel = await guild.channels.fetch(channelId).catch(() => null);
@@ -354,7 +348,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
               }
             }
           }
-          markCleanupWarned(db, event.id, hoursLeft > 24 ? '72h' : '24h');
+          await markCleanupWarned(db, event.id, hoursLeft > 24 ? '72h' : '24h');
           await audit(db, 'system', 'event.cleanup_warn', event.id, { hoursLeft, teams: teams2.length }, event.guildId);
           summary.push(`cleanup warning (${hoursLeft}h): ${event.name}`);
           break;
@@ -381,7 +375,8 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             const { markCleanupDone } = await import('../features/events/data.js');
             await markCleanupDone(kysely, event.id);
           } else {
-            db.prepare('UPDATE events SET cleanup_done = 1, updated_at = ? WHERE id = ?').run(Date.now(), event.id);
+            const { markMaintenanceDone } = await import('../features/events/data.js');
+            await markMaintenanceDone(db, event.id, 'cleanup_done');
           }
           await audit(db, 'system', 'event.cleanup', event.id, { teams: teams.length }, event.guildId);
           summary.push(`cleaned up: ${event.name} (${teams.length} team spaces)`);
@@ -400,9 +395,9 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             await commitMatch(db, 'system', event.id, event.guildId, config);
             summary.push(`auto-matched: ${event.name} (${preview.value.teams.length} teams)`);
           }
-          markMatchLocked(db, event.id);
+          await markMatchLocked(db, event.id);
           await audit(db, 'system', 'event.auto_match', event.id, { ok: preview.ok, code: preview.ok ? undefined : preview.code }, event.guildId);
-          const autoChannelId = event.panelChannelId ?? readGuildPanel(db, event.guildId);
+          const autoChannelId = event.panelChannelId ?? await readGuildPanel(db, event.guildId);
           if (autoChannelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId).catch(() => null);
             const channel = guild !== null ? await guild.channels.fetch(autoChannelId).catch(() => null) : null;
@@ -454,11 +449,11 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             try {
               if (op.type === 'lock_teams') {
                 const { markMatchLocked } = await import('../features/events/data.js')
-                markMatchLocked(db, event.id)
+                await markMatchLocked(db, event.id)
                 audit(db, 'system', 'schedule.lock_teams', event.id, { scheduleId }, event.guildId)
                 summary.push(`schedule lock: ${event.name} — ${item.title}`)
               } else if (op.type === 'post_signup') {
-                const chan = op.channelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
+                const chan = op.channelId ?? event.panelChannelId ?? await readGuildPanel(db, event.guildId)
                 if (chan && isSnowflake(chan) && isSnowflake(event.guildId)) {
                   const { postOrUpdatePanel } = await import('./signup-panel.js')
                   await postOrUpdatePanel(db, client, event.guildId, chan)
@@ -475,7 +470,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                   summary.push(`schedule ${op.type} failed (${preview.code}): ${event.name}`)
                 } else {
                   await commitMatch(db, 'system', event.id, event.guildId, config)
-                  markMatchLocked(db, event.id)
+                  await markMatchLocked(db, event.id)
                   summary.push(`schedule ${op.type}: ${event.name} (${preview.value.teams.length} teams)`)
                 }
                 audit(db, 'system', `schedule.${op.type}`, event.id, { scheduleId, ok: preview.ok, code: (preview as unknown as { code?: string }).code }, event.guildId)
@@ -514,7 +509,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             break
           }
 
-          const channelId = event.announcementChannelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
+          const channelId = event.announcementChannelId ?? event.panelChannelId ?? await readGuildPanel(db, event.guildId)
           if (channelId === null || !isSnowflake(event.guildId) || !isSnowflake(channelId)) {
             if (channelId !== null) warnInvalidGuild(event.guildId, 'schedule')
             await markScheduleAnnounced(db, event.id, scheduleId)

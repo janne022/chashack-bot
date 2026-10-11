@@ -36,3 +36,9 @@ test('invalid connection values never leak credentials in errors', () => {
     return true;
   });
 });
+
+test('connection options cannot be silently ignored or override a parsed identity', () => {
+  assert.deepEqual(parseDatabaseUrl('postgres://app@localhost/other?sslmode=verify-full').ssl, { rejectUnauthorized: true });
+  assert.equal(parseDatabaseUrl('postgres://app@localhost/other?connect_timeout=10').connectionTimeoutMillis, 10000);
+  for (const value of ['Host=x;Database=other;Username=app;SSLmode=disable', 'postgres://app@localhost/other?sslmode=unknown', 'postgres://app@localhost/a%2Fb', 'postgres://app@localhost/other?connect_timeout=oops']) assert.throws(() => parseDatabaseUrl(value));
+});

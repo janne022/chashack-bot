@@ -17,6 +17,7 @@ import {
 } from 'discord.js';
 import type { Db } from '../shared/db.js';
 import { getForm } from '../features/form/data.js';
+import { getMessageRef, setMessageRef } from '../features/events/data.js';
 import type { FormConfig } from '../features/form/domain.js';
 import { IDS } from './shared.js';
 import { t, type BotLocale } from '../shared/i18n.js';
@@ -28,23 +29,12 @@ interface PanelRef {
 
 const key = (guildId: string) => `signup_panel:${guildId}`;
 
-function getPanelRef(db: Db, guildId: string): PanelRef | null {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key(guildId)) as
-    | { value: string }
-    | undefined;
-  if (row === undefined) return null;
-  try {
-    const parsed = JSON.parse(row.value) as PanelRef;
-    return parsed.channelId !== '' && parsed.messageId !== '' ? parsed : null;
-  } catch {
-    return null;
-  }
+function getPanelRef(db: Db, guildId: string): Promise<PanelRef | null> {
+  return getMessageRef(db, key(guildId));
 }
 
-function setPanelRef(db: Db, guildId: string, ref: PanelRef): void {
-  db.prepare(
-    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-  ).run(key(guildId), JSON.stringify(ref));
+function setPanelRef(db: Db, guildId: string, ref: PanelRef): Promise<void> {
+  return setMessageRef(db, key(guildId), ref);
 }
 
 export function buildPanelPayload(config: FormConfig, locale: BotLocale = 'en'): {
@@ -94,7 +84,7 @@ export async function postOrUpdatePanel(
   locale: BotLocale = 'en',
 ): Promise<{ channelId: string; messageId: string; edited: boolean } | { error: string }> {
   if (channelId === '') {
-    const ref = getPanelRef(db, guildId);
+    const ref = await getPanelRef(db, guildId);
     if (ref === null) return { error: t(locale, 'discord.events.no_panel_yet') };
     channelId = ref.channelId;
   }
@@ -107,7 +97,7 @@ export async function postOrUpdatePanel(
   }
 
   const payload = buildPanelPayload(await getForm(db, guildId), locale);
-  const existing = getPanelRef(db, guildId);
+  const existing = await getPanelRef(db, guildId);
 
   try {
     if (existing !== null && existing.channelId === channelId) {
@@ -118,7 +108,7 @@ export async function postOrUpdatePanel(
       }
     }
     const sent = await (channel as TextChannel).send(payload);
-    setPanelRef(db, guildId, { channelId, messageId: sent.id });
+    await setPanelRef(db, guildId, { channelId, messageId: sent.id });
     return { channelId, messageId: sent.id, edited: false };
   } catch (error) {
     console.error('signup panel post failed:', error);
@@ -128,7 +118,7 @@ export async function postOrUpdatePanel(
 
 /** Refresh after form edits (fire-and-forget friendly; silent when no panel exists). */
 export async function refreshSignupPanel(db: Db, client: Client, guildId: string, locale: BotLocale = 'en'): Promise<void> {
-  const ref = getPanelRef(db, guildId);
+  const ref = await getPanelRef(db, guildId);
   if (ref === null) return;
   await postOrUpdatePanel(db, client, guildId, ref.channelId, locale);
 }

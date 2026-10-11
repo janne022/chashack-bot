@@ -32,6 +32,7 @@ import {
   withdrawParticipant,
   listParticipants,
   getParticipant,
+  reactivateParticipant,
 } from '../features/signup/data.js';
 import {
   createTeam,
@@ -61,6 +62,7 @@ import {
   saveTemplate,
   listTemplates,
   deleteTemplate,
+  updateTemplateContent,
 } from '../features/events/data.js';
 import { getForm, updateForm, resetForm } from '../features/form/data.js';
 import { refreshSignupPanel, postOrUpdatePanel } from '../discord/signup-panel.js';
@@ -155,15 +157,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
    * falls back to the newest event of any status (so a guild with only drafts
    * still resolves to a real event rather than the guild id).
    */
-  const activeEventId = (guild: string): string => {
-    const row =
-      (db
-        .prepare("SELECT id FROM events WHERE guild_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1")
-        .get(guild) as { id: string } | undefined) ??
-      (db
-        .prepare('SELECT id FROM events WHERE guild_id = ? ORDER BY created_at DESC LIMIT 1')
-        .get(guild) as { id: string } | undefined);
-    return row?.id ?? guild;
+  const activeEventId = async (guild: string): Promise<string> => {
+    return (await getActiveEvent(db, guild))?.id ?? (await listEvents(db, guild))[0]?.id ?? guild;
   };
 
   /**
@@ -171,7 +166,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
    * param or body field) always wins so multiple concurrent events are
    * addressable; otherwise fall back to the default event.
    */
-  const resolveEventId = (req: { query?: unknown; body?: unknown }, guild: string): string => {
+  const resolveEventId = async (req: { query?: unknown; body?: unknown }, guild: string): Promise<string> => {
     const q = req.query as Record<string, unknown> | undefined;
     if (q && typeof q.eventId === 'string' && q.eventId !== '') return q.eventId;
     const b = req.body as Record<string, unknown> | null | undefined;
@@ -570,7 +565,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.get('/api/state', async (req, reply) => {
-    const eventId = resolveEventId(req, await guildOf(req));
+    const eventId = await resolveEventId(req, await guildOf(req));
     const participants = await listParticipants(db, eventId);
     const teams = await listTeams(db, eventId);
     const events = await listEvents(db, await guildOf(req));
@@ -979,7 +974,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         JSON.stringify(parsed) // just check valid
       }
     } catch (e) { await reply.code(400).send({ ok: false, code: 'bad_json', message: e instanceof Error ? e.message : 'Invalid JSON' }); return }
-    db.prepare('UPDATE event_templates SET name = ?, json = ? WHERE id = ?').run(name, json, templateId)
+    await updateTemplateContent(db, templateId, name, json)
     const updated = (await listTemplates(db, await guildOf(req))).find(t => t.id === templateId)!
     return { ok: true, template: updated }
   })
@@ -1087,7 +1082,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const { userId } = req.params as { userId: string };
     const body = req.body as { action?: string; reason?: string } | null;
     const actor = 'web';
-    const eventId = resolveEventId(req, await guildOf(req));
+    const eventId = await resolveEventId(req, await guildOf(req));
     let res;
     switch (body?.action) {
       case 'block':
@@ -1100,18 +1095,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         res = await withdrawParticipant(db, actor, eventId, userId);
         break;
       case 'reactivate': {
-        const p = await getParticipant(db, eventId, userId);
-        if (p === null) {
-          res = { ok: false, code: 'not_found', message: 'Participant not found.' };
-          break;
-        }
-        db.prepare("UPDATE participants SET status = 'active', block_reason = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?").run(
-          Date.now(),
-          eventId,
-          userId,
-        );
-        await audit(db, actor, 'participant.reactivate', eventId, { userId }, p.guildId);
-        res = { ok: true, value: undefined };
+        res = await reactivateParticipant(db, actor, eventId, userId);
         break;
       }
       default:
@@ -1127,7 +1111,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/participants/:userId/team', async (req, reply) => {
     const { userId } = req.params as { userId: string };
     const body = req.body as { teamId?: string | null } | null;
-    const res = await adminAssign(db, 'web', resolveEventId(req, await guildOf(req)), userId, body?.teamId ?? null);
+    const res = await adminAssign(db, 'web', await resolveEventId(req, await guildOf(req)), userId, body?.teamId ?? null);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1141,12 +1125,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be public|private' });
       return;
     }
-    if (body.ownerId !== undefined && await getParticipant(db, resolveEventId(req, await guildOf(req)), body.ownerId) === null) {
+    if (body.ownerId !== undefined && await getParticipant(db, await resolveEventId(req, await guildOf(req)), body.ownerId) === null) {
       await reply.code(400).send({ ok: false, code: 'not_found', message: 'Owner has no signup.' });
       return;
     }
     const ownerId = body.ownerId ?? `admin-${Date.now()}`;
-    const res = await createTeam(db, 'web', resolveEventId(req, await guildOf(req)), await guildOf(req), body.name ?? '', body.kind, ownerId);
+    const res = await createTeam(db, 'web', await resolveEventId(req, await guildOf(req)), await guildOf(req), body.name ?? '', body.kind, ownerId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1199,7 +1183,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/match/preview', async (req, reply) => {
-    const res = await previewMatch(db, resolveEventId(req, await guildOf(req)), await getForm(db, await guildOf(req)));
+    const res = await previewMatch(db, await resolveEventId(req, await guildOf(req)), await getForm(db, await guildOf(req)));
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1208,7 +1192,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
 app.post('/api/match/commit', async (req) => {
-    const eventId = resolveEventId(req, await guildOf(req));
+    const eventId = await resolveEventId(req, await guildOf(req));
     const res = await commitMatch(db, 'web', eventId, await guildOf(req), await getForm(db, await guildOf(req)));
     if (!res.ok) {
       return { ok: false, code: res.code, message: res.message };
@@ -1246,7 +1230,7 @@ app.post('/api/match/commit', async (req) => {
   app.post('/api/match/suggestions', async (req, reply) => {
     const body = req.body as { participantId?: string } | null;
     const participantId = body?.participantId ?? '';
-    const eventId = resolveEventId(req, await guildOf(req));
+    const eventId = await resolveEventId(req, await guildOf(req));
     const participant = await getParticipant(db, eventId, participantId);
     if (participant === null) {
       await reply.code(404).send({ ok: false, code: 'not_found', message: 'Participant not found in this event.' });
@@ -1262,15 +1246,15 @@ app.post('/api/match/commit', async (req) => {
 
   /** Lock teams in now: skips future auto-match (manual match runs still allowed). */
 app.post('/api/match/lock', async (req) => {
-    markMatchLocked(db, resolveEventId(req, await guildOf(req)));
-    await audit(db, 'web', 'match.lock', resolveEventId(req, await guildOf(req)), null, await guildOf(req));
+    await markMatchLocked(db, await resolveEventId(req, await guildOf(req)));
+    await audit(db, 'web', 'match.lock', await resolveEventId(req, await guildOf(req)), null, await guildOf(req));
     return { ok: true };
   });
 
   /** Clear the lock so auto-match can fire again. */
   app.post('/api/match/unlock', async (req) => {
-    markMatchUnlocked(db, resolveEventId(req, await guildOf(req)));
-    await audit(db, 'web', 'match.unlock', resolveEventId(req, await guildOf(req)), null, await guildOf(req));
+    await markMatchUnlocked(db, await resolveEventId(req, await guildOf(req)));
+    await audit(db, 'web', 'match.unlock', await resolveEventId(req, await guildOf(req)), null, await guildOf(req));
     return { ok: true };
   });
 
@@ -1295,7 +1279,7 @@ app.post('/api/match/lock', async (req) => {
   });
 
 app.post('/api/event/reset', async (req) => {
-    const eventId = resolveEventId(req, await guildOf(req));
+    const eventId = await resolveEventId(req, await guildOf(req));
     const { purgeEventParticipants } = await import('../features/signup/data.js');
     const { deleteEventTeams } = await import('../features/teams/data.js');
     const participants = await purgeEventParticipants(db, 'web', eventId);

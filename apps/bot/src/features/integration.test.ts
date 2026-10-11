@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb, type Db } from '../shared/db.js';
+import type { Db } from '../shared/db.js';
+import { openTestDb } from '../shared/test-db.js';
 import {
   upsertParticipant,
   listMatchable,
@@ -40,19 +41,20 @@ async function signup(
 
 /** Fresh in-memory DB per test (node:test runs this file in one process). */
 async function freshDb(): Promise<void> {
-  db = openDb(':memory:');
+  db = await openTestDb();
   // The signup data layer gates on an ACTIVE event row — seed the fixture event.
-  db.prepare(
+  await db.run(
     "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES (?, ?, 'Integration Fixture', 'active', 1, 1)",
-  ).run(EV, G);
+    EV, G,
+  );
 }
 
 test('signup → unteamed list → matching → committed teams', async () => {
-  freshDb();
-  signup('1', { roleTrack: 'frontend', skills: ['frontend_react'] });
-  signup('2', { roleTrack: 'backend', skills: ['backend_node'] });
-  signup('3', { roleTrack: 'design', skills: ['ui_design'] });
-  signup('4', { roleTrack: 'devops', skills: ['devops'] });
+  await freshDb();
+  await signup('1', { roleTrack: 'frontend', skills: ['frontend_react'] });
+  await signup('2', { roleTrack: 'backend', skills: ['backend_node'] });
+  await signup('3', { roleTrack: 'design', skills: ['ui_design'] });
+  await signup('4', { roleTrack: 'devops', skills: ['devops'] });
 
   assert.equal((await listMatchable(db, EV)).length, 4);
 
@@ -75,8 +77,8 @@ test('signup → unteamed list → matching → committed teams', async () => {
 });
 
 test('blocked users cannot re-signup and are excluded from matching', async () => {
-  freshDb();
-  signup('1');
+  await freshDb();
+  await signup('1');
   const blocked = await blockParticipant(db, 'admin', EV, '1', 'test reason');
   assert.ok(blocked.ok);
 
@@ -96,10 +98,10 @@ test('blocked users cannot re-signup and are excluded from matching', async () =
 });
 
 test('public team create → join → capacity enforced', async () => {
-  freshDb();
-  signup('1');
-  signup('2');
-  signup('3');
+  await freshDb();
+  await signup('1');
+  await signup('2');
+  await signup('3');
 
   const created = await createTeam(db, 'test', EV, G, 'Alpha Team', 'public', '1');
   assert.ok(created.ok);
@@ -116,21 +118,21 @@ test('public team create → join → capacity enforced', async () => {
   if (!noSignup.ok) assert.equal(noSignup.code, 'no_signup');
 
   // fill the last slot with a signed-up user, then it is full
-  signup('5');
+  await signup('5');
   assert.ok((await joinTeam(db, 'test', EV, '5', created.value.id, DEFAULT_FORM.teamSize)).ok);
   assert.equal((await listOpenPublicTeams(db, EV, DEFAULT_FORM.teamSize)).length, 0);
 
   const over = await joinTeam(db, 'test', EV, '6', created.value.id, DEFAULT_FORM.teamSize);
-  signup('6');
+  await signup('6');
   const over2 = await joinTeam(db, 'test', EV, '6', created.value.id, DEFAULT_FORM.teamSize);
   assert.equal(over.ok, false); // 6 had no signup on first attempt
   if (!over2.ok) assert.equal(over2.code, 'team_full');
 });
 
 test('private team join code round-trip', async () => {
-  freshDb();
-  signup('1');
-  signup('2');
+  await freshDb();
+  await signup('1');
+  await signup('2');
   const created = await createTeam(db, 'test', EV, G, 'Secret Squad', 'private', '1');
   assert.ok(created.ok);
   if (!created.ok) return;
@@ -147,8 +149,8 @@ test('private team join code round-trip', async () => {
 });
 
 test('setTeammates validates ids, dedupes and persists', async () => {
-  freshDb();
-  signup('1');
+  await freshDb();
+  await signup('1');
   const res = await setTeammates(db, 'test', EV, '1', ['123456789012345678', 'bad-id!', '123456789012345678']);
   assert.ok(res.ok);
   if (res.ok) assert.deepEqual(res.value.teammates, ['123456789012345678']);

@@ -2,16 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import type { Client } from 'discord.js';
-import { openDb } from '../shared/db.js';
+import { openTestDb } from '../shared/test-db.js';
 import { getEvent } from '../features/events/data.js';
 import { runMaintenance } from './notify.js';
 
 test('maintenance waits for the schedule marker read before returning', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   const now = Date.now();
   const schedule = [{ id: 'due', time: now - 1, title: 'Due', actions: [{ id: 'announce', type: 'announce', title: 'Update', message: 'Starting' }] }];
-  db.prepare(`INSERT INTO events (id, guild_id, name, status, schedule_json, created_at, updated_at)
-    VALUES (?, ?, ?, 'active', ?, ?, ?)`).run('event-1', 'guild-1', 'Event', JSON.stringify(schedule), now, now);
+  await db.run(`INSERT INTO events (id, guild_id, name, status, schedule_json, created_at, updated_at)
+    VALUES (?, ?, ?, 'active', ?, ?, ?)`, 'event-1', 'guild-1', 'Event', JSON.stringify(schedule), now, now);
 
   const originalGet = db.get.bind(db);
   let getCount = 0;
@@ -45,6 +45,6 @@ test('maintenance waits for the schedule marker read before returning', async ()
     await maintenance;
     await markerComplete;
     await nextTurn();
-    db.close();
+    await db.close();
   }
 });

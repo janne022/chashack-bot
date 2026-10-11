@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getForm, updateForm, resetForm } from './data.js';
 import { createEvent, getEventForm } from '../events/data.js';
-import { openDb } from '../../shared/db.js';
+import { openTestDb } from '../../shared/test-db.js';
 
 test('default forms are isolated by guild for reads, updates, and resets', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   const guildA = '11111111111111111';
   const guildB = '22222222222222222';
 
@@ -24,5 +24,5 @@ test('default forms are isolated by guild for reads, updates, and resets', async
   await resetForm(db, guildB, 'test');
   assert.equal((await getForm(db, guildB)).title, 'Hackathon Signup');
   assert.equal((await getForm(db, guildA)).title, 'Guild A sentinel');
-  db.close();
+  await db.close();
 });

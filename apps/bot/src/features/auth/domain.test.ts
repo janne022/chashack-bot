@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { openDb } from '../../shared/db.js';
+import { openTestDb } from '../../shared/test-db.js';
 import {
   ADMINISTRATOR,
   MANAGE_GUILD,
@@ -93,7 +93,7 @@ test('safeEqual: compares without leaking length or content by short-circuit', a
 });
 
 test('sessions: create, select an authorised guild, refuse an unauthorised one', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   const session = await createSession(db, {
     userId: 'u1',
     username: 'janne',
@@ -113,10 +113,11 @@ test('sessions: create, select an authorised guild, refuse an unauthorised one',
 
   await deleteSession(db, session.id);
   assert.equal(await getSession(db, session.id), null);
+  await db.close();
 });
 
 test('sessions: expired rows are dropped, not served', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   const session = await createSession(db, {
     userId: 'u2',
     username: 'ghost',
@@ -126,4 +127,5 @@ test('sessions: expired rows are dropped, not served', async () => {
   const later = Date.now() + 8 * 24 * 3600 * 1000;
   assert.equal(await getSession(db, session.id, later), null, 'expired session is not returned');
   assert.equal(await purgeExpiredSessions(db, later), 0, 'it deleted itself on read');
+  await db.close();
 });

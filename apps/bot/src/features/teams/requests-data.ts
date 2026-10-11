@@ -70,9 +70,9 @@ async function insert(
   targetId: string,
   kind: RequestKind,
 ): Promise<Result<TeamRequest>> {
-  await db.run(
+  const row = await db.get<RequestRow>(
     `INSERT INTO team_requests (event_id, guild_id, team_id, requester_id, target_id, kind, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?) RETURNING *`,
     eventId,
     guildId,
     teamId,
@@ -81,7 +81,6 @@ async function insert(
     kind,
     Date.now(),
   );
-  const row = await db.get<RequestRow>('SELECT * FROM team_requests WHERE id = last_insert_rowid()');
   return ok(toRequest(row!));
 }
 

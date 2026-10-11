@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import Fastify from 'fastify';
 import { makeDiscordToken } from '../features/auth/domain.js';
 import { createSession, getSession } from '../features/auth/data.js';
-import { openDb } from '../shared/db.js';
+import { openTestDb } from '../shared/test-db.js';
 import type { Env } from '../shared/env.js';
 import { registerRoutes } from './routes.js';
 
@@ -28,7 +28,7 @@ const config = {
 } as Env;
 
 test('guild switch refusal awaits authorization and leaves selected guild unchanged', async () => {
-  const db = openDb(':memory:');
+  const db = await openTestDb();
   const session = await createSession(db, {
     userId: 'user-1',
     username: 'tester',
@@ -46,5 +46,5 @@ test('guild switch refusal awaits authorization and leaves selected guild unchan
   assert.equal(response.statusCode, 403);
   assert.equal((await getSession(db, session.id))?.selectedGuildId, '11111111111111111');
   await app.close();
-  db.close();
+  await db.close();
 });

@@ -363,7 +363,7 @@ export async function handleEventAdminCommand(
         await i.reply(eph(t(locale, 'discord.events.no_event_configured')));
         return;
       }
-      markMatchLocked(db, event.id);
+      await markMatchLocked(db, event.id);
       await audit(db, actor, 'match.lock', event.id, null, event.guildId);
       await i.reply({ embeds: [embedOk(t(locale, 'discord.events.match_locked_title'), t(locale, 'discord.events.match_locked_body'))], flags: MessageFlags.Ephemeral });
       return;
@@ -375,7 +375,7 @@ export async function handleEventAdminCommand(
         await i.reply(eph(t(locale, 'discord.events.no_event_configured')));
         return;
       }
-      markMatchUnlocked(db, event.id);
+      await markMatchUnlocked(db, event.id);
       await audit(db, actor, 'match.unlock', event.id, null, event.guildId);
       await i.reply({ embeds: [embedOk(t(locale, 'discord.events.match_unlocked_title'), t(locale, 'discord.events.match_unlocked_body'))], flags: MessageFlags.Ephemeral });
       return;
