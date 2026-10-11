@@ -367,8 +367,6 @@ function migrate(db: Db): void {
   // Legacy columns from earlier schemas.
   migrateFormConfig(db);
   addColumnIfMissing(db, 'audit_log', 'guild_id', 'TEXT');
-  db.exec(`UPDATE audit_log SET guild_id = (SELECT guild_id FROM events WHERE events.id = audit_log.target) WHERE guild_id IS NULL AND EXISTS (SELECT 1 FROM events WHERE events.id = audit_log.target)`);
-  db.exec(`UPDATE audit_log SET guild_id = (SELECT guild_id FROM teams WHERE teams.id = audit_log.target) WHERE guild_id IS NULL AND EXISTS (SELECT 1 FROM teams WHERE teams.id = audit_log.target)`);
   addColumnIfMissing(db, 'guild_settings', 'default_announcement_channel_id', 'TEXT');
   addColumnIfMissing(db, 'guild_settings', 'default_panel_channel_id', 'TEXT');
   addColumnIfMissing(db, 'guild_settings', 'default_category_id', 'TEXT');
@@ -396,6 +394,8 @@ function migrate(db: Db): void {
   addColumnIfMissing(db, 'events', 'announced_schedule_ids', 'TEXT NOT NULL DEFAULT \'[]\'');
 
   backfillLegacyEvents(db);
+  db.exec(`UPDATE audit_log SET guild_id = (SELECT guild_id FROM events WHERE events.id = audit_log.target) WHERE guild_id IS NULL AND EXISTS (SELECT 1 FROM events WHERE events.id = audit_log.target)`);
+  db.exec(`UPDATE audit_log SET guild_id = (SELECT guild_id FROM teams WHERE teams.id = audit_log.target) WHERE guild_id IS NULL AND EXISTS (SELECT 1 FROM teams WHERE teams.id = audit_log.target)`);
   addEventColumns(db);
   recreateParticipantsTable(db);
   migrateTeamPrefs(db);
