@@ -83,7 +83,7 @@ export async function handleUserCommand(
         await i.reply(eph(t(locale, 'discord.gate.no_active')));
         return;
       }
-      if (getParticipant(db, ctx.eventId, i.user.id) === null) {
+      if ((await getParticipant(db, ctx.eventId, i.user.id)) === null) {
         await i.reply(eph(t(locale, 'discord.teams.signup_first')));
         return;
       }
@@ -114,7 +114,7 @@ export async function handleUserCommand(
         await i.reply(eph(t(locale, 'discord.gate.no_active')));
         return;
       }
-      const browser = teamsBrowser(ctx);
+      const browser = await teamsBrowser(ctx);
       if (browser === null) {
         await i.reply(eph(t(locale, 'discord.teams.none_open')));
         return;
@@ -257,7 +257,7 @@ export async function handleUserCommand(
     }
 
     case 'teammates': {
-      if (getParticipant(db, ctx.eventId, i.user.id) === null) {
+      if ((await getParticipant(db, ctx.eventId, i.user.id)) === null) {
         await i.reply(eph(t(locale, 'discord.teams.signup_first')));
         return;
       }
