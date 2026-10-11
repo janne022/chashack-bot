@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -12,8 +13,13 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -39,3 +45,14 @@ jobs:
 
       - name: API smoke test (auth, static SPA, form, audit)
         run: node apps/bot/scripts/smoke-admin.mjs
+
+      - name: Install vendored runner dependency
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+
+      - name: Verify pipeline adoption
+        run: python3 .hermes/pipeline/test_adoption.py
+
+      - name: Run generic pipeline gates
+        env:
+          HPIPE_DIFF_SOURCE: ${{ github.event_name == 'pull_request' && format('{0}...HEAD', github.event.pull_request.base.sha) || format('{0}..HEAD', github.event.before) }}
+        run: python3 .hermes/pipeline/run_gate.py g0 secrets db-guard pr-checklist supply-chain decision-citation

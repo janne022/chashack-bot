@@ -135,6 +135,23 @@ node apps/bot/scripts/smoke-admin.mjs          # API/auth/SPA smoke checks
 BOOT_ADMIN=1 node apps/bot/scripts/dev-admin.mjs  # seeded demo on :8491
 ```
 
+### Pipeline checks
+
+The vendored Hermes runner and manifest live in `.hermes/pipeline/` and
+`.hermes/pipeline.yaml`. Install its pinned Python dependency and run the small
+wiring check, then scan the explicit branch diff:
+
+```bash
+python3 -m pip install PyYAML==6.0.3
+python3 .hermes/pipeline/test_adoption.py
+HPIPE_DIFF_SOURCE=origin/main...HEAD python3 .hermes/pipeline/run_gate.py
+```
+
+PR-body gates skip locally without an event body; GitHub PR runs enforce the
+Requirements and Acceptance headings. CI runs generic gates after the existing
+typecheck/build/test/API smoke commands, so it does not duplicate them. See
+`docs/plans/hermes-pipeline.md` for source refresh and task/review workflow.
+
 ## Docker / CI-CD
 
 The image is published to GHCR on every push to `main`
