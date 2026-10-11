@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openDb } from '../../shared/db.js';
 import type { Db } from '../../shared/db.js';
-import { upsertParticipant } from './data.js';
+import { blockParticipant, purgeEventParticipants, upsertParticipant } from './data.js';
 import type { ValidatedSignup } from '../form/domain.js';
 
 const signup: ValidatedSignup = {
@@ -42,4 +42,13 @@ test('upsertParticipant accepts active events', async () => {
   const db = await seed();
   const res = await upsertParticipant(db, 'discord:42', 'ev1', 'g1', '42', signup);
   assert.equal(res.ok, true);
+});
+
+test('participant audit mutations refuse missing events without host audit or data mutation', async () => {
+  const db = await seed();
+  const blocked = await blockParticipant(db, 'admin', 'ghost-event', '42', 'reason');
+  assert.equal(blocked.ok, false);
+  assert.equal(await purgeEventParticipants(db, 'admin', 'ghost-event'), 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM participants WHERE event_id = 'ghost-event'").get()?.n, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE guild_id IS NULL").get()?.n, 0);
 });

@@ -923,7 +923,7 @@ export function markMatchUnlocked(db: import('../../shared/db.js').Db, eventId: 
 /** Set or clear the scheduled auto-match time (null clears it). */
 export async function setMatchAt(db: import('../../shared/db.js').Db, actor: string, eventId: string, matchAt: number | null): Promise<Result<HackathonEvent>> {
   const res = await updateEvent(db, actor, eventId, { matchAt });
-  if (res.ok) await audit(db, actor, 'event.match_schedule', eventId, { matchAt }, (await getEvent(db, eventId))?.guildId ?? null);
+  if (res.ok) await audit(db, actor, 'event.match_schedule', eventId, { matchAt }, res.value.guildId);
   return res;
 }
 
