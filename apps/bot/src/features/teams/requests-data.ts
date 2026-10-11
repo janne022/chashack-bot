@@ -116,7 +116,7 @@ export async function createJoinRequest(
     if ((await countMembers(db, teamId)) >= teamSize) return err('team_full', 'That team is already full.');
 
     const res = await insert(db, eventId, guildId, teamId, userId, team.ownerId ?? userId, 'join_request');
-    if (res.ok) await audit(db, actor, 'request.create', eventId, { teamId, userId, kind: 'join_request' });
+    if (res.ok) await audit(db, actor, 'request.create', eventId, { teamId, userId, kind: 'join_request' }, guildId);
     return res;
   });
 }
@@ -151,7 +151,7 @@ export async function createInvite(
     }
 
     const res = await insert(db, eventId, guildId, teamId, actor, targetId, 'invite');
-    if (res.ok) await audit(db, actor, 'request.create', eventId, { teamId, targetId, kind: 'invite' });
+    if (res.ok) await audit(db, actor, 'request.create', eventId, { teamId, targetId, kind: 'invite' }, guildId);
     return res;
   });
 }
@@ -183,7 +183,7 @@ export async function decideRequest(
 
     if (decision === 'decline') {
       await db.run("UPDATE team_requests SET status = 'declined', decided_at = ? WHERE id = ?", Date.now(), requestId);
-      await audit(db, actor, 'request.decline', request.eventId, { requestId, teamId: team.id, kind: request.kind });
+      await audit(db, actor, 'request.decline', request.eventId, { requestId, teamId: team.id, kind: request.kind }, request.guildId);
       const joinerId = request.kind === 'invite' ? request.targetId : request.requesterId;
       return ok({ request: { ...request, status: 'declined' }, team, joinerId });
     }
@@ -203,7 +203,7 @@ export async function decideRequest(
 
     await db.run("UPDATE team_requests SET status = 'accepted', decided_at = ? WHERE id = ?", Date.now(), requestId);
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', team.id, Date.now(), request.eventId, joinerId);
-    await audit(db, actor, 'request.accept', request.eventId, { requestId, teamId: team.id, joinerId, kind: request.kind });
+    await audit(db, actor, 'request.accept', request.eventId, { requestId, teamId: team.id, joinerId, kind: request.kind }, request.guildId);
     return ok({ request: { ...request, status: 'accepted' }, team, joinerId });
   });
 }
@@ -219,7 +219,7 @@ export async function cancelRequest(db: Db, actor: string, requestId: number): P
 
     if (!actorMatches(actor, request.requesterId)) return err('not_your_decision', 'Only the sender can cancel this.');
     await db.run("UPDATE team_requests SET status = 'cancelled', decided_at = ? WHERE id = ?", Date.now(), requestId);
-    await audit(db, actor, 'request.cancel', request.eventId, { requestId, teamId: request.teamId });
+    await audit(db, actor, 'request.cancel', request.eventId, { requestId, teamId: request.teamId }, request.guildId);
     return ok({ ...request, status: 'cancelled' });
   });
 }

@@ -364,7 +364,7 @@ export async function handleEventAdminCommand(
         return;
       }
       markMatchLocked(db, event.id);
-      await audit(db, actor, 'match.lock', event.id, null);
+      await audit(db, actor, 'match.lock', event.id, null, event.guildId);
       await i.reply({ embeds: [embedOk(t(locale, 'discord.events.match_locked_title'), t(locale, 'discord.events.match_locked_body'))], flags: MessageFlags.Ephemeral });
       return;
     }
@@ -376,7 +376,7 @@ export async function handleEventAdminCommand(
         return;
       }
       markMatchUnlocked(db, event.id);
-      await audit(db, actor, 'match.unlock', event.id, null);
+      await audit(db, actor, 'match.unlock', event.id, null, event.guildId);
       await i.reply({ embeds: [embedOk(t(locale, 'discord.events.match_unlocked_title'), t(locale, 'discord.events.match_unlocked_body'))], flags: MessageFlags.Ephemeral });
       return;
     }
@@ -392,7 +392,7 @@ export async function handleEventAdminCommand(
         await i.reply({ embeds: [displayErr(locale, 'failed', t(locale, 'discord.events.itinerary_failed', { reason: res.error }))], flags: MessageFlags.Ephemeral });
         return;
       }
-      await audit(db, actor, 'schedule.itinerary', event.id, { channelId: res.channelId, edited: res.edited });
+      await audit(db, actor, 'schedule.itinerary', event.id, { channelId: res.channelId, edited: res.edited }, event.guildId);
       await i.reply({
         embeds: [
           embedOk(

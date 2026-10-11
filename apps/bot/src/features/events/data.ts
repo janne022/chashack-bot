@@ -392,7 +392,7 @@ export async function createEvent(db: Db, actor: string, guildId: string, input:
       Date.now(),
       Date.now(),
     );
-    await audit(db, actor, 'event.create', id, { name });
+    await audit(db, actor, 'event.create', id, { name }, guildId);
     const created = await getEvent(db, id);
     return ok(created!);
   });
@@ -479,7 +479,7 @@ export async function updateEvent(
       Date.now(),
       eventId,
     );
-    await audit(db, actor, 'event.update', eventId, { name, startsAt, endsAt, matchAt: update.matchAt !== undefined ? update.matchAt : undefined, schedule: update.schedule !== undefined ? update.schedule.length : undefined });
+    await audit(db, actor, 'event.update', eventId, { name, startsAt, endsAt, matchAt: update.matchAt !== undefined ? update.matchAt : undefined, schedule: update.schedule !== undefined ? update.schedule.length : undefined }, event.guildId);
     const updated = await getEvent(db, eventId);
     return ok(updated!);
   });
@@ -497,7 +497,7 @@ export async function activateEvent(db: Db, actor: string, eventId: string): Pro
 
     // Multiple events can be active simultaneously.
     await db.run("UPDATE events SET status = 'active', updated_at = ? WHERE id = ?", Date.now(), eventId);
-    await audit(db, actor, 'event.activate', eventId, null);
+    await audit(db, actor, 'event.activate', eventId, null, event.guildId);
     const updated = await getEvent(db, eventId);
     return ok(updated!);
   });
@@ -508,7 +508,7 @@ export async function endEvent(db: Db, actor: string, eventId: string): Promise<
     const event = await getEvent(db, eventId);
     if (event === null) return err('not_found', 'Event not found.');
     await db.run("UPDATE events SET status = 'ended', updated_at = ? WHERE id = ?", Date.now(), eventId);
-    await audit(db, actor, 'event.end', eventId, null);
+    await audit(db, actor, 'event.end', eventId, null, event.guildId);
     const updated = await getEvent(db, eventId);
     return ok(updated!);
   });
@@ -536,7 +536,7 @@ export async function updateEventForm(db: Db, actor: string, eventId: string, up
     const current = getEventForm(db, event, DEFAULT_FORM);
     const next = normalizeFormUpdate(current, update);
     await db.run('UPDATE events SET form_json = ?, updated_at = ? WHERE id = ?', JSON.stringify(next), Date.now(), eventId);
-    await audit(db, actor, 'event.form_update', eventId, null);
+    await audit(db, actor, 'event.form_update', eventId, null, event.guildId);
     return ok(next);
   });
 }
@@ -584,7 +584,7 @@ export async function saveTemplate(
     json,
     Date.now(),
   );
-  await audit(db, actor, 'template.save', id, { name: clean, kind });
+  await audit(db, actor, 'template.save', id, { name: clean, kind }, guildId);
   const row = await db.get<Parameters<typeof templateRow>[0]>('SELECT * FROM event_templates WHERE id = ?', id);
   return ok(templateRow(row!));
 }
@@ -667,9 +667,11 @@ export async function listTemplates(db: Db, guildId: string, kind?: Template['ki
 }
 
 export async function deleteTemplate(db: Db, actor: string, templateId: string): Promise<Result<void>> {
+  const template = await db.get<{ guild_id: string | null }>('SELECT guild_id FROM event_templates WHERE id = ?', templateId);
+  if (template === undefined) return err('not_found', 'Template not found.');
   const res = await db.run('DELETE FROM event_templates WHERE id = ?', templateId);
   if (res.changes === 0) return err('not_found', 'Template not found.');
-  await audit(db, actor, 'template.delete', templateId, null);
+  await audit(db, actor, 'template.delete', templateId, null, template.guild_id);
   return ok(undefined);
 }
 
@@ -921,7 +923,7 @@ export function markMatchUnlocked(db: import('../../shared/db.js').Db, eventId: 
 /** Set or clear the scheduled auto-match time (null clears it). */
 export async function setMatchAt(db: import('../../shared/db.js').Db, actor: string, eventId: string, matchAt: number | null): Promise<Result<HackathonEvent>> {
   const res = await updateEvent(db, actor, eventId, { matchAt });
-  if (res.ok) await audit(db, actor, 'event.match_schedule', eventId, { matchAt });
+  if (res.ok) await audit(db, actor, 'event.match_schedule', eventId, { matchAt }, (await getEvent(db, eventId))?.guildId ?? null);
   return res;
 }
 

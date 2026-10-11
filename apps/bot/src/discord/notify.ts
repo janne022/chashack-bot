@@ -161,7 +161,7 @@ export async function sendAnnouncement(
     }
   }
 
-  await audit(db, actor, 'announce.send', event.id, { title, posted, dmSent, dmFailed });
+  await audit(db, actor, 'announce.send', event.id, { title, posted, dmSent, dmFailed }, event.guildId);
   return { posted, reason, channelId, dmSent, dmFailed };
 }
 
@@ -222,7 +222,7 @@ export async function createDiscordEvents(
     updateEvent(db, actor, event.id, {
       discordEventIds: [...event.discordEventIds, ...created.map((c) => c.id)],
     });
-    await audit(db, actor, 'discord_events.create', event.id, { count: created.length });
+    await audit(db, actor, 'discord_events.create', event.id, { count: created.length }, event.guildId);
   }
   return { created, errors };
 }
@@ -291,7 +291,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           } else {
             db.prepare('UPDATE events SET reminded_24h = 1, updated_at = ? WHERE id = ?').run(Date.now(), event.id);
           }
-          await audit(db, 'system', 'event.remind_24h', event.id, null);
+          await audit(db, 'system', 'event.remind_24h', event.id, null, event.guildId);
           summary.push(`reminded: ${event.name}`);
           break;
         }
@@ -355,7 +355,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             }
           }
           markCleanupWarned(db, event.id, hoursLeft > 24 ? '72h' : '24h');
-          await audit(db, 'system', 'event.cleanup_warn', event.id, { hoursLeft, teams: teams2.length });
+          await audit(db, 'system', 'event.cleanup_warn', event.id, { hoursLeft, teams: teams2.length }, event.guildId);
           summary.push(`cleanup warning (${hoursLeft}h): ${event.name}`);
           break;
         }
@@ -383,7 +383,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           } else {
             db.prepare('UPDATE events SET cleanup_done = 1, updated_at = ? WHERE id = ?').run(Date.now(), event.id);
           }
-          await audit(db, 'system', 'event.cleanup', event.id, { teams: teams.length });
+          await audit(db, 'system', 'event.cleanup', event.id, { teams: teams.length }, event.guildId);
           summary.push(`cleaned up: ${event.name} (${teams.length} team spaces)`);
           break;
         }
@@ -401,7 +401,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             summary.push(`auto-matched: ${event.name} (${preview.value.teams.length} teams)`);
           }
           markMatchLocked(db, event.id);
-          await audit(db, 'system', 'event.auto_match', event.id, { ok: preview.ok, code: preview.ok ? undefined : preview.code });
+          await audit(db, 'system', 'event.auto_match', event.id, { ok: preview.ok, code: preview.ok ? undefined : preview.code }, event.guildId);
           const autoChannelId = event.panelChannelId ?? readGuildPanel(db, event.guildId);
           if (autoChannelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId).catch(() => null);
@@ -455,17 +455,17 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
               if (op.type === 'lock_teams') {
                 const { markMatchLocked } = await import('../features/events/data.js')
                 markMatchLocked(db, event.id)
-                audit(db, 'system', 'schedule.lock_teams', event.id, { scheduleId })
+                audit(db, 'system', 'schedule.lock_teams', event.id, { scheduleId }, event.guildId)
                 summary.push(`schedule lock: ${event.name} — ${item.title}`)
               } else if (op.type === 'post_signup') {
                 const chan = op.channelId ?? event.panelChannelId ?? readGuildPanel(db, event.guildId)
                 if (chan && isSnowflake(chan) && isSnowflake(event.guildId)) {
                   const { postOrUpdatePanel } = await import('./signup-panel.js')
                   await postOrUpdatePanel(db, client, event.guildId, chan)
-                  audit(db, 'system', 'schedule.post_signup', event.id, { scheduleId, channelId: chan })
+                  audit(db, 'system', 'schedule.post_signup', event.id, { scheduleId, channelId: chan }, event.guildId)
                   summary.push(`schedule signup: ${event.name} — ${item.title} → #${chan}`)
                 } else {
-                  audit(db, 'system', 'schedule.post_signup_skipped', event.id, { scheduleId, reason: 'no_channel' })
+                  audit(db, 'system', 'schedule.post_signup_skipped', event.id, { scheduleId, reason: 'no_channel' }, event.guildId)
                 }
               } else if (op.type === 'assign_random' || op.type === 'auto_match') {
                 const config = getEventFormLocal(db, event)
@@ -478,7 +478,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                   markMatchLocked(db, event.id)
                   summary.push(`schedule ${op.type}: ${event.name} (${preview.value.teams.length} teams)`)
                 }
-                audit(db, 'system', `schedule.${op.type}`, event.id, { scheduleId, ok: preview.ok, code: (preview as unknown as { code?: string }).code })
+                audit(db, 'system', `schedule.${op.type}`, event.id, { scheduleId, ok: preview.ok, code: (preview as unknown as { code?: string }).code }, event.guildId)
               } else if (op.type === 'distribute_assignments') {
                 const assigns = (event.assignments ?? []) as { id:string; title:string; instructions:string; imageUrl?:string }[]
                 if (assigns.length > 0) {
@@ -498,7 +498,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                       if (typeof assign.imageUrl === 'string' && /^https?:\/\//.test(assign.imageUrl)) payload.files = [assign.imageUrl]
                       try { const guild = await client.guilds.fetch(event.guildId); const ch = await guild.channels.fetch(chanId).catch(()=>null) as import('discord.js').TextChannel | null; if (ch && ch.isTextBased()) await ch.send(payload).catch(()=>undefined) } catch {}
                     }
-                    audit(db, 'system', 'schedule.distribute_assignments', event.id, { scheduleId, mode, teams: teams.length, assignments: assigns.length })
+                    audit(db, 'system', 'schedule.distribute_assignments', event.id, { scheduleId, mode, teams: teams.length, assignments: assigns.length }, event.guildId)
                     summary.push(`schedule assignments (${mode}): ${event.name} — ${teams.length} teams`)
                   }
                 }
@@ -508,7 +508,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
 
           if (toSend.length === 0) {
             // no announcements, just ops
-            audit(db, 'system', 'schedule.ops', event.id, { scheduleId, title: item.title, ops: opActions.map(o=>o.type) })
+            audit(db, 'system', 'schedule.ops', event.id, { scheduleId, title: item.title, ops: opActions.map(o=>o.type) }, event.guildId)
             if (opActions.length > 0) summary.push(`schedule ops: ${event.name} — ${item.title} (${opActions.map(o=>o.type).join(', ')})`)
             await markScheduleAnnounced(db, event.id, scheduleId)
             break
@@ -518,7 +518,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           if (channelId === null || !isSnowflake(event.guildId) || !isSnowflake(channelId)) {
             if (channelId !== null) warnInvalidGuild(event.guildId, 'schedule')
             await markScheduleAnnounced(db, event.id, scheduleId)
-            audit(db, 'system', 'schedule.skipped', event.id, { scheduleId, reason: 'no_channel' })
+            audit(db, 'system', 'schedule.skipped', event.id, { scheduleId, reason: 'no_channel' }, event.guildId)
             break
           }
           try {
@@ -536,7 +536,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
               if (rendered.hasEveryone || rendered.hasHere) { payload.content = rendered.message; payload.allowedMentions = { parse: ["everyone"] } }
               await target.send(payload as never)
             }
-            audit(db, 'system', 'schedule.announce', event.id, { scheduleId, title: item.title, count: toSend.length })
+            audit(db, 'system', 'schedule.announce', event.id, { scheduleId, title: item.title, count: toSend.length }, event.guildId)
             summary.push(`schedule: ${event.name} — ${item.title}`)
           } catch (e) { console.warn('schedule announce failed', e) }
           await markScheduleAnnounced(db, event.id, scheduleId)

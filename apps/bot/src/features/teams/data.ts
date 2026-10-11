@@ -93,7 +93,7 @@ export async function createTeam(
       Date.now(),
     );
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', id, Date.now(), eventId, ownerId);
-    await audit(db, actor, 'team.create', eventId, { teamId: id, name: cleanName, kind, colorId });
+    await audit(db, actor, 'team.create', eventId, { teamId: id, name: cleanName, kind, colorId }, guildId);
     const created = await db.get<TeamRow>('SELECT * FROM teams WHERE id = ?', id);
     return ok(toTeam(created!));
   });
@@ -180,7 +180,7 @@ export async function joinTeam(db: Db, actor: string, eventId: string, userId: s
     if (members >= teamSize) return err('team_full', `Team is full (${teamSize}/${teamSize}).`);
 
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', teamId, Date.now(), eventId, userId);
-    await audit(db, actor, 'team.join', eventId, { teamId, userId });
+    await audit(db, actor, 'team.join', eventId, { teamId, userId }, team.guildId);
     return ok(team);
   });
 }
@@ -202,7 +202,7 @@ export async function joinPrivateTeam(
     const members = await countMembers(db, team.id);
     if (members >= teamSize) return err('team_full', `Team is full (${teamSize}/${teamSize}).`);
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', team.id, Date.now(), eventId, userId);
-    await audit(db, actor, 'team.join_code', eventId, { teamId: team.id, userId });
+    await audit(db, actor, 'team.join_code', eventId, { teamId: team.id, userId }, team.guildId);
     return ok(team);
   });
 }
@@ -218,7 +218,7 @@ export async function leaveTeam(db: Db, actor: string, eventId: string, userId: 
       return await deleteTeam(db, actor, team.id);
     }
     await db.run('UPDATE participants SET team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?', Date.now(), eventId, userId);
-    await audit(db, actor, 'team.leave', eventId, { teamId: team.id, userId });
+    await audit(db, actor, 'team.leave', eventId, { teamId: team.id, userId }, team.guildId);
     return ok(team);
   });
 }
@@ -227,7 +227,7 @@ export async function removeMember(db: Db, actor: string, teamId: string, userId
   const team = await getTeam(db, teamId);
   if (team === null) return err('not_found', 'Team not found.');
   await db.run('UPDATE participants SET team_id = NULL, updated_at = ? WHERE user_id = ? AND team_id = ?', Date.now(), userId, teamId);
-  await audit(db, actor, 'team.remove_member', team.eventId, { teamId, userId });
+  await audit(db, actor, 'team.remove_member', team.eventId, { teamId, userId }, team.guildId);
   return ok(undefined);
 }
 
@@ -239,7 +239,7 @@ export async function adminAssign(db: Db, actor: string, eventId: string, userId
   }
   const res = await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', teamId, Date.now(), eventId, userId);
   if (res.changes === 0) return err('not_found', 'Participant not found in this event.');
-  await audit(db, actor, 'team.assign', eventId, { userId, teamId });
+  await audit(db, actor, 'team.assign', eventId, { userId, teamId }, (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId))?.guild_id ?? null);
   return ok(undefined);
 }
 
@@ -252,7 +252,7 @@ export async function deleteTeam(db: Db, actor: string, teamId: string): Promise
     await db.run('UPDATE participants SET team_id = NULL WHERE team_id = ?', teamId);
     await db.run('DELETE FROM team_requests WHERE team_id = ?', teamId);
     await db.run('DELETE FROM teams WHERE id = ?', teamId);
-    await audit(db, actor, 'team.delete', team.eventId, { teamId, name: team.name });
+    await audit(db, actor, 'team.delete', team.eventId, { teamId, name: team.name }, team.guildId);
     return ok(team);
   });
 }
@@ -263,7 +263,7 @@ export async function rotateJoinCode(db: Db, actor: string, teamId: string): Pro
   if (team.kind !== 'private') return err('not_private', 'Only private teams have join codes.');
   const code = newJoinCode();
   await db.run('UPDATE teams SET join_code = ? WHERE id = ?', code, teamId);
-  await audit(db, actor, 'team.rotate_code', team.eventId, { teamId });
+  await audit(db, actor, 'team.rotate_code', team.eventId, { teamId }, team.guildId);
   return ok(code);
 }
 
@@ -280,7 +280,7 @@ export async function deleteEventTeams(db: Db, actor: string, eventId: string): 
     await db.run('UPDATE participants SET team_id = NULL WHERE team_id IN (SELECT id FROM teams WHERE event_id = ?)', eventId);
     await db.run('DELETE FROM team_requests WHERE event_id = ?', eventId);
     await db.run('DELETE FROM teams WHERE event_id = ?', eventId);
-    await audit(db, actor, 'team.purge', eventId, { count });
+    await audit(db, actor, 'team.purge', eventId, { count }, (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId))?.guild_id ?? null);
     return count;
   });
 }
@@ -327,7 +327,7 @@ export async function updateTeamSettings(
     const colorId = update.colorId !== undefined ? update.colorId : team.colorId;
 
     await db.run('UPDATE teams SET name = ?, kind = ?, color = ? WHERE id = ?', name, kind, colorId, teamId);
-    await audit(db, actor, 'team.settings', team.eventId, { teamId, name, kind, colorId });
+    await audit(db, actor, 'team.settings', team.eventId, { teamId, name, kind, colorId }, team.guildId);
     const row = await db.get<TeamRow>('SELECT * FROM teams WHERE id = ?', teamId);
     return ok(toTeam(row!));
   });
@@ -387,7 +387,7 @@ export async function setGuildCategory(db: Db, actor: string, guildId: string, c
     categoryId,
     Date.now(),
   );
-  await audit(db, actor, 'guild.set_category', guildId, { categoryId });
+  await audit(db, actor, 'guild.set_category', guildId, { categoryId }, guildId);
 }
 
 export async function updateGuildSettings(
@@ -436,7 +436,7 @@ export async function updateGuildSettings(
       JSON.stringify(next.modRoleIds),
       Date.now(),
     );
-    await audit(db, actor, 'guild.update_settings', guildId, update as Record<string, unknown>);
+    await audit(db, actor, 'guild.update_settings', guildId, update as Record<string, unknown>, guildId);
     return next;
   });
 }
