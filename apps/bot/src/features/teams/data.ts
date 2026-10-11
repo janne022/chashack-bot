@@ -394,19 +394,7 @@ export async function updateGuildSettings(
   db: Db,
   actor: string,
   guildId: string,
-  update: Partial<
-    Pick<
-      GuildSettings,
-      | 'teamCategoryId'
-      | 'defaultAnnouncementChannelId'
-      | 'defaultPanelChannelId'
-      | 'defaultCategoryId'
-      | 'defaultCleanupDelayHours'
-      | 'defaultFormTemplateId'
-      | 'defaultScheduleChannelId'
-      | 'modRoleIds'
-    >
-  >,
+  update: Partial<GuildSettings>,
 ): Promise<GuildSettings> {
   // Read current → merge → upsert: the returned settings must reflect the row
   // this call wrote, not one a concurrent writer clobbered.
