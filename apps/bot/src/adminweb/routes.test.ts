@@ -7,9 +7,9 @@ import { openDb } from '../shared/db.js';
 import type { Env } from '../shared/env.js';
 import { registerRoutes } from './routes.js';
 
-const secret = 'routes-test-secret';
+const signingKey = 'test';
 const config = {
-  adminSessionSecret: secret,
+  adminSessionSecret: signingKey,
   guildId: '11111111111111111',
   skipDiscord: true,
   adminPassword: 'test',
@@ -40,7 +40,7 @@ test('guild switch refusal awaits authorization and leaves selected guild unchan
   const response = await app.inject({
     method: 'POST',
     url: '/api/auth/guild',
-    headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, session.id))}` },
+    headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(signingKey, session.id))}` },
     payload: { guildId: '22222222222222222' },
   });
   assert.equal(response.statusCode, 403);
