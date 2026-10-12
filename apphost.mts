@@ -18,16 +18,18 @@ const builder = await createBuilder();
 // The bot fails fast when ADMIN_PASSWORD is unset (even with SKIP_DISCORD=1),
 // so the AppHost always injects it. Local dev default: "admin". Export
 // ADMIN_PASSWORD in the environment to override; never put a real value here —
-// Aspire only runs the local stack (docker-compose stays the deploy path).
+// Aspire only runs the local stack; the Dockerfile/workflow remain the deploy path.
 const adminPassword = builder.addParameter('admin-password', {
     value: process.env.ADMIN_PASSWORD ?? 'admin',
     secret: true,
 });
 
 // ── Data ─────────────────────────────────────────────────────────────────────
+const volumePrefix = process.env.APPHOST_VOLUME_PREFIX ?? 'chashack';
+
 const postgres = await builder
     .addPostgres('postgres')
-    .withDataVolume({ name: 'chashack-pgdata' })
+    .withDataVolume({ name: `${volumePrefix}-pgdata` })
     // Web DB UI (pgWeb) — shows up in the dashboard for ad-hoc queries.
     .withPgWeb()
     // Declare the database on the CONTAINER, not only via addDatabase below:
@@ -46,7 +48,7 @@ const db = await postgres.addDatabase('chashack', {
 
 const cache = await builder
     .addRedis('cache')
-    .withDataVolume({ name: 'chashack-redisdata' })
+    .withDataVolume({ name: `${volumePrefix}-redisdata` })
     // Redis Insight web UI in the dashboard. Wiring only — no service reads
     // Redis yet (caching is a later workstream); this just injects REDIS_URL.
     .withRedisInsight();
@@ -76,7 +78,8 @@ const botApi = await builder
     // The process listens on ADMIN_PORT (injected as the endpoint's
     // targetPort) on 0.0.0.0; the host port is pinned to 8420 to match the
     // admin-ui dev proxy (`/api` → http://localhost:8420 in vite.config.ts).
-    .withEndpoint({ name: 'http', scheme: 'http', port: 8420, targetPort: 8420, env: 'ADMIN_PORT' })
+    // This process binds the pinned host/target port directly; Aspire cannot proxy equal ports for non-container resources.
+    .withEndpoint({ name: 'http', scheme: 'http', port: 8420, targetPort: 8420, env: 'ADMIN_PORT', isProxied: false })
     .withHttpHealthCheck({ path: '/healthz' })
     .waitFor(db);
 
