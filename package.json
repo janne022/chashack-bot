@@ -17,9 +17,11 @@
     "aspire": "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0 aspire",
     "aspire:restore": "pnpm run aspire restore --non-interactive",
     "dev": "pnpm run aspire:restore && pnpm run aspire start && pnpm run aspire ps",
-    "dev:stop": "pnpm run aspire stop"
+    "dev:stop": "pnpm run aspire stop",
+    "smoke:apphost": "pnpm dev && curl --fail --silent --show-error --retry 60 --retry-connrefused --retry-delay 1 --retry-max-time 60 --write-out '\\nHTTP %{http_code}\\n' http://localhost:8420/healthz"
   },
   "devDependencies": {
+    "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vscode-jsonrpc": "8.2.1"
   }
