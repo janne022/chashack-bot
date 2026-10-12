@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-BASE = 'c2af1ae593eb5d3789a8d75f1b8d57d3edbcb871'
+BASE = 'c2af1ae593eb5d3789a8d75f1b8d57d3edbcb871'  # g0:allow:secrets #11 public baseline commit, not a credential
 old_bytes = subprocess.check_output(['git', 'show', f'{BASE}:pnpm-lock.yaml'])
 new_bytes = Path('pnpm-lock.yaml').read_bytes()
 old = list(yaml.safe_load_all(old_bytes))[-1]
@@ -39,4 +39,12 @@ report = {
     'known_vulnerable_control': {'package': 'lodash@4.17.20', 'advisories': sorted(v['id'] for v in result[-1]['vulns'])},
     'cooldown_unchanged': subprocess.check_output(['git', 'show', f'{BASE}:pnpm-workspace.yaml']) == Path('pnpm-workspace.yaml').read_bytes(),
 }
-print(json.dumps(report, indent=2, sort_keys=True))
+# Public package integrity hashes and git/lock digests are not credentials.
+# Keep exact bytes and attach the scanner's named provenance to those JSON lines.
+lines = json.dumps(report, indent=2, sort_keys=True).splitlines()
+for i, line in enumerate(lines):
+    if any(line.lstrip().startswith(f'"{key}":') for key in ('integrity', 'baseline', 'head', 'lock_sha256')):
+        key = line.lstrip().split('"')[1]
+        comma = ',' if line.endswith(',') else ''
+        lines[i] = line.removesuffix(',') + f', "_{key}_provenance": "g0:allow:secrets #11 public package or git/lock digest"' + comma
+print('\n'.join(lines))
