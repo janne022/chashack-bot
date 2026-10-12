@@ -58,16 +58,19 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test
-        run: pnpm test
-
-      - name: API smoke test (auth, static SPA, form, audit)
-        run: node apps/bot/scripts/smoke-admin.mjs
-
-      - name: PostgreSQL same feature suite and API smoke
+      - name: SQLite and PostgreSQL same feature suite and API smoke
         env:
-          DATABASE_URL: postgresql://postgres:disposable-ci-only@127.0.0.1:5432/chashack_ci
-        run: pnpm test && node apps/bot/scripts/smoke-admin.mjs
+          POSTGRES_TEST_URL: postgresql://postgres:disposable-ci-only@127.0.0.1:5432/chashack_ci
+        run: |
+          for engine in sqlite postgres; do
+            if [ "$engine" = postgres ]; then
+              export DATABASE_URL="$POSTGRES_TEST_URL"
+            else
+              unset DATABASE_URL
+            fi
+            pnpm test
+            node apps/bot/scripts/smoke-admin.mjs
+          done
 
       - name: Install vendored runner dependency
         run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
