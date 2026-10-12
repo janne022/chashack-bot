@@ -16,6 +16,20 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: chashack_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chashack_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v5
         with:
@@ -49,6 +63,11 @@ jobs:
 
       - name: API smoke test (auth, static SPA, form, audit)
         run: node apps/bot/scripts/smoke-admin.mjs
+
+      - name: PostgreSQL same feature suite and API smoke
+        env:
+          DATABASE_URL: postgresql://postgres:disposable-ci-only@127.0.0.1:5432/chashack_ci
+        run: pnpm test && node apps/bot/scripts/smoke-admin.mjs
 
       - name: Install vendored runner dependency
         run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3

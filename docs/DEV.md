@@ -55,9 +55,11 @@ schemas. Snapshot an old SQLite file before any separately approved migration;
 legacy ambiguous forms require the existing explicit tenant-recovery decision.
 PostgreSQL startup performs additive bootstrap, not SQLite import or data reset.
 
-## CI approval boundary
+## CI coverage
 
-The existing workflow is untouched. Local PostgreSQL results are advisory only.
-A PostgreSQL service/matrix job and exact-head evidence still require attended
-workflow approval; this card must not finish until that requirement and its
-same-card independent review are satisfied.
+The verify job retains SQLite tests and API smoke, then runs the same commands
+with DATABASE_URL pointing at a disposable PostgreSQL 16 service (chashack_ci).
+It uses no production secrets or persistent volume. Fixtures validate both the
+configured name before connecting and current_database() before schema creation
+or cleanup. Local results remain advisory; exact-head CI and independent review
+are required before planner merge.
