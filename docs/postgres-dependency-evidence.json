@@ -1,0 +1,246 @@
+{
+  "added_resolutions": {
+    "@types/pg@8.23.1": {
+      "resolution": {
+        "integrity": "sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A=="
+      }
+    },
+    "pg-cloudflare@1.4.1": {
+      "resolution": {
+        "integrity": "sha512-6PQbsFWZcp9EmJEwy5cGQ2La+AMWpP46lgbb8X+U/XsHIUweYDNCpeuKck5RxL2MdVFi7krbbEi5nX4Zh7JhrQ=="
+      }
+    },
+    "pg-connection-string@2.14.1": {
+      "resolution": {
+        "integrity": "sha512-qR3kGNPBLpCNtz0evbKA0Y/MRFXwSSdT+pTJvYp/bXTcReZbvX1kzF0IyTc1QnxqF7AZbOeBhNL8R5mYQZV/MA=="
+      }
+    },
+    "pg-int8@1.0.1": {
+      "engines": {
+        "node": ">=4.0.0"
+      },
+      "resolution": {
+        "integrity": "sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw=="
+      }
+    },
+    "pg-pool@3.14.0": {
+      "peerDependencies": {
+        "pg": ">=8.0"
+      },
+      "resolution": {
+        "integrity": "sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw=="
+      }
+    },
+    "pg-protocol@1.16.1": {
+      "resolution": {
+        "integrity": "sha512-p9VOFMiHB/ZbJATetbg+99PxssTVSQRnyuPSQ67mN1+1KBOjZaZ83ZQzltnxPhJwSsC3nwVjJ10DVJlerbFzLg=="
+      }
+    },
+    "pg-types@2.2.0": {
+      "engines": {
+        "node": ">=4"
+      },
+      "resolution": {
+        "integrity": "sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA=="
+      }
+    },
+    "pg@8.23.1": {
+      "engines": {
+        "node": ">= 16.0.0"
+      },
+      "peerDependencies": {
+        "pg-native": ">=3.0.1"
+      },
+      "peerDependenciesMeta": {
+        "pg-native": {
+          "optional": true
+        }
+      },
+      "resolution": {
+        "integrity": "sha512-aL96AHANtWjPLDOLqnhx+ngp9+UK7ETEU8VJrDCGvsSSi/mGLcWYsS6Herg7lmaBJe4uwrfqsa7gTEFaSizDoQ=="
+      }
+    },
+    "pgpass@1.0.5": {
+      "resolution": {
+        "integrity": "sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug=="
+      }
+    },
+    "postgres-array@2.0.0": {
+      "engines": {
+        "node": ">=4"
+      },
+      "resolution": {
+        "integrity": "sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA=="
+      }
+    },
+    "postgres-bytea@1.0.1": {
+      "engines": {
+        "node": ">=0.10.0"
+      },
+      "resolution": {
+        "integrity": "sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ=="
+      }
+    },
+    "postgres-date@1.0.7": {
+      "engines": {
+        "node": ">=0.10.0"
+      },
+      "resolution": {
+        "integrity": "sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q=="
+      }
+    },
+    "postgres-interval@1.2.0": {
+      "engines": {
+        "node": ">=0.10.0"
+      },
+      "resolution": {
+        "integrity": "sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ=="
+      }
+    },
+    "xtend@4.0.2": {
+      "engines": {
+        "node": ">=0.4"
+      },
+      "resolution": {
+        "integrity": "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ=="
+      }
+    }
+  },
+  "added_snapshots": {
+    "@types/pg@8.23.1": {
+      "dependencies": {
+        "@types/node": "24.13.3",
+        "pg-protocol": "1.16.1",
+        "pg-types": "2.2.0"
+      }
+    },
+    "pg-cloudflare@1.4.1": {
+      "optional": true
+    },
+    "pg-connection-string@2.14.1": {},
+    "pg-int8@1.0.1": {},
+    "pg-pool@3.14.0(pg@8.23.1)": {
+      "dependencies": {
+        "pg": "8.23.1"
+      }
+    },
+    "pg-protocol@1.16.1": {},
+    "pg-types@2.2.0": {
+      "dependencies": {
+        "pg-int8": "1.0.1",
+        "postgres-array": "2.0.0",
+        "postgres-bytea": "1.0.1",
+        "postgres-date": "1.0.7",
+        "postgres-interval": "1.2.0"
+      }
+    },
+    "pg@8.23.1": {
+      "dependencies": {
+        "pg-connection-string": "2.14.1",
+        "pg-pool": "3.14.0(pg@8.23.1)",
+        "pg-protocol": "1.16.1",
+        "pg-types": "2.2.0",
+        "pgpass": "1.0.5"
+      },
+      "optionalDependencies": {
+        "pg-cloudflare": "1.4.1"
+      }
+    },
+    "pgpass@1.0.5": {
+      "dependencies": {
+        "split2": "4.2.0"
+      }
+    },
+    "postgres-array@2.0.0": {},
+    "postgres-bytea@1.0.1": {},
+    "postgres-date@1.0.7": {},
+    "postgres-interval@1.2.0": {
+      "dependencies": {
+        "xtend": "4.0.2"
+      }
+    },
+    "xtend@4.0.2": {}
+  },
+  "baseline": "c2af1ae593eb5d3789a8d75f1b8d57d3edbcb871",
+  "changed_existing_resolutions": [],
+  "cooldown_unchanged": true,
+  "head": "5bd816f76136257773df0cc82951ed06f538fab9",
+  "known_vulnerable_control": {
+    "advisories": [
+      "GHSA-29mw-wpgm-hmr9",
+      "GHSA-35jh-r3h4-6jhm",
+      "GHSA-f23m-r3pf-42rh",
+      "GHSA-r5fr-rjxr-66jc",
+      "GHSA-xxjr-mmjv-4gpg"
+    ],
+    "package": "lodash@4.17.20"
+  },
+  "lock_sha256": "0e8314a2433e70e739aa643f1da11341587864aa9ba40032289e57d4a1a5d550",
+  "new_osv": {
+    "@modelcontextprotocol/sdk@1.30.0": [
+      "GHSA-6qxp-vccf-f47h"
+    ],
+    "brace-expansion@5.0.9": [
+      "GHSA-6j4f-fj2g-mc7p",
+      "GHSA-q2hr-2g5m-vwhr",
+      "GHSA-qhr7-859c-m2p7"
+    ],
+    "braces@3.0.3": [
+      "GHSA-vfj7-8cjw-p6xm"
+    ],
+    "fast-uri@3.1.7": [
+      "GHSA-hrr3-gc8f-f4qj"
+    ],
+    "fast-uri@4.1.4": [
+      "GHSA-hrr3-gc8f-f4qj",
+      "GHSA-jvvf-x445-j334"
+    ],
+    "fastify@5.12.3": [
+      "GHSA-4mh8-r7rc-xpvc"
+    ],
+    "ip-address@10.7.0": [
+      "GHSA-h3mg-xc3c-68pw",
+      "GHSA-j6r3-76f7-8jcv"
+    ],
+    "proxy-addr@2.0.7": [
+      "GHSA-jqcg-44mw-7w3h"
+    ],
+    "source-map-js@1.2.1": [
+      "GHSA-68fv-2mgg-jv7q"
+    ]
+  },
+  "old_osv": {
+    "@modelcontextprotocol/sdk@1.30.0": [
+      "GHSA-6qxp-vccf-f47h"
+    ],
+    "brace-expansion@5.0.9": [
+      "GHSA-6j4f-fj2g-mc7p",
+      "GHSA-q2hr-2g5m-vwhr",
+      "GHSA-qhr7-859c-m2p7"
+    ],
+    "braces@3.0.3": [
+      "GHSA-vfj7-8cjw-p6xm"
+    ],
+    "fast-uri@3.1.7": [
+      "GHSA-hrr3-gc8f-f4qj"
+    ],
+    "fast-uri@4.1.4": [
+      "GHSA-hrr3-gc8f-f4qj",
+      "GHSA-jvvf-x445-j334"
+    ],
+    "fastify@5.12.3": [
+      "GHSA-4mh8-r7rc-xpvc"
+    ],
+    "ip-address@10.7.0": [
+      "GHSA-h3mg-xc3c-68pw",
+      "GHSA-j6r3-76f7-8jcv"
+    ],
+    "proxy-addr@2.0.7": [
+      "GHSA-jqcg-44mw-7w3h"
+    ],
+    "source-map-js@1.2.1": [
+      "GHSA-68fv-2mgg-jv7q"
+    ]
+  },
+  "removed_resolutions": []
+}
