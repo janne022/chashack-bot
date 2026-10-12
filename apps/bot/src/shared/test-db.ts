@@ -35,13 +35,11 @@ export async function openTestDb(): Promise<Db> {
     const close = db.close.bind(db);
     db.close = async () => {
       await close();
-      // db-guard:allow:db-name-unparseable t_25580df8: guarded configured/connected database; local UUID schema only.
-      try { await admin.run(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); } finally { await admin.close(); }
+      try { await admin.run(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); } finally { await admin.close(); } // db-guard:allow:db-name-unparseable t_25580df8: guarded configured/connected database; local UUID schema only.
     };
     return track(db);
   } catch (error) {
-    // db-guard:allow:db-name-unparseable t_25580df8: guarded configured/connected database; local UUID schema only.
-    try { await admin.run(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); } finally { await admin.close(); }
+    try { await admin.run(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); } finally { await admin.close(); } // db-guard:allow:db-name-unparseable t_25580df8: guarded configured/connected database; local UUID schema only.
     throw error;
   }
 }

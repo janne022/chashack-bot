@@ -2,17 +2,17 @@
   "added_resolutions": {
     "@types/pg@8.23.1": {
       "resolution": {
-        "integrity": "sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A=="
+        "integrity": "sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "pg-cloudflare@1.4.1": {
       "resolution": {
-        "integrity": "sha512-6PQbsFWZcp9EmJEwy5cGQ2La+AMWpP46lgbb8X+U/XsHIUweYDNCpeuKck5RxL2MdVFi7krbbEi5nX4Zh7JhrQ=="
+        "integrity": "sha512-6PQbsFWZcp9EmJEwy5cGQ2La+AMWpP46lgbb8X+U/XsHIUweYDNCpeuKck5RxL2MdVFi7krbbEi5nX4Zh7JhrQ==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "pg-connection-string@2.14.1": {
       "resolution": {
-        "integrity": "sha512-qR3kGNPBLpCNtz0evbKA0Y/MRFXwSSdT+pTJvYp/bXTcReZbvX1kzF0IyTc1QnxqF7AZbOeBhNL8R5mYQZV/MA=="
+        "integrity": "sha512-qR3kGNPBLpCNtz0evbKA0Y/MRFXwSSdT+pTJvYp/bXTcReZbvX1kzF0IyTc1QnxqF7AZbOeBhNL8R5mYQZV/MA==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "pg-int8@1.0.1": {
@@ -20,7 +20,7 @@
         "node": ">=4.0.0"
       },
       "resolution": {
-        "integrity": "sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw=="
+        "integrity": "sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "pg-pool@3.14.0": {
@@ -28,12 +28,12 @@
         "pg": ">=8.0"
       },
       "resolution": {
-        "integrity": "sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw=="
+        "integrity": "sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "pg-protocol@1.16.1": {
       "resolution": {
-        "integrity": "sha512-p9VOFMiHB/ZbJATetbg+99PxssTVSQRnyuPSQ67mN1+1KBOjZaZ83ZQzltnxPhJwSsC3nwVjJ10DVJlerbFzLg=="
+        "integrity": "sha512-p9VOFMiHB/ZbJATetbg+99PxssTVSQRnyuPSQ67mN1+1KBOjZaZ83ZQzltnxPhJwSsC3nwVjJ10DVJlerbFzLg==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "pg-types@2.2.0": {
@@ -41,7 +41,7 @@
         "node": ">=4"
       },
       "resolution": {
-        "integrity": "sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA=="
+        "integrity": "sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "pg@8.23.1": {
@@ -57,12 +57,12 @@
         }
       },
       "resolution": {
-        "integrity": "sha512-aL96AHANtWjPLDOLqnhx+ngp9+UK7ETEU8VJrDCGvsSSi/mGLcWYsS6Herg7lmaBJe4uwrfqsa7gTEFaSizDoQ=="
+        "integrity": "sha512-aL96AHANtWjPLDOLqnhx+ngp9+UK7ETEU8VJrDCGvsSSi/mGLcWYsS6Herg7lmaBJe4uwrfqsa7gTEFaSizDoQ==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "pgpass@1.0.5": {
       "resolution": {
-        "integrity": "sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug=="
+        "integrity": "sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "postgres-array@2.0.0": {
@@ -70,7 +70,7 @@
         "node": ">=4"
       },
       "resolution": {
-        "integrity": "sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA=="
+        "integrity": "sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "postgres-bytea@1.0.1": {
@@ -78,7 +78,7 @@
         "node": ">=0.10.0"
       },
       "resolution": {
-        "integrity": "sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ=="
+        "integrity": "sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "postgres-date@1.0.7": {
@@ -86,7 +86,7 @@
         "node": ">=0.10.0"
       },
       "resolution": {
-        "integrity": "sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q=="
+        "integrity": "sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "postgres-interval@1.2.0": {
@@ -94,7 +94,7 @@
         "node": ">=0.10.0"
       },
       "resolution": {
-        "integrity": "sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ=="
+        "integrity": "sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     },
     "xtend@4.0.2": {
@@ -102,7 +102,7 @@
         "node": ">=0.4"
       },
       "resolution": {
-        "integrity": "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ=="
+        "integrity": "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==", "_integrity_provenance": "g0:allow:secrets #11 public package or git/lock digest"
       }
     }
   },
@@ -161,10 +161,10 @@
     },
     "xtend@4.0.2": {}
   },
-  "baseline": "c2af1ae593eb5d3789a8d75f1b8d57d3edbcb871",
+  "baseline": "c2af1ae593eb5d3789a8d75f1b8d57d3edbcb871", "_baseline_provenance": "g0:allow:secrets #11 public package or git/lock digest",
   "changed_existing_resolutions": [],
   "cooldown_unchanged": true,
-  "head": "5bd816f76136257773df0cc82951ed06f538fab9",
+  "head": "fab5fb81a7836ddb7a601394dc85fbb28a461ed7", "_head_provenance": "g0:allow:secrets #11 public package or git/lock digest",
   "known_vulnerable_control": {
     "advisories": [
       "GHSA-29mw-wpgm-hmr9",
@@ -175,7 +175,7 @@
     ],
     "package": "lodash@4.17.20"
   },
-  "lock_sha256": "0e8314a2433e70e739aa643f1da11341587864aa9ba40032289e57d4a1a5d550",
+  "lock_sha256": "0e8314a2433e70e739aa643f1da11341587864aa9ba40032289e57d4a1a5d550", "_lock_sha256_provenance": "g0:allow:secrets #11 public package or git/lock digest",
   "new_osv": {
     "@modelcontextprotocol/sdk@1.30.0": [
       "GHSA-6qxp-vccf-f47h"
