@@ -72,7 +72,9 @@ export async function openPostgres(value: string, schema?: string): Promise<Post
     } },
   });
   pool.on('error', () => console.error('PostgreSQL idle connection failed'));
-  const context = new AsyncLocalStorage<{ client: PoolClient; depth: number; active: boolean }>();
+  type TransactionContext = { client: PoolClient; depth: number; active: boolean; parent?: TransactionContext };
+  const context = new AsyncLocalStorage<TransactionContext>();
+  const isActive = (tx: TransactionContext): boolean => tx.active && (tx.parent === undefined || isActive(tx.parent));
   // ponytail: per-handle queue preserves SQLite check/write semantics; relax only with explicit slice concurrency contracts.
   let queue: Promise<unknown> = Promise.resolve();
   let closed = false;
@@ -86,7 +88,7 @@ export async function openPostgres(value: string, schema?: string): Promise<Post
     const tx = context.getStore();
     const execute = () => (tx?.client ?? pool).query(postgresSql(sql), params);
     if (tx) {
-      if (!tx.active || closed) return Promise.reject(new Error('Transaction is closed'));
+      if (!isActive(tx) || closed) return Promise.reject(new Error('Transaction is closed'));
       return execute();
     }
     return enqueue(execute);
@@ -102,19 +104,22 @@ export async function openPostgres(value: string, schema?: string): Promise<Post
     transaction<T>(fn: () => Promise<T>): Promise<T> {
       const parent = context.getStore();
       if (parent) {
-        if (!parent.active || closed) return Promise.reject(new Error('Transaction is closed'));
+        if (!isActive(parent) || closed) return Promise.reject(new Error('Transaction is closed'));
         const name = `sp_${parent.depth + 1}`;
-        return context.run({ ...parent, depth: parent.depth + 1 }, async () => {
-          await parent.client.query(`SAVEPOINT ${name}`);
+        const tx = { client: parent.client, depth: parent.depth + 1, active: true, parent };
+        return context.run(tx, async () => {
           try {
-            const result = await fn();
-            await parent.client.query(`RELEASE SAVEPOINT ${name}`);
-            return result;
-          } catch (error) {
-            await parent.client.query(`ROLLBACK TO SAVEPOINT ${name}`);
-            await parent.client.query(`RELEASE SAVEPOINT ${name}`);
-            throw error;
-          }
+            await parent.client.query(`SAVEPOINT ${name}`);
+            try {
+              const result = await fn();
+              await parent.client.query(`RELEASE SAVEPOINT ${name}`);
+              return result;
+            } catch (error) {
+              await parent.client.query(`ROLLBACK TO SAVEPOINT ${name}`);
+              await parent.client.query(`RELEASE SAVEPOINT ${name}`);
+              throw error;
+            }
+          } finally { tx.active = false; }
         });
       }
       return enqueue(async () => {
@@ -160,9 +165,10 @@ export async function migratePostgres(db: PostgresDb): Promise<void> {
   const [teamSql] = statements.splice(teams, 1);
   statements.unshift(teamSql!);
   await db.transaction(async () => {
-    for (const sql of statements) await db.run(sql);
+    const tables = statements.filter((sql) => sql.startsWith('CREATE TABLE'));
+    for (const sql of tables) await db.run(sql);
     const columns = await db.all<{ table_name: string; column_name: string }>("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()");
-    for (const sql of statements) {
+    for (const sql of tables) {
       const table = /^CREATE TABLE IF NOT EXISTS (\w+)\s*\(/.exec(sql)?.[1];
       if (!table) continue;
       for (const line of sql.split('\n').slice(1)) {
@@ -172,6 +178,7 @@ export async function migratePostgres(db: PostgresDb): Promise<void> {
       }
     }
     await db.run('ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS guild_id TEXT');
+    for (const sql of statements.filter((sql) => !sql.startsWith('CREATE TABLE'))) await db.run(sql);
     await db.run('CREATE INDEX IF NOT EXISTS idx_participants_team ON participants(team_id)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_participants_event ON participants(event_id, status)');
   });

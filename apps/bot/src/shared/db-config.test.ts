@@ -42,3 +42,14 @@ test('connection options cannot be silently ignored or override a parsed identit
   assert.equal(parseDatabaseUrl('postgres://app@localhost/other?connect_timeout=10').connectionTimeoutMillis, 10000);
   for (const value of ['Host=x;Database=other;Username=app;SSLmode=disable', 'postgres://app@localhost/other?sslmode=unknown', 'postgres://app@localhost/a%2Fb', 'postgres://app@localhost/other?connect_timeout=oops']) assert.throws(() => parseDatabaseUrl(value));
 });
+
+test('ADO.NET passwords containing URL delimiters keep their original value', () => {
+  assert.equal(parseDatabaseUrl('Host=localhost;Database=chashack_test;Username=app;Password=fake://value').password, 'fake://value');
+});
+
+test('database paths are validated before URL dot-segment normalization', () => {
+  for (const path of ['other/../chashack_test', 'other/%2e%2e/chashack_test', './chashack_test', '%2e/chashack_test', '.', '%2e%2e', 'other%2F..%2Fchashack_test']) {
+    assert.throws(() => parseDatabaseUrl(`postgresql://app@localhost/${path}`));
+  }
+  assert.equal(parseDatabaseUrl('postgresql://app@localhost/chashack%5Ftest').database, 'chashack_test');
+});

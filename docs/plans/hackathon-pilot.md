@@ -12,8 +12,10 @@ Recovery rule: a legacy global default form may be assigned only if exactly one 
 - [x] Shared feature, guild isolation, audit, session and API-smoke fixtures on both engines.
 - [x] Disposable-name guard before PostgreSQL fixture connection and unique schema per handle.
 - [x] Fake-only recovery rehearsal preserves IDs, guilds and generated ID sequences.
-- [ ] Exact-head PostgreSQL CI job: requires attended workflow approval; do not bypass.
-- [ ] Comprehensive same-card qa-judge review and one bounded repair.
+- [x] Attended approval for disposable PostgreSQL 16 CI service and shared dual-engine verification; original head CI passed.
+- [x] First comprehensive same-card qa-judge review; F1–F4 addressed together in the single bounded repair.
+- [ ] Fresh repair-head CI and targeted qa-judge verification; planner owns stack reconciliation and SHA-bound workflow merge consent.
 
 No live SQLite import, production credentials/migration, auth redesign, RLS, frontend,
-profile, workflow or instruction-file changes are authorized in this slice.
+profile or instruction-file changes are authorized in this slice. Workflow authorization
+is limited to the disposable PostgreSQL service and dual-engine checks recorded on the card.
