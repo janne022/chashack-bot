@@ -3,7 +3,7 @@ import type { Db, SqliteDb } from './db.js';
 /** Fake rehearsal only: callers must use the guarded openTestDb destination. */
 export async function recoverFakeFixture(source: SqliteDb, target: Db): Promise<void> {
   if ((await source.get("SELECT value FROM meta WHERE key = 'fake_fixture'"))?.value !== 'true') throw new Error('Recovery requires an explicitly marked fake fixture');
-  const tables = ['meta', 'events', 'guild_settings', 'event_templates', 'teams', 'participants', 'team_requests', 'audit_log', 'web_sessions'];
+  const tables = ['meta', 'events', 'guild_settings', 'event_templates', 'form_config', 'teams', 'participants', 'team_requests', 'audit_log', 'web_sessions'];
   await target.transaction(async () => {
     for (const table of tables) {
       if ((await target.get(`SELECT count(*) AS count FROM ${table}`))?.count !== 0) throw new Error('Recovery requires an empty destination');
