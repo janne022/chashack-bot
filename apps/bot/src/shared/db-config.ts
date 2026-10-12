@@ -13,7 +13,7 @@ export interface DatabaseConnection {
 export function parseDatabaseUrl(value: string): DatabaseConnection {
   const input = value.trim();
   if (input === '') throw new Error('DATABASE_URL must not be empty');
-  if (!input.includes('://')) {
+  if (!/^[a-z][a-z\d+.-]*:\/\//i.test(input)) {
     const fields = new Map<string, string>();
     const allowedFields = new Set(['host', 'server', 'data source', 'database', 'initial catalog', 'username', 'user id', 'userid', 'user', 'port', 'password']);
     for (const part of input.split(';')) {
@@ -41,19 +41,21 @@ export function parseDatabaseUrl(value: string): DatabaseConnection {
   if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.hostname || !url.pathname || url.pathname === '/' || url.hash) throw new Error('DATABASE_URL must be a PostgreSQL URL with a database name');
   const allowedOptions = new Set(['sslmode', 'application_name', 'connect_timeout', 'options']);
   if ([...url.searchParams.keys()].some((key) => !allowedOptions.has(key)) || [...new Set(url.searchParams.keys())].some((key) => url.searchParams.getAll(key).length > 1)) throw new Error('Invalid or ambiguous DATABASE_URL options');
-  if (url.pathname.slice(1).includes('/')) throw new Error('DATABASE_URL must contain exactly one database name');
+  // Validate the original path: URL removes literal and encoded dot segments.
+  const path = /^[a-z][a-z\d+.-]*:\/\/[^/?#]*(\/[^?#]*)/i.exec(input)?.[1];
+  if (!path || path.slice(1).includes('/')) throw new Error('DATABASE_URL must contain exactly one database name');
   const port = url.port === '' ? 5432 : Number(url.port);
   let database: string;
   let user: string;
   let password: string | undefined;
   try {
-    database = decodeURIComponent(url.pathname.slice(1));
+    database = decodeURIComponent(path.slice(1));
     user = decodeURIComponent(url.username);
     password = url.password ? decodeURIComponent(url.password) : undefined;
   } catch {
     throw new Error('Invalid percent-encoding in DATABASE_URL');
   }
-  if (!user || !database || database.includes('/') || /[\x00-\x1f]/.test(database + user + (password ?? '')) || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('DATABASE_URL requires valid username, database, and port');
+  if (!user || !database || database === '.' || database === '..' || database.includes('/') || /[\x00-\x1f]/.test(database + user + (password ?? '')) || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('DATABASE_URL requires valid username, database, and port');
   const config: DatabaseConnection = { host: url.hostname.replace(/^\[|\]$/g, ''), port, user, password, database };
   const sslmode = url.searchParams.get('sslmode');
   if (sslmode !== null) {

@@ -50,8 +50,9 @@ self-cleaning weekend.
 - Organizers also work through Discord itself: `/hackathon admin` for
   block/unblock/remove, moving participants, category, match preview/commit,
   reset; `/hackathon auto-match at:` for a scheduled match.
-- Runtime: one Node process (bot + API + static console), one SQLite file, one
-  Docker container with a `/data` volume; `SKIP_DISCORD=1` runs the console alone.
+- Runtime: one Node process (bot + API + static console), backed by PostgreSQL
+  when `DATABASE_URL` is set, otherwise a SQLite file in the container's `/data`
+  volume; `SKIP_DISCORD=1` runs the console alone. PostgreSQL RLS is separate work.
 - Both languages are shipped: `en` + `sv` for the console, and bot copy is
   localized too.
 
