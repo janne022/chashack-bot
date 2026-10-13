@@ -208,7 +208,7 @@ function migrateFormConfig(db: Db): void {
   const columns = db.prepare('PRAGMA table_info(form_config)').all() as unknown as { name: string }[];
   if (columns.some((column) => column.name === 'guild_id')) return;
   const legacy = db.prepare('SELECT json, updated_at FROM form_config WHERE id = 1').get() as { json: string; updated_at: number } | undefined;
-  const guilds = db.prepare('SELECT guild_id FROM events UNION SELECT guild_id FROM event_templates UNION SELECT guild_id FROM participants UNION SELECT guild_id FROM teams UNION SELECT guild_id FROM team_requests UNION SELECT guild_id FROM guild_settings').all() as unknown as { guild_id: string }[];
+  const guilds = db.prepare('SELECT guild_id FROM (SELECT guild_id FROM events UNION SELECT guild_id FROM event_templates UNION SELECT guild_id FROM participants UNION SELECT guild_id FROM teams UNION SELECT guild_id FROM team_requests UNION SELECT guild_id FROM guild_settings) WHERE guild_id IS NOT NULL AND guild_id <> \'\'').all() as unknown as { guild_id: string }[];
   if (legacy !== undefined && guilds.length !== 1) {
     throw new Error('Cannot safely migrate legacy form_config: ownership is ambiguous. Preserve the database and manually assign the old form to exactly one guild before retrying.');
   }
