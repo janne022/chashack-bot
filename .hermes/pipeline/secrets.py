@@ -137,6 +137,15 @@ EXEMPT_REASONS: dict[str, str] = {
 # visible change rather than an invisible one.
 EXEMPT_LITERALS: frozenset[str] = frozenset(EXEMPT_REASONS)
 
+# t_d4258618: public schema names, ONLY in double-quoted JSON property position.
+# Unlike git refs these must never be exempt as values or credential assignments.
+JSON_PROPERTY_REASONS = {
+    "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "Aspire dashboard OTLP endpoint configuration",  # g0:allow:secrets t_d4258618
+    "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL": "Aspire resource service endpoint configuration",  # g0:allow:secrets t_d4258618
+    "ASPIRE_ALLOW_UNSECURED_TRANSPORT": "Aspire transport configuration switch",  # g0:allow:secrets t_d4258618
+    "forceConsistentCasingInFileNames": "TypeScript compiler filename casing option",  # g0:allow:secrets t_d4258618
+}
+
 
 def _shannon_entropy(s: str) -> float:
     if not s:
@@ -188,7 +197,12 @@ def scan_secrets(diff_text: str) -> SecretsResult:
                     )
                 )
                 continue
-            rule, value = _match_line(text)
+            property_notes: list[str] = []
+            rule, value = _match_line(text, property_notes)
+            result.notes.extend(
+                f"secrets: exempted high-entropy JSON property at {f.path}:{line_no}: {note}"
+                for note in property_notes
+            )
             if rule is None:
                 continue
             if _is_placeholder(value or ""):
@@ -206,7 +220,7 @@ def scan_secrets(diff_text: str) -> SecretsResult:
     return result
 
 
-def _match_line(text: str) -> tuple[str | None, str | None]:
+def _match_line(text: str, property_notes: list[str] | None = None) -> tuple[str | None, str | None]:
     for rule, pattern in PATTERNS:
         m = pattern.search(text)
         if not m:
@@ -218,6 +232,11 @@ def _match_line(text: str) -> tuple[str | None, str | None]:
             return "api-key", value
         return rule, m.group(0)
     # high-entropy string literal >= 20 chars
+    # Complete-string starts keep key-looking substrings inside values out of
+    # property context without changing the existing entropy candidate sweep.
+    string_starts = {
+        m.start() for m in re.finditer(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", text)
+    }
     for m in re.finditer(r"['\"]([A-Za-z0-9+/=_-]{20,})['\"]", text):
         value = m.group(1)
         if _is_placeholder(value):
@@ -225,6 +244,20 @@ def _match_line(text: str) -> tuple[str | None, str | None]:
         if _is_identifier_shaped(value):
             continue
         if _shannon_entropy(value) >= ENTROPY_THRESHOLD:
+            prefix = text[:m.start()].rstrip()
+            if (
+                value in JSON_PROPERTY_REASONS
+                and m.start() in string_starts
+                and m.group(0).startswith('"')
+                and m.group(0).endswith('"')
+                and (not prefix or prefix.endswith(("{", ",")))
+                and text[m.end():].lstrip().startswith(":")
+            ):
+                if property_notes is not None:
+                    property_notes.append(
+                        f"{value!r} (rule: high-entropy; card t_d4258618 — {JSON_PROPERTY_REASONS[value]})"
+                    )
+                continue
             return "high-entropy", value
     return None, None
 
