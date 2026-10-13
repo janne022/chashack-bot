@@ -23,9 +23,8 @@ this source change.
 | `ADMIN_SESSION_SECRET` | `.env` on the bot host | Required 32+ character key signing server-side session cookies; rotation revokes every session | Cookies forged only if key compromised | Generate with `openssl rand -base64 32`, update `.env`, restart. Verify: old cookies are rejected and Discord OAuth creates a new session |
 | `DISCORD_CLIENT_ID` | `.env` (also in the portal) | Public OAuth2 client identifier | Not secret on its own; only sensitive paired with the client secret | No rotation needed; rotate only with the secret |
 | `OAUTH_REDIRECT_URI` / `PUBLIC_URL` | `.env` | Where Discord sends the OAuth callback / the trusted origin for CSRF and cookie flags | Not secrets, but if tampered with they redirect logins or break CSRF checks. If changed maliciously, treat `DISCORD_CLIENT_SECRET` as exposed | Restore correct values, restart, and verify login + CSRF |
-| `ADMIN_IDS` | `.env` | Which Discord user ids get admin powers | An attacker who can edit the file adds their own id on next restart — file access already means game over, but rotation of other secrets won't fix this | Remove unknown ids, restart, audit the audit log for actions from ids you don't recognise |
-| `HOST_OPERATOR_DISCORD_IDS` *(provisional — **not read by the code yet**, see (b) below)* | `.env` (once it lands) | Which Discord user ids get host-operator powers: freeze/unfreeze a tenant, see aggregate tenant health. Never tenant content | An attacker editing the file could freeze tenants or read aggregate health; file access already means game over | Remove unknown ids, restart, and read the host-scope audit rows for actions you did not take |
-| `DISCORD_GUILD_ID` | `.env` | Fallback guild for the legacy password-based console session; multi-server support no longer needs it | Not a secret; a wrong value would scope that fallback session to the wrong server | No rotation; remove it once the OAuth-only migration (issue #22) lands |
+| `ADMIN_IDS` | `.env` | Discord user ids allowed to use admin commands; does not grant web-console access | An attacker who can edit the file adds their own id on next restart — file access already means game over, but rotation of other secrets won't fix this | Remove unknown ids, restart, and audit the log for actions from ids you don't recognise |
+| `DISCORD_GUILD_ID` | `.env` | Optional instant slash-command registration in local development; never web authorization | Not a secret; a wrong value can target command registration | No rotation; unset it outside local command-registration workflows |
 | `RUN_DRY` | `.env` / environment | Runs the process **without Discord**: when set to `1` the bot skips starting the Discord client entirely (`env.ts` line for `skipDiscord`; `SKIP_DISCORD=1` does the same). Used by typecheck and tests | Not a secret, but left set in production the bot never connects to Discord — it looks alive and does nothing at all | Unset it, restart, and confirm the bot is actually online in Discord and answers a slash command |
 | `DATABASE_URL` | `.env` / host secret store | PostgreSQL connection identity and credentials | Database access; never log the value | Rotate the database role password, update the secret and restart; explicitly revoke existing connections, then verify reads/writes |
 | `TEAM_CATEGORY_ID`, `AUDIT_CHANNEL_ID`, `ANNOUNCE_CHANNEL_ID` | `.env` | Discord channel/category snowflakes | Not secrets (ids only) | No rotation; restore values if corrupted |
@@ -50,8 +49,8 @@ no longer opens them; this change does not convert or delete those files.
 ## Rotation rhythms
 
 - **On any suspected leak:** immediately, before investigating how.
-- **On staff change:** `ADMIN_SESSION_SECRET` and `ADMIN_PASSWORD` when anyone with
-  host access leaves (rotation logs out every console session — that is the point).
+- **On staff change:** `ADMIN_SESSION_SECRET` when anyone with host access leaves
+  (rotation logs out every console session — that is the point).
 - **Routine:** `DISCORD_TOKEN` and `DISCORD_CLIENT_SECRET` on a schedule you will
   actually keep (e.g. quarterly), because both are resettable in the Discord portal
   with a restart.
@@ -84,17 +83,10 @@ Use it for every new secret value. Never invent secrets by hand.
 
 Keep this section out of any published copy.
 
-### (a) Claims not verified against the code
+### (a) Operational claims not verified against a deployment
 
-- **`DISCORD_CLIENT_SECRET` / OAuth behaviour** — present in `env.ts`, but the
-  OAuth flow details (token exchange, session minting) were not audited line by
-  line; the "what breaks if it leaks" column is an assessment, not a tested fact.
-- **`ADMIN_SESSION_SECRET` fallback** — `env.ts` currently falls back to
-  `ADMIN_PASSWORD` when unset (`apps/bot/src/shared/env.ts`: `adminSessionSecret:
-  get('ADMIN_SESSION_SECRET') || adminPassword`). Issue #22 R2 will make an explicit
-  secret mandatory and refuse to boot without it; until then, a deployment without
-  `ADMIN_SESSION_SECRET` signs cookies with the shared password — the runbook's
-  "generate a long random value" instruction matters more until that lands.
+- **OAuth deployment** — code requires OAuth configuration and an explicit
+  `ADMIN_SESSION_SECRET`; a real Discord login was not performed by this run.
 - **Redis** — `REDIS_URL` was asked about for the runbook; no Redis exists anywhere
   in the code today. If it is added, this file must gain its row.
 - **Postgres RLS** — separate work (issue #19); PostgreSQL support alone does not prove RLS.
@@ -103,19 +95,15 @@ Keep this section out of any published copy.
 - The **gitignore claim** (`git check-ignore .env`) was not run against a real
   `.env` in this repo; verify on the deploy host.
 
-### (b) Promises not yet implemented
+### (b) Not shipped
 
-- OAuth-only sign-in with mandatory `ADMIN_SESSION_SECRET` (no
-  `ADMIN_PASSWORD` at all) — issue #22 R1/R2, mid-migration.
-- Host-operator allowlist (`HOST_OPERATOR_DISCORD_IDS` or equivalent) — issue #22
-  consequence section; name in `.env` is provisional.
+- Host-operator allowlist and tenant impersonation are not part of the current
+  console; no host bypass exists.
 - Any future `REDIS_URL` row — no application Redis support is shipped.
 
 ### (c) Numbers and names that must be updated if configuration changes
 
 - Any variable added to or removed from `.env.example` — the inventory table above
   must be updated in the same change.
-- If `ADMIN_SESSION_SECRET` becomes mandatory (issue #22 R2), remove the
-  fallback note and the `ADMIN_PASSWORD` row.
 - Session TTL (7 days) and cookie flags depend on `PUBLIC_URL`; if session handling
   changes, re-check that rotation still logs everyone out.
