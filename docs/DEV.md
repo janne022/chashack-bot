@@ -1,65 +1,57 @@
-# Database development and fake recovery
+# PostgreSQL development and fake recovery
 
-SQLite remains the default when DATABASE_URL is absent. DATABASE_URL presence,
-including an empty value, chooses PostgreSQL validation; errors never select
-SQLite. Supply either a postgresql:// URL or the unquoted Aspire shape
+PostgreSQL is the only application database. DATABASE_URL is required; missing,
+empty or malformed values refuse startup without exposing credentials. Supply a
+postgresql:// URL or the unquoted Aspire shape
 `Host=localhost;Port=5432;Database=chashack_test;Username=postgres;Password=...`.
-ADO fields are deliberately bounded; unknown/duplicate fields refuse rather
-than silently disabling a security option. URL options supported: sslmode
-(disable, require, verify-ca, verify-full), application_name, options, and
-connect_timeout (1–600 seconds). All enabled TLS modes verify the certificate;
-allow/prefer and arbitrary parameters refuse rather than downgrade security.
-Passwords must be URL-percent-encoded where necessary. Never print a live URL.
+Unknown/duplicate ADO fields refuse. Supported URL options: sslmode (disable,
+require, verify-ca, verify-full), application_name, options, connect_timeout
+(1–600 seconds). Enabled TLS modes verify certificates. Percent-encode passwords
+where necessary; never print a live URL.
 
 ## Repeatable local checks
 
-Build before testing, because tests execute dist. Use a disposable PostgreSQL 16
-instance bound to localhost and an explicitly fake database ending exactly in
-_test or _ci. The fixture guard rejects other names before connecting; each handle
-creates an isolated schema and drops it when closed. The bot itself can open
-normal database names; the restriction applies to fixture/recovery destinations.
+Use a disposable PostgreSQL 16 instance bound to localhost, with a database name
+ending exactly in _test or _ci. Export its DATABASE_URL before running checks.
+Fixtures validate both the configured and connected database name before creating
+isolated UUID schemas. Closing a handle removes its schema, including error cleanup.
+Normal runtime databases need not have a test suffix; fixture destinations must.
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm build
-# DATABASE_URL must be absent for the SQLite run:
-env -u DATABASE_URL pnpm test
-env -u DATABASE_URL node apps/bot/scripts/smoke-admin.mjs
-# Export a disposable DATABASE_URL in your shell, never commit it:
 pnpm test
 node apps/bot/scripts/smoke-admin.mjs
+node apps/bot/scripts/dev-admin.mjs # empty disposable console on :8491
 ```
 
-Shared feature, Fastify two-guild isolation, audit, session, transaction, Kysely,
-and API-smoke tests exercise the selected engine. Legacy SQLite migration tests
-stay SQLite-specific. PostgreSQL bootstrap compares column metadata across two
-runs and checks foreign keys. Integer timestamps remain safe JS numbers; unsafe
-BIGINT results fail explicitly. Nested facade transactions use savepoints on one
-leased connection; independent operations queue outside the transaction.
+Tests execute compiled dist files: after deleting source files, clear generated
+apps/bot/dist before building so stale emitted tests cannot run. The feature suite
+covers forms, registration, events, teams, matching, sessions, audit and guild
+isolation on real PostgreSQL. Direct authoritative DDL lives in
+`shared/postgres-schema.ts`; bootstrap is transactional, additive and idempotent.
+Tests compare schema/constraints/data across repeated migrations and indexed-column
+repair. BIGINT timestamps are safe JS numbers; unsafe integers refuse. Transactions
+and Kysely leases share a per-handle queue, connection and nested savepoints;
+expired contexts refuse operations.
 
-## Fake SQLite → PostgreSQL rehearsal
+## Fake PostgreSQL recovery rehearsal
 
-Run `node --test apps/bot/dist/shared/fixture-recovery.test.js` first without
-DATABASE_URL and then with the guarded disposable PostgreSQL destination. The
-runnable fixture seeds invented guilds/events and audit IDs in an in-memory
-SQLite source, explicitly marks it `meta.fake_fixture=true`, imports through
-`recoverFakeFixture(source, await openTestDb())`, verifies both guilds and the
-next generated ID, and refuses a nonempty target. All table copies are one
-transaction in foreign-key dependency order; explicit IDs and sequences survive.
-A failed import rolls back, and fixture teardown drops its isolated schema.
+`node --test apps/bot/dist/shared/fixture-recovery.test.js` copies only explicitly
+marked fake fixture rows between isolated PostgreSQL schemas. The destination must
+be empty. All ten tables copy in dependency order within one transaction; IDs,
+relationships and generated sequences survive. This is a test helper, not a
+production import tool. Do not mark a real database fake or use production URLs.
 
-This is not a production migration command. Do not mark a real database fake,
-point recovery at production, or claim this proves recovery of historical legacy
-schemas. Snapshot an old SQLite file before any separately approved migration;
-legacy ambiguous forms require the existing explicit tenant-recovery decision.
-PostgreSQL startup performs additive bootstrap, not SQLite import or data reset.
+No automatic import, conversion or deletion of legacy user files is performed.
+Historical file-based migration tests are obsolete, not a supported second engine.
+RLS, deployment migration and backup retention guarantees are separate work.
 
 ## CI coverage
 
-The verify job retains SQLite tests and API smoke, then runs the same commands
-with DATABASE_URL pointing at a disposable PostgreSQL 16 service (chashack_ci).
-It uses no production secrets or persistent volume. Fixtures validate both the
-configured name before connecting and current_database() before schema creation
-or cleanup. Local results remain advisory; exact-head CI and independent review
-are required before planner merge.
+The existing verify job runs frozen install, typecheck, build, the PostgreSQL-only
+suite and API smoke against its disposable PostgreSQL 16 service (chashack_ci),
+then existing adoption/generic gates. No production secrets or persistent volume.
+Local results are advisory; exact-head CI and the original independent reviewer
+must approve the changed flow. Final workflow merge consent remains operator-owned.

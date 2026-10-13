@@ -11,6 +11,8 @@ test('destructive fixtures accept only exact _test or _ci suffixes', () => {
 test('fixture refuses near-miss databases before connecting to an unreachable server', async () => {
   const original = process.env.DATABASE_URL;
   try {
+    delete process.env.DATABASE_URL;
+    await assert.rejects(openTestDb(), /DATABASE_URL is required/);
     for (const name of ['chashack_review_attestations', 'chashack_ci_backup']) {
       process.env.DATABASE_URL = `postgresql://postgres@127.0.0.1:1/${name}`;
       await assert.rejects(openTestDb(), /_test or _ci/);

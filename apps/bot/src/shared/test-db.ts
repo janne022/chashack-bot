@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { after } from 'node:test';
-import { openDb, type Db } from './db.js';
+import type { Db } from './db.js';
 import { parseDatabaseUrl } from './db-config.js';
 import { assertDisposableDatabase } from './database-guard.js';
 import { openPostgres, migratePostgres } from './postgres.js';
@@ -18,8 +18,8 @@ function track(db: Db): Db {
 
 /** Same feature fixtures, isolated schemas so concurrent test handles never collide. */
 export async function openTestDb(): Promise<Db> {
-  if (process.env.DATABASE_URL === undefined) return track(openDb(':memory:'));
   const url = process.env.DATABASE_URL;
+  if (url === undefined) throw new Error('DATABASE_URL is required for PostgreSQL fixtures');
   assertDisposableDatabase(parseDatabaseUrl(url).database);
   const schema = `fixture_${randomUUID().replaceAll('-', '')}`;
   const admin = await openPostgres(url);

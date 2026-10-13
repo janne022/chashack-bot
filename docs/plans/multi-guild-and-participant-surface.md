@@ -1,5 +1,9 @@
 # Program: multi-guild at scale + participant web surface
 
+Database decision: PostgreSQL ONLY supersedes the historical SQLite baseline below.
+Runtime, development, tests and CI require DATABASE_URL; no second-engine fallback.
+Current implementation contract: [hackathon-pilot.md](hackathon-pilot.md).
+
 Status: **in flight** — issues #9–#24. Product model changed mid-program (see below).
 Owner: janne. Related: `multi-guild-oauth.md` (console-side multi-guild, shipped `a125505`).
 
@@ -66,7 +70,7 @@ per-token, so one tenant's burst degrades every tenant).
 | --- | --- | --- | --- |
 | 1 | #9 Residual dead code | — (disjoint from 2a) | `apps/admin-ui/src/**` |
 | 2a | #10 Async, dialect-portable data layer | — (disjoint from 1) | `apps/bot/**` |
-| 2b | #11 Postgres dialect + dual-dialect tests | 2a | `apps/bot/src/shared/db/**`, `apps/bot/scripts/**`, CI/docker |
+| 2b | #11 PostgreSQL-only driver + real-database tests | 2a | `apps/bot/src/shared/db/**`, `apps/bot/scripts/**`, CI/docker |
 | 3 | #12 Aspire TypeScript AppHost (Postgres + Redis) | 2a (disjoint) | `apphost.mts`, `.aspire/`, `tsconfig.apphost.json`, root scripts, `docs/DEV.md` |
 | 4 | #13 Participant web surface | 2a | `apps/web/**` (new), `apps/bot/src/features/participant/**` (new), `apps/bot/src/adminweb/participant-routes.ts` (new) |
 | 5 | #14 Multi-guild isolation audit | 2a | `apps/bot/src/**/*.test.ts` (new tests only) |
@@ -136,8 +140,8 @@ The target: **`guild_id` is the tenant key and the database enforces it.**
 - **Enforcement must be proven, not assumed:** policies are silently ignored for the table owner, so the
   app connects as a purpose-made role with no `BYPASSRLS` and no DDL, and a test removes the guild filter
   on purpose and asserts zero rows.
-- **Honest parity:** RLS is Postgres-only. A SQLite install keeps application-level scoping and is
-  single-tenant by design. That asymmetry is documented, not papered over.
+- **Honest isolation:** PostgreSQL is the only supported database; application
+  scoping is tested now, but RLS remains a separate launch gate.
 - Tenancy is **shared-schema, many guilds in one database**. Schema-per-tenant and database-per-tenant
   are explicitly out of scope; they buy isolation at an operational cost this project does not want.
 

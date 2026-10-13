@@ -1,11 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb } from './db.js';
 import { openTestDb } from './test-db.js';
 import { recoverFakeFixture } from './fixture-recovery.js';
 
 test('fake recovery preserves two guilds, foreign keys and generated IDs and refuses nonempty targets', async () => {
-  const source = openDb(':memory:');
+  const source = await openTestDb();
   const target = await openTestDb();
   try {
     await assert.rejects(recoverFakeFixture(source, target), /fake fixture/);
@@ -15,12 +14,27 @@ test('fake recovery preserves two guilds, foreign keys and generated IDs and ref
       await source.run('INSERT INTO form_config (guild_id,json,updated_at) VALUES (?,?,?)', guild, JSON.stringify({ title: `Fake form ${guild}` }), 1700000000000);
       await source.run('INSERT INTO audit_log (id,ts,actor,action,target,guild_id) VALUES (?,?,?,?,?,?)', guild.startsWith('1') ? 40 : 41, 1700000000000, 'fake-user', 'fixture', `event-${guild}`, guild);
     }
+    await source.run("INSERT INTO guild_settings (guild_id,updated_at) VALUES ('11111111111111111',1)");
+    await source.run("INSERT INTO event_templates (id,guild_id,name,kind,json,created_at) VALUES ('template','11111111111111111','fake','event','{}',1)");
+    await source.run("INSERT INTO teams (id,event_id,guild_id,name,kind,created_at) VALUES ('team','event-11111111111111111','11111111111111111','fake','open',1)");
+    await source.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,team_id,created_at,updated_at) VALUES ('event-11111111111111111','user','11111111111111111','fake','x','x','[]','random_team','[]','team',1,1)");
+    await source.run("INSERT INTO team_requests (id,event_id,guild_id,team_id,requester_id,target_id,kind,created_at) VALUES (50,'event-11111111111111111','11111111111111111','team','user','other','join',1)");
+    await source.run("INSERT INTO web_sessions (id,user_id,username,created_at,expires_at) VALUES ('session','user','fake',1,2)");
+    // Failure late in the copy must roll back all preceding tables.
+    await target.run("ALTER TABLE web_sessions ADD CONSTRAINT fixture_refusal CHECK (id <> 'session')");
+    await assert.rejects(recoverFakeFixture(source, target), /fixture_refusal/);
+    for (const table of ['meta','events','guild_settings','event_templates','form_config','teams','participants','team_requests','audit_log','web_sessions']) {
+      assert.equal((await target.get(`SELECT count(*) AS count FROM ${table}`))?.count, 0);
+    }
+    await target.run('ALTER TABLE web_sessions DROP CONSTRAINT fixture_refusal');
     await recoverFakeFixture(source, target);
+    assert.equal((await target.get("SELECT team_id FROM participants WHERE user_id = 'user'"))?.team_id, 'team');
+    assert.equal((await target.get("INSERT INTO team_requests (guild_id,team_id,requester_id,target_id,kind,created_at) VALUES ('11111111111111111','team','user','other','join',1) RETURNING id"))?.id, 51);
     assert.equal((await target.get('SELECT count(*) AS count FROM events'))?.count, 2);
     assert.deepEqual((await target.all('SELECT guild_id,json,updated_at FROM form_config ORDER BY guild_id')).map(row => ({ ...row })), (await source.all('SELECT guild_id,json,updated_at FROM form_config ORDER BY guild_id')).map(row => ({ ...row })));
     assert.deepEqual((await target.all('SELECT guild_id FROM audit_log ORDER BY id')).map(r => r.guild_id), ['11111111111111111', '22222222222222222']);
     const row = await target.get('INSERT INTO audit_log (ts,actor,action) VALUES (?,?,?) RETURNING id', 1, 'fake', 'test');
     assert.equal(row?.id, 42);
     await assert.rejects(recoverFakeFixture(source, target), /empty destination/);
-  } finally { source.close(); await target.close(); }
+  } finally { await source.close(); await target.close(); }
 });

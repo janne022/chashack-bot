@@ -2,9 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { postgresSql, openPostgres, migratePostgres } from './postgres.js';
+import { postgresSql, migratePostgres } from './postgres.js';
 import { openTestDb } from './test-db.js';
-import { openDb } from './db.js';
 
 test('Postgres binding ignores quoted text, identifiers, comments and dollar strings', () => {
   assert.equal(postgresSql(`SELECT ?, '?', "?", $$?$$, $tag$?$tag$ /* ? /* ? */ */ -- ?\n, ?`), `SELECT $1, '?', "?", $$?$$, $tag$?$tag$ /* ? /* ? */ */ -- ?\n, $2`);
@@ -13,22 +12,14 @@ test('Postgres binding ignores quoted text, identifiers, comments and dollar str
 test('Postgres facade binds once, leases transactions, recovers rollback and closes', async (t) => {
   const db = await openTestDb();
   try {
-    if (process.env.DATABASE_URL === undefined) {
-      assert.equal('dialect' in db && db.dialect === 'postgres', false);
-      const version = await db.get<{ version: string }>('SELECT sqlite_version() AS version');
-      assert.equal(version?.version, process.versions.sqlite);
-      t.diagnostic(`engine=SQLite ${version?.version}; driver=node:sqlite Node ${process.versions.node}`);
-    } else {
-      assert.equal('dialect' in db && db.dialect === 'postgres', true);
-      const version = await db.get<{ version: string }>('SELECT version() AS version');
-      assert.match(version?.version ?? '', /^PostgreSQL /);
-      t.diagnostic(`engine=${version?.version}; driver=pg ${createRequire(import.meta.url)('pg/package.json').version}`);
-    }
+    const version = await db.get<{ version: string }>('SELECT version() AS version');
+    assert.match(version?.version ?? '', /^PostgreSQL /);
+    t.diagnostic(`engine=${version?.version}; driver=pg ${createRequire(import.meta.url)('pg/package.json').version}`);
     await db.run('CREATE TEMP TABLE driver_probe (id INTEGER PRIMARY KEY, value TEXT)');
     assert.equal((await db.run('INSERT INTO driver_probe VALUES (?, ?)', 1, 'one')).changes, 1);
     assert.deepEqual({ ...await db.get('INSERT INTO driver_probe VALUES (?, ?) RETURNING id', 2, 'two') }, { id: 2 });
     await db.transaction(async () => {
-      const identity = process.env.DATABASE_URL === undefined ? 'SELECT 1 AS pid' : 'SELECT pg_backend_pid() AS pid';
+      const identity = 'SELECT pg_backend_pid() AS pid';
       const before = await db.get<{ pid: number }>(identity);
       await assert.rejects(db.transaction(async () => {
         await db.run('INSERT INTO driver_probe VALUES (?, ?)', 3, 'rollback');
@@ -51,21 +42,15 @@ test('Postgres facade binds once, leases transactions, recovers rollback and clo
 test('Postgres bootstrap preserves columns and constraints after two migrations', async () => {
   const db = await openTestDb();
   try {
-    const postgres = 'dialect' in db && db.dialect === 'postgres';
-    const columns = () => db.all(postgres ? "SELECT table_name, column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = current_schema() ORDER BY table_name, ordinal_position" : "SELECT m.name AS table_name, p.name AS column_name, lower(p.type) AS data_type FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type = 'table' ORDER BY m.name, p.cid");
+    const columns = () => db.all("SELECT table_name, column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = current_schema() ORDER BY table_name, ordinal_position");
     const before = await columns();
-    const constraints = () => db.all(postgres ? "SELECT c.conname, pg_get_constraintdef(c.oid) AS definition FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = current_schema() ORDER BY c.conname" : "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name");
+    const constraints = () => db.all("SELECT c.conname, pg_get_constraintdef(c.oid) AS definition FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = current_schema() ORDER BY c.conname");
     const constraintsBefore = await constraints();
-    if (postgres) await migratePostgres(db as Awaited<ReturnType<typeof openPostgres>>);
-    else {
-      const fresh = openDb(':memory:');
-      assert.deepEqual(await fresh.all("SELECT m.name AS table_name, p.name AS column_name, lower(p.type) AS data_type FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type = 'table' ORDER BY m.name, p.cid"), before);
-      fresh.close();
-    }
+    await migratePostgres(db);
     assert.deepEqual(await columns(), before);
     assert.deepEqual(await constraints(), constraintsBefore);
     assert.ok(before.some((c) => c.table_name === 'audit_log' && c.column_name === 'guild_id'));
-    assert.ok(before.some((c) => c.table_name === 'events' && c.column_name === 'starts_at' && c.data_type === (postgres ? 'bigint' : 'integer')));
+    assert.ok(before.some((c) => c.table_name === 'events' && c.column_name === 'starts_at' && c.data_type === 'bigint'));
     await assert.rejects(db.run("INSERT INTO participants (event_id, user_id, guild_id, display_name, experience, role_track, skills, team_pref, teammates, team_id, created_at, updated_at) VALUES ('fake', 'fake', 'fake', 'fake', 'fake', 'fake', '[]', 'random_team', '[]', 'missing', 1, 1)"), /foreign key/i);
   } finally { await db.close(); }
 });
@@ -73,7 +58,6 @@ test('Postgres bootstrap preserves columns and constraints after two migrations'
 test('Postgres nested contexts expire with their savepoint and cannot join a later lease', async () => {
   const db = await openTestDb();
   try {
-    if (!('dialect' in db && db.dialect === 'postgres')) return;
     let resume!: ReturnType<typeof AsyncLocalStorage.snapshot>;
     let callbacks = 0;
     const rejectExpired = async () => {
@@ -99,7 +83,6 @@ test('Postgres nested contexts expire with their savepoint and cannot join a lat
 test('Postgres migration repairs indexed and nullable columns before indexes without losing rows', async () => {
   const db = await openTestDb();
   try {
-    if (!('dialect' in db && db.dialect === 'postgres')) return;
     await db.run("INSERT INTO events (id,guild_id,name,created_at,updated_at) VALUES ('fake','fake','sentinel',1,1)");
     await db.run("INSERT INTO teams (id,guild_id,name,kind,created_at) VALUES ('fake-team','fake','sentinel','open',1)");
     await db.run("INSERT INTO team_requests (event_id,guild_id,team_id,requester_id,target_id,kind,created_at) VALUES ('fake','fake','fake-team','from','to','join',1)");
@@ -107,13 +90,13 @@ test('Postgres migration repairs indexed and nullable columns before indexes wit
     const before = await schema();
     await db.run('ALTER TABLE events DROP COLUMN announcement_channel_id');
     await db.run('ALTER TABLE team_requests DROP COLUMN status CASCADE');
-    await migratePostgres(db as Awaited<ReturnType<typeof openPostgres>>);
+    await migratePostgres(db);
     assert.equal((await db.get<{ name: string }>("SELECT name,announcement_channel_id FROM events WHERE id='fake'"))?.name, 'sentinel');
     assert.equal((await db.get<{ status: string }>("SELECT status FROM team_requests WHERE requester_id='from'"))?.status, 'pending');
     assert.deepEqual(await schema(), before);
     const columns = () => db.all("SELECT table_name,column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=current_schema() ORDER BY table_name,column_name");
     const repaired = await columns();
-    await migratePostgres(db as Awaited<ReturnType<typeof openPostgres>>);
+    await migratePostgres(db);
     assert.deepEqual(await columns(), repaired);
     assert.deepEqual(await schema(), before);
   } finally { await db.close(); }

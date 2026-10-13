@@ -1,21 +1,8 @@
-/**
- * Kysely database layer — type-safe SQL under the slice repositories.
- *
- * Wraps node:sqlite's DatabaseSync in a Kysely Driver/Dialect (no better-sqlite3,
- * no native deps). The Kysely instance shares the SAME connection as the raw
- * prepared-statement layer, so transactions and WAL state are consistent.
- *
- * Plan (agreed with janne): slices keep simple raw SQL; complex/evolving
- * queries move to typed Kysely queries here. New tables get Kysely types.
- */
 import {
   Kysely,
   PostgresAdapter,
   PostgresIntrospector,
   PostgresQueryCompiler,
-  SqliteAdapter,
-  SqliteIntrospector,
-  SqliteQueryCompiler,
   type Dialect,
   type Driver,
   type DatabaseConnection,
@@ -132,7 +119,7 @@ class FacadeDriver implements Driver {
       const connection: DatabaseConnection = {
         executeQuery: <R>(compiled: { sql: string; parameters: readonly unknown[] }): Promise<QueryResult<R>> => run(async () => {
           const { sql, parameters } = compiled;
-          if (/^\s*(SELECT|PRAGMA|WITH)\b/i.test(sql) || /\bRETURNING\b/i.test(sql)) {
+          if (/^\s*(SELECT|WITH)\b/i.test(sql) || /\bRETURNING\b/i.test(sql)) {
             return { rows: await this.db.all<R>(sql, ...parameters) };
           }
           const info = await this.db.run(sql, ...parameters);
@@ -171,12 +158,11 @@ class FacadeDriver implements Driver {
 }
 
 export function createKysely(db: Db): KyselyDb {
-  const postgres = 'dialect' in db && db.dialect === 'postgres';
   const dialect: Dialect = {
-    createAdapter: () => postgres ? new PostgresAdapter() : new SqliteAdapter(),
+    createAdapter: () => new PostgresAdapter(),
     createDriver: () => new FacadeDriver(db),
-    createIntrospector: (k) => postgres ? new PostgresIntrospector(k) : new SqliteIntrospector(k),
-    createQueryCompiler: () => postgres ? new PostgresQueryCompiler() : new SqliteQueryCompiler(),
+    createIntrospector: (k) => new PostgresIntrospector(k),
+    createQueryCompiler: () => new PostgresQueryCompiler(),
   };
   return new Kysely<DbSchema>({ dialect });
 }

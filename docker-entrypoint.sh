@@ -1,6 +1,6 @@
 #!/bin/sh
 # Entrypoint: support PUID/PGID (LinuxServer.io convention, the default on
-# Unraid/Synology) by re-owning the data dir and dropping privileges before
+# Unraid/Synology) by dropping privileges before
 # exec'ing the bot.
 #
 # - When PUID/PGID are unset (or already match uid 1000), run directly as the
@@ -23,12 +23,6 @@ if [ "$(id -u)" = "0" ]; then
     adduser -D -u "$PUID" -G "$(getent group "$PGID" | cut -d: -f1)" appuser
   fi
   USER_NAME=$(getent passwd "$PUID" | cut -d: -f1)
-
-  # Take ownership of the data dir so SQLite can create db + WAL files.
-  DATA_DIR=${DB_PATH:-/data/chashack.db}
-  DATA_DIR=$(dirname "$DATA_DIR")
-  mkdir -p "$DATA_DIR"
-  chown -R "$PUID:$PGID" "$DATA_DIR"
 
   # setpriv: drop privileges permanently, then exec the bot (PID 1 = node).
   exec setpriv --reuid "$PUID" --regid "$PGID" --init-groups \

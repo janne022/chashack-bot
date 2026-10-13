@@ -20,7 +20,6 @@ const config = {
   discordClientSecret: undefined,
   oauthRedirectUri: undefined,
   publicUrl: undefined,
-  dbPath: ':memory:',
   announceChannelId: undefined,
   auditChannelId: undefined,
   teamCategoryId: undefined,

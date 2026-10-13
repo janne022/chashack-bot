@@ -3,7 +3,7 @@
 ## Monorepo
 
 ```
-apps/bot         Discord bot + Fastify API (TypeScript, node:sqlite)
+apps/bot         Discord bot + Fastify API (TypeScript, pg + Kysely)
 apps/admin-ui    React admin panel (Vite, TanStack Router, Tailwind 4)
 ```
 
@@ -39,15 +39,14 @@ discord/          interaction layer only (commands, modals, buttons, DMs)
   signup-panel.ts the persistent signup panel message
   dispatch.ts     interaction router — builds Ctx, checks admin, dispatches
 adminweb/         Fastify API routes + static serving of the built admin UI
-shared/           db.ts (migrations), env.ts, result.ts, audit.ts
+shared/           db.ts (facade), postgres.ts (driver/migrations), postgres-schema.ts (DDL), env.ts, result.ts, audit.ts
 ```
 
 Rules:
 
 1. **SQL only in `data.ts` files.** Everything is `?`-parameterized; no
-   string interpolation of values, ever. (SQLite cannot parameterize PRAGMA,
-   so table-name interpolation there is limited to internal constants.)
-2. **domain.ts is pure.** No node:sqlite, no discord.js imports.
+   string interpolation of values, ever. The PostgreSQL driver binds positional parameters.
+2. **domain.ts is pure.** No database-driver or discord.js imports.
 3. Discord handlers never write SQL — they call slices and map Results.
 4. New feature = new slice folder + a row in this table.
 
@@ -70,7 +69,7 @@ and both write the same rows — there is no Discord-side copy of anything:
 
 ```
 admin UI → api.ts → adminweb/routes.ts ─┐
-                                        ├→ features/*/data.ts → SQLite
+                                        ├→ features/*/data.ts → PostgreSQL
 Discord interaction → dispatch.ts ──────┘
 ```
 

@@ -73,12 +73,12 @@ Every team (created or matched) gets:
 
 | Piece         | Choice                                                       |
 | ------------- | ------------------------------------------------------------ |
-| Runtime       | Node ≥ 22.13 (uses built-in `node:sqlite` — no native deps)  |
+| Runtime       | Node ≥ 24  |
 | Bot           | discord.js 14.27                                             |
 | API/server    | Fastify 5 + @fastify/static (serves the built admin UI)      |
 | Admin UI      | React 19, Tailwind CSS 4, Radix primitives, lucide icons     |
-| Storage       | SQLite (WAL) by default; PostgreSQL when `DATABASE_URL` is set |
-| Tests         | `node:test` (16 tests: form domain, matching engine, integration) |
+| Storage       | PostgreSQL only; required `DATABASE_URL`, pg + Kysely |
+| Tests         | `node:test` with real guarded PostgreSQL fixtures |
 
 Both apps are exact-pinned and governed by a **supply-chain risk lock**:
 `minimumReleaseAge: 4320` (3 days) + `minimumReleaseAgeStrict: true` in
@@ -100,7 +100,7 @@ apps/admin-ui    React admin panel (Vite)
 
 ```bash
 pnpm install                      # workspace install (supply-chain gated)
-cp .env.example .env              # fill in Discord creds + admin password
+cp .env.example apps/bot/.env     # fill in DATABASE_URL, Discord creds + admin password
 pnpm build                        # bot (tsc) + admin UI (vite)
 pnpm register:commands            # register the commands in every guild the bot is in (instant)
 pnpm --filter bot start           # bot + admin UI on ADMIN_PORT
@@ -127,17 +127,18 @@ flag and is the origin trusted by the API's CSRF check.
 
 ## Development
 
-`DATABASE_URL` takes precedence over `DB_PATH`. Empty or invalid values fail
-startup, never fall back. PostgreSQL bootstrap is additive and repeatable; it
-does not automatically import old SQLite data. See [database development and
-fake recovery](docs/DEV.md) for the disposable dual-engine checks and limitations.
+`DATABASE_URL` is required. Missing, empty or invalid values fail startup; there
+is no file or in-memory fallback. PostgreSQL bootstrap is additive and repeatable;
+legacy user files are untouched. See [database development and fake recovery](docs/DEV.md)
+for disposable PostgreSQL checks and limitations. Export a guarded _test/_ci URL
+before running the test, smoke or development-console commands.
 
 ```bash
 pnpm typecheck            # both apps, strict TS
-pnpm test                 # node:test suite (compiled first)
+pnpm build && pnpm test   # node:test suite (build first)
 pnpm --filter bot test    # bot suite only
 node apps/bot/scripts/smoke-admin.mjs          # API/auth/SPA smoke checks
-BOOT_ADMIN=1 node apps/bot/scripts/dev-admin.mjs  # seeded demo on :8491
+node apps/bot/scripts/dev-admin.mjs  # empty disposable console on :8491
 ```
 
 ### Pipeline checks
@@ -167,7 +168,7 @@ Pull after the first successful run:
 ```bash
 docker pull ghcr.io/janne022/chashack-bot:main
 docker run -d --name chashack \
-  -p 8420:8420 -v chashack-data:/data \
+  -p 8420:8420 --env-file apps/bot/.env \
   -e DISCORD_TOKEN=... -e DISCORD_CLIENT_ID=... \
   -e DISCORD_GUILD_ID=... -e ADMIN_PASSWORD=... \
   --restart unless-stopped \
@@ -175,7 +176,7 @@ docker run -d --name chashack \
 ```
 
 - Multi-stage build: full workspace build stage → runtime with bot prod deps
-  + compiled output only; runs as `node` (uid 1000); SQLite on `/data` volume;
+  + compiled output only; runs unprivileged (uid 1000 by default); external PostgreSQL;
   `HEALTHCHECK` hits `/healthz`.
 - `SKIP_DISCORD=1` runs the admin panel without the Discord gateway
   (UI-only deployments, container smoke tests).
