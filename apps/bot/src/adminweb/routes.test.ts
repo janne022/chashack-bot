@@ -105,7 +105,7 @@ test('delegated organizers cannot change delegation, while owner/admin can', asy
 test('password requests do not authenticate; callback without state and PKCE is refused', async () => {
   const db = await openTestDb();
   const app = Fastify({ logger: false });
-  registerRoutes(app, { db, config: { ...config, clientId: '123456789012345678', discordClientSecret: 'synthetic-client-secret' }, announce: async () => undefined, client: null });
+  registerRoutes(app, { db, config: { ...config, clientId: '123456789012345678', discordClientSecret: 'test' }, announce: async () => undefined, client: null });
   assert.equal(app.hasRoute({ method: 'POST', url: '/api/login' }), false);
   const callback = await app.inject({ url: '/auth/discord/callback?code=synthetic&state=forged' });
   assert.equal(callback.statusCode, 302);

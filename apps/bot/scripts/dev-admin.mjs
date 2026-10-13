@@ -2,7 +2,7 @@
 /** Empty disposable PostgreSQL console for manual development after build. */
 process.env.RUN_DRY = '1';
 process.env.ADMIN_PORT = '8491';
-process.env.ADMIN_SESSION_SECRET = 'synthetic-dev-session-secret-at-least-32';
+process.env.ADMIN_SESSION_SECRET = 'x'.repeat(32);
 const { startAdminServer } = await import('../dist/adminweb/server.js');
 const { openTestDb } = await import('../dist/shared/test-db.js');
 const { env } = await import('../dist/shared/env.js');

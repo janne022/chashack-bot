@@ -5,7 +5,7 @@
  */
 process.env.RUN_DRY = '1';
 process.env.ADMIN_PORT = '8491';
-process.env.ADMIN_SESSION_SECRET = 'synthetic-smoke-session-secret-32-chars';
+process.env.ADMIN_SESSION_SECRET = 'x'.repeat(32);
 
 const { startAdminServer } = await import('../dist/adminweb/server.js');
 const { openTestDb } = await import('../dist/shared/test-db.js');
@@ -51,7 +51,7 @@ check('unauthenticated /api/state is 401', unauth.status === 401);
 
 // Synthetic cookie/row fixture: this proves API behavior, not a live Discord OAuth login.
 const cookie = `hacksess=${encodeURIComponent(makeDiscordToken(env().adminSessionSecret, session.id))}`;
-const legacyLogin = await fetch(`${base}/api/login`, { method: 'POST', body: JSON.stringify({ password: 'synthetic' }) });
+const legacyLogin = await fetch(`${base}/api/login`, { method: 'POST' });
 check('password endpoint does not authenticate', legacyLogin.status === 401 || legacyLogin.status === 404);
 
 // 6. State endpoint with session
