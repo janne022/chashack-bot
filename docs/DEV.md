@@ -20,10 +20,12 @@ Dashboard. `pnpm smoke:apphost` also verifies `/healthz` responds successfully.
 
 ## Resources
 
-- `postgres` — PostgreSQL with database `chashack` and pgWeb.
+- `postgres` — PostgreSQL with database `chashack` by default and pgWeb.
 - `cache` — Redis and Redis Insight; wiring only, no production cache consumer.
 - `bot-api` — `node dist/index.js`, with `DATABASE_URL`, `SKIP_DISCORD=1`, and
-  `ADMIN_PORT=8420`; `/healthz` is the health check.
+  `ADMIN_PORT` set to the configured API port (8420 by default); `/healthz` is
+  the health check. Set `DISCORD_GUILD_ID` for guild-scoped event creation; a
+  fake snowflake is sufficient for isolated local checks without Discord.
 - `admin-ui` — Vite console, connected to the bot API.
 
 Aspire injects the PostgreSQL reference as an ADO.NET-style connection string,
@@ -33,7 +35,9 @@ missing/invalid `DATABASE_URL` fails startup without exposing credentials.
 The AppHost uses named data volumes. `pnpm dev:stop` stops resources but preserves
 data. Never remove volumes unless you have positively identified them as your
 own disposable test resources. For isolated tests, set
-`APPHOST_VOLUME_PREFIX=<unique-name-containing-test-or-ci>` before starting.
+`APPHOST_VOLUME_PREFIX=<unique-name-containing-test-or-ci>` and
+`APPHOST_DATABASE_NAME=<database_name_ending_in_test_or_ci>` before starting;
+underscores in the database name map to hyphens in Aspire's resource name.
 Do not use a real Discord account or production database for local checks.
 
 ## PostgreSQL checks
@@ -63,6 +67,7 @@ personal data. No automatic import or deletion of legacy database files occurs.
   globalization is disabled for Aspire.
 - `Could not invoke 'addX': Method not found`: align Aspire CLI and
   `Aspire.Hosting.*` versions (currently 13.5.4).
-- Bot API port 8420 must be available; do not kill another listener to free it.
+- Bot API defaults to port 8420. If occupied, choose an available local port with
+  `APPHOST_API_PORT=<port>`; do not kill another listener to free it.
 - `pnpm typecheck && pnpm build && pnpm test` are the root regression checks;
   `pnpm smoke:apphost` exercises the real AppHost startup and health endpoint.

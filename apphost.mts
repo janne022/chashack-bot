@@ -26,6 +26,9 @@ const adminPassword = builder.addParameter('admin-password', {
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 const volumePrefix = process.env.APPHOST_VOLUME_PREFIX ?? 'chashack';
+const apiPort = Number(process.env.APPHOST_API_PORT ?? '8420');
+const databaseName = process.env.APPHOST_DATABASE_NAME ?? 'chashack';
+const databaseResourceName = databaseName.replaceAll('_', '-');
 
 const postgres = await builder
     .addPostgres('postgres')
@@ -33,17 +36,17 @@ const postgres = await builder
     // Web DB UI (pgWeb) — shows up in the dashboard for ad-hoc queries.
     .withPgWeb()
     // Declare the database on the CONTAINER, not only via addDatabase below:
-    // in run mode Aspire creates `chashack` itself, but a published compose
+    // in run mode Aspire creates the requested database itself, but a published compose
     // only carries the server environment, and without POSTGRES_DB the
     // container initialises a database named after the user instead.
-    .withEnvironment('POSTGRES_DB', 'chashack');
+    .withEnvironment('POSTGRES_DB', databaseName);
 
 // Reference the DATABASE (not the server) so dependents get a connection
-// string scoped to `chashack`. NOTE the form: Aspire injects an ADO.NET-style
+// string scoped to this database. NOTE the form: Aspire injects an ADO.NET-style
 // connection string (Host=...;Port=...;Username=...;Password=...;Database=...),
 // NOT a postgresql:// URL — anything consuming it must not assume a URL.
-const db = await postgres.addDatabase('chashack', {
-    databaseName: 'chashack',
+const db = await postgres.addDatabase(databaseResourceName, {
+    databaseName,
 });
 
 const cache = await builder
@@ -64,9 +67,8 @@ const botApi = await builder
     .addNodeApp('bot-api', './apps/bot', 'dist/index.js')
     .withPnpm()
     .withReference(db)
-    // The bot's data layer is SQLite today; a later workstream moves it to
-    // Postgres. DATABASE_URL is injected here so that workstream only has to
-    // start reading it. Remember: ADO.NET-style string, not a URL (see above).
+    // PostgreSQL is the only application database. Remember: DATABASE_URL is
+    // an ADO.NET-style string, not a URL (see above).
     .withEnvironment('DATABASE_URL', db)
     .withReference(cache)
     .withEnvironment('REDIS_URL', cache)
@@ -74,12 +76,11 @@ const botApi = await builder
     // export DISCORD_TOKEN/DISCORD_CLIENT_ID and remove this line to point
     // the stack at real Discord (see docs/DEV.md).
     .withEnvironment('SKIP_DISCORD', '1')
+    .withEnvironment('DISCORD_GUILD_ID', process.env.DISCORD_GUILD_ID ?? '')
     .withEnvironment('ADMIN_PASSWORD', adminPassword)
-    // The process listens on ADMIN_PORT (injected as the endpoint's
-    // targetPort) on 0.0.0.0; the host port is pinned to 8420 to match the
-    // admin-ui dev proxy (`/api` → http://localhost:8420 in vite.config.ts).
-    // This process binds the pinned host/target port directly; Aspire cannot proxy equal ports for non-container resources.
-    .withEndpoint({ name: 'http', scheme: 'http', port: 8420, targetPort: 8420, env: 'ADMIN_PORT', isProxied: false })
+    // This process binds its local endpoint directly; Aspire requires the
+    // host and target ports to match when proxying is disabled.
+    .withEndpoint({ name: 'http', scheme: 'http', port: apiPort, targetPort: apiPort, env: 'ADMIN_PORT', isProxied: false })
     .withHttpHealthCheck({ path: '/healthz' })
     .waitFor(db);
 
