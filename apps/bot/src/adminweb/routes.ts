@@ -7,10 +7,10 @@ import type { Db } from '../shared/db.js';
 import type { Env } from '../shared/env.js';
 import {
   makeDiscordToken,
-  makeOperatorToken,
   makePkcePair,
   makeState,
   manageableGuilds,
+  hasGuildManageAuthority,
   safeEqual,
   verifyToken,
   type OAuthGuild,
@@ -78,15 +78,19 @@ export interface WebDeps {
 }
 
 const COOKIE = 'hacksess';
+const PARTICIPANT_COOKIE = 'hackpartsess';
 const STATE_COOKIE = 'hackstate';
 const PKCE_COOKIE = 'hackpkce';
+const PARTICIPANT_STATE_COOKIE = 'hackpartstate';
+const PARTICIPANT_PKCE_COOKIE = 'hackpartpkce';
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const OAUTH_STATE_TTL_S = Math.floor(OAUTH_STATE_TTL_MS / 1000);
 
-function sessionRefFrom(req: FastifyRequest, config: Env): SessionRef | null {
-  const raw = readCookie(req, COOKIE);
+function sessionRefFrom(req: FastifyRequest, config: Env, audience: 'organizer' | 'participant' = 'organizer'): SessionRef | null {
+  const raw = readCookie(req, audience === 'organizer' ? COOKIE : PARTICIPANT_COOKIE);
   if (raw === null) return null;
-  return verifyToken(config.adminSessionSecret, raw);
+  const ref = verifyToken(config.adminSessionSecret, raw);
+  return ref?.audience === audience ? ref : null;
 }
 
 function readCookie(req: FastifyRequest, name: string): string | null {
@@ -95,8 +99,8 @@ function readCookie(req: FastifyRequest, name: string): string | null {
   return m === null ? null : decodeURIComponent(m[1]!);
 }
 
-function sessionCookie(token: string, secure: boolean): string {
-  return `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${7 * 24 * 3600}${secure ? '; Secure' : ''}`;
+function sessionCookie(token: string, secure: boolean, name = COOKIE): string {
+  return `${name}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${7 * 24 * 3600}${secure ? '; Secure' : ''}`;
 }
 
 /**
@@ -118,38 +122,53 @@ function isSnowflake(id: string): boolean {
 
 export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   const { db, config } = deps;
-  /** Guild used when a session has not selected one (single-guild installs). */
-  const envGuildId = config.guildId ?? 'default';
 
   /**
    * An authenticated request. A Discord token only counts while its row exists:
    * the row IS the session, so logout, expiry or a leaked cookie for a deleted
    * session must stop working immediately — the HMAC alone is not authorisation.
    */
-  const sessionFrom = async (req: FastifyRequest): Promise<{ ref: SessionRef; session: WebSession | null } | null> => {
+  const sessionFrom = async (req: FastifyRequest): Promise<{ ref: SessionRef; session: WebSession } | null> => {
     const ref = sessionRefFrom(req, config);
     if (ref === null) return null;
-    if (ref.kind === 'operator') return { ref, session: null };
     const session = await getSession(db, ref.sessionId);
-    return session === null ? null : { ref, session };
+    return session === null || session.audience !== 'organizer' ? null : { ref, session };
+  };
+  const participantSessionFrom = async (req: FastifyRequest): Promise<WebSession | null> => {
+    const ref = sessionRefFrom(req, config, 'participant');
+    if (ref === null) return null;
+    const session = await getSession(db, ref.sessionId);
+    return session?.audience === 'participant' ? session : null;
   };
 
   /**
    * The guild a request acts on. A Discord session carries the guild its user
-   * picked; operator (password) sessions — and sessions that never picked — fall
-   * back to the configured guild. The client never names the guild, which is what
+   * picked. The client never names the guild, which is what
    * keeps one guild's console from reading another's data.
    */
   const guildOf = async (req: FastifyRequest): Promise<string> => {
     const live = await sessionFrom(req);
-    if (live !== null && live.session !== null && live.session.selectedGuildId !== null) {
-      return live.session.selectedGuildId;
-    }
-    return envGuildId;
+    return live?.session?.selectedGuildId ?? '';
   };
-  if (!isSnowflake(envGuildId)) {
-    console.warn(`[adminweb] DISCORD_GUILD_ID is not set or not a snowflake (got "${envGuildId}"). Discord features (announce, panel, guild channels) will fail until you set it in .env and restart. Admin UI still works.`);
-  }
+
+  const ownerAdminRequests = new WeakSet<FastifyRequest>();
+  const freshGuildAccess = async (session: WebSession, guildId: string): Promise<{ allowed: boolean; ownerOrAdmin: boolean }> => {
+    if (deps.client === null || !isSnowflake(guildId)) return { allowed: false, ownerOrAdmin: false };
+    try {
+      const guild = await deps.client.guilds.fetch(guildId);
+      const member = await guild.members.fetch(session.userId);
+      const setting = await db.get<{ mod_role_ids: string }>('SELECT mod_role_ids FROM guild_settings WHERE guild_id = ?', guildId);
+      const decoded: unknown = setting === undefined ? [] : JSON.parse(setting.mod_role_ids);
+      const delegated = Array.isArray(decoded) ? decoded.filter((id): id is string => typeof id === 'string') : [];
+      const ownerOrAdmin = guild.ownerId === session.userId || member.permissions.has('Administrator');
+      return {
+        allowed: hasGuildManageAuthority(session.userId, guild.ownerId, member.permissions.bitfield, [...member.roles.cache.keys()], delegated),
+        ownerOrAdmin,
+      };
+    } catch {
+      return { allowed: false, ownerOrAdmin: false };
+    }
+  };
 
   /**
    * The event the admin web UI operates on when the caller doesn't name one.
@@ -176,12 +195,30 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.addHook('preHandler', async (req, reply) => {
     const isApi = req.url.startsWith('/api/');
-    // Public: the login endpoints themselves. Everything else under /api needs a
-    // session (operator or Discord).
-    const isPublic = req.url === '/api/login' || req.url === '/api/auth/mode';
-    if (!isApi || isPublic) return;
-    if ((await sessionFrom(req)) === null) {
+    if (!isApi) return;
+    if (req.url.startsWith('/api/participant/')) {
+      if ((await participantSessionFrom(req)) === null) await reply.code(401).send({ error: 'unauthorized' });
+      return;
+    }
+    const live = await sessionFrom(req);
+    if (live === null) {
       await reply.code(401).send({ error: 'unauthorized' });
+      return;
+    }
+    if (req.url === '/api/auth/logout') return;
+    const targetGuild = req.url === '/api/auth/guild'
+      ? ((req.body as { guildId?: string } | null)?.guildId ?? '')
+      : live.session.selectedGuildId ?? '';
+    if (targetGuild === '' && req.url === '/api/auth/me') return;
+    const access = await freshGuildAccess(live.session, targetGuild);
+    if (!access.allowed) {
+      await reply.code(403).send({ ok: false, code: 'access_refused', message: 'Your current server access is no longer valid. Refresh access or ask a server administrator for help.' });
+      return;
+    }
+    if (access.ownerOrAdmin) ownerAdminRequests.add(req);
+    if (req.url === '/api/auth/guild') return;
+    if (live.session.selectedGuildId === null) {
+      await reply.code(403).send({ ok: false, code: 'no_guild_selected', message: 'Choose a server you can manage to continue.' });
       return;
     }
     const params = req.params as Record<string, unknown> | undefined;
@@ -211,16 +248,6 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
   });
 
-  app.post('/api/login', async (req, reply) => {
-    const body = req.body as { password?: string } | null;
-    if (body?.password !== config.adminPassword) {
-      await reply.code(401).send({ error: 'invalid_password' });
-      return;
-    }
-    reply.header('set-cookie', sessionCookie(makeOperatorToken(config.adminSessionSecret), secureCookies));
-    await audit(db, 'web', 'web.login', 'admin', null, null);
-    return { ok: true };
-  });
 
   // ─── Discord OAuth2 ────────────────────────────────────────────────────────
   //
@@ -265,11 +292,6 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
   });
 
-  /** Public: lets the login screen decide whether to offer "Sign in with Discord". */
-  app.get('/api/auth/mode', async () => ({
-    oauth: oauthConfigured,
-    password: true,
-  }));
 
   /**
    * Where Discord sends the code back. Never derived from an attacker-controlled
@@ -277,13 +299,16 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
    * aim the redirect (and the code) at someone else's domain. The Host fallback
    * exists for local development only and is refused for anything but loopback.
    */
-  const redirectUri = (req: FastifyRequest): string | null => {
-    if (config.oauthRedirectUri !== undefined) return config.oauthRedirectUri;
-    if (config.publicUrl !== undefined) return `${config.publicUrl.replace(/\/$/, '')}/auth/discord/callback`;
+  const redirectUri = (req: FastifyRequest, audience: 'organizer' | 'participant' = 'organizer'): string | null => {
+    const callbackPath = audience === 'organizer' ? '/auth/discord/callback' : '/auth/participant/callback';
+    if (config.oauthRedirectUri !== undefined) {
+      return audience === 'organizer' ? config.oauthRedirectUri : config.oauthRedirectUri.replace('/auth/discord/callback', callbackPath);
+    }
+    if (config.publicUrl !== undefined) return `${config.publicUrl.endsWith('/') ? config.publicUrl.slice(0, -1) : config.publicUrl}${callbackPath}`;
     const host = req.headers.host ?? '';
     const loopback = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host);
     if (!loopback) return null;
-    return `http://${host}/auth/discord/callback`;
+    return `http://${host}${callbackPath}`;
   };
 
   app.get('/auth/discord', async (req, reply) => {
@@ -419,6 +444,95 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
   });
 
+  app.get('/auth/participant', async (req, reply) => {
+    if (!oauthConfigured) return reply.code(404).send({ error: 'oauth_not_configured' });
+    const callback = redirectUri(req, 'participant');
+    if (callback === null) return reply.code(500).send({ error: 'redirect_uri_unconfigured' });
+    const state = makeState();
+    const pkce = makePkcePair();
+    const url = new URL('https://discord.com/oauth2/authorize');
+    url.searchParams.set('client_id', config.clientId);
+    url.searchParams.set('redirect_uri', callback);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('scope', 'identify');
+    url.searchParams.set('state', state);
+    url.searchParams.set('code_challenge', pkce.challenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+    reply.header('set-cookie', [
+      transientCookie(PARTICIPANT_STATE_COOKIE, state, OAUTH_STATE_TTL_S, secureCookies),
+      transientCookie(PARTICIPANT_PKCE_COOKIE, pkce.verifier, OAUTH_STATE_TTL_S, secureCookies),
+    ]);
+    reply.header('cache-control', 'no-store');
+    return reply.redirect(url.toString());
+  });
+
+  app.get('/auth/participant/callback', async (req, reply) => {
+    reply.header('cache-control', 'no-store');
+    if (!oauthConfigured) return reply.code(404).send({ error: 'oauth_not_configured' });
+    const query = req.query as { code?: string; state?: string; error?: string };
+    const expectedState = readCookie(req, PARTICIPANT_STATE_COOKIE);
+    const verifier = readCookie(req, PARTICIPANT_PKCE_COOKIE);
+    const fail = async (reason: string) => {
+      reply.header('set-cookie', [clearCookie(PARTICIPANT_STATE_COOKIE, secureCookies), clearCookie(PARTICIPANT_PKCE_COOKIE, secureCookies)]);
+      return reply.redirect(`/?participant_auth=${reason}`);
+    };
+    if (query.error !== undefined) return fail('cancelled');
+    if (query.state === undefined || expectedState === null || !safeEqual(query.state, expectedState) || verifier === null) return fail('bad_state');
+    if (!query.code) return fail('no_code');
+    const callback = redirectUri(req, 'participant');
+    if (callback === null) return fail('redirect_uri_unconfigured');
+    try {
+      const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: config.clientId, client_secret: config.discordClientSecret!, grant_type: 'authorization_code',
+          code: query.code, redirect_uri: callback, code_verifier: verifier,
+        }),
+      });
+      if (!tokenRes.ok) return fail('exchange_failed');
+      const token = await tokenRes.json() as { access_token?: string; token_type?: string };
+      if (!token.access_token || (token.token_type ?? '').toLowerCase() !== 'bearer') return fail('exchange_failed');
+      const userRes = await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${token.access_token}` } });
+      if (!userRes.ok) return fail('identity_failed');
+      const user = await userRes.json() as { id?: string; username?: string; global_name?: string | null; avatar?: string | null };
+      if (!user.id || !user.username) return fail('identity_failed');
+      const presented = sessionRefFrom(req, config, 'participant');
+      if (presented !== null) await deleteSession(db, presented.sessionId);
+      await purgeExpiredSessions(db);
+      const session = await createSession(db, {
+        userId: user.id, username: user.global_name || user.username, avatar: user.avatar ?? null,
+        guilds: [], audience: 'participant',
+      });
+      reply.header('set-cookie', [
+        sessionCookie(makeDiscordToken(config.adminSessionSecret, session.id, Date.now(), 'participant'), secureCookies, PARTICIPANT_COOKIE),
+        clearCookie(PARTICIPANT_STATE_COOKIE, secureCookies), clearCookie(PARTICIPANT_PKCE_COOKIE, secureCookies),
+      ]);
+      return reply.redirect('/');
+    } catch {
+      return fail('error');
+    }
+  });
+
+  app.get('/api/participant/me', async (req) => {
+    const session = await participantSessionFrom(req);
+    return { user: { id: session!.userId, username: session!.username, avatar: session!.avatar } };
+  });
+
+  app.get('/api/participant/registrations', async (req) => {
+    const session = await participantSessionFrom(req);
+    const rows = await db.all<{ event_id: string; name: string; description: string; starts_at: number | null; ends_at: number | null; status: string; team_id: string | null }>(
+      `SELECT e.id AS event_id, e.name, e.description, e.starts_at, e.ends_at, e.status, p.team_id
+       FROM participants p JOIN events e ON e.id = p.event_id
+       WHERE p.user_id = ? AND p.status <> 'withdrawn' AND e.status <> 'draft'
+       ORDER BY e.starts_at DESC NULLS LAST, e.id`,
+      session!.userId,
+    );
+    return { registrations: rows.map((row) => ({
+      eventId: row.event_id, name: row.name, description: row.description,
+      startsAt: row.starts_at, endsAt: row.ends_at, status: row.status, teamId: row.team_id,
+    })) };
+  });
+
   /** Who am I, what am I managing, what may I switch to. */
   app.get('/api/auth/me', async (req) => {
     const live = await sessionFrom(req);
@@ -427,7 +541,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       const cached = deps.client.guilds.cache.get(id);
       return cached?.name ?? null;
     };
-    if (live !== null && live.session !== null) {
+    if (live !== null) {
       const session = live.session;
       return {
         kind: 'discord' as const,
@@ -439,14 +553,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         guilds: session.guilds.map((g) => ({ ...g, name: guildName(g.id) ?? g.name })),
       };
     }
-    return {
-      kind: 'password' as const,
-      user: null,
-      guild: { id: isSnowflake(envGuildId) ? envGuildId : null, name: guildName(envGuildId) },
-      guilds: isSnowflake(envGuildId)
-        ? [{ id: envGuildId, name: guildName(envGuildId) ?? envGuildId, icon: null }]
-        : [],
-    };
+    return { kind: 'anonymous' as const, user: null, guild: { id: null, name: null }, guilds: [] };
   });
 
   /** Switch the guild this session manages. Validated server-side. */
@@ -454,8 +561,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const live = await sessionFrom(req);
     const body = req.body as { guildId?: string } | null;
     const target = body?.guildId ?? '';
-    if (live === null || live.session === null) {
-      await reply.code(400).send({ ok: false, code: 'not_discord_session', message: 'Password sessions are pinned to the configured server.' });
+    if (live === null) {
+      await reply.code(401).send({ ok: false, code: 'unauthorized', message: 'Sign in with Discord first.' });
       return;
     }
     if (!(await selectGuild(db, live.session.id, target))) {
@@ -468,7 +575,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.post('/api/auth/logout', async (req, reply) => {
     const live = await sessionFrom(req);
-    if (live !== null && live.session !== null) {
+    if (live !== null) {
       // Deleting the row is what actually revokes: the cookie stops resolving.
       await deleteSession(db, live.session.id);
       await audit(db, 'discord', 'web.logout', live.session.userId, null, null);
@@ -1053,6 +1160,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if ('defaultCategoryId' in body) cleaned.defaultCategoryId = body.defaultCategoryId ?? null
     if ('defaultScheduleChannelId' in body) cleaned.defaultScheduleChannelId = (body as unknown as { defaultScheduleChannelId?: string | null }).defaultScheduleChannelId ?? null
     if ('modRoleIds' in body) {
+      if (!ownerAdminRequests.has(req)) {
+        await reply.code(403).send({ ok: false, code: 'access_refused', message: 'Only the guild owner or an administrator can change delegated roles.' });
+        return;
+      }
       const arr = body.modRoleIds
       if (arr !== null && (!Array.isArray(arr) || arr.some(v=>typeof v !== 'string' || !isSnowflake(v)))) {
         await reply.code(400).send({ ok: false, code: 'bad_input', message: 'modRoleIds must be array of role snowflakes or null.' }); return

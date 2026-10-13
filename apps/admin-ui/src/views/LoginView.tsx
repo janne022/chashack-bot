@@ -1,10 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { Info, LogIn } from 'lucide-react'
+import { Info } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/textarea-label'
-import { api } from '@/api'
+
 import { useLocale, useT, setLocale } from '@/lib/i18n'
 import brandMark from '@/assets/brand/1.png'
 import wordmark from '@/assets/brand/4.png'
@@ -26,12 +23,7 @@ const AUTH_ERRORS: Record<string, string> = {
   no_guild: 'login.auth_no_guild',
 }
 
-export function LoginView({ onLogin }: { onLogin: (password: string) => Promise<void> }) {
-  const [password, setPassword] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [oauthEnabled, setOauthEnabled] = useState<boolean | null>(null)
-  const [showPassword, setShowPassword] = useState(false)
+export function LoginView({ notice }: { notice?: string | null }) {
   const [bounced, setBounced] = useState<string | null>(null)
 
   const t = useT()
@@ -41,32 +33,7 @@ export function LoginView({ onLogin }: { onLogin: (password: string) => Promise<
     // Bounced login attempt: the callback redirects here with a reason.
     const reason = new URLSearchParams(window.location.search).get('auth')
     setBounced(reason)
-    setShowPassword(reason !== null)
-    void api
-      .authMode()
-      .then((mode) => {
-        setOauthEnabled(mode.oauth)
-        // With Discord available the password form is the fallback, not the default.
-        if (!mode.oauth) setShowPassword(true)
-      })
-      .catch(() => {
-        setOauthEnabled(false)
-        setShowPassword(true)
-      })
   }, [])
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      await onLogin(password)
-    } catch {
-      setError(t('login.wrong_password'))
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const bounceKey = bounced !== null ? AUTH_ERRORS[bounced] : undefined
 
@@ -95,65 +62,24 @@ export function LoginView({ onLogin }: { onLogin: (password: string) => Promise<
           transition={{ duration: 0.4, ease: 'easeOut' }}
           className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-2xl"
         >
+          {notice && <p role="alert" className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{notice === 'access_refused' ? t('login.access_refused') : notice}</p>}
           {bounceKey !== undefined && (
             <p className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
               {t(bounceKey)}
             </p>
           )}
 
-          {oauthEnabled === true && (
-            <>
-              <a
-                href="/auth/discord"
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-[#5865F2] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4752C4] focus-visible:ring-3 focus-visible:ring-accent/50 focus-visible:outline-none"
-              >
-                <DiscordGlyph />
-                {t('login.with_discord')}
-              </a>
-              <p className="flex items-start gap-1.5 text-left text-xs text-muted-foreground">
-                <Info className="mt-0.5 size-3.5 shrink-0" />
-                {t('login.discord_hint')}
-              </p>
-              {!showPassword && (
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(true)}
-                  className="self-center text-xs text-muted-foreground underline decoration-muted-foreground/50 underline-offset-4 transition-colors hover:text-foreground"
-                >
-                  {t('login.use_password')}
-                </button>
-              )}
-            </>
-          )}
-
-          {showPassword && (
-            <form onSubmit={submit} className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="password">{t('login.password')}</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  autoFocus={oauthEnabled !== true}
-                  required
-                />
-              </div>
-              {error !== null && <p className="text-sm text-danger">{error}</p>}
-              <Button type="submit" disabled={busy || password === ''} className="font-display">
-                <LogIn />
-                {busy ? t('login.signing_in') : t('login.enter')}
-              </Button>
-            </form>
-          )}
-
-          {oauthEnabled === null && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="size-2 animate-pulse rounded-full bg-accent" />
-              {t('login.checking')}
-            </div>
-          )}
+          <a
+            href="/auth/discord"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-[#5865F2] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4752C4] focus-visible:ring-3 focus-visible:ring-accent/50 focus-visible:outline-none"
+          >
+            <DiscordGlyph />
+            {t('login.with_discord')}
+          </a>
+          <p className="flex items-start gap-1.5 text-left text-xs text-muted-foreground">
+            <Info className="mt-0.5 size-3.5 shrink-0" />
+            {t('login.discord_hint')}
+          </p>
         </motion.div>
       </div>
     </div>

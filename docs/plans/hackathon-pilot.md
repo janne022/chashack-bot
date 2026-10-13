@@ -19,5 +19,30 @@ its historical review. Preserve checkpoints and use the same PR32 and owner.
 - [ ] Fresh exact-head CI and original qa-judge independent changed-flow verification.
 - [ ] Operator SHA-bound workflow consent and guarded merge/readback before release.
 
-No live database migration/import, legacy-file access/deletion, auth redesign,
-RLS claim, frontend, profile or protected instruction edits are authorized.
+No live database migration/import, legacy-file access/deletion, RLS claim, profile
+or protected instruction edits are authorized.
+
+## OAuth-only identity and current guild authority (#22/#13)
+
+- Discord OAuth is the only sign-in path; remove operator/password sessions and
+  `DISCORD_GUILD_ID` authorization fallback. Require an explicit strong
+  `ADMIN_SESSION_SECRET`; rotating it logs out all sessions.
+- Keep Fastify, auth domain/data and revocable PostgreSQL session rows. Organizer
+  OAuth and participant OAuth (`identify` only) use distinct callbacks, typed
+  audiences, and separate cookies. Participant state/PKCE are one-shot; Discord
+  access/refresh tokens are never persisted or logged.
+- Only guild Owner/Administrator or configured immutable delegated role IDs may
+  manage events. Only Owner/Administrator changes delegated roles; Manage Server
+  alone is insufficient. Recheck guild membership and roles through the bot for
+  each request; absence, demotion, removal, and lookup errors fail closed. OAuth's
+  login-time guild list is display-only, not authorization.
+- Host allowlisting remains separate, minimal, and cannot read tenant content or
+  impersonate tenants. Participant APIs derive user identity solely from their
+  participant session; event/user/guild IDs are locators, never authority.
+- Keep public host allowlisting distinct; participant `/api/participant/me` is
+  identity only and registrations return only self-owned allowed event summaries.
+  Explicitly allowlist all API DTO fields.
+- Minimal login UI uses OAuth and retains accessible failure and empty states;
+  localized strings stay in English and Swedish. No participant forms, teams,
+  public-page UI, Redis, production credentials/migrations, proxy/domain, MCP,
+  profile/workflow, or instruction-file changes.

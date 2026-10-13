@@ -18,12 +18,8 @@ function loadDotEnv(): void {
     if (eq === -1) continue;
     const key = trimmed.slice(0, eq).trim();
     let value = trimmed.slice(eq + 1).trim();
-    if (value.length >= 2 && (value.startsWith('"') || value.startsWith("'")) && value.endsWith(value[0]!)) {
-      value = value.slice(1, -1);
-    }
-    if (process.env[key] === undefined || process.env[key] === '') {
-      process.env[key] = value;
-    }
+    if (value.length >= 2 && (value.startsWith('"') || value.startsWith("'")) && value.endsWith(value[0]!)) value = value.slice(1, -1);
+    if (process.env[key] === undefined || process.env[key] === '') process.env[key] = value;
   }
 }
 
@@ -33,23 +29,21 @@ export interface Env {
   guildId: string | undefined;
   adminIds: string[];
   adminPort: number;
-  adminPassword: string;
   adminSessionSecret: string;
-  /** OAuth2 client secret — when set, the console offers "Sign in with Discord". */
   discordClientSecret: string | undefined;
-  /** Callback URL registered in the Discord Developer Portal. */
   oauthRedirectUri: string | undefined;
-  /** Public origin when the console sits behind a proxy. */
   publicUrl: string | undefined;
   databaseUrl?: string | undefined;
   announceChannelId: string | undefined;
   auditChannelId: string | undefined;
-  /** Fallback category for team channels when the guild has none configured. */
   teamCategoryId: string | undefined;
-  /** Bot UI language for all Discord-facing strings: 'en' (default) or 'sv'. */
   botLanguage: 'en' | 'sv';
-  /** Run the admin panel without the Discord gateway (container smoke tests, UI-only deploys). */
   skipDiscord: boolean;
+}
+
+export function requireSessionSecret(secret: string): string {
+  if (secret.length < 32) throw new Error('ADMIN_SESSION_SECRET is required and must be at least 32 characters (see .env.example)');
+  return secret;
 }
 
 let cached: Env | undefined;
@@ -57,38 +51,27 @@ let cached: Env | undefined;
 export function env(): Env {
   if (cached) return cached;
   loadDotEnv();
-
   const get = (key: string): string => (process.env[key] ?? '').trim();
-
   const token = get('DISCORD_TOKEN');
   const clientId = get('DISCORD_CLIENT_ID');
-  const adminPassword = get('ADMIN_PASSWORD');
+  const clientSecret = get('DISCORD_CLIENT_SECRET');
   const skipDiscord = get('SKIP_DISCORD') === '1' || process.env.RUN_DRY === '1';
   const botLanguage = get('BOT_LANGUAGE') === 'sv' ? 'sv' : 'en';
-
   const missing: string[] = [];
   if (!skipDiscord) {
     if (token === '') missing.push('DISCORD_TOKEN');
     if (clientId === '') missing.push('DISCORD_CLIENT_ID');
-    if (adminPassword === '') missing.push('ADMIN_PASSWORD');
-  } else if (adminPassword === '') {
-    missing.push('ADMIN_PASSWORD');
+    if (clientSecret === '') missing.push('DISCORD_CLIENT_SECRET');
   }
-  if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(', ')} (see .env.example)`);
-  }
-
+  if (missing.length > 0) throw new Error(`Missing required environment variables: ${missing.join(', ')} (see .env.example)`);
   cached = {
     discordToken: token,
-    clientId: clientId,
+    clientId,
     guildId: get('DISCORD_GUILD_ID') || undefined,
-    adminIds: get('ADMIN_IDS')
-      .split(/[\s,]+/)
-      .filter((s) => s !== ''),
+    adminIds: get('ADMIN_IDS').split(/[\s,]+/).filter((s) => s !== ''),
     adminPort: Number(get('ADMIN_PORT') || '8420'),
-    adminPassword: adminPassword,
-    adminSessionSecret: get('ADMIN_SESSION_SECRET') || adminPassword,
-    discordClientSecret: get('DISCORD_CLIENT_SECRET') || undefined,
+    adminSessionSecret: requireSessionSecret(get('ADMIN_SESSION_SECRET')),
+    discordClientSecret: clientSecret || undefined,
     oauthRedirectUri: get('OAUTH_REDIRECT_URI') || undefined,
     publicUrl: get('PUBLIC_URL') || undefined,
     databaseUrl: process.env.DATABASE_URL,

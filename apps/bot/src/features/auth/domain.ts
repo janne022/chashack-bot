@@ -35,6 +35,24 @@ export function canManage(permissions: string | number | bigint): boolean {
   return (bits & ADMINISTRATOR) !== 0n || (bits & MANAGE_GUILD) !== 0n;
 }
 
+/** Current-request authority; OAuth guild permissions are only a login snapshot. */
+export function hasGuildManageAuthority(
+  userId: string,
+  ownerId: string,
+  permissions: string | number | bigint,
+  memberRoleIds: readonly string[],
+  delegatedRoleIds: readonly string[],
+): boolean {
+  if (userId === ownerId) return true;
+  let bits: bigint;
+  try {
+    bits = BigInt(permissions);
+  } catch {
+    return false;
+  }
+  return (bits & ADMINISTRATOR) !== 0n || memberRoleIds.some((id) => delegatedRoleIds.includes(id));
+}
+
 /**
  * Intersect "guilds this user administers" with "guilds the bot is in".
  * `botGuildIds` is null when the gateway is down — then we trust the OAuth list
@@ -56,9 +74,8 @@ export function manageableGuilds(userGuilds: OAuthGuild[], botGuildIds: Readonly
 // The operator format is byte-identical to what earlier releases issued, so an
 // upgrade does not log anyone out.
 
-export type SessionRef = { kind: 'operator' } | { kind: 'discord'; sessionId: string };
+export type SessionRef = { kind: 'discord'; sessionId: string; audience: 'organizer' | 'participant' };
 
-const OPERATOR_SCOPE = 'admin';
 const DISCORD_SCOPE = 'session';
 
 function sign(secret: string, scope: string, payload: string): string {
@@ -73,14 +90,9 @@ function macMatches(expected: string, given: string): boolean {
 
 export const SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
 
-export function makeOperatorToken(secret: string, now: number = Date.now()): string {
+export function makeDiscordToken(secret: string, sessionId: string, now: number = Date.now(), audience: 'organizer' | 'participant' = 'organizer'): string {
   const exp = now + SESSION_TTL_MS;
-  return `${exp}.${sign(secret, OPERATOR_SCOPE, String(exp))}`;
-}
-
-export function makeDiscordToken(secret: string, sessionId: string, now: number = Date.now()): string {
-  const exp = now + SESSION_TTL_MS;
-  return `${exp}.d.${sessionId}.${sign(secret, DISCORD_SCOPE, `${exp}:${sessionId}`)}`;
+  return `${exp}.d.${audience}.${sessionId}.${sign(secret, `${DISCORD_SCOPE}:${audience}`, `${exp}:${sessionId}`)}`;
 }
 
 export function verifyToken(secret: string, token: string, now: number = Date.now()): SessionRef | null {
@@ -88,16 +100,13 @@ export function verifyToken(secret: string, token: string, now: number = Date.no
   const exp = Number(parts[0]);
   if (!Number.isFinite(exp) || exp < now) return null;
 
-  if (parts.length === 2) {
-    const mac = parts[1] ?? '';
-    return macMatches(sign(secret, OPERATOR_SCOPE, String(exp)), mac) ? { kind: 'operator' } : null;
-  }
 
-  if (parts.length === 4 && parts[1] === 'd') {
-    const sessionId = parts[2] ?? '';
-    const mac = parts[3] ?? '';
+  if (parts.length === 5 && parts[1] === 'd' && (parts[2] === 'organizer' || parts[2] === 'participant')) {
+    const audience = parts[2];
+    const sessionId = parts[3] ?? '';
+    const mac = parts[4] ?? '';
     if (sessionId === '') return null;
-    return macMatches(sign(secret, DISCORD_SCOPE, `${exp}:${sessionId}`), mac) ? { kind: 'discord', sessionId } : null;
+    return macMatches(sign(secret, `${DISCORD_SCOPE}:${audience}`, `${exp}:${sessionId}`), mac) ? { kind: 'discord', sessionId, audience } : null;
   }
 
   return null;

@@ -28,6 +28,9 @@ export default function App({ children }: { children: ReactNode }) {
     } catch (e) {
       if (e instanceof ApiError && e.unauthorized) {
         setAuthed(false)
+      } else if (e instanceof ApiError && e.code === 'access_refused') {
+        setAuthed(false)
+        setError('access_refused')
       } else {
         setError(e instanceof Error ? e.message : 'Failed to load')
       }
@@ -44,13 +47,6 @@ export default function App({ children }: { children: ReactNode }) {
     setSelectedEventId(eventId)
   }, [])
 
-  const handleLogin = useCallback(
-    async (password: string) => {
-      await api.login(password)
-      await refresh()
-    },
-    [refresh],
-  )
 
   if (authed === null) {
     return (
@@ -64,7 +60,7 @@ export default function App({ children }: { children: ReactNode }) {
   }
 
   if (!authed) {
-    return <LoginView onLogin={handleLogin} />
+    return <LoginView notice={error} />
   }
 
   if (state === null) {

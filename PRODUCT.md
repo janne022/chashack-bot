@@ -7,18 +7,22 @@
 web
 
 The participant surface is Discord (slash commands, modals, DMs, team channels);
-the web surface is the organizer console served by the bot itself on `ADMIN_PORT`.
+participant-facing OAuth identity and self-scoped API work is planned, not a signup
+form or team-management web UI. The organizer console is served by the bot on `ADMIN_PORT`.
 
 ## Users
 
 - **Primary: the event organizers at ChaS** — the developer-owner plus a handful
   of helpers running one hackathon weekend live. They work from the admin console
   (and the `/hackathon admin …` commands) while the event is in progress.
-- **Participants: students**, who never touch the console. Discord is their entire
-  interface: signup modal, team creation/joins, invitations, team spaces.
+- **Participants: students**, using Discord for signup, team creation/joins,
+  invitations and team spaces. Participant OAuth identity and self-scoped API are
+  planned; forms and team management remain in Discord.
 
-There is no organizer onboarding, no roles/permissions model beyond "admin has the
-password or Manage Server", and no expectation that outsiders operate the tool.
+Organizers sign in with Discord OAuth. Current guild owner/Administrator or
+configured delegated roles can manage a guild where the bot is installed; the
+shared-password and env-guild authorization paths are removed. The session signing
+secret is required explicitly; rotating it revokes every session.
 
 ## Product Purpose
 
@@ -39,7 +43,8 @@ self-cleaning weekend.
 
 ## Operating Context
 
-- One Discord guild, a few events a year (spring/autumn). Single-tenant by design.
+- Multiple Discord guilds share one bot and PostgreSQL database; every organizer
+  request is scoped to a freshly checked guild membership and role authority.
 - The **schedule is the source of truth**: pinned Hackathon Starts / Signup window
   / Hackathon Ends blocks plus middle blocks carry the actions (announcements,
   post signup, lock teams, auto-match, distribute assignments) that fire at their
@@ -51,7 +56,8 @@ self-cleaning weekend.
   block/unblock/remove, moving participants, category, match preview/commit,
   reset; `/hackathon auto-match at:` for a scheduled match.
 - Runtime: one Node process (bot + API + static console), backed by PostgreSQL
-  only (`DATABASE_URL` is required); `SKIP_DISCORD=1` runs the console alone. PostgreSQL RLS is separate work.
+  only (`DATABASE_URL` is required); `SKIP_DISCORD=1` is for tests/smoke only and
+  cannot authorize organizer requests. PostgreSQL RLS is separate work.
 - Both languages are shipped: `en` + `sv` for the console, and bot copy is
   localized too.
 
@@ -78,11 +84,13 @@ Confirmed functionality (the README is the detailed inventory; this is the shape
 
 Constraints and deliberate limits:
 
-- **Single guild, single-tenant.** No multi-guild support, no tenant isolation.
+- **Guild-scoped organizer authority.** Fresh bot membership and owner/admin or
+  delegated-role checks are required on each API request. PostgreSQL RLS is not
+  implemented by this application-level authorization change.
 - **Swedish is a first-class language** for both participants and organizers —
   new user-facing copy ships in `en` + `sv` together.
-- **No participant accounts in the console.** Discord identity is the only
-  identity; the console is password-only (plus Manage Server / `ADMIN_IDS`).
+- **Participant web flows are not shipped yet.** Signup and team work remains in
+  Discord; participant OAuth identity and self-scoped API are planned.
 - **Everything provisioned is torn down** — team roles, channels and matched
   teams are removed by cleanup on the configured delay, so an event leaves no
   residue.
@@ -122,9 +130,9 @@ Constraints and deliberate limits:
    after cleanup) and who acts there.
 2. **The schedule is the source of truth.** Timed, idempotent actions fire the
    posts; manual buttons are conveniences, never the mechanism.
-3. **Discord is the participant boundary.** Participants never need the console or
-   an account; the console exists for organizers, and anything a participant needs
-   must work in Discord, including DM-closed fallbacks.
+3. **Discord is the participant boundary.** Planned participant web identity will use
+   identify-only OAuth; signup and team flows remain available in Discord, including
+   DM-closed fallbacks.
 4. **Provisioning is reversible.** Anything the bot creates for an event can be
    torn down by the bot, and cleanup is the default end state.
 5. **Swedish parity is a release gate**, not a translation backlog: a feature that
