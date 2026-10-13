@@ -358,7 +358,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         clearCookie(PKCE_COOKIE, secureCookies),
       ]);
       console.warn(`[oauth] login refused: ${reason}`);
-      await reply.redirect(`/?auth=${reason}`);
+      await reply.redirect(`/events?auth=${reason}`);
     };
 
     if (query.error !== undefined) return void (await fail('cancelled'));

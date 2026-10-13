@@ -109,7 +109,7 @@ test('password requests do not authenticate; callback without state and PKCE is 
   assert.equal(app.hasRoute({ method: 'POST', url: '/api/login' }), false);
   const callback = await app.inject({ url: '/auth/discord/callback?code=synthetic&state=forged' });
   assert.equal(callback.statusCode, 302);
-  assert.match(callback.headers.location ?? '', /auth=bad_state/);
+  assert.match(callback.headers.location ?? '', /^\/events\?auth=bad_state$/);
   await app.close();
   await db.close();
 });
