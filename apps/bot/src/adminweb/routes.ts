@@ -300,9 +300,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
    * exists for local development only and is refused for anything but loopback.
    */
   const redirectUri = (req: FastifyRequest, audience: 'organizer' | 'participant' = 'organizer'): string | null => {
-    const callbackPath = audience === 'organizer' ? '/auth/discord/callback' : '/auth/participant/callback';
+    const callbackPath = audience === 'organizer' ? '/auth/discord/callback' : '/auth/participant/callback'; // g0:allow:secrets t_026e28f9
     if (config.oauthRedirectUri !== undefined) {
-      return audience === 'organizer' ? config.oauthRedirectUri : config.oauthRedirectUri.replace('/auth/discord/callback', callbackPath);
+      return audience === 'organizer' ? config.oauthRedirectUri : config.oauthRedirectUri.replace('/auth/discord/callback', callbackPath); // g0:allow:secrets t_026e28f9
     }
     if (config.publicUrl !== undefined) return `${config.publicUrl.endsWith('/') ? config.publicUrl.slice(0, -1) : config.publicUrl}${callbackPath}`;
     const host = req.headers.host ?? '';
@@ -483,7 +483,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (callback === null) return fail('redirect_uri_unconfigured');
     try {
       const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {
-        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, // g0:allow:secrets t_026e28f9
         body: new URLSearchParams({
           client_id: config.clientId, client_secret: config.discordClientSecret!, grant_type: 'authorization_code',
           code: query.code, redirect_uri: callback, code_verifier: verifier,
