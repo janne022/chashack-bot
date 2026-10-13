@@ -415,6 +415,7 @@
   "login.auth_cancelled": "Sign-in was cancelled at Discord.",
   "login.auth_failed": "Discord sign-in did not complete. Please try again.",
   "login.auth_no_guild": "You do not manage any server the bot is in. Ask an organizer for access, or invite the bot to your server.",
+  "login.access_refused": "Your server access changed. Sign in again, then ask a server administrator to restore access if needed.",
   "login.auth_misconfigured": "Discord sign-in is not configured correctly (redirect URI). An organizer must fix the setup.",
   "server.label": "Server",
   "server.switch": "Switch server",

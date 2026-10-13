@@ -4,16 +4,25 @@
  * static UI end-to-end. Run after build: node scripts/smoke-admin.mjs
  */
 process.env.RUN_DRY = '1';
-process.env.ADMIN_PASSWORD = 'smoke-test-pass';
 process.env.ADMIN_PORT = '8491';
-process.env.ADMIN_SESSION_SECRET = 'smoke-secret';
+process.env.ADMIN_SESSION_SECRET = 'synthetic-smoke-session-secret-32-chars';
 
 const { startAdminServer } = await import('../dist/adminweb/server.js');
 const { openTestDb } = await import('../dist/shared/test-db.js');
 const { env } = await import('../dist/shared/env.js');
+const { createSession } = await import('../dist/features/auth/data.js');
+const { makeDiscordToken } = await import('../dist/features/auth/domain.js');
 
 const db = await openTestDb();
-const server = await startAdminServer({ db, config: env(), announce: async () => {}, client: null });
+const client = { guilds: { cache: new Map(), fetch: async () => ({
+  id: '11111111111111111', name: 'Synthetic smoke guild', ownerId: 'synthetic-user',
+  members: { fetch: async () => ({ id: 'synthetic-user', permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }) },
+}) } };
+const server = await startAdminServer({ db, config: env(), announce: async () => {}, client });
+const session = await createSession(db, {
+  userId: 'synthetic-user', username: 'Synthetic smoke user', avatar: null,
+  guilds: [{ id: '11111111111111111', name: 'Synthetic smoke guild', icon: null }],
+});
 
 const base = 'http://localhost:8491';
 const results = [];
@@ -40,22 +49,10 @@ check('SPA fallback works', spaRes.status === 200 && spaHtml.includes('<div id="
 const unauth = await fetch(`${base}/api/state`);
 check('unauthenticated /api/state is 401', unauth.status === 401);
 
-// 4. Wrong password rejected
-const badLogin = await fetch(`${base}/api/login`, {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ password: 'wrong' }),
-});
-check('wrong password is 401', badLogin.status === 401);
-
-// 5. Correct password sets session
-const login = await fetch(`${base}/api/login`, {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ password: 'smoke-test-pass' }),
-});
-const cookie = login.headers.get('set-cookie')?.split(';')[0] ?? '';
-check('login sets session cookie', login.status === 200 && cookie.startsWith('hacksess='));
+// Synthetic cookie/row fixture: this proves API behavior, not a live Discord OAuth login.
+const cookie = `hacksess=${encodeURIComponent(makeDiscordToken(env().adminSessionSecret, session.id))}`;
+const legacyLogin = await fetch(`${base}/api/login`, { method: 'POST', body: JSON.stringify({ password: 'any' }) });
+check('password endpoint is absent', legacyLogin.status === 404);
 
 // 6. State endpoint with session
 const state = await fetch(`${base}/api/state`, { headers: { cookie } });

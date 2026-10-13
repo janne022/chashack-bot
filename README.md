@@ -100,27 +100,28 @@ apps/admin-ui    React admin panel (Vite)
 
 ```bash
 pnpm install                      # workspace install (supply-chain gated)
-cp .env.example apps/bot/.env     # fill in DATABASE_URL, Discord creds + admin password
+cp .env.example apps/bot/.env     # fill in DATABASE_URL, Discord OAuth/bot creds + session secret
 pnpm build                        # bot (tsc) + admin UI (vite)
 pnpm register:commands            # register the commands in every guild the bot is in (instant)
 pnpm --filter bot start           # bot + admin UI on ADMIN_PORT
 ```
 
-Environment variables: see `.env.example`. `DISCORD_GUILD_ID` is recommended
-(instant command registration, and the fallback guild for password sessions).
-Admins = `ADMIN_IDS` + anyone with Manage Server. The admin panel lives at
+Environment variables: see `.env.example`. `DISCORD_GUILD_ID` is optional and
+used only for instant local command registration, never web authorization.
+The admin panel lives at
 `http://localhost:8420`.
 
 ### Signing in to the console
 
-Password (`ADMIN_PASSWORD`) always works and is pinned to `DISCORD_GUILD_ID`.
-Add `DISCORD_CLIENT_SECRET` to also offer **Sign in with Discord**: an organizer
-then sees every server they administer *and* where the bot is present, and picks
-one from the sidebar. Register the callback URL in the Discord developer portal
+Sign-in is **Discord OAuth only**. Configure `DISCORD_CLIENT_ID`,
+`DISCORD_CLIENT_SECRET`, and an explicit `ADMIN_SESSION_SECRET` (at least 32
+characters; generate with `openssl rand -base64 32`). Rotating the session secret
+logs everyone out. Organizers can manage only a server where the bot is installed
+and their current membership has owner/Administrator or a delegated role.
+Register the callback URL in the Discord developer portal
 (OAuth2 → Redirects — `http://localhost:8420/auth/discord/callback` by default)
 and set the same value in `OAUTH_REDIRECT_URI`, or set `PUBLIC_URL` and it is
-derived from there. Without a client secret the console stays password-only and
-behaves exactly as before.
+derived from there.
 
 `PUBLIC_URL` should be set in any real deployment: it decides the `Secure` cookie
 flag and is the origin trusted by the API's CSRF check.

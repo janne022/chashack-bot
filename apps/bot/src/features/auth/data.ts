@@ -12,6 +12,7 @@ import { SESSION_TTL_MS } from './domain.js';
 
 export interface WebSession {
   id: string;
+  audience: 'organizer' | 'participant';
   userId: string;
   username: string;
   avatar: string | null;
@@ -23,6 +24,7 @@ export interface WebSession {
 
 interface Row {
   id: string;
+  audience: 'organizer' | 'participant';
   user_id: string;
   username: string;
   avatar: string | null;
@@ -42,6 +44,7 @@ function toSession(row: Row): WebSession {
   }
   return {
     id: row.id,
+    audience: row.audience,
     userId: row.user_id,
     username: row.username,
     avatar: row.avatar,
@@ -54,15 +57,16 @@ function toSession(row: Row): WebSession {
 
 export async function createSession(
   db: Db,
-  input: { userId: string; username: string; avatar: string | null; guilds: ManageableGuild[]; now?: number },
+  input: { userId: string; username: string; avatar: string | null; guilds: ManageableGuild[]; audience?: 'organizer' | 'participant'; now?: number },
 ): Promise<WebSession> {
   const now = input.now ?? Date.now();
   const id = randomBytes(16).toString('hex');
   const selected = input.guilds[0]?.id ?? null;
   await db.run(
-    `INSERT INTO web_sessions (id, user_id, username, avatar, guild_ids, selected_guild_id, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO web_sessions (id, audience, user_id, username, avatar, guild_ids, selected_guild_id, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
+    input.audience ?? 'organizer',
     input.userId,
     input.username,
     input.avatar,
@@ -73,6 +77,7 @@ export async function createSession(
   );
   return toSession({
     id,
+    audience: input.audience ?? 'organizer',
     user_id: input.userId,
     username: input.username,
     avatar: input.avatar,

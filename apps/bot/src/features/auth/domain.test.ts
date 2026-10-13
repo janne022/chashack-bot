@@ -11,8 +11,9 @@ import {
   makePkcePair,
   makeState,
   safeEqual,
+  hasGuildManageAuthority,
 } from './domain.js';
-import { makeOperatorToken, makeDiscordToken, verifyToken } from './domain.js';
+import { makeDiscordToken, verifyToken } from './domain.js';
 import { createSession, getSession, selectGuild, deleteSession, purgeExpiredSessions } from './data.js';
 
 const SECRET = 'test-secret';
@@ -31,7 +32,6 @@ test('canManage: MANAGE_GUILD or ADMINISTRATOR, nothing else', async () => {
   assert.equal(canManage(0n), false);
   assert.equal(canManage(1n << 11n), false, 'SEND_MESSAGES is not admin');
   assert.equal(canManage('not-a-number'), false);
-  // real payloads arrive as decimal strings
   assert.equal(canManage('32'), true, '32 = MANAGE_GUILD');
   assert.equal(canManage('8'), true, '8 = ADMINISTRATOR');
   assert.equal(canManage('2048'), false, '2048 = SEND_MESSAGES only');
@@ -51,22 +51,26 @@ test('manageableGuilds: user rights AND bot presence', async () => {
   assert.deepEqual(all.map((g) => g.id), ['2', '4', '1'], 'no gateway → trust the OAuth list');
 });
 
-test('tokens: operator format is unchanged, discord format carries a session id', async () => {
+test('fresh authority is owner, administrator, or an explicitly delegated role', () => {
+  assert.equal(hasGuildManageAuthority('owner', 'owner', '0', [], []), true);
+  assert.equal(hasGuildManageAuthority('admin', 'owner', '8', [], []), true);
+  assert.equal(hasGuildManageAuthority('manager', 'owner', '32', [], []), false);
+  assert.equal(hasGuildManageAuthority('delegate', 'owner', '0', ['role-a'], ['role-a']), true);
+  assert.equal(hasGuildManageAuthority('member', 'owner', '0', ['role-a'], ['role-b']), false);
+  assert.equal(hasGuildManageAuthority('member', 'owner', 'bogus', ['role-a'], ['role-a']), false);
+});
+
+test('tokens accept Discord sessions only; reject legacy operator tokens', async () => {
   const now = 1_000_000;
-  const operator = makeOperatorToken(SECRET, now);
-  assert.equal(operator.split('.').length, 2, 'legacy shape preserved');
-  assert.deepEqual(verifyToken(SECRET, operator, now), { kind: 'operator' });
-
   const discord = makeDiscordToken(SECRET, 'abc123', now);
-  assert.equal(discord.split('.')[1], 'd');
-  assert.deepEqual(verifyToken(SECRET, discord, now), { kind: 'discord', sessionId: 'abc123' });
-
-  // tampering and expiry
-  assert.equal(verifyToken(SECRET, `${operator}x`, now), null);
-  assert.equal(verifyToken('other-secret', operator, now), null);
-  assert.equal(verifyToken(SECRET, operator, now + 8 * 24 * 3600 * 1000), null, 'expired');
+  assert.deepEqual(verifyToken(SECRET, discord, now), { kind: 'discord', sessionId: 'abc123', audience: 'organizer' });
+  const participant = makeDiscordToken(SECRET, 'abc123', now, 'participant');
+  assert.deepEqual(verifyToken(SECRET, participant, now), { kind: 'discord', sessionId: 'abc123', audience: 'participant' });
+  assert.equal(verifyToken(SECRET, participant.replace('.participant.', '.organizer.'), now), null, 'audience cannot be changed');
+  assert.equal(verifyToken(SECRET, '1000000000.legacy', now), null);
+  assert.equal(verifyToken('other-secret', discord, now), null);
+  assert.equal(verifyToken(SECRET, discord, now + 8 * 24 * 3600 * 1000), null);
   assert.equal(verifyToken(SECRET, 'garbage', now), null);
-  assert.equal(verifyToken(SECRET, makeDiscordToken(SECRET, 'abc', now).replace('abc', 'xyz'), now), null, 'swapped id');
 });
 
 test('makeState: unique per call, url-safe', async () => {
@@ -108,8 +112,8 @@ test('sessions: create, select an authorised guild, refuse an unauthorised one',
 
   assert.equal(await selectGuild(db, session.id, 'g2'), true);
   assert.equal((await getSession(db, session.id))?.selectedGuildId, 'g2');
-  assert.equal(await selectGuild(db, session.id, 'not-mine'), false, 'must not be able to switch to a foreign guild');
-  assert.equal((await getSession(db, session.id))?.selectedGuildId, 'g2', 'refusal leaves the selection alone');
+  assert.equal(await selectGuild(db, session.id, 'not-mine'), false);
+  assert.equal((await getSession(db, session.id))?.selectedGuildId, 'g2');
 
   await deleteSession(db, session.id);
   assert.equal(await getSession(db, session.id), null);
@@ -125,7 +129,7 @@ test('sessions: expired rows are dropped, not served', async () => {
     guilds: [{ id: 'g1', name: 'One', icon: null }],
   });
   const later = Date.now() + 8 * 24 * 3600 * 1000;
-  assert.equal(await getSession(db, session.id, later), null, 'expired session is not returned');
-  assert.equal(await purgeExpiredSessions(db, later), 0, 'it deleted itself on read');
+  assert.equal(await getSession(db, session.id, later), null);
+  assert.equal(await purgeExpiredSessions(db, later), 0);
   await db.close();
 });

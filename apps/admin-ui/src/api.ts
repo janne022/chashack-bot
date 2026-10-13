@@ -33,12 +33,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  async login(password: string): Promise<void> {
-    await request('/api/login', {
-      method: 'POST',
-      body: JSON.stringify({ password }),
-    })
-  },
 
   /**
    * Load app state. Pass an eventId to scope participants/teams/matching to a
@@ -320,9 +314,6 @@ export const api = {
 
   // ─── session (multi-server + Discord login) ───
 
-  async authMode(): Promise<{ oauth: boolean; password: boolean }> {
-    return request('/api/auth/mode')
-  },
 
   async authMe(): Promise<AuthMe> {
     return request('/api/auth/me')

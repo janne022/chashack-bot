@@ -100,6 +100,7 @@ test('migration: fresh database via PostgreSQL bootstrap has all expected tables
       teams: ['event_id', 'role_id', 'text_channel_id', 'voice_channel_id', 'color'],
       team_requests: ['event_id'],
       participants: ['event_id'],
+      web_sessions: ['audience'],
       events: ['cleanup_warned_72h', 'cleanup_warned_24h', 'match_at', 'match_locked', 'schedule_channel_id', 'signup_starts_at', 'signup_ends_at', 'assignments_json', 'schedule_json', 'announcements_json', 'announced_schedule_ids', 'announcement_channel_id'],
     };
     for (const [table, columns] of Object.entries(expected)) {

@@ -29,7 +29,12 @@ test('two guild handlers isolate default form and audit IDs', async (t) => {
   const app = Fastify({ logger: false });
   t.after(async () => { await app.close(); await db.close(); });
   let announcements = 0;
-  registerRoutes(app, { db, config, announce: async () => { announcements++; }, client: null });
+  const guilds = new Map([guildA, guildB].map((id, index) => [id, {
+    id, name: id, ownerId: index === 0 ? 'a' : 'b',
+    members: { fetch: async (userId: string) => ({ id: userId, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }) },
+  }]));
+  const client = { guilds: { cache: guilds, fetch: async (id: string) => guilds.get(id) } } as never;
+  registerRoutes(app, { db, config, announce: async () => { announcements++; }, client });
   const injectState = (sessionId: string) => app.inject({ url: '/api/state', headers: { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, sessionId))}` } });
   const stateA = await injectState(sessionA.id);
   const stateB = await injectState(sessionB.id);

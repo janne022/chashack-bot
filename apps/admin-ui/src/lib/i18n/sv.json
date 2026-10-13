@@ -415,6 +415,7 @@
   "login.auth_cancelled": "Inloggningen avbröts hos Discord.",
   "login.auth_failed": "Inloggningen med Discord slutfördes inte. Försök igen.",
   "login.auth_no_guild": "Du hanterar ingen server som boten finns i. Be en organisatör om åtkomst, eller bjud in boten till din server.",
+  "login.access_refused": "Din serverbehörighet har ändrats. Logga in igen och be en serveradministratör återställa åtkomsten vid behov.",
   "login.auth_misconfigured": "Discord-inloggningen är inte korrekt konfigurerad (redirect-URI). En organisatör måste åtgärda det.",
   "server.label": "Server",
   "server.switch": "Byt server",

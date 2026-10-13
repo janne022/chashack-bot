@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS guild_settings (
 
 CREATE TABLE IF NOT EXISTS web_sessions (
       id TEXT PRIMARY KEY,
+      audience TEXT NOT NULL DEFAULT 'organizer',
       user_id TEXT NOT NULL,
       username TEXT NOT NULL,
       avatar TEXT,
