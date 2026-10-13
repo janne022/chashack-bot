@@ -17,7 +17,7 @@ write the same rows; there is no Discord-side copy of anything.
 
 ```
 admin UI → api.ts → adminweb/routes.ts ─┐
-                                        ├→ features/*/data.ts → SQLite
+                                        ├→ features/*/data.ts → PostgreSQL
 Discord interaction → dispatch.ts ──────┘
 ```
 
@@ -27,7 +27,7 @@ Discord interaction → dispatch.ts ──────┘
 apps/bot     src/features/<slice>/   domain.ts (pure) · data.ts (all SQL) · *.test.ts
              src/discord/            commands.ts · dispatch.ts · user-|admin-|event-commands.ts
              src/adminweb/routes.ts  every HTTP route (all guild-scoped)
-             src/shared/             db.ts (schema + migrate) · env.ts · i18n.ts · audit.ts
+             src/shared/             db.ts (bootstrap/types) · postgres.ts (driver/migrate) · postgres-schema.ts (DDL) · env.ts · i18n.ts · audit.ts
 apps/admin-ui  React PWA — views/, panels/, components/ui/, lib/i18n/{en,sv}.json
 docs/plans/    one plan doc per multi-part feature (write it before building)
 PRODUCT.md · DESIGN.md · docs/ARCHITECTURE.md
@@ -35,8 +35,8 @@ PRODUCT.md · DESIGN.md · docs/ARCHITECTURE.md
 
 ## The rules that are not obvious
 
-- **SQL lives only in `data.ts`.** Handlers call slices, they never write SQL.
-- **`domain.ts` is pure** — no SQLite, no discord.js.
+- **Feature queries live in `data.ts`.** Handlers call slices, never write SQL. PostgreSQL driver/migrations and authoritative DDL live in `shared/postgres.ts` and `shared/postgres-schema.ts`.
+- **`domain.ts` is pure** — no database driver or discord.js.
 - **Guild scoping is per request.** Routes resolve their guild with `guildOf(req)`;
   a guild id captured at module scope reads and writes another server's data.
 - **The session row is the session.** A cookie whose `web_sessions` row is gone
@@ -79,6 +79,10 @@ PRODUCT.md · DESIGN.md · docs/ARCHITECTURE.md
 - **The console is multi-server; the client never names a guild.** Switching is
   validated server-side against the session's stored guild list.
 
+## Database: PostgreSQL only
+
+PostgreSQL is the only application database in development, tests, CI, AppHost and production. Configure `DATABASE_URL`; missing/invalid configuration fails startup. There is no file-backed or in-memory fallback and no `DB_PATH` option. Preserve existing user database files; do not automatically import, convert or delete them. Test fixtures require a configured and connected disposable database ending in `_test` or `_ci` before isolated schema creation/cleanup. AppHost verification must prove real PostgreSQL persistence, not only connection-string injection.
+
 ## Hermes pipeline
 
 `.hermes/pipeline.yaml` declares the local checks; `.hermes/pipeline/` is
@@ -106,6 +110,8 @@ Protected instruction-file edits require attended approval, not a headless
 retry through another write tool.
 
 ## Verify before you commit
+
+Configure `DATABASE_URL` for a real disposable PostgreSQL `_test`/`_ci` database before tests or API smoke; use the current fixture instructions in `docs/DEV.md`. Never use a production URL for verification.
 
 ```bash
 cd apps/bot && npm run build && npm test        # tests run dist/**, so build first
@@ -137,13 +143,14 @@ stores `default_member_permissions` only on the top-level command.
 ## Running it locally without touching Discord
 
 ```bash
-cd apps/bot && SKIP_DISCORD=1 ADMIN_PASSWORD=<tmp> DISCORD_GUILD_ID=<snowflake> DB_PATH=/tmp/x.db node dist/index.js
+# DATABASE_URL must already point to the configured disposable PostgreSQL database.
+cd apps/bot && SKIP_DISCORD=1 ADMIN_PASSWORD=<tmp> DISCORD_GUILD_ID=<snowflake> node dist/index.js
 ```
 
 - A snowflake-shaped guild id is required, or event creation returns `guild_not_configured`.
 - The API serves the **built** UI and caches its file list at boot: rebuild, then restart.
 - Sessions are `HttpOnly`; for a headless browser use a proxy that injects the cookie
   **and forwards the browser's `Host`/`Origin`** — the API rejects mismatched origins.
-- Kill by port (`ss -ltnpH 'sport = :8420'`), not `pgrep`: `DB_PATH` is an env var.
+- Stop only the process/resource owned by this verification; inspect the listener on port 8420 rather than searching for a database URL in command lines. Preserve database files and unrelated volumes.
 - To test a Discord session without a real login, insert a `web_sessions` row and sign
   the cookie: `hmac_sha256(ADMIN_SESSION_SECRET ?? ADMIN_PASSWORD, 'session:<exp>:<id>')`.
