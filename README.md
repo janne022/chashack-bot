@@ -171,7 +171,7 @@ docker pull ghcr.io/janne022/chashack-bot:main
 docker run -d --name chashack \
   -p 8420:8420 --env-file apps/bot/.env \
   -e DISCORD_TOKEN=... -e DISCORD_CLIENT_ID=... \
-  -e DISCORD_GUILD_ID=... -e ADMIN_PASSWORD=... \
+  -e DISCORD_CLIENT_SECRET=... -e ADMIN_SESSION_SECRET=... \
   --restart unless-stopped \
   ghcr.io/janne022/chashack-bot:main
 ```
@@ -179,8 +179,8 @@ docker run -d --name chashack \
 - Multi-stage build: full workspace build stage → runtime with bot prod deps
   + compiled output only; runs unprivileged (uid 1000 by default); external PostgreSQL;
   `HEALTHCHECK` hits `/healthz`.
-- `SKIP_DISCORD=1` runs the admin panel without the Discord gateway
-  (UI-only deployments, container smoke tests).
+- `SKIP_DISCORD=1` is for CI and smoke tests only; OAuth login and current guild
+  authorization require the Discord gateway to be available.
 - CI (`.github/workflows/ci.yml`) gates every push/PR: supply-chain policy
   check, frozen-lockfile install, typecheck, build, tests, API smoke suite.
 - All pipeline deps are exact-pinned; CI runs on Node 24.

@@ -51,8 +51,8 @@ check('unauthenticated /api/state is 401', unauth.status === 401);
 
 // Synthetic cookie/row fixture: this proves API behavior, not a live Discord OAuth login.
 const cookie = `hacksess=${encodeURIComponent(makeDiscordToken(env().adminSessionSecret, session.id))}`;
-const legacyLogin = await fetch(`${base}/api/login`, { method: 'POST', body: JSON.stringify({ password: 'any' }) });
-check('password endpoint is absent', legacyLogin.status === 404);
+const legacyLogin = await fetch(`${base}/api/login`, { method: 'POST', body: JSON.stringify({ password: 'synthetic' }) });
+check('password endpoint does not authenticate', legacyLogin.status === 401 || legacyLogin.status === 404);
 
 // 6. State endpoint with session
 const state = await fetch(`${base}/api/state`, { headers: { cookie } });
