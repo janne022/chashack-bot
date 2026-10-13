@@ -18,7 +18,7 @@ const client = { guilds: { cache: new Map(), fetch: async () => ({
   id: '11111111111111111', name: 'Synthetic smoke guild', ownerId: 'synthetic-user',
   members: { fetch: async () => ({ id: 'synthetic-user', permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }) },
 }) } };
-const server = await startAdminServer({ db, config: env(), announce: async () => {}, client });
+const server = await startAdminServer({ db, config: env(), announce: async () => undefined, client });
 const session = await createSession(db, {
   userId: 'synthetic-user', username: 'Synthetic smoke user', avatar: null,
   guilds: [{ id: '11111111111111111', name: 'Synthetic smoke guild', icon: null }],
