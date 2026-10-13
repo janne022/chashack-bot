@@ -91,12 +91,4 @@ const adminUi = await builder
     .withReference(botApi)
     .withEnvironment('API_URL', botApi.getEndpoint('http'));
 
-// TODO(ws4): participant app. When apps/web exists, declare it here, mirroring
-// the admin-ui block (addViteApp + .withPnpm(), reference the bot API):
-//   const web = await builder.addViteApp('web', './apps/web').withPnpm()
-//       .withReference(botApi).withEnvironment('API_URL', botApi.getEndpoint('http'));
-// apps/web does not exist yet, so nothing is declared — the workspace glob
-// apps/* would pick the directory up automatically, but Aspire needs the
-// explicit resource.
-
 await builder.build().run();
