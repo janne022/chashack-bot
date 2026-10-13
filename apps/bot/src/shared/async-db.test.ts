@@ -1,27 +1,12 @@
-/**
- * WS2a regression + migration coverage for the async data-layer facade.
- *
- * 1. Double-execution regression: `execDirect` used to follow a mutating
- *    `stmt.run()` with `stmt.all()`, and on node:sqlite `.all()` RE-EXECUTES a
- *    prepared statement that was not exhausted — one INSERT produced two rows.
- *    The fix executes a mutating statement exactly once; these tests pin that.
- * 2. Fresh-database migration through `openDb`: expected tables/columns exist
- *    (including every `addColumnIfMissing` column), and `migrate()` is
- *    idempotent (two runs → no error, unchanged schema).
- * 3. `shared/kysely.ts` adapter exercised against the same handle: SELECT via
- *    the Kysely query builder and a rolled-back transaction leave no rows.
- */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import fs from 'node:fs';
-import { openDb, type Db } from './db.js';
+import type { Db } from './db.js';
+import { migratePostgres } from './postgres.js';
 import { openTestDb } from './test-db.js';
 import { createKysely, type KyselyDb } from './kysely.js';
 
 async function cols(db: Db, table: string): Promise<string[]> {
-  const rows = 'dialect' in db && db.dialect === 'postgres'
-    ? await db.all<{ name: string }>('SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?', table)
-    : await db.all<{ name: string }>(`PRAGMA table_info(${table})`);
+  const rows = await db.all<{ name: string }>('SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?', table);
   return rows.map((c) => c.name);
 }
 
@@ -54,7 +39,7 @@ test('facade: one mutating run() call inserts exactly one row (double-execution 
     const left = (await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM events'))!;
     assert.equal(left.n, 0, 'table must be empty after the single delete');
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
@@ -73,7 +58,7 @@ test('facade: exactly one participant row per signup through run() inside a tran
     assert.equal(rows.length, 1);
     assert.equal(rows[0]!.n, 1, 'transactional INSERT must not duplicate rows');
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
@@ -97,16 +82,14 @@ test('facade: one INSERT per mutating call through the transaction queue', async
     const rows = await db.all<{ user_id: string }>('SELECT user_id FROM participants WHERE event_id = ? ORDER BY user_id', EVENT);
     assert.deepEqual(rows.map((r) => r.user_id), ['uA', 'uB'], 'two writes → exactly two rows, no duplicates');
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
-test('migration: fresh database via openDb has all expected tables and columns', async () => {
+test('migration: fresh database via PostgreSQL bootstrap has all expected tables and columns', async () => {
   const db = await openTestDb();
   try {
-    const sql = 'dialect' in db && db.dialect === 'postgres'
-      ? 'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = current_schema()'
-      : "SELECT name FROM sqlite_master WHERE type = 'table'";
+    const sql = 'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = current_schema()';
     const tables = (await db.all<{ name: string }>(sql)).map((r) => r.name);
     for (const t of ['meta', 'events', 'event_templates', 'form_config', 'participants', 'teams', 'team_requests', 'guild_settings', 'web_sessions', 'audit_log']) {
       assert.ok(tables.includes(t), `table ${t} must exist after migrate()`);
@@ -126,34 +109,20 @@ test('migration: fresh database via openDb has all expected tables and columns',
       }
     }
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
-test('migration: is idempotent — second openDb on the same file, same schema', async () => {
-  const file = `/tmp/chashack-ws2a-idem-${process.pid}.db`;
-  for (const f of [file, `${file}-wal`, `${file}-shm`]) {
-    try { fs.unlinkSync(f); } catch { /* ignore */ }
-  }
+test('migration: second bootstrap preserves schema and stored data', async () => {
+  const db = await openTestDb();
   try {
-    const first = openDb(file);
-    const schema1 = first.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all();
-    first.close();
-
-    let secondError: unknown = null;
-    let schema2: unknown = null;
-    try {
-      const second = openDb(file);
-      schema2 = second.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all();
-      second.close();
-    } catch (e) { secondError = e; }
-    assert.equal(secondError, null, 'second migrate() run must not throw');
-    assert.deepEqual(schema2, schema1, 'schema must be unchanged after a second migrate() run');
-  } finally {
-    for (const f of [file, `${file}-wal`, `${file}-shm`]) {
-      try { fs.unlinkSync(f); } catch { /* ignore */ }
-    }
-  }
+    await seedEvent(db);
+    const columns = () => db.all("SELECT table_name,column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=current_schema() ORDER BY table_name,column_name");
+    const before = await columns();
+    await migratePostgres(db);
+    assert.deepEqual(await columns(), before);
+    assert.equal((await db.get('SELECT name FROM events WHERE id = ?', EVENT))?.name, 'Async Facade Fixture');
+  } finally { await db.close(); }
 });
 
 test('facade: transaction failure rolls back and does not poison queued writes', async () => {
@@ -176,11 +145,11 @@ test('facade: transaction failure rolls back and does not poison queued writes',
     const rows = await db.all<{ user_id: string }>('SELECT user_id FROM participants WHERE event_id = ?', EVENT);
     assert.deepEqual(rows.map((row) => row.user_id), ['after-error']);
   } finally {
-    db.close();
+    await db.close();
   }
 });
 
-test('kysely: adapter reads and writes through the shared node:sqlite handle', async () => {
+test('kysely: adapter reads and writes through the shared PostgreSQL handle', async () => {
   const db = await openTestDb();
   try {
     await seedEvent(db);
@@ -199,7 +168,7 @@ test('kysely: adapter reads and writes through the shared node:sqlite handle', a
 
     await kysely.destroy();
   } finally {
-    db.close();
+    await db.close();
   }
 });
 

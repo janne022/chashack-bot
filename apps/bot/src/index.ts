@@ -12,7 +12,7 @@ import { runMaintenance } from './discord/notify.js';
 import { registerCommands, registerCommandsInGuild } from './register-commands-lib.js';
 
 const config = env();
-const db = await openDatabase(config.dbPath, config.databaseUrl);
+const db = await openDatabase(config.databaseUrl);
 const kysely = createKysely(db);
 
 const client = new Client({

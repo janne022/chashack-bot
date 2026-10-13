@@ -13,7 +13,7 @@ const config = {
   adminSessionSecret: secret, guildId: '11111111111111111', skipDiscord: true,
   adminPassword: 'test', adminIds: [], adminPort: 0, discordToken: '', clientId: '',
   discordClientSecret: undefined, oauthRedirectUri: undefined, publicUrl: undefined,
-  dbPath: ':memory:', announceChannelId: undefined, auditChannelId: undefined,
+  announceChannelId: undefined, auditChannelId: undefined,
   teamCategoryId: undefined, botLanguage: 'en',
 } as Env;
 

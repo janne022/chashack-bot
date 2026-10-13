@@ -12,10 +12,9 @@ leaked and rotate it — do not edit the history and hope.
 
 ## Inventory
 
-Verified against `apps/bot/src/shared/env.ts` and `.env.example` on the current
-`main`. The hosted deployment today is SQLite + in-process; there is **no**
-`DATABASE_URL` and **no** `REDIS_URL` in the code — if a hosted deployment later adds
-Postgres or Redis, add those rows here (with rotation steps) in the same change.
+The PostgreSQL-only runtime requires `DATABASE_URL` (see `env.ts` and `.env.example`).
+There is no `REDIS_URL` in the application. Deployment status is not established by
+this source change.
 
 | Variable | Lives in | Grants / purpose | If it leaks | Test after rotation |
 | --- | --- | --- | --- | --- |
@@ -29,15 +28,14 @@ Postgres or Redis, add those rows here (with rotation steps) in the same change.
 | `HOST_OPERATOR_DISCORD_IDS` *(provisional — **not read by the code yet**, see (b) below)* | `.env` (once it lands) | Which Discord user ids get host-operator powers: freeze/unfreeze a tenant, see aggregate tenant health. Never tenant content | An attacker editing the file could freeze tenants or read aggregate health; file access already means game over | Remove unknown ids, restart, and read the host-scope audit rows for actions you did not take |
 | `DISCORD_GUILD_ID` | `.env` | Fallback guild for the legacy password-based console session; multi-server support no longer needs it | Not a secret; a wrong value would scope that fallback session to the wrong server | No rotation; remove it once the OAuth-only migration (issue #22) lands |
 | `RUN_DRY` | `.env` / environment | Runs the process **without Discord**: when set to `1` the bot skips starting the Discord client entirely (`env.ts` line for `skipDiscord`; `SKIP_DISCORD=1` does the same). Used by typecheck and tests | Not a secret, but left set in production the bot never connects to Discord — it looks alive and does nothing at all | Unset it, restart, and confirm the bot is actually online in Discord and answers a slash command |
-| `DB_PATH` | `.env` | Location of the SQLite database file | Not a secret, but the file it points to is the crown jewels: file-level access beats every secret above | Not rotated; backed up and access-controlled. See below |
+| `DATABASE_URL` | `.env` / host secret store | PostgreSQL connection identity and credentials | Database access; never log the value | Rotate the database role password, update the secret and restart; explicitly revoke existing connections, then verify reads/writes |
 | `TEAM_CATEGORY_ID`, `AUDIT_CHANNEL_ID`, `ANNOUNCE_CHANNEL_ID` | `.env` | Discord channel/category snowflakes | Not secrets (ids only) | No rotation; restore values if corrupted |
 | `SKIP_DISCORD`, `BOT_LANGUAGE`, `ADMIN_PORT` | `.env` | Flags / config | Not secrets | — |
 
-**The database file itself** (`DB_PATH`, e.g. `data/chashack.db`) is a secret in
-effect: everyone's signup answers live there. Back it up encrypted, keep it out of
-any repo, and when the hosted deployment moves to Postgres, `DATABASE_URL` inherits
-this row (rotate by `ALTER ROLE ... PASSWORD`, then update `.env` and restart; old
-password revoke closes open connections).
+**Database contents and backups** contain signup answers. Encrypt backups and
+keep them out of repositories. Password rotation alone does not revoke existing
+PostgreSQL connections. Legacy user files remain sensitive even though the runtime
+no longer opens them; this change does not convert or delete those files.
 
 ## Where secrets are allowed to live
 
@@ -100,8 +98,7 @@ Keep this section out of any published copy.
   "generate a long random value" instruction matters more until that lands.
 - **Redis** — `REDIS_URL` was asked about for the runbook; no Redis exists anywhere
   in the code today. If it is added, this file must gain its row.
-- **Postgres** — same: no `DATABASE_URL` in the code; the Postgres/RLS work (issue
-  #19) will add it, and this runbook must be updated in the same change.
+- **Postgres RLS** — separate work (issue #19); PostgreSQL support alone does not prove RLS.
 - **`ANNOUNCE_CHANNEL_ID`** — present in `env.ts` but not in `.env.example`;
   listed from code, flagged here for symmetry.
 - The **gitignore claim** (`git check-ignore .env`) was not run against a real
@@ -113,7 +110,7 @@ Keep this section out of any published copy.
   `ADMIN_PASSWORD` at all) — issue #22 R1/R2, mid-migration.
 - Host-operator allowlist (`HOST_OPERATOR_DISCORD_IDS` or equivalent) — issue #22
   consequence section; name in `.env` is provisional.
-- Postgres `DATABASE_URL` and any `REDIS_URL` rows — pending issues #19/#23.
+- Any future `REDIS_URL` row — no application Redis support is shipped.
 
 ### (c) Numbers and names that must be updated if configuration changes
 

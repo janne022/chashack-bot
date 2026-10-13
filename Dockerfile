@@ -35,16 +35,13 @@ COPY --from=build /app/apps/bot/dist apps/bot/dist
 COPY --from=build /app/apps/admin-ui/dist apps/admin-ui/dist
 COPY --from=build /app/apps/bot/scripts apps/bot/scripts
 
-# SQLite lives on a volume; env defaults suit the container layout.
+# PostgreSQL is external; DATABASE_URL must be supplied at runtime.
 ENV NODE_ENV=production \
-    DB_PATH=/data/chashack.db \
     PUID=1000 \
     PGID=1000
-RUN mkdir -p /data && chown node:node /data
-VOLUME /data
 
 # Entrypoint drops privileges to PUID/PGID (LinuxServer.io convention):
-# starts as root, re-owns the data dir, execs node unprivileged.
+# starts as root, execs node unprivileged without touching legacy data files.
 COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 EXPOSE 8420

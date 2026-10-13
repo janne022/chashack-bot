@@ -28,14 +28,13 @@ organizers first — they control the data. You can also contact us directly; se
 
 The service is hosted **inside the European Union**, and the data stays there.
 
-Data is stored in the service's own database (SQLite today, PostgreSQL for the hosted
-deployment). Only the software itself reads it — there is no third-party database, no
+Data is stored in the service's own database (PostgreSQL). Only the software itself reads it — there is no third-party database, no
 cloud analytics product, no ad network anywhere in the stack.
 
 ## What is collected, and why
 
 Only what is needed to run a hackathon. The full list, taken from the actual
-database schema (`apps/bot/src/shared/db.ts`):
+database schema (`apps/bot/src/shared/postgres-schema.ts`):
 
 **Your Discord identity.** When you sign up for an event we store your Discord user
 id, the display name you used, and (for organizers signing in to the web console) your
@@ -79,7 +78,7 @@ have to log in on every click. Expired sessions are deleted (`apps/bot/src/featu
 
 **An action log.** The bot keeps an audit log of actions taken through the bot and
 console: who did what, when, and to what (`audit_log`: `ts`, `actor`, `action`,
-`target`, `details` columns in `apps/bot/src/shared/db.ts`). Its purpose is accountability — being able to answer
+`target`, `details` columns in `apps/bot/src/shared/postgres-schema.ts`). Its purpose is accountability — being able to answer
 "who changed this?" after the fact.
 
 What we do **not** collect: message contents, DMs, browsing behaviour, location,
@@ -109,7 +108,7 @@ Two clocks, and they are the same clocks the bot already runs on:
 Every event has a `cleanup_delay_hours` setting — the number of hours after the event
 ends before the bot tears down the Discord side of that event (its team channels and
 the team role). The default is **48 hours** (`events.cleanup_delay_hours`,
-default 48, in `apps/bot/src/shared/db.ts`). An organizer can change it per event, or
+default 48, in `apps/bot/src/shared/postgres-schema.ts`). An organizer can change it per event, or
 set a server-wide default (`guild_settings.default_cleanup_delay_hours`).
 The bot warns in the event channel **72 hours** and again **24 hours** before the
 teardown runs (`events.cleanup_warned_72h` / `events.cleanup_warned_24h`), so nobody is
@@ -220,8 +219,8 @@ what the reader-facing text promises but the code does not do yet.
 - **Audit log visibility** — the schema has no `guild_id` on `audit_log` yet (WS7 #19
   pending), so organizer-facing audit views cannot exist yet; the policy deliberately
   does not claim organizers can see the audit trail.
-- **PostgreSQL for the hosted deployment** — the code today only speaks SQLite
-  (`DB_PATH` in `apps/bot/src/shared/env.ts`); no `DATABASE_URL` exists anywhere yet.
+- **PostgreSQL deployment** — source requires `DATABASE_URL`; actual hosting,
+  database access controls and RLS still require deployment verification.
 - The exact **contact address** is a placeholder.
 
 ### (b) Promises not yet implemented
@@ -240,7 +239,7 @@ what the reader-facing text promises but the code does not do yet.
 ### (c) Numbers and names that must be updated if configuration changes
 
 - **48 hours** — default event cleanup delay. Source: `events.cleanup_delay_hours
-  INTEGER NOT NULL DEFAULT 48`, `apps/bot/src/shared/db.ts:60`. Override:
+  INTEGER NOT NULL DEFAULT 48`, `apps/bot/src/shared/postgres-schema.ts:60`. Override:
   `guild_settings.default_cleanup_delay_hours` (db.ts:148, added db.ts:181); per-event
   value takes precedence over the server default (`apps/bot/src/adminweb/routes.ts:670`).
 - **72 h and 24 h warnings** — `events.cleanup_warned_72h` / `cleanup_warned_24h`

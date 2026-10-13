@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Boots the admin server against an in-memory DB and exercises the API +
+ * Boots the admin server against a guarded PostgreSQL fixture and exercises the API +
  * static UI end-to-end. Run after build: node scripts/smoke-admin.mjs
  */
 process.env.RUN_DRY = '1';
