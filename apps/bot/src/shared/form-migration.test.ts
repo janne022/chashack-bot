@@ -41,3 +41,32 @@ test('ambiguous legacy form migration refuses and preserves its original bytes',
     raw.close();
   } finally { clean(file); }
 });
+
+test('legacy host templates do not count as tenant ownership evidence', () => {
+  const file = pathFor('host-template'); clean(file);
+  try {
+    seedLegacy(file, []);
+    const raw = new DatabaseSync(file);
+    raw.prepare('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, NULL, ?, ?, ?, ?)').run('host-template', 'Host', 'event', '{}', 1);
+    raw.prepare('INSERT INTO guild_settings (guild_id, updated_at) VALUES (?, ?)').run('11111111111111111', 1);
+    raw.close();
+    const db = openDb(file);
+    assert.equal((db.prepare('SELECT guild_id FROM form_config').get() as { guild_id: string }).guild_id, '11111111111111111');
+    db.close();
+  } finally { clean(file); }
+});
+
+test('host templates alone cannot prove ownership of a legacy default form', () => {
+  const file = pathFor('host-only'); clean(file);
+  try {
+    seedLegacy(file, []);
+    const raw = new DatabaseSync(file);
+    raw.prepare('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, NULL, ?, ?, ?, ?)').run('host-template', 'Host', 'event', '{}', 1);
+    raw.close();
+    assert.throws(() => openDb(file), /ownership is ambiguous.*manually assign/i);
+    const preserved = new DatabaseSync(file);
+    assert.equal((preserved.prepare('SELECT json FROM form_config WHERE id = 1').get() as { json: string }).json, '{"title":"legacy sentinel"}');
+    assert.equal((preserved.prepare('SELECT guild_id FROM event_templates WHERE id = ?').get('host-template') as { guild_id: string | null }).guild_id, null);
+    preserved.close();
+  } finally { clean(file); }
+});
