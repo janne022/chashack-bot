@@ -140,19 +140,7 @@ export function EventsPage() {
               </Select>
             </div>
 
-            {events.length === 0 ? (
-              <Card>
-                <CardContent>
-                  <EmptyState
-                    icon={<CalendarDays className="size-5" />}
-                    illustration={<OtterIllustration panel="A1" />}
-                    title={t('events.none_title')}
-                    description={t('events.none_desc')}
-                    action={<NewEventButton />}
-                  />
-                </CardContent>
-              </Card>
-            ) : shown === 0 ? (
+            {shown === 0 ? (
               <Card>
                 <CardContent className="py-6 text-center text-sm text-muted-foreground">
                   <OtterIllustration panel="B1" className="mb-2" />
@@ -212,6 +200,7 @@ export function EventsPage() {
           <CardContent>
             <EmptyState
               icon={<CalendarDays className="size-5" />}
+              illustration={<OtterIllustration panel="A1" />}
               title={t('events.none_title')}
               description={t('events.none_desc')}
               action={<NewEventButton />}
