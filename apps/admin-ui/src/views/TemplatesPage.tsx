@@ -46,7 +46,7 @@ export function TemplatesPage() {
       </header>
 
       <Tabs value={tab} onValueChange={v=>setTab(v as never)} className="w-full">
-        <TabsList className="w-full justify-start">
+        <TabsList className="w-full max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="event" className="gap-2"><LayoutTemplate className="size-4" /> Event templates ({eventTemplates.length})</TabsTrigger>
           <TabsTrigger value="form" className="gap-2"><BookCopy className="size-4" /> Form templates ({formTemplates.length})</TabsTrigger>
           <TabsTrigger value="announcement" className="gap-2"><Megaphone className="size-4" /> Announcements ({announcementTemplates.length})</TabsTrigger>
