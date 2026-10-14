@@ -46,3 +46,17 @@ or protected instruction edits are authorized.
   localized strings stay in English and Swedish. No participant forms, teams,
   public-page UI, Redis, production credentials/migrations, proxy/domain, MCP,
   profile/workflow, or instruction-file changes.
+
+### Runnable browser verification
+
+- [x] Keep OAuth-only login and current guild authority checks; Manage Server
+  alone is insufficient, and only Owner/Administrator change delegation.
+- [x] Add installed-Chromium DOM/AX checks for successful guild picker, stale
+  authority recovery, no-manageable-guild guidance, and en/sv login parity.
+  Run with `DATABASE_URL=postgresql://postgres@127.0.0.1:55432/chashack_test node apps/bot/scripts/oauth-browser.mjs` after `pnpm build`; this uses guarded per-test schemas and installed Chromium.
+- [x] Run browser check and frozen typecheck/build/test/API smoke on the local
+  candidate; exact-head CI remains pending after publication.
+- [ ] Read back PR33 body/head and confirm exact-head CI before handoff.
+
+Browser session fixtures are synthetic and exercise the application UI/API only;
+they do not perform or claim a live Discord OAuth login.
