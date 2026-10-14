@@ -5,8 +5,12 @@
 - [x] Derived 640px WebP assets and recorded original + derivative hashes, sizes, dimensions, provider/model, and reported quality.
 - [x] Added a small decorative illustration component and optional EmptyState illustration, preserving the icon fallback.
 - [x] Placed six panels in the two real Events empty states and four template-kind empty states; existing copy/actions remain.
-- [x] Verified responsive desktop/mobile Chromium DOM: six real WebP responses are HTTP 200; empty illustration alt/aria-hidden; broken image leaves title/action. Fixture states are synthetic, not OAuth or database data.
-- [x] Frozen install, admin typecheck/build, browser check, and Impeccable detector passed; branch committed/published independently without merge.
+- [x] Verified the actual production-built app at desktop/mobile: all six reachable contexts, real create-form and clear-search actions, decorative DOM/AX, image geometry, actual asset HTTP 404 fallback retaining the title/create action. Only API payloads are synthetic; no database or OAuth login is claimed.
+- [x] Negative control: mutating the compiled A1 binding to A2 makes the real browser check fail; the bundle was restored byte-for-byte and the check passed again.
+- [x] Fixed narrow-template-tab reachability with native horizontal scrolling; no new dependency or locale copy.
+- [x] Frozen install and admin build were executed during implementation; final complete checks and exact-head CI/QA remain separate delivery gates.
+
+The first published candidate f92ab20 had A1 in an unreachable branch and a handwritten HTML fixture that did not verify React. Those claims were not accepted as app evidence. The preserved eb879eb moves A1 into the reachable outer branch; the replacement `check-otter-panels.mjs` now serves the real built app and tests its actual handlers. `provenance.md` retains public original/derivative checksums in a conventional unquoted format; no secret scanner was weakened.
 
 ## Asset dependency
 

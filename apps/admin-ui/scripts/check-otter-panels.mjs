@@ -1,48 +1,170 @@
+// Synthetic API data, real production-built application. No OAuth or database claim.
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { resolve, extname } from 'node:path'
+import { existsSync, readFileSync, readdirSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { resolve, join, extname, sep } from 'node:path'
+import { DEFAULT_FORM } from '../src/lib/default-form.ts'
+
 const dist = resolve(import.meta.dirname, '../dist')
+const en = JSON.parse(readFileSync(resolve(import.meta.dirname, '../src/lib/i18n/en.json')))
+const text = key => {
+  assert.equal(typeof en[key], 'string', `catalog key ${key}`)
+  return en[key]
+}
 const ids = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
-const files = readdirSync(resolve(dist, 'assets'))
-const images = Object.fromEntries(ids.map(id => [id, files.find(name => name.startsWith(`${id}-`) && name.endsWith('.webp'))]))
-for (const id of ids) assert.ok(images[id], `missing built image ${id}`)
-const contexts = ['events-none', 'events-filtered', 'templates-event', 'templates-form', 'templates-announcement', 'templates-assignments']
-const html = `<!doctype html><html><body>${contexts.map((name, i) => `<section data-context="${name}"><img src="/assets/${images[ids[i]]}" width="160" height="160" alt="" aria-hidden="true"><h2>${name}</h2><button>Create</button></section>`).join('')}<section data-context="broken"><img src="/missing.webp" onerror="this.remove()"><h2>Still available</h2><button>Clear</button></section><script>document.documentElement.dataset.ready='yes'</script></body></html>`
+const names = readdirSync(join(dist, 'assets'))
+const images = Object.fromEntries(ids.map(id => [id, names.find(n => n.startsWith(`${id}-`) && n.endsWith('.webp'))]))
+for (const id of ids) assert.ok(images[id], `missing built asset ${id}`)
+const state = {
+  participants: [], teams: [], config: DEFAULT_FORM, audit: [], lastMatch: null,
+  guildSettings: { modRoleIds: [] }, guildConfigured: true, guildId: 'fixture',
+  events: [], templates: [], activeEventId: null, selectedEventId: null, activeEventIds: [],
+  stats: { active: 0, total: 0, teams: 0, matchingOptIn: 0 },
+}
+const broken = new Set(), delivered = new Set(), runtimeErrors = []
+const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webp': 'image/webp', '.png': 'image/png', '.woff2': 'font/woff2' }
 const server = createServer((req, res) => {
-  if (req.url === '/check') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); return }
-  const path = resolve(dist, `.${decodeURIComponent(new URL(req.url, 'http://localhost').pathname)}`)
-  if (!path.startsWith(dist)) { res.writeHead(400).end(); return }
-  if (!existsSync(path)) { res.writeHead(404).end(); return }
-  res.writeHead(200, { 'content-type': extname(path) === '.webp' ? 'image/webp' : 'application/octet-stream' }); res.end(readFileSync(path))
+  try {
+    const path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname)
+    res.setHeader('cache-control', 'no-store')
+    if (path.startsWith('/api/')) {
+      let data
+      if (path === '/api/state') data = state
+      else if (path === '/api/auth/me') data = {
+        kind: 'discord', audience: 'organizer', user: { id: 'fixture', username: 'Synthetic organizer', avatar: null },
+        guild: { id: 'fixture', name: 'Synthetic guild' }, guilds: [{ id: 'fixture', name: 'Synthetic guild', icon: null }],
+      }
+      else if (path === '/api/guild/channels') data = { channels: [], categories: [], roles: [] }
+      else { res.writeHead(404).end(); return }
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify(data)); return
+    }
+    if (broken.has(path)) { res.writeHead(404).end(); return }
+    const file = extname(path) ? resolve(dist, `.${path}`) : join(dist, 'index.html')
+    if (!file.startsWith(dist + sep) || !existsSync(file)) { res.writeHead(404).end(); return }
+    if (extname(file) === '.webp') delivered.add(path)
+    res.setHeader('content-type', mime[extname(file)] ?? 'application/octet-stream') // g0:allow:secrets t_98a0312d public MIME type
+    res.end(readFileSync(file))
+  } catch { res.writeHead(400).end() }
 })
-await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-try {
- const port = server.address().port, base = `http://127.0.0.1:${port}`
- for (const name of Object.values(images)) assert.equal((await fetch(`${base}/assets/${name}`)).status, 200, name)
- const chrome = '/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome'
- const { spawn } = await import('node:child_process')
- const browser = spawn(chrome, ['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port=9229','--user-data-dir=/home/hermes/.hermes/cache/scratch/otter-chrome-profile','about:blank'], { stdio:'ignore' })
- let ws
- try {
-  let targets
-  for (let i=0;i<50;i++) { try { targets=await (await fetch('http://127.0.0.1:9229/json/list')).json(); break } catch { await new Promise(r=>setTimeout(r,200)) } }
-  const target = targets?.find(t=>t.type==='page')
-  assert.ok(target, 'Chromium page target unavailable')
-  ws = new WebSocket(target.webSocketDebuggerUrl)
-  await new Promise((r,j)=>{ ws.onopen=r; ws.onerror=j })
-  let next=0; const pending=new Map()
-  ws.onmessage=e=>{ const msg=JSON.parse(e.data); if(msg.id && pending.has(msg.id)){ pending.get(msg.id)(msg); pending.delete(msg.id) } }
-  const call=(method,params={})=>new Promise(resolve=>{const id=++next;pending.set(id,resolve);ws.send(JSON.stringify({id,method,params}))})
-  for (const [width,height] of [[1440,1000],[390,844]]) {
-   await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false})
-   await call('Page.navigate',{url:`${base}/check`})
-   await new Promise(r=>setTimeout(r,1000))
-   const result=await call('Runtime.evaluate',{expression:`(() => ({contexts:[...document.querySelectorAll('[data-context]')].map(x=>x.dataset.context),loaded:[...document.querySelectorAll('img[aria-hidden]')].every(i=>i.complete&&i.naturalWidth>0),fallback:!!document.querySelector('[data-context=broken] h2')&&!!document.querySelector('[data-context=broken] button'),decorative:[...document.querySelectorAll('img')].filter(i=>i.naturalWidth).every(i=>i.alt===''&&i.getAttribute('aria-hidden')==='true')}))()`,returnByValue:true})
-   const v=result.result.result.value
-   assert.deepEqual(v.contexts.slice(0,6),contexts, `${width}px contexts`)
-   assert.equal(v.loaded,true,`${width}px image loading`); assert.equal(v.fallback,true,'broken image fallback/action'); assert.equal(v.decorative,true,'decorative image semantics')
+await new Promise(r => server.listen(0, '127.0.0.1', r))
+const base = `http://127.0.0.1:${server.address().port}`
+const profile = mkdtempSync(join(tmpdir(), 'otter-browser-'))
+const chrome = process.env.CHROME_BIN ?? join(homedir(), '.cache', 'ms-playwright', 'chromium-1208', 'chrome-linux64', 'chrome')
+const browser = spawn(chrome, ['--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' }) // g0:allow:secrets t_98a0312d public Chromium options
+let ws
+async function waitFor(fn, label) {
+  const end = Date.now() + 15000
+  while (Date.now() < end) {
+    const value = await fn()
+    if (value) return value
+    await new Promise(r => setTimeout(r, 50))
   }
- } finally { ws?.close(); browser.kill() }
- console.log(`Chromium fixture passed at desktop/mobile; six real assets HTTP 200; broken-image copy/action retained`)
-} finally { server.close() }
+  throw new Error(`Timed out: ${label}; runtime errors: ${JSON.stringify(runtimeErrors)}`)
+}
+try {
+  browser.on('error', e => runtimeErrors.push(e.message))
+  const portFile = join(profile, 'DevToolsActivePort')
+  await waitFor(() => existsSync(portFile), 'owned Chromium startup')
+  const debugPort = readFileSync(portFile, 'utf8').split('\n')[0]
+  const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()
+  ws = new WebSocket(targets.find(t => t.type === 'page').webSocketDebuggerUrl)
+  await new Promise((r, j) => { ws.onopen = r; ws.onerror = j })
+  let next = 0
+  const pending = new Map()
+  ws.onmessage = e => {
+    const message = JSON.parse(e.data)
+    if (message.method === 'Runtime.exceptionThrown') runtimeErrors.push(message.params.exceptionDetails.text)
+    const entry = pending.get(message.id)
+    if (entry) {
+      pending.delete(message.id); clearTimeout(entry.timer)
+      if (message.error) entry.reject(new Error(JSON.stringify(message.error)))
+      else entry.resolve(message.result)
+    }
+  }
+  const call = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = ++next
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)) }, 15000)
+    pending.set(id, { resolve, reject, timer }); ws.send(JSON.stringify({ id, method, params }))
+  })
+  const evaluate = async expression => {
+    const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+    assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails))
+    return result.result.value
+  }
+  await call('Runtime.enable')
+  await call('Page.enable')
+  await call('Accessibility.enable')
+  await call('Page.addScriptToEvaluateOnNewDocument', { source: "localStorage.setItem('chas-locale','en'); localStorage.setItem('chas-theme','light')" })
+  await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+  const load = async route => {
+    await call('Page.navigate', { url: base + route })
+    await waitFor(() => evaluate('!!document.querySelector("main h1")'), `real app ${route}`)
+    await waitFor(() => evaluate('Number(getComputedStyle(document.querySelector("main > div")).opacity) > 0.99'), 'page entrance complete')
+  }
+  const panel = async id => {
+    const selector = `main img[src$="${images[id]}"]`
+    await waitFor(() => evaluate(`(() => { const i=document.querySelector(${JSON.stringify(selector)}); return i?.complete && i.naturalWidth>0 })()`), `real panel ${id}`)
+    const geometry = await evaluate(`(() => { const i=document.querySelector(${JSON.stringify(selector)}), r=i.getBoundingClientRect(); return {alt:i.alt,hidden:i.getAttribute('aria-hidden'),x:r.x,right:r.right,width:r.width,height:r.height,viewport:innerWidth} })()`)
+    assert.equal(geometry.alt, ''); assert.equal(geometry.hidden, 'true')
+    assert.ok(geometry.width > 0 && geometry.width <= 160 && geometry.height > 0)
+    assert.ok(geometry.x >= 0 && geometry.right <= geometry.viewport + 1, `${id}: ${JSON.stringify(geometry)}`)
+    const tree = await call('Accessibility.getFullAXTree')
+    const action = { A1: text('events.new'), B1: text('common.clear'), A2: 'New event template', B2: 'New form template', C1: 'New announcement', C2: 'New collection' }[id]
+    assert.ok(tree.nodes.some(n => !n.ignored && n.role?.value === 'button' && n.name?.value === action), `actual ${id} action in AX tree`)
+    assert.ok(!tree.nodes.some(n => !n.ignored && n.role?.value === 'image' && n.name?.value?.includes(id)), 'otter is decorative in AX tree')
+  }
+  const clickText = async label => {
+    const point = await evaluate(`(() => { const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(label)}); if(!b)return null; b.scrollIntoView({block:'center',inline:'center'}); const r=b.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2} })()`)
+    assert.ok(point, `actual button: ${label}`)
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, ...point })
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...point })
+  }
+  const create = async () => {
+    // Click the action adjacent to the real empty-state heading, not a fixture button.
+    await evaluate(`document.querySelector('main h3').parentElement.querySelector('button').click()`)
+    await waitFor(() => evaluate(`document.body.textContent.includes(${JSON.stringify(text('events.chooser_title'))})`), 'real create chooser')
+    await clickText(text('events.new_event') + text('events.new_event_hint'))
+    await waitFor(() => evaluate('!!document.querySelector("textarea")'), 'real event creation form')
+  }
+  for (const [width, height] of [[1440, 1000], [390, 844]]) {
+    await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 500 })
+    state.events = []; broken.clear()
+    await load('/events'); await panel('A1')
+    if (process.env.OTTER_PROOF_DIR) {
+      mkdirSync(process.env.OTTER_PROOF_DIR, { recursive: true })
+      const shot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+      writeFileSync(join(process.env.OTTER_PROOF_DIR, `events-${width}.png`), Buffer.from(shot.data, 'base64'))
+    }
+    await create()
+    state.events = [{ id: 'fixture', name: 'Synthetic existing event', description: '', status: 'draft', createdAt: 1, startsAt: null, endsAt: null, schedule: [], announcements: [], assignments: [] }]
+    await load('/events')
+    await evaluate(`(() => { const i=document.querySelector('main input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'no match'); i.dispatchEvent(new Event('input',{bubbles:true})) })()`)
+    await panel('B1')
+    await clickText(text('common.clear'))
+    await waitFor(() => evaluate(`!document.querySelector('main img[src$="${images.B1}"]') && document.querySelector('main input').value===''`), 'real clear-search action')
+    await load('/templates'); await panel('A2')
+    for (const [id, label] of [['B2', 'Form templates (0)'], ['C1', 'Announcements (0)'], ['C2', 'Assignment collections (0)']]) {
+      await clickText(label); await panel(id)
+    }
+    state.events = []; broken.add(`/assets/${images.A1}`)
+    await load('/events')
+    await waitFor(() => evaluate(`!document.querySelector('main img[src$="${images.A1}"]')`), 'actual image error handler')
+    assert.equal(await evaluate(`document.querySelector('main h3').textContent`), text('events.none_title'))
+    await create()
+    assert.equal(runtimeErrors.length, 0, JSON.stringify(runtimeErrors))
+    console.log(`PASS ${width}px: real six contexts, decorative DOM/AX, image geometry, create/clear, actual 404 fallback`)
+  }
+  for (const id of ids) assert.ok(delivered.has(`/assets/${images[id]}`), `real browser HTTP200: ${id}`)
+  console.log('PASS: six built assets served HTTP200; synthetic API only, real compiled app; no database or OAuth login')
+} finally {
+  ws?.close()
+  if (browser.exitCode === null) {
+    const exited = new Promise(r => browser.once('exit', r))
+    browser.kill(); await exited
+  }
+  await new Promise(r => server.close(r))
+  rmSync(profile, { recursive: true, force: true })
+}
