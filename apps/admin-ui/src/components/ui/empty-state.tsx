@@ -8,18 +8,18 @@ function EmptyState({
   description,
   action,
   className,
+  illustration,
 }: {
   icon: React.ReactNode
   title: string
   description?: string
   action?: React.ReactNode
   className?: string
+  illustration?: React.ReactNode
 }) {
   return (
     <div className={cn('flex flex-col items-center justify-center py-14 text-center', className)}>
-      <div className="flex size-12 items-center justify-center rounded-xl bg-surface-2 text-muted-foreground">
-        {icon}
-      </div>
+      {illustration ?? <div className="flex size-12 items-center justify-center rounded-xl bg-surface-2 text-muted-foreground">{icon}</div>}
       <h3 className="mt-4 text-sm font-semibold">{title}</h3>
       {description !== undefined && (
         <p className="mt-1 max-w-sm text-sm text-muted-foreground">{description}</p>

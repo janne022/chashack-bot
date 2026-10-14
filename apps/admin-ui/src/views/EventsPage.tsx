@@ -23,6 +23,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ScheduleEditor } from '@/components/ui/schedule-editor'
 import { AssignmentsEditor } from '@/components/AssignmentsEditor'
 import { EmptyState } from '@/components/ui/empty-state'
+import { OtterIllustration } from '@/components/OtterIllustration'
 import { TagAutocompleteInput, TagAutocompleteTextarea } from '@/components/TagAutocomplete'
 import { dateTime, timeAgo } from '@/lib/format'
 import { motion } from 'framer-motion'
@@ -144,6 +145,7 @@ export function EventsPage() {
                 <CardContent>
                   <EmptyState
                     icon={<CalendarDays className="size-5" />}
+                    illustration={<OtterIllustration panel="A1" />}
                     title={t('events.none_title')}
                     description={t('events.none_desc')}
                     action={<NewEventButton />}
@@ -152,7 +154,8 @@ export function EventsPage() {
               </Card>
             ) : shown === 0 ? (
               <Card>
-                <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                  <OtterIllustration panel="B1" className="mb-2" />
                   {t('events.no_matches')}
                   {query.trim() !== '' && (
                     <Button variant="ghost" size="sm" className="ml-2" onClick={() => setQuery('')}>
