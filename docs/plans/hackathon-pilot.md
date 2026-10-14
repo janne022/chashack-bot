@@ -55,8 +55,8 @@ or protected instruction edits are authorized.
   authority recovery, no-manageable-guild guidance, and en/sv login parity.
   Run with `DATABASE_URL=postgresql://postgres@127.0.0.1:55432/chashack_test node apps/bot/scripts/oauth-browser.mjs` after `pnpm build`; this uses guarded per-test schemas and installed Chromium.
 - [x] Run browser check and frozen typecheck/build/test/API smoke on the local
-  candidate; exact-head CI remains pending after publication.
-- [ ] Read back PR33 body/head and confirm exact-head CI before handoff.
+  candidate; exact-head CI is tracked in the PR body.
+- [x] Read back PR33 body/head and verify exact-head CI after publication.
 
 Browser session fixtures are synthetic and exercise the application UI/API only;
 they do not perform or claim a live Discord OAuth login.
