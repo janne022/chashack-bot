@@ -5,6 +5,7 @@ import { useAppContext } from "@/lib/app-context"
 import { useT } from "@/lib/i18n"
 import { api } from "@/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { OtterIllustration } from "@/components/OtterIllustration"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -54,7 +55,7 @@ export function TemplatesPage() {
 
         <TabsContent value="event" className="flex flex-col gap-4 mt-4">
           <div className="flex justify-end"><Button onClick={()=>setCreatingEvent(true)}><Plus className="size-4" /> New event template</Button></div>
-          {eventTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">{t("templates.no_event_templates")}</CardContent></Card> : (
+          {eventTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="A2" className="mb-2" />{t("templates.no_event_templates")}</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {eventTemplates.map(tpl=>(
                 <Card
@@ -91,7 +92,7 @@ export function TemplatesPage() {
             <p className="text-sm text-muted-foreground">Forms define the /hackathon join modal. Set the default in <span className="font-medium text-foreground">Config → Default form</span>.</p>
             <Button onClick={()=>setCreatingForm(true)}><Plus className="size-4" /> New form template</Button>
           </div>
-          {formTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">{t("templates.no_form_templates")}</CardContent></Card> : (
+          {formTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="B2" className="mb-2" />{t("templates.no_form_templates")}</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {formTemplates.map(tpl=>(
                 <Card
@@ -126,7 +127,7 @@ export function TemplatesPage() {
             <p className="text-sm text-muted-foreground">Reusable Discord messages — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in the message to see tag suggestions.</p>
             <Button onClick={()=>setCreatingAnnouncement(true)}><Plus className="size-4" /> New announcement</Button>
           </div>
-          {announcementTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">No announcement templates yet — create one.</CardContent></Card> : (
+          {announcementTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="C1" className="mb-2" />No announcement templates yet — create one.</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {announcementTemplates.map(tpl=>{
                 let parsed: { title?: string; message?: string; trigger?: string } = {}
@@ -166,7 +167,7 @@ export function TemplatesPage() {
             <p className="text-sm text-muted-foreground">Reusable pools of team assignments — name, instructions and an optional image each. Pick a collection when creating an event and choose how it’s dealt out.</p>
             <Button onClick={()=>setCreatingCollection(true)}><Plus className="size-4" /> New collection</Button>
           </div>
-          {assignmentCollections.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">No collections yet — create one to use assignments at your events.</CardContent></Card> : (
+          {assignmentCollections.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="C2" className="mb-2" />No collections yet — create one to use assignments at your events.</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {assignmentCollections.map(tpl=>{
                 let parsed: { assignments?: { title: string; imageUrl?: string }[] } = {}
