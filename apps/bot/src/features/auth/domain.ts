@@ -1,9 +1,8 @@
 /**
- * Console authorisation: who may manage which guild.
+ * Console authorisation: current-request checks plus OAuth guild candidates.
  *
- * Two conditions must both hold — the person must administer the guild, and the
- * bot must be in it. Admin rights alone can't run a hackathon the bot can't see;
- * bot presence alone is not permission.
+ * OAuth permissions are a login snapshot, not authority. Candidate guilds only
+ * constrain where the member can act; freshGuildAccess checks authority per request.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
@@ -53,15 +52,10 @@ export function hasGuildManageAuthority(
   return (bits & ADMINISTRATOR) !== 0n || memberRoleIds.some((id) => delegatedRoleIds.includes(id));
 }
 
-/**
- * Intersect "guilds this user administers" with "guilds the bot is in".
- * `botGuildIds` is null when the gateway is down — then we trust the OAuth list
- * alone so a console without a gateway still lists something to manage.
- */
-export function manageableGuilds(userGuilds: OAuthGuild[], botGuildIds: ReadonlySet<string> | null): ManageableGuild[] {
+/** Session candidates are OAuth guild memberships where the bot is present. */
+export function candidateGuilds(userGuilds: OAuthGuild[], botGuildIds: ReadonlySet<string> | null): ManageableGuild[] {
   return userGuilds
-    .filter((g) => canManage(g.permissions))
-    .filter((g) => botGuildIds === null || botGuildIds.has(g.id))
+    .filter((g) => botGuildIds !== null && botGuildIds.has(g.id))
     .map((g) => ({ id: g.id, name: g.name, icon: g.icon }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
