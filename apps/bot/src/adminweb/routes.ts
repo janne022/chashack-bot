@@ -9,7 +9,7 @@ import {
   makeDiscordToken,
   makePkcePair,
   makeState,
-  manageableGuilds,
+  candidateGuilds,
   hasGuildManageAuthority,
   safeEqual,
   verifyToken,
@@ -152,17 +152,17 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   };
 
   const ownerAdminRequests = new WeakSet<FastifyRequest>();
-  const freshGuildAccess = async (session: WebSession, guildId: string): Promise<{ allowed: boolean; ownerOrAdmin: boolean }> => {
+  const freshGuildAccess = async (userId: string, guildId: string): Promise<{ allowed: boolean; ownerOrAdmin: boolean }> => {
     if (deps.client === null || !isSnowflake(guildId)) return { allowed: false, ownerOrAdmin: false };
     try {
       const guild = await deps.client.guilds.fetch(guildId);
-      const member = await guild.members.fetch(session.userId);
+      const member = await guild.members.fetch(userId);
       const setting = await db.get<{ mod_role_ids: string }>('SELECT mod_role_ids FROM guild_settings WHERE guild_id = ?', guildId);
       const decoded: unknown = setting === undefined ? [] : JSON.parse(setting.mod_role_ids);
       const delegated = Array.isArray(decoded) ? decoded.filter((id): id is string => typeof id === 'string') : [];
-      const ownerOrAdmin = guild.ownerId === session.userId || member.permissions.has('Administrator');
+      const ownerOrAdmin = guild.ownerId === userId || member.permissions.has('Administrator');
       return {
-        allowed: hasGuildManageAuthority(session.userId, guild.ownerId, member.permissions.bitfield, [...member.roles.cache.keys()], delegated),
+        allowed: hasGuildManageAuthority(userId, guild.ownerId, member.permissions.bitfield, [...member.roles.cache.keys()], delegated),
         ownerOrAdmin,
       };
     } catch {
@@ -210,7 +210,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ? ((req.body as { guildId?: string } | null)?.guildId ?? '')
       : live.session.selectedGuildId ?? '';
     if (targetGuild === '' && req.url === '/api/auth/me') return;
-    const access = await freshGuildAccess(live.session, targetGuild);
+    const access = await freshGuildAccess(live.session.userId, targetGuild);
     if (!access.allowed) {
       await reply.code(403).send({ ok: false, code: 'access_refused', message: 'Your current server access is no longer valid. Refresh access or ask a server administrator for help.' });
       return;
@@ -414,9 +414,15 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       const user = (await userRes.json()) as { id: string; username: string; avatar: string | null };
       const userGuilds = (await guildsRes.json()) as OAuthGuild[];
 
-      // Only guilds where the person administers AND the bot is present.
+      // OAuth permissions are stale/non-authoritative; freshGuildAccess checks
+      // current owner/admin/delegated-role authority on each request.
       const botGuildIds = deps.client === null ? null : new Set(deps.client.guilds.cache.keys());
-      const guilds = manageableGuilds(userGuilds, botGuildIds);
+      const candidates = candidateGuilds(userGuilds, botGuildIds);
+      const access = await Promise.all(candidates.map(async (guild) => ({
+        guild,
+        allowed: (await freshGuildAccess(user.id, guild.id)).allowed,
+      })));
+      const guilds = access.filter((entry) => entry.allowed).map((entry) => entry.guild);
       if (guilds.length === 0) return void (await fail('no_guild'));
 
       // Session fixation: never adopt a session presented by the client. Any

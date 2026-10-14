@@ -7,7 +7,7 @@ import {
   MANAGE_GUILD,
   base64Url,
   canManage,
-  manageableGuilds,
+  candidateGuilds,
   makePkcePair,
   makeState,
   safeEqual,
@@ -37,18 +37,19 @@ test('canManage: MANAGE_GUILD or ADMINISTRATOR, nothing else', async () => {
   assert.equal(canManage('2048'), false, '2048 = SEND_MESSAGES only');
 });
 
-test('manageableGuilds: user rights AND bot presence', async () => {
+test('candidateGuilds include bot guilds regardless of OAuth permission snapshot', async () => {
   const user = [
     guild('1', 'Zeta', MANAGE_GUILD),
     guild('2', 'Alpha', ADMINISTRATOR),
     guild('3', 'Member Only', 1n << 11n),
     guild('4', 'No Bot', MANAGE_GUILD),
+    guild('5', 'Delegated Only', 0n),
   ];
-  const only = manageableGuilds(user, new Set(['1', '2', '3']));
-  assert.deepEqual(only.map((g) => g.name), ['Alpha', 'Zeta'], 'sorted, admin-only, bot-present');
+  const only = candidateGuilds(user, new Set(['1', '2', '3', '5']));
+  assert.deepEqual(only.map((g) => g.name), ['Alpha', 'Delegated Only', 'Member Only', 'Zeta'], 'OAuth permissions do not define current authority');
 
-  const all = manageableGuilds(user, null);
-  assert.deepEqual(all.map((g) => g.id), ['2', '4', '1'], 'no gateway → trust the OAuth list');
+  const all = candidateGuilds(user, null);
+  assert.deepEqual(all, [], 'missing bot client fails closed');
 });
 
 test('fresh authority is owner, administrator, or an explicitly delegated role', () => {
