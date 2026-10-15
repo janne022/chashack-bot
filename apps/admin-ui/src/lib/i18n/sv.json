@@ -115,6 +115,7 @@
   "events.edit_schedule_desc": "Tider visas lokalt. Idéer: 12:00 Fika, 18:00 Middag, 14:00 Röstning, Prisutdelning.",
   "events.schedule_saved": "Schema sparat",
   "events.schedule_save_failed": "Kunde inte spara schema",
+  "events.retry_save": "Försök spara igen",
   "events.hackathon_starts": "Hackathon startar",
   "events.hackathon_ends": "Hackathon slutar",
   "events.signup_window": "Anmälningsfönster",
