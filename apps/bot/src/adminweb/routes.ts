@@ -47,6 +47,7 @@ import {
   updateGuildSettings,
 } from '../features/teams/data.js';
 import { previewMatch, commitMatch, lastMatchInfo, listTeamsWithMembers } from '../features/matching/data.js';
+import { projectParticipantForMatching } from '../features/signup/data.js';
 import { suggestTeamsForParticipant } from '../features/matching/domain.js';
 import {
   createEvent,
@@ -1465,7 +1466,11 @@ app.post('/api/match/commit', async (req) => {
       await reply.code(400).send({ ok: false, code: 'already_in_team', message: 'Participant is already on a team.' });
       return;
     }
-    const suggestions = suggestTeamsForParticipant(participant, await listTeamsWithMembers(db, eventId), await getForm(db, await guildOf(req)));
+    const event = await getEvent(db, eventId);
+    const form = event === null ? await getForm(db, await guildOf(req)) : getEventForm(db, event, await getForm(db, event.guildId));
+    const projected = await projectParticipantForMatching(db, participant, form);
+    if (projected === null) return reply.code(400).send({ ok: false, code: 'registration_incomplete' });
+    const suggestions = suggestTeamsForParticipant(projected, await listTeamsWithMembers(db, eventId, form), form);
     return { ok: true, suggestions };
   });
 

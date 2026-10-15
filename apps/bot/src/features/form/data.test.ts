@@ -26,3 +26,15 @@ test('default forms are isolated by guild for reads, updates, and resets', async
   assert.equal((await getForm(db, guildA)).title, 'Guild A sentinel');
   await db.close();
 });
+
+test('event creation rejects mappings to options outside the pinned form', async () => {
+  const db = await openTestDb();
+  try {
+    const result = await createEvent(db, 'test', 'guild-map', { name: 'Mapped event', form: { customQuestions: [{
+      id: 'role', kind: 'single_choice', label: { en: 'Role' }, help: { en: '' }, required: false, presentation: 'web', visibility: 'self_and_organizer',
+      choices: [{ id: 'x', label: { en: 'X' } }], mapping: { field: 'role', importance: 'normal', choiceValues: { x: 'not-a-role' } },
+    }] } });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, 'invalid_questions');
+  } finally { await db.close(); }
+});

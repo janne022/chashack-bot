@@ -7,19 +7,33 @@ import { newId } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import type { FormConfig } from '../form/domain.js';
-import { listMatchable } from '../signup/data.js';
+import { getParticipant, listMatchable, projectParticipantForMatching } from '../signup/data.js';
+import { getEvent, getEventForm } from '../events/data.js';
+import { getForm } from '../form/data.js';
 import { listTeams, type TeamWithMembers } from '../teams/data.js';
 import { buildTeams, type MatchResult } from './domain.js';
 
 /** Teams for an event with their active members — input for placement suggestions. */
-export async function listTeamsWithMembers(db: Db, eventId: string): Promise<TeamWithMembers[]> {
-  return await listTeams(db, eventId);
+export async function listTeamsWithMembers(db: Db, eventId: string, config?: FormConfig): Promise<TeamWithMembers[]> {
+  const teams = await listTeams(db, eventId);
+  if (config === undefined) return teams;
+  return Promise.all(teams.map(async (team) => ({
+    ...team,
+    members: (await Promise.all(team.members.map(async (member) => {
+    const participant = await getParticipant(db, eventId, member.userId);
+    const projected = participant === null ? null : await projectParticipantForMatching(db, participant, config);
+    if (projected === null) return null;
+    return { ...member, experience: projected.experience, roleTrack: projected.roleTrack, skills: projected.skills, ...(projected.matchingImportance ? { matchingImportance: projected.matchingImportance } : {}) };
+    }))).filter((member): member is NonNullable<typeof member> => member !== null),
+  })));
 }
 
 export async function previewMatch(db: Db, eventId: string, config: FormConfig): Promise<Result<MatchResult>> {
   const participants = await listMatchable(db, eventId);
-  if (participants.length < 2) return err('not_enough', 'Need at least 2 unteamed participants opted into matching.');
-  return ok(buildTeams(participants, config));
+  if (participants.length < 2) return err('not_enough', 'Need at least 2 unteamed participants opted into random matching.');
+  const event = await getEvent(db, eventId);
+  const pinnedForm = event === null ? config : getEventForm(db, event, await getForm(db, event.guildId));
+  return ok(buildTeams(participants, pinnedForm));
 }
 
 export async function commitMatch(db: Db, actor: string, eventId: string, guildId: string, config: FormConfig): Promise<Result<MatchResult>> {

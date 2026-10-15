@@ -81,18 +81,23 @@ Backend owns mapping validation, projection/scoring, persistence, Discord link
 and public HTML. The participant signup React route and organizer editing are
 downstream cards; do not add placeholder UI here.
 
-- [ ] Add stable, localized custom questions to the event-pinned `FormConfig`;
+- [x] Add stable, localized custom questions to the event-pinned `FormConfig`;
       validate question limits, IDs, kinds, choices, and bounded mappings.
-- [ ] Persist one answer record per event/participant/form version; share the
+- [x] Persist one answer record per event/participant/form version; share the
       validated answer shape between Discord projection and participant API.
-- [ ] Implement participant self-scoped GET/PUT/DELETE registration, including
+- [x] Implement participant self-scoped GET/PUT/DELETE registration, including
       current membership checks and required-answer completion status.
-- [ ] Reject structural edits to populated published forms without an explicit
+- [x] Reject structural edits to populated published forms without an explicit
       version migration; cosmetic changes preserve historical meaning.
-- [ ] Add public published-event DTO and escaped initial Open Graph HTML; never
+- [x] Add public published-event DTO and escaped initial Open Graph HTML; never
       expose private registration, roster, invite, or audit data.
-- [ ] Add regression tests for two-guild isolation, stale versions, validation,
+- [x] Add regression tests for two-guild isolation, stale versions, validation,
       completion, privacy, public metadata escaping, and idempotent PostgreSQL
       schema migration. Use disposable PostgreSQL only.
-- [ ] Add en/sv Discord web-completion link and error copy; verify exact-head CI,
-      request same-card qa-judge review, one repair, then targeted verification.
+- [x] Add en/sv Discord web-completion link and error copy.
+- [ ] Verify exact-head CI, request same-card qa-judge review, one repair, then
+      targeted verification.
+
+The signup React route `/events/$eventId/signup` is owned by downstream card
+t_583f310e; this backend publishes its API and completion link but does not ship
+or claim the page.

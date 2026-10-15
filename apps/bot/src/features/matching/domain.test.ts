@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTeams, scorePair, suggestTeamsForParticipant } from './domain.js';
+import { buildTeams, projectMatchingParticipant, scorePair, suggestTeamsForParticipant } from './domain.js';
 import { DEFAULT_FORM, type FormConfig } from '../form/domain.js';
 import type { Participant } from '../signup/data.js';
 import type { TeamWithMembers } from '../teams/data.js';
@@ -42,6 +42,26 @@ test('scorePair: complementary roles + shared skill outscore identical strangers
   const c = makeParticipant({ userId: 'c', roleTrack: 'frontend', skills: [], experience: 'veteran' });
   const d = makeParticipant({ userId: 'd', roleTrack: 'frontend', skills: [], experience: 'veteran' });
   assert.ok(scorePair(a, b) > scorePair(c, d));
+});
+
+test('mapped choices project matching fields and weight only their own contribution', () => {
+  const form: FormConfig = { ...CONFIG, customQuestions: [{ id: 'exp', kind: 'single_choice', label: { en: 'Experience' }, help: { en: '' }, required: false, presentation: 'web', visibility: 'self_and_organizer', mapping: { field: 'experience', importance: 'high', choiceValues: { novice: 'first_timer', expert: 'veteran' } }, choices: [{ id: 'novice', label: { en: 'New' } }, { id: 'expert', label: { en: 'Experienced' } }] }] };
+  const mapped = projectMatchingParticipant(makeParticipant({ userId: 'a', experience: 'veteran' }), form, { exp: 'novice' });
+  assert.equal(mapped.experience, 'first_timer');
+  assert.deepEqual(mapped.matchingImportance, { experience: 2 });
+  const plain = makeParticipant({ userId: 'b', experience: 'first_timer' });
+  assert.equal(scorePair(mapped, plain, form), scorePair(plain, plain, form) + 1.5);
+  assert.equal(projectMatchingParticipant(plain, form, {}).experience, 'first_timer');
+});
+
+test('skill mappings replace legacy matching skills, deduplicate, and ignore private questions', () => {
+  const form: FormConfig = { ...CONFIG, customQuestions: [
+    { id: 'skills', kind: 'multi_choice', label: { en: 'Skills' }, help: { en: '' }, required: false, presentation: 'web', visibility: 'self_and_organizer', choices: [{ id: 'one', label: { en: 'One' } }, { id: 'two', label: { en: 'Two' } }], mapping: { field: 'skills', importance: 'low', choiceValues: { one: 'backend_node', two: 'backend_node' } } },
+    { id: 'private', kind: 'single_choice', label: { en: 'Private' }, help: { en: '' }, required: false, presentation: 'web', visibility: 'organizer_only', choices: [{ id: 'secret', label: { en: 'Secret' } }] },
+  ] };
+  const result = projectMatchingParticipant(makeParticipant({ userId: 'mapped', skills: ['frontend_react'] }), form, { skills: ['one', 'two'], private: 'secret' });
+  assert.deepEqual(result.skills, ['backend_node']);
+  assert.deepEqual(result.matchingImportance, { skills: 0.5 });
 });
 
 test('mutual friends always land on the same team', () => {
@@ -129,6 +149,15 @@ test('suggest: orders teams by best average fit and caps at 3', () => {
   assert.equal(suggestions.length, 2);
   assert.equal(suggestions[0]!.teamId, 't2');
   assert.ok(suggestions[0]!.score >= suggestions[1]!.score);
+});
+
+test('suggestions use the mapped member importance when scoring the same projected fields', () => {
+  const late = makeParticipant({ userId: 'late', experience: 'first_timer' });
+  const member = makeParticipant({ userId: 'member', experience: 'first_timer' });
+  const team = makeTeam('weighted', 'Weighted', [member]);
+  team.members[0]!.matchingImportance = { experience: 2 };
+  const result = suggestTeamsForParticipant(late, [team], CONFIG);
+  assert.equal(result[0]!.score, 60);
 });
 
 test('suggest: respects team capacity (full teams are excluded)', () => {
