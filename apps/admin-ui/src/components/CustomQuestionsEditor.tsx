@@ -4,15 +4,17 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/textarea-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { CustomQuestion, FormConfig } from '@/types'
+import { useT } from '@/lib/i18n'
 
 export function CustomQuestionsEditor({ value, onChange, form }: { value: CustomQuestion[]; onChange: (next: CustomQuestion[]) => void; form: FormConfig }) {
+  const t = useT()
   const update = (id: string, patch: Partial<CustomQuestion>) => onChange(value.map(q => q.id === id ? { ...q, ...patch } : q))
   const add = () => { let n = value.length + 1; let id = `question_${n}`; while (value.some(q => q.id === id)) id = `question_${++n}`; onChange([...value, { id, kind: 'text', label: { en: '', sv: '' }, help: { en: '', sv: '' }, required: false, presentation: 'web', visibility: 'self_and_organizer' }]) }
   const targets = { experience: form.experiences, role: form.roleTracks, skills: form.skills }
   return <section className="flex flex-col gap-3" aria-labelledby="custom-questions-title">
-    <div><h3 id="custom-questions-title" className="text-base font-semibold">Custom questions</h3><p className="text-sm text-muted-foreground">Stable IDs preserve answers. Private questions are excluded from matching.</p></div>
-    {value.map((q, index) => <fieldset key={q.id} className="flex flex-col gap-3 rounded-lg border border-border p-3"><legend className="px-1 text-sm font-medium">Question {index + 1} · <code>{q.id}</code></legend>
-      <div className="grid gap-3 sm:grid-cols-2">{(['en', 'sv'] as const).map(lang => <label key={lang} className="flex flex-col gap-1.5 text-sm"><Label>{lang === 'en' ? 'English label' : 'Swedish label'}</Label><Input value={q.label[lang] ?? ''} maxLength={200} onChange={e => update(q.id, { label: { ...q.label, [lang]: e.target.value } })} /></label>)}</div>
+    <div><h3 id="custom-questions-title" className="text-base font-semibold">{t('form.custom_questions')}</h3><p className="text-sm text-muted-foreground">{t('form.custom_questions_hint')}</p></div>
+    {value.map((q, index) => <fieldset key={q.id} className="flex flex-col gap-3 rounded-lg border border-border p-3"><legend className="px-1 text-sm font-medium">{t('form.question_number', { count: index + 1 })} · <code>{q.id}</code></legend>
+      <div className="grid gap-3 sm:grid-cols-2">{(['en', 'sv'] as const).map(lang => <label key={lang} className="flex flex-col gap-1.5 text-sm"><Label>{t(lang === 'en' ? 'form.english_label' : 'form.swedish_label')}</Label><Input value={q.label[lang] ?? ''} maxLength={200} onChange={e => update(q.id, { label: { ...q.label, [lang]: e.target.value } })} /></label>)}</div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5 text-sm"><Label>Answer type</Label><Select value={q.kind} onValueChange={kind => update(q.id, { kind: kind as CustomQuestion['kind'], choices: kind === 'text' ? undefined : q.choices ?? [{ id: 'option_1', label: { en: '', sv: '' } }] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="text">Text</SelectItem><SelectItem value="single_choice">Single choice</SelectItem><SelectItem value="multi_choice">Multiple choice</SelectItem></SelectContent></Select></label>
         <label className="flex flex-col gap-1.5 text-sm"><Label>Visibility</Label><Select value={q.visibility} onValueChange={visibility => update(q.id, { visibility: visibility as CustomQuestion['visibility'], mapping: visibility === 'organizer_only' ? undefined : q.mapping })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="self_and_organizer">Participant and organizers</SelectItem><SelectItem value="organizer_only">Private — organizers only</SelectItem></SelectContent></Select></label>
