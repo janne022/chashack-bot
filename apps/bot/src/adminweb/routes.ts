@@ -71,6 +71,8 @@ import { sendAnnouncement, createDiscordEvents } from '../discord/notify.js';
 import type { FormConfig } from '../features/form/domain.js';
 import { validateCustomAnswers, validateCustomQuestions, validBannerUrl } from '../features/form/domain.js';
 import { getRegistrationAnswers, listRegistrationAnswers, saveRegistrationAnswers } from '../features/registration/data.js';
+import { registerParticipantTeamRoutes } from './participant-teams.js';
+import { setMembershipLookup } from '../features/signup/eligibility.js';
 
 export interface WebDeps {
   db: Db;
@@ -559,6 +561,13 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     } catch { return null; }
     return event;
   };
+
+  setMembershipLookup(db, async (guildId, userId) => {
+    if (deps.client === null) return false;
+    const guild = await deps.client.guilds.fetch(guildId);
+    return (await guild.members.fetch({ user: userId, force: true })) !== null;
+  });
+  registerParticipantTeamRoutes(app, deps, participantSessionFrom, participantEvent);
 
   app.get('/api/participant/events/:eventId/registration', async (req, reply) => {
     const session = await participantSessionFrom(req);

@@ -7,6 +7,8 @@ import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import { newId, newJoinCode } from '../../shared/db.js';
 import type { TeamKind } from '../form/domain.js';
+import { eligibleParticipant } from '../signup/eligibility.js';
+import { randomInt } from 'node:crypto';
 
 export interface Team {
   id: string;
@@ -82,6 +84,8 @@ export async function createTeam(
   return db.transaction(async () => {
     if (!(await lockEventTeams(db, eventId))) return err('not_found', 'Event not found.');
     const existingMembership = await getTeamForUser(db, eventId, ownerId);
+    const owner = await eligibleParticipant(db, eventId, ownerId);
+    if (owner === null || owner.guildId !== guildId) return err('ineligible', 'Complete an active registration in this server first.');
     if (existingMembership !== null) return err('already_in_team', 'You are already in a team. Leave it first.');
 
     const id = newId('team');
@@ -178,6 +182,7 @@ export async function joinTeam(db: Db, actor: string, eventId: string, userId: s
     const participant = await db.get<{ status: string }>('SELECT status FROM participants WHERE event_id = ? AND user_id = ?', eventId, userId);
     if (participant === undefined) return err('no_signup', 'Sign up first with /hackathon join.');
     if (participant.status !== 'active') return err('not_active', 'Your signup is not active.');
+    if (await eligibleParticipant(db, eventId, userId) === null) return err('ineligible', 'Complete an active registration in this server first.');
 
     const current = await getTeamForUser(db, eventId, userId);
     if (current !== null) return err('already_in_team', 'You are already in a team. Leave it first.');
@@ -204,6 +209,7 @@ export async function joinPrivateTeam(
     if (!(await lockEventTeams(db, eventId))) return err('not_found', 'Event not found.');
     const team = await getTeamByJoinCode(db, eventId, code);
     if (team === null) return err('not_found', 'No team with that code in this event.');
+    if (await eligibleParticipant(db, eventId, userId) === null) return err('ineligible', 'Complete an active registration in this server first.');
     const current = await getTeamForUser(db, eventId, userId);
     if (current !== null) return err('already_in_team', 'You are already in a team. Leave it first.');
     const members = await countMembers(db, team.id);
@@ -217,12 +223,16 @@ export async function joinPrivateTeam(
 export async function leaveTeam(db: Db, actor: string, eventId: string, userId: string): Promise<Result<Team>> {
   // Owner path reads the member count and may delete the team — atomic.
   return db.transaction(async () => {
+    await lockEventTeams(db, eventId);
     const team = await getTeamForUser(db, eventId, userId);
     if (team === null) return err('no_team', 'You are not in a team.');
+    await db.run('UPDATE participants SET team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?', Date.now(), eventId, userId);
     if (team.ownerId === userId) {
-      const members = await countMembers(db, team.id);
-      if (members > 1) return err('owner_leave', 'You own this team. Members must leave first, or ask an organizer to delete it.');
-      return await deleteTeam(db, actor, team.id);
+      const candidates = await db.all<{ user_id: string }>("SELECT user_id FROM participants WHERE team_id = ? AND status = 'active' ORDER BY user_id", team.id);
+      const eligible: string[] = [];
+      for (const candidate of candidates) if (await eligibleParticipant(db, eventId, candidate.user_id) !== null) eligible.push(candidate.user_id);
+      if (eligible.length === 0) return deleteTeam(db, actor, team.id);
+      await db.run('UPDATE teams SET owner_id = ? WHERE id = ?', eligible[randomInt(eligible.length)]!, team.id);
     }
     await db.run('UPDATE participants SET team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?', Date.now(), eventId, userId);
     await audit(db, actor, 'team.leave', eventId, { teamId: team.id, userId }, team.guildId);
@@ -246,6 +256,7 @@ export async function adminAssign(db: Db, actor: string, eventId: string, userId
     const participant = await db.get<{ status: string; team_id: string | null }>('SELECT status, team_id FROM participants WHERE event_id = ? AND user_id = ? FOR UPDATE', eventId, userId);
     if (participant === undefined) return err('not_found', 'Participant not found in this event.');
     if (teamId !== null) {
+      if (await eligibleParticipant(db, eventId, userId) === null) return err('ineligible', 'Complete an active registration in this server first.');
       const teamRow = await db.get<TeamRow>('SELECT * FROM teams WHERE id = ? FOR UPDATE', teamId);
       const team = teamRow === undefined ? null : toTeam(teamRow);
       if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
