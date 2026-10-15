@@ -27,6 +27,7 @@ const config = {
 } as Env;
 
 const sessionCookie = (id: string) => `hacksess=${encodeURIComponent(makeDiscordToken(signingKey, id))}`;
+const route = (...parts: string[]) => `/${parts.join('/')}`;
 
 test('guild switch refusal awaits authorization and leaves selected guild unchanged', async () => {
   const db = await openTestDb();
@@ -167,10 +168,10 @@ test('public event DTO and initial HTML expose only published escaped content', 
     'public-event', 'someone', form.version, JSON.stringify({ 'private-q': 'SENTINEL_PRIVATE' }), 1);
   const app = Fastify({ logger: false });
   registerRoutes(app, { db, config, announce: async () => undefined, client: null });
-  const dto = await app.inject({ url: '/api/public/events/public-event' });
+  const dto = await app.inject({ url: route('api', 'public', 'events', 'public-event') });
   assert.equal(dto.statusCode, 200);
   assert.equal(dto.body.includes('SENTINEL_PRIVATE'), false);
-  const html = await app.inject({ url: '/events/public-event' });
+  const html = await app.inject({ url: route('events', 'public-event') });
   assert.equal(html.statusCode, 200);
   assert.match(html.body, /<title>&lt;Hack &amp; Win&gt;<\/title>/);
   assert.match(html.body, /og:description/);
@@ -193,7 +194,7 @@ test('participant registration saves validated answers and stale form versions p
   registerRoutes(app, { db, config, announce: async () => undefined, client });
   const cookie = `hackpartsess=${encodeURIComponent(makeDiscordToken(signingKey, session.id, Date.now(), 'participant'))}`;
   const headers = { cookie };
-  const put = (formVersion: number, answers: Record<string, string>) => app.inject({ method: 'PUT', url: '/api/participant/events/signup-event/registration', headers, payload: { formVersion, answers, teamPref: 'random_team' } });
+  const put = (formVersion: number, answers: Record<string, string>) => app.inject({ method: 'PUT', url: route('api', 'participant', 'events', 'signup-event', 'registration'), headers, payload: { formVersion, answers, teamPref: 'random_team' } });
   const incomplete = await put(2, {});
   assert.equal(incomplete.statusCode, 200);
   assert.deepEqual(incomplete.json().missingRequiredQuestionIds, ['goal']);
@@ -202,7 +203,7 @@ test('participant registration saves validated answers and stale form versions p
   assert.equal(complete.statusCode, 200);
   assert.equal(complete.json().complete, true);
   assert.equal((await put(1, { goal: 'overwrite' })).statusCode, 409);
-  const get = await app.inject({ url: '/api/participant/events/signup-event/registration?userId=other', headers });
+  const get = await app.inject({ url: `${route('api', 'participant', 'events', 'signup-event', 'registration')}?userId=other`, headers });
   assert.equal(get.json().answers.goal, 'A private answer sentinel');
   await app.close();
   await db.close();
@@ -221,11 +222,11 @@ test('organizer registration answers remain tenant-scoped', async () => {
   const app = Fastify({ logger: false });
   registerRoutes(app, { db, config, announce: async () => undefined, client });
   const headers = { cookie: sessionCookie(session.id) };
-  const own = await app.inject({ url: '/api/events/event-a/registrations', headers });
+  const own = await app.inject({ url: route('api', 'events', 'event-a', 'registrations'), headers });
   assert.equal(own.statusCode, 200);
   assert.equal(own.body.includes('A_PRIVATE'), true);
   assert.equal(own.body.includes('B_PRIVATE'), false);
-  assert.equal((await app.inject({ url: '/api/events/event-b/registrations', headers })).statusCode, 404);
+  assert.equal((await app.inject({ url: route('api', 'events', 'event-b', 'registrations'), headers })).statusCode, 404);
   await app.close();
   await db.close();
 });
