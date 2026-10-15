@@ -422,7 +422,7 @@ export async function onComponent(
     }
     const userId = id.slice(IDS.adminMoveSelect.length + 1);
     const value = (i as StringSelectMenuInteraction).values[0] ?? '';
-    const res = await adminAssign(ctx.db, ctx.actor, ctx.eventId, userId, value === '__none__' ? null : value);
+    const res = await adminAssign(ctx.db, ctx.actor, ctx.eventId, userId, value === '__none__' ? null : value, ctx.config.teamSize);
     await i.update({
       content: res.ok ? t(locale, 'discord.admin.moved_done', { user: userId }) : t(locale, 'discord.admin.failed_label', { message: res.message }),
       components: [],

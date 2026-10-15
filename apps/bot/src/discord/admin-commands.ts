@@ -127,7 +127,7 @@ export async function handleAdminCommand(
         await i.reply(eph(t(locale, 'discord.admin.no_such_team', { arg: teamArg })));
         return;
       }
-      const res = await adminAssign(db, actor, ctx.eventId, user.id, found.id);
+      const res = await adminAssign(db, actor, ctx.eventId, user.id, found.id, ctx.config.teamSize);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
