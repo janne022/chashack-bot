@@ -66,6 +66,7 @@ registerInteractionHandlers(client, {
   client,
   teamCategoryId: config.teamCategoryId,
   botLanguage: config.botLanguage,
+  ...(config.publicUrl === undefined ? {} : { publicUrl: config.publicUrl }),
   announce,
 });
 

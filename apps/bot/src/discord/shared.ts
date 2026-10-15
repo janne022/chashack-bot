@@ -47,6 +47,8 @@ export interface Ctx {
   eventName: string;
   /** False when no event is active: user-facing signup/team flows must gate on this. */
   hasActiveEvent: boolean;
+  /** Public console origin for completing web-only signup questions. */
+  webCompletionUrl?: string;
   guildId: string;
   actor: string;
   isAdmin: boolean;

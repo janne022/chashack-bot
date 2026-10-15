@@ -5,7 +5,10 @@
 import type { Db } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
-import type { ValidatedSignup } from '../form/domain.js';
+import { validateCustomAnswers, type ValidatedSignup } from '../form/domain.js';
+import { getEvent, getEventForm } from '../events/data.js';
+import { getForm } from '../form/data.js';
+import { deleteRegistrationAnswers, getRegistrationAnswers } from '../registration/data.js';
 
 export type ParticipantStatus = 'active' | 'blocked' | 'withdrawn';
 
@@ -144,7 +147,17 @@ export async function listMatchable(db: Db, eventId: string): Promise<Participan
        WHERE event_id = ? AND status = 'active' AND team_id IS NULL AND team_pref = 'random_team'`,
     eventId,
   );
-  return rows.map(toParticipant);
+  const event = await getEvent(db, eventId);
+  if (event === null) return [];
+  const form = getEventForm(db, event, await getForm(db, event.guildId));
+  const eligible: Participant[] = [];
+  for (const row of rows) {
+    const stored = await getRegistrationAnswers(db, eventId, row.user_id);
+    if ((form.customQuestions ?? []).some((q) => q.required) && stored?.formVersion !== form.version) continue;
+    const checked = validateCustomAnswers(form, stored?.answers ?? {});
+    if (checked.ok && checked.missingRequiredQuestionIds.length === 0) eligible.push(toParticipant(row));
+  }
+  return eligible;
 }
 
 export async function setTeammates(db: Db, actor: string, eventId: string, userId: string, teammateIds: string[]): Promise<Result<Participant>> {
@@ -198,17 +211,18 @@ export async function listTeamRoster(db: Db, teamId: string): Promise<{ userId: 
 }
 
 export async function withdrawParticipant(db: Db, actor: string, eventId: string, userId: string): Promise<Result<void>> {
-  const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
-  if (event === undefined) return err('not_found', 'Event not found.');
-  const res = await db.run(
-    "UPDATE participants SET status = 'withdrawn', team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ? AND status = 'active'",
-    Date.now(),
-    eventId,
-    userId,
-  );
-  if (res.changes === 0) return err('not_found', 'No active signup found in this event.');
-  await audit(db, actor, 'participant.withdraw', eventId, { userId }, event.guild_id);
-  return ok(undefined);
+  return db.transaction(async () => {
+    const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
+    if (event === undefined) return err('not_found', 'Event not found.');
+    const res = await db.run(
+      "UPDATE participants SET status = 'withdrawn', team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ? AND status = 'active'",
+      Date.now(), eventId, userId,
+    );
+    if (res.changes === 0) return err('not_found', 'No active signup found in this event.');
+    await deleteRegistrationAnswers(db, eventId, userId);
+    await audit(db, actor, 'participant.withdraw', eventId, { userId }, event.guild_id);
+    return ok(undefined);
+  });
 }
 
 /** Purge participants of an event (event reset). */
@@ -218,6 +232,7 @@ export async function purgeEventParticipants(db: Db, actor: string, eventId: str
     if (event === undefined) return 0;
     const row = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM participants WHERE event_id = ?', eventId);
     const count = row?.n ?? 0;
+    await db.run('DELETE FROM registration_answers WHERE event_id = ?', eventId);
     await db.run('DELETE FROM participants WHERE event_id = ?', eventId);
     if (count > 0) await audit(db, actor, 'participant.purge', eventId, { count }, event.guild_id);
     return count;

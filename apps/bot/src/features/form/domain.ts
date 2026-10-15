@@ -28,6 +28,112 @@ export interface FormConfig {
   roleTracks: { id: string; label: string; label_sv?: string }[];
   skills: SkillOption[];
   teamPrefs: { id: TeamPref; label: string; label_sv?: string }[];
+  customQuestions?: CustomQuestion[];
+  bannerUrl?: string | null;
+  themePreset?: 'default' | 'halloween' | 'christmas';
+  accentColor?: string;
+}
+
+export type LocalizedText = { en: string; sv?: string };
+export interface CustomQuestion {
+  id: string;
+  kind: 'text' | 'single_choice' | 'multi_choice';
+  label: LocalizedText;
+  help: LocalizedText;
+  required: boolean;
+  presentation: 'web' | 'both';
+  visibility: 'self_and_organizer' | 'organizer_only';
+  choices?: { id: string; label: LocalizedText }[];
+  mapping?: { field: 'experience' | 'role' | 'skills'; importance: 'low' | 'normal' | 'high' };
+}
+
+export type CustomAnswersResult =
+  | { ok: true; answers: Record<string, string | string[]>; missingRequiredQuestionIds: string[] }
+  | { ok: false; errors: string[] };
+
+export function validBannerUrl(value: unknown): value is string | null | undefined {
+  if (value === undefined || value === null || value === '') return true;
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.username === '' && url.password === '';
+  } catch { return false; }
+}
+
+export function validateCustomQuestions(raw: unknown): { ok: true; questions: CustomQuestion[] } | { ok: false; errors: string[] } {
+  if (!Array.isArray(raw)) return { ok: false, errors: ['questions must be an array'] };
+  if (raw.length > 25) return { ok: false, errors: ['at most 25 custom questions are allowed'] };
+  const errors: string[] = [];
+  const ids = new Set<string>();
+  const questions: CustomQuestion[] = [];
+  for (const item of raw as CustomQuestion[]) {
+    if (item === null || typeof item !== 'object' || !/^[a-zA-Z0-9_-]{1,64}$/.test(item.id) || ids.has(item.id)) {
+      errors.push('question IDs must be unique stable identifiers');
+      continue;
+    }
+    ids.add(item.id);
+    if (!['text', 'single_choice', 'multi_choice'].includes(item.kind) || !['web', 'both'].includes(item.presentation) ||
+        !['self_and_organizer', 'organizer_only'].includes(item.visibility) || typeof item.required !== 'boolean' ||
+        typeof item.label?.en !== 'string' || item.label.en.length < 1 || item.label.en.length > 200 ||
+        (item.label.sv !== undefined && (typeof item.label.sv !== 'string' || item.label.sv.length > 200)) ||
+        typeof item.help?.en !== 'string' || item.help.en.length > 500 ||
+        (item.help.sv !== undefined && (typeof item.help.sv !== 'string' || item.help.sv.length > 500))) {
+      errors.push(`invalid question definition: ${item.id}`);
+      continue;
+    }
+    if (item.mapping !== undefined && (item.mapping === null || typeof item.mapping !== 'object' || item.visibility === 'organizer_only' || !['experience', 'role', 'skills'].includes(item.mapping.field) || !['low', 'normal', 'high'].includes(item.mapping.importance))) {
+      errors.push(`private or invalid matching mapping: ${item.id}`);
+      continue;
+    }
+    if (item.kind === 'text' && item.choices !== undefined) errors.push(`text question cannot have choices: ${item.id}`);
+    if (item.kind !== 'text') {
+      const choices = item.choices;
+      if (!Array.isArray(choices) || choices.length < 1 || choices.length > 25 || choices.some((choice) =>
+        choice === null || typeof choice !== 'object' || !/^[a-zA-Z0-9_-]{1,64}$/.test(choice.id) || typeof choice.label?.en !== 'string' || choice.label.en.length < 1 || choice.label.en.length > 200)) {
+        errors.push(`invalid choices: ${item.id}`);
+      } else if (new Set(choices.map((choice) => choice.id)).size !== choices.length) errors.push(`duplicate choice IDs: ${item.id}`);
+    }
+    questions.push(item);
+  }
+  return errors.length ? { ok: false, errors } : { ok: true, questions };
+}
+
+/** Validate participant answers without coercion or truncation. */
+export function validateCustomAnswers(
+  config: Pick<FormConfig, 'customQuestions'>,
+  raw: unknown,
+): CustomAnswersResult {
+  const errors: string[] = [];
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, errors: ['answers must be an object'] };
+  const input = raw as Record<string, unknown>;
+  const definitionCheck = validateCustomQuestions(config.customQuestions ?? []);
+  if (!definitionCheck.ok) return { ok: false, errors: ['invalid form question definitions'] };
+  const questions = definitionCheck.questions;
+  const byId = new Map(questions.map((question) => [question.id, question]));
+  if (questions.length > 25) errors.push('at most 25 custom questions are allowed');
+  for (const id of Object.keys(input)) if (!byId.has(id)) errors.push(`unknown question: ${id}`);
+  const answers: Record<string, string | string[]> = {};
+  const missingRequiredQuestionIds: string[] = [];
+  for (const question of questions) {
+    const value = input[question.id];
+    if (value === undefined || value === null || value === '' || (typeof value === 'string' && value.trim() === '') || (Array.isArray(value) && value.length === 0)) {
+      if (question.required) missingRequiredQuestionIds.push(question.id);
+      continue;
+    }
+    if (question.kind === 'text') {
+      if (typeof value !== 'string' || value.length > 2000) errors.push(`invalid text answer: ${question.id}`);
+      else answers[question.id] = value;
+      continue;
+    }
+    const choices = new Set((question.choices ?? []).map((choice) => choice.id));
+    if (question.kind === 'single_choice') {
+      if (typeof value !== 'string' || !choices.has(value)) errors.push(`invalid choice answer: ${question.id}`);
+      else answers[question.id] = value;
+    } else if (!Array.isArray(value) || value.some((choice) => typeof choice !== 'string' || !choices.has(choice)) || new Set(value).size !== value.length) {
+      errors.push(`invalid choice answer: ${question.id}`);
+    } else answers[question.id] = value as string[];
+  }
+  return errors.length ? { ok: false, errors } : { ok: true, answers, missingRequiredQuestionIds };
 }
 
 export const DEFAULT_SKILLS: SkillOption[] = [

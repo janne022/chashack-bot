@@ -68,6 +68,8 @@ import { getForm, updateForm, resetForm } from '../features/form/data.js';
 import { refreshSignupPanel, postOrUpdatePanel } from '../discord/signup-panel.js';
 import { sendAnnouncement, createDiscordEvents } from '../discord/notify.js';
 import type { FormConfig } from '../features/form/domain.js';
+import { validateCustomAnswers, validateCustomQuestions, validBannerUrl } from '../features/form/domain.js';
+import { getRegistrationAnswers, listRegistrationAnswers, saveRegistrationAnswers } from '../features/registration/data.js';
 
 export interface WebDeps {
   db: Db;
@@ -196,6 +198,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.addHook('preHandler', async (req, reply) => {
     const isApi = req.url.startsWith('/api/');
     if (!isApi) return;
+    if (req.url.startsWith('/api/public/events/')) return;
     if (req.url.startsWith('/api/participant/')) {
       if ((await participantSessionFrom(req)) === null) await reply.code(401).send({ error: 'unauthorized' });
       return;
@@ -517,6 +520,103 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     } catch {
       return fail('error');
     }
+  });
+
+  app.get('/api/public/events/:eventId', async (req, reply) => {
+    const eventId = (req.params as { eventId: string }).eventId;
+    const event = await getEvent(db, eventId);
+    if (event === null || event.status === 'draft') return reply.code(404).send({ error: 'not_found' });
+    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    return {
+      event: { id: event.id, name: event.name, description: event.description, startsAt: event.startsAt, endsAt: event.endsAt },
+      form: { version: form.version, title: form.title, description: form.description,
+        themePreset: ['default', 'halloween', 'christmas'].includes(form.themePreset ?? '') ? form.themePreset : 'default',
+        accentColor: /^#[0-9a-fA-F]{6}$/.test(form.accentColor ?? '') ? form.accentColor : '#5865f2',
+        bannerUrl: validBannerUrl(form.bannerUrl) ? form.bannerUrl ?? null : null,
+        questions: (form.customQuestions ?? []).filter((q) => q.visibility === 'self_and_organizer' && (q.presentation === 'web' || q.presentation === 'both')) },
+    };
+  });
+
+  app.get('/events/:eventId', async (req, reply) => {
+    const event = await getEvent(db, (req.params as { eventId: string }).eventId);
+    if (event === null || event.status === 'draft') return reply.code(404).type('text/html; charset=utf-8').send('<!doctype html><title>Event not found</title>');
+    const escape = (value: string): string => value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+    const name = escape(event.name);
+    const description = escape(event.description);
+    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    const image = validBannerUrl(form.bannerUrl) && form.bannerUrl ? `<meta property="og:image" content="${escape(form.bannerUrl)}">` : '';
+    const metadata = `<title>${name}</title><meta property="og:title" content="${name}"><meta property="og:description" content="${description}">${image}`;
+    return reply.type('text/html; charset=utf-8').send(`<!doctype html><html><head><meta charset="utf-8">${metadata}</head><body><main><h1>${name}</h1><p>${description}</p></main></body></html>`);
+  });
+
+  const participantEvent = async (eventId: string, userId: string) => {
+    const event = await getEvent(db, eventId);
+    if (event === null || event.status !== 'active' || deps.client === null) return null;
+    try {
+      const guild = await deps.client.guilds.fetch(event.guildId);
+      await guild.members.fetch(userId);
+    } catch { return null; }
+    return event;
+  };
+
+  app.get('/api/participant/events/:eventId/registration', async (req, reply) => {
+    const session = await participantSessionFrom(req);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
+    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    const stored = await getRegistrationAnswers(db, event.id, session!.userId);
+    const participant = await getParticipant(db, event.id, session!.userId);
+    const checked = validateCustomAnswers(form, stored?.answers ?? {});
+    return { eventId: event.id, formVersion: form.version, answers: stored?.answers ?? {},
+      missingRequiredQuestionIds: checked.ok ? checked.missingRequiredQuestionIds : [],
+      complete: checked.ok && checked.missingRequiredQuestionIds.length === 0,
+      teamPref: participant?.teamPref ?? null, status: participant?.status ?? 'not_registered' };
+  });
+
+  app.put('/api/participant/events/:eventId/registration', async (req, reply) => {
+    const session = await participantSessionFrom(req);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
+    const body = req.body as { formVersion?: unknown; answers?: unknown; teamPref?: unknown } | null;
+    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    if (!Number.isInteger(body?.formVersion) || body?.formVersion !== form.version) return reply.code(409).send({ error: 'stale_form_version' });
+    const checked = validateCustomAnswers(form, body?.answers);
+    if (!checked.ok) return reply.code(400).send({ error: 'invalid_answers', details: checked.errors });
+    const teamPref = body?.teamPref;
+    if (teamPref !== undefined && teamPref !== null && (typeof teamPref !== 'string' || !['create_team', 'join_team', 'random_team'].includes(teamPref))) return reply.code(400).send({ error: 'invalid_team_pref' });
+    return db.transaction(async () => {
+      const existing = await getParticipant(db, event.id, session!.userId);
+      if (existing?.status === 'blocked') return reply.code(403).send({ error: 'registration_blocked' });
+      const saved = await saveRegistrationAnswers(db, event.id, session!.userId, form.version, checked.answers);
+      if (!saved.ok) return reply.code(409).send({ error: saved.code });
+      if (existing === null) {
+        await db.run(`INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,'active',?,?) ON CONFLICT (event_id,user_id) DO UPDATE SET team_pref = EXCLUDED.team_pref, status = 'active', updated_at = EXCLUDED.updated_at WHERE participants.status = 'withdrawn'`,
+          event.id, session!.userId, event.guildId, session!.username, '', '', '[]', typeof teamPref === 'string' ? teamPref : '', '[]', Date.now(), Date.now());
+      } else if (typeof teamPref === 'string') {
+        await db.run('UPDATE participants SET team_pref = ?, status = CASE WHEN status = \'withdrawn\' THEN \'active\' ELSE status END, updated_at = ? WHERE event_id = ? AND user_id = ?', teamPref, Date.now(), event.id, session!.userId);
+      } else if (existing.status === 'withdrawn') {
+        await db.run("UPDATE participants SET status = 'active', updated_at = ? WHERE event_id = ? AND user_id = ?", Date.now(), event.id, session!.userId);
+      }
+      return { eventId: event.id, formVersion: form.version, answers: saved.value.answers,
+        missingRequiredQuestionIds: checked.missingRequiredQuestionIds, complete: checked.missingRequiredQuestionIds.length === 0,
+        teamPref: typeof teamPref === 'string' ? teamPref : existing?.teamPref ?? null, status: existing?.status === 'withdrawn' ? 'active' : existing?.status ?? 'active' };
+    });
+  });
+
+  app.delete('/api/participant/events/:eventId/registration', async (req, reply) => {
+    const session = await participantSessionFrom(req);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
+    const result = await withdrawParticipant(db, 'participant', event.id, session!.userId);
+    if (!result.ok) return reply.code(404).send({ error: result.code });
+    return { ok: true };
+  });
+
+  app.get('/api/events/:eventId/registrations', async (req) => {
+    const eventId = (req.params as { eventId: string }).eventId;
+    const answers = await listRegistrationAnswers(db, eventId);
+    return { registrations: answers.map(({ userId, formVersion, answers: values }) => ({ userId, formVersion, answers: values })) };
   });
 
   app.get('/api/participant/me', async (req) => {
@@ -1134,10 +1234,18 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send({ ok: false, code: 'bad_input', message: 'Provide formTemplateId or formJson.' })
       return
     }
+    if (form.customQuestions !== undefined) {
+      const questions = validateCustomQuestions(form.customQuestions);
+      if (!questions.ok) return reply.code(400).send({ ok: false, code: 'invalid_questions', errors: questions.errors });
+    }
+    if (!validBannerUrl(form.bannerUrl) || (form.themePreset !== undefined && !['default', 'halloween', 'christmas'].includes(form.themePreset)) ||
+        (form.accentColor !== undefined && !/^#[0-9a-fA-F]{6}$/.test(form.accentColor))) {
+      return reply.code(400).send({ ok: false, code: 'invalid_theme' });
+    }
     const { updateEventForm } = await import('../features/events/data.js')
     const res = await updateEventForm(db, 'web', eventId, form)
     if (!res.ok) {
-      await reply.code(400).send(res)
+      await reply.code(res.code === 'form_version_conflict' ? 409 : 400).send(res)
       return
     }
     return { ok: true, form: res.value }

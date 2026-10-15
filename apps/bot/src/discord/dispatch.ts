@@ -27,6 +27,7 @@ export interface RouterDeps {
   teamCategoryId: string | undefined;
   /** Bot UI language for Discord-facing strings (BOT_LANGUAGE, default 'en'). */
   botLanguage: 'en' | 'sv';
+  publicUrl?: string;
   announce: (guildId: string, content: string) => Promise<void>;
 }
 
@@ -120,6 +121,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         eventId: activeEvent?.id ?? guildId,
         eventName: activeEvent?.name ?? t(locale, 'discord.admin.event_name_fallback'),
         hasActiveEvent: activeEvent !== null,
+        ...(deps.publicUrl ? { webCompletionUrl: `${deps.publicUrl.replace(/\/$/, '')}/events/${encodeURIComponent(activeEvent?.id ?? guildId)}/signup` } : {}),
         guildId,
         actor: `discord:${interaction.user.id}`,
         isAdmin: await isAdminMemberWithRoles(interaction, deps.adminIds, deps.db),
