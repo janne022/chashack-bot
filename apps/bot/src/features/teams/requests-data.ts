@@ -12,6 +12,7 @@ import type { Db } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import { countMembers, getTeam, getTeamForUser, lockEventTeams, type Team } from './data.js';
+import { eligibleParticipant } from '../signup/eligibility.js';
 
 export type RequestKind = 'join_request' | 'invite';
 export type RequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled';
@@ -102,6 +103,7 @@ export async function createJoinRequest(
     const team = row === undefined ? null : await getTeam(db, teamId);
     if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
     if (team.kind === 'matched') return err('not_joinable', 'Matched teams cannot be requested.');
+    if (team.guildId !== guildId || await eligibleParticipant(db, eventId, userId) === null) return err('ineligible', 'Complete an active registration in this server first.');
 
     const participant = await db.get<{ status: string }>('SELECT status FROM participants WHERE event_id = ? AND user_id = ?', eventId, userId);
     if (participant === undefined) return err('no_signup', 'Sign up first with /hackathon join.');
@@ -139,6 +141,8 @@ export async function createInvite(
     const team = teamRow === undefined ? null : await getTeam(db, teamId);
     if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
     if (team.kind === 'matched') return err('not_joinable', 'Matched teams cannot invite.');
+    if (team.guildId !== guildId || await eligibleParticipant(db, eventId, targetId) === null) return err('ineligible', 'Complete an active registration in this server first.');
+    if (team.ownerId === null || !actorMatches(actor, team.ownerId) || await eligibleParticipant(db, eventId, team.ownerId) === null) return err('not_owner', 'Only the eligible team owner can invite.');
 
     const participant = await db.get<{ status: string }>('SELECT status FROM participants WHERE event_id = ? AND user_id = ?', eventId, targetId);
     if (participant === undefined) return err('no_signup', 'They have not signed up to this event yet.');
@@ -171,6 +175,8 @@ export async function decideRequest(
   // rows — implicitly serial before, so the whole decision runs in a
   // transaction to keep a double-accept race from double-assigning a member.
   return db.transaction(async () => {
+    const initial = await db.get<RequestRow>('SELECT * FROM team_requests WHERE id = ?', requestId);
+    if (initial === undefined || !(await lockEventTeams(db, initial.event_id ?? ''))) return err('not_found', 'Event not found.');
     const row = await db.get<RequestRow>('SELECT * FROM team_requests WHERE id = ? FOR UPDATE', requestId);
     if (row === undefined) return err('not_found', 'That request no longer exists.');
     const request = toRequest(row);
@@ -195,6 +201,9 @@ export async function decideRequest(
 
     // Accept: re-check the moving parts.
     const joinerId = request.kind === 'invite' ? request.targetId : request.requesterId;
+    if (await eligibleParticipant(db, request.eventId, joinerId) === null) return err('ineligible', 'Complete an active registration in this server first.');
+    if (team.eventId !== request.eventId || team.guildId !== request.guildId) return err('not_found', 'Team not found in this event.');
+    if (request.kind === 'join_request' && team.ownerId !== request.targetId) return err('not_your_decision', 'This request is not yours to decide.');
     const participant = await db.get<{ status: string }>('SELECT status FROM participants WHERE event_id = ? AND user_id = ?', request.eventId, joinerId);
     if (participant === undefined || participant.status !== 'active') {
       return err('not_active', 'Signup is no longer active.');
