@@ -54,6 +54,22 @@ export interface FormConfig {
   roleTracks: { id: string; label: string }[]
   skills: SkillOption[]
   teamPrefs: { id: string; label: string }[]
+  customQuestions?: CustomQuestion[]
+  bannerUrl?: string | null
+  themePreset?: 'default' | 'halloween' | 'christmas'
+  accentColor?: string
+}
+
+export interface CustomQuestion {
+  id: string
+  kind: 'text' | 'single_choice' | 'multi_choice'
+  label: { en: string; sv?: string }
+  help: { en: string; sv?: string }
+  required: boolean
+  presentation: 'web' | 'both'
+  visibility: 'self_and_organizer' | 'organizer_only'
+  choices?: { id: string; label: { en: string; sv?: string } }[]
+  mapping?: { field: 'experience' | 'role' | 'skills'; importance: 'low' | 'normal' | 'high'; choiceValues: Record<string, string> }
 }
 
 export interface AuditEntry {

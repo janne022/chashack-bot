@@ -133,12 +133,11 @@ feels like they changed tools. Sky blue leads everything interactive; coral,
 teal, lilac and amber carry meaning rather than decoration.
 
 Density is operational: this is an app an organizer drives under time pressure,
-so the layout is scannable grids of compact cards, 28px control heights, and
-status made visible as colour-coded pills rather than prose. Personality lives in
-the flex — hexagon-clipped badges, a faint honeycomb weave behind hero surfaces,
-chunky press-down feedback on buttons, pop-in for anything that appears — not in
-illustration or ornament. Playful where it costs nothing, exact where an action
-has consequences.
+so the layout is scannable with readable labels and touch-friendly controls.
+Status is expressed with a short text label and optional color, never color alone.
+Personality stays in restrained honeycomb details; motion is purposeful and
+respects reduced-motion preferences. Playful where it costs nothing, exact where
+an action has consequences.
 
 The system is deliberately dual-theme and deliberately one world: both themes
 share the same token names, the same radius language and the same accent
@@ -164,9 +163,9 @@ A near-monochrome comb lit by one sky-blue accent, with a small semantic set
 
 ### Primary
 - **Comb Sky** (`#55bbda`): the interactive accent in dark mode — primary
-  buttons, focus rings, active nav, link text, the live-event pulse, accent-soft
-  washes behind selected rows. In light mode the role moves to **Deep Comb Sky**
-  (`#2e8fb3`) so contrast holds on paper.
+  buttons, focus rings, active nav, link text and accent-soft washes behind
+  selected rows. Live states use a stable accent plus a text label, never a pulse.
+  In light mode the role moves to **Deep Comb Sky** (`#2e8fb3`) so contrast holds on paper.
 - **Deep Comb Sky** (`#2e8fb3`): light-mode accent, and the darker end of sky
   gradients on hero and login surfaces.
 
