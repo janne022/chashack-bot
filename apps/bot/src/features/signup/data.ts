@@ -9,6 +9,7 @@ import { validateCustomAnswers, type ValidatedSignup } from '../form/domain.js';
 import { getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
 import { deleteRegistrationAnswers, getRegistrationAnswers } from '../registration/data.js';
+import { projectMatchingParticipant } from '../matching/domain.js';
 
 export type ParticipantStatus = 'active' | 'blocked' | 'withdrawn';
 
@@ -28,6 +29,7 @@ export interface Participant {
   blockReason: string | null;
   createdAt: number;
   updatedAt: number;
+  matchingImportance?: Partial<Record<'experience' | 'role' | 'skills', number>>;
 }
 
 interface ParticipantRow {
@@ -152,12 +154,19 @@ export async function listMatchable(db: Db, eventId: string): Promise<Participan
   const form = getEventForm(db, event, await getForm(db, event.guildId));
   const eligible: Participant[] = [];
   for (const row of rows) {
-    const stored = await getRegistrationAnswers(db, eventId, row.user_id);
-    if ((form.customQuestions ?? []).some((q) => q.required) && stored?.formVersion !== form.version) continue;
-    const checked = validateCustomAnswers(form, stored?.answers ?? {});
-    if (checked.ok && checked.missingRequiredQuestionIds.length === 0) eligible.push(toParticipant(row));
+    const projected = await projectParticipantForMatching(db, toParticipant(row), form);
+    if (projected !== null) eligible.push(projected);
   }
   return eligible;
+}
+
+export async function projectParticipantForMatching(db: Db, participant: Participant, form: import('../form/domain.js').FormConfig): Promise<Participant | null> {
+  const stored = await getRegistrationAnswers(db, participant.eventId, participant.userId);
+  if ((form.customQuestions ?? []).some((q) => q.required && q.visibility !== 'organizer_only') && stored?.formVersion !== form.version) return null;
+  const answers = stored?.formVersion === form.version ? stored.answers : {};
+  const checked = validateCustomAnswers(form, answers);
+  if (!checked.ok || checked.missingRequiredQuestionIds.length > 0) return null;
+  return projectMatchingParticipant(participant, form, checked.answers);
 }
 
 export async function setTeammates(db: Db, actor: string, eventId: string, userId: string, teammateIds: string[]): Promise<Result<Participant>> {

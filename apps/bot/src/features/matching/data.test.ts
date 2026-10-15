@@ -58,3 +58,18 @@ test('commitMatch replaces previous matched teams instead of stacking them', asy
   const rows = await db.all('SELECT id FROM teams WHERE event_id = ?', EVENT);
   assert.equal(rows.length, 1, 'second commit must not stack teams');
 });
+
+test('preview and commit use the event-pinned mapped answers with legacy fallback', async () => {
+  const db = await seed();
+  const form = { ...DEFAULT_FORM, version: 4, customQuestions: [{ id: 'exp', kind: 'single_choice' as const, label: { en: 'Experience' }, help: { en: '' }, required: false, presentation: 'web' as const, visibility: 'self_and_organizer' as const, choices: [{ id: 'expert', label: { en: 'Expert' } }], mapping: { field: 'experience' as const, importance: 'high' as const, choiceValues: { expert: 'veteran' } } }] };
+  await db.run('UPDATE events SET form_json = ? WHERE id = ?', JSON.stringify(form), EVENT);
+  await db.run('INSERT INTO registration_answers (event_id,user_id,form_version,answers_json,updated_at) VALUES (?,?,?,?,?)', EVENT, 'u1', form.version, JSON.stringify({ exp: 'expert' }), 1);
+  try {
+    const preview = await previewMatch(db, EVENT, DEFAULT_FORM);
+    assert.equal(preview.ok, true);
+    if (!preview.ok) return;
+    const committed = await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
+    assert.equal(committed.ok, true);
+    if (committed.ok) assert.deepEqual(committed.value, preview.value);
+  } finally { await db.close(); }
+});

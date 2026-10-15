@@ -24,7 +24,7 @@ export interface Team {
 }
 
 export interface TeamWithMembers extends Team {
-  members: { userId: string; displayName: string; roleTrack: string; experience: string; skills: string[] }[];
+  members: { userId: string; displayName: string; roleTrack: string; experience: string; skills: string[]; matchingImportance?: Partial<Record<'experience' | 'role' | 'skills', number>> }[];
 }
 
 interface TeamRow {

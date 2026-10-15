@@ -347,7 +347,7 @@ export async function createEvent(db: Db, actor: string, guildId: string, input:
   }
 
   if (input.form?.customQuestions !== undefined) {
-    const questions = validateCustomQuestions(input.form.customQuestions);
+    const questions = validateCustomQuestions(input.form.customQuestions, { ...await getForm(db, guildId), ...input.form });
     if (!questions.ok) return err('invalid_questions', questions.errors.join('; '));
   }
   if (!validBannerUrl(input.form?.bannerUrl) || (input.form?.themePreset !== undefined && !['default', 'halloween', 'christmas'].includes(input.form.themePreset)) ||
@@ -542,10 +542,13 @@ export async function updateEventForm(db: Db, actor: string, eventId: string, up
     if (event === null) return err('not_found', 'Event not found.');
     const current = getEventForm(db, event, DEFAULT_FORM);
     let next = normalizeFormUpdate(current, update);
-    const structure = (form: FormConfig) => JSON.stringify((form.customQuestions ?? []).map((q) => ({
-      id: q.id, kind: q.kind, choices: q.choices?.map((c) => c.id).sort() ?? [], required: q.required,
-      presentation: q.presentation, visibility: q.visibility, mapping: q.mapping ?? null,
-    })).sort((a, b) => a.id.localeCompare(b.id)));
+    const structure = (form: FormConfig) => JSON.stringify({
+      questions: (form.customQuestions ?? []).map((q) => ({
+        id: q.id, kind: q.kind, choices: q.choices?.map((c) => c.id).sort() ?? [], required: q.required,
+        presentation: q.presentation, visibility: q.visibility, mapping: q.mapping ?? null,
+      })).sort((a, b) => a.id.localeCompare(b.id)),
+      mappingTargets: { experiences: form.experiences.map((item) => item.id), roleTracks: form.roleTracks.map((item) => item.id), skills: form.skills.map((item) => item.id) },
+    });
     if (structure(current) !== structure(next)) {
       const populated = await db.get<{ count: number }>('SELECT COUNT(*) AS count FROM participants WHERE event_id = ?', eventId);
       if (event.status !== 'draft' && Number(populated?.count ?? 0) > 0) return err('form_version_conflict', 'This published event has registrations. Create an explicit version migration before changing question structure.');

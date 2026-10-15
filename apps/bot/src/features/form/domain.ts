@@ -81,7 +81,7 @@ export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 
       errors.push(`invalid question definition: ${item.id}`);
       continue;
     }
-    if (item.mapping !== undefined && (item.mapping === null || typeof item.mapping !== 'object' || !['experience', 'role', 'skills'].includes(item.mapping.field) || !['low', 'normal', 'high'].includes(item.mapping.importance) || item.visibility === 'organizer_only' || !['self_and_organizer'].includes(item.visibility) || (item.mapping.field === 'skills' ? !['single_choice', 'multi_choice'].includes(item.kind) : item.kind !== 'single_choice') || !item.mapping.choiceValues || typeof item.mapping.choiceValues !== 'object' || Array.isArray(item.mapping.choiceValues) || Object.getPrototypeOf(item.mapping.choiceValues) !== Object.prototype)) {
+    if (item.mapping !== undefined && (item.mapping === null || typeof item.mapping !== 'object' || Object.getPrototypeOf(item.mapping) !== Object.prototype || Object.keys(item.mapping).sort().join(',') !== 'choiceValues,field,importance' || !['experience', 'role', 'skills'].includes(item.mapping.field) || !['low', 'normal', 'high'].includes(item.mapping.importance) || item.visibility === 'organizer_only' || !['self_and_organizer'].includes(item.visibility) || (item.mapping.field === 'skills' ? !['single_choice', 'multi_choice'].includes(item.kind) : item.kind !== 'single_choice') || !item.mapping.choiceValues || typeof item.mapping.choiceValues !== 'object' || Array.isArray(item.mapping.choiceValues) || Object.getPrototypeOf(item.mapping.choiceValues) !== Object.prototype || Object.values(item.mapping.choiceValues).some((value) => typeof value !== 'string'))) {
       errors.push(`private or invalid matching mapping: ${item.id}`);
       continue;
     }
@@ -124,7 +124,7 @@ export function validateCustomAnswers(
   for (const question of questions) {
     const value = input[question.id];
     if (value === undefined || value === null || value === '' || (typeof value === 'string' && value.trim() === '') || (Array.isArray(value) && value.length === 0)) {
-      if (question.required) missingRequiredQuestionIds.push(question.id);
+      if (question.required && question.visibility !== 'organizer_only') missingRequiredQuestionIds.push(question.id);
       continue;
     }
     if (question.kind === 'text') {

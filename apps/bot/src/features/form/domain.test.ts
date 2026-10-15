@@ -11,6 +11,7 @@ test('mapped choices require exact own keys and valid target options', () => {
   assert.equal(validateCustomQuestions([question], CONFIG).ok, true);
   assert.equal(validateCustomQuestions([{ ...question, mapping: { ...question.mapping, choiceValues: { new: 'first_timer' } } }], CONFIG).ok, false);
   assert.equal(validateCustomQuestions([{ ...question, kind: 'multi_choice' as const }], CONFIG).ok, false);
+  assert.equal(validateCustomQuestions([{ ...question, mapping: { ...question.mapping, arbitrary: true } }], CONFIG).ok, false);
   assert.equal(validateCustomQuestions([{ ...question, mapping: { ...question.mapping, choiceValues: Object.assign(Object.create({ rogue: 'veteran' }), { new: 'first_timer', old: 'veteran' }) } }], CONFIG).ok, false);
 });
 
@@ -58,6 +59,11 @@ test('custom answers reject unknown questions, invalid choices, and oversized te
 test('custom question definitions reject private matching inputs and malformed choice sets', () => {
   assert.equal(validateCustomQuestions([{ id: 'diet', kind: 'text', label: { en: 'Diet' }, help: { en: '' }, required: false, presentation: 'web', visibility: 'organizer_only', mapping: { field: 'skills', importance: 'low', choiceValues: {} } }], CONFIG).ok, false);
   assert.equal(validateCustomQuestions([{ id: 'pick', kind: 'single_choice', label: { en: 'Pick' }, help: { en: '' }, required: true, presentation: 'both', visibility: 'self_and_organizer', choices: [{ id: 'x', label: { en: 'X' } }, { id: 'x', label: { en: 'Dup' } }] }], CONFIG).ok, false);
+});
+
+test('required organizer-only fields do not block participant completion', () => {
+  const form = { ...DEFAULT_FORM, customQuestions: [{ id: 'private', kind: 'text' as const, label: { en: 'Organizer note' }, help: { en: '' }, required: true, presentation: 'web' as const, visibility: 'organizer_only' as const }] };
+  assert.deepEqual(validateCustomAnswers(form, {}), { ok: true, answers: {}, missingRequiredQuestionIds: [] });
 });
 
 test('banner URLs allow only bounded HTTPS URLs without embedded credentials', () => {

@@ -12,6 +12,7 @@
  *    (team, candidate) pairing is chosen repeatedly.
  */
 import type { FormConfig } from '../form/domain.js';
+import { validateCustomAnswers, type CustomAnswersResult } from '../form/domain.js';
 import type { Participant } from '../signup/data.js';
 import type { TeamWithMembers } from '../teams/data.js';
 
@@ -44,39 +45,65 @@ const COMPLEMENTARY: string[][] = [
   ['fullstack', 'devops'],
 ];
 
-export function scorePair(a: Participant, b: Participant): number {
+const IMPORTANCE: Record<'low' | 'normal' | 'high', number> = { low: 0.5, normal: 1, high: 2 };
+
+export function projectMatchingParticipant(participant: Participant, config: FormConfig, rawAnswers: Record<string, string | string[]>): Participant {
+  const checked: CustomAnswersResult = validateCustomAnswers(config, rawAnswers);
+  if (!checked.ok) return participant;
+  const projected = { ...participant, skills: [...participant.skills], matchingImportance: {} as NonNullable<Participant['matchingImportance']> };
+  for (const question of config.customQuestions ?? []) {
+    const mapping = question.mapping;
+    const answer = checked.answers[question.id];
+    if (!mapping || answer === undefined || question.visibility !== 'self_and_organizer') continue;
+    if (mapping.field === 'skills') {
+      const choices = Array.isArray(answer) ? answer : [answer];
+      projected.skills = [...new Set(choices.map((choice) => mapping.choiceValues[choice]!).filter(Boolean))];
+    } else {
+      const choice = Array.isArray(answer) ? answer[0] : answer;
+      if (choice === undefined) continue;
+      const value = mapping.choiceValues[choice];
+      if (value) projected[mapping.field === 'role' ? 'roleTrack' : 'experience'] = value;
+    }
+    projected.matchingImportance[mapping.field] = IMPORTANCE[mapping.importance];
+  }
+  return projected;
+}
+
+
+export function scorePair(a: Participant, b: Participant, config?: FormConfig): number {
   let score = 50;
+  const weight = (field: 'experience' | 'role' | 'skills') => ((a.matchingImportance?.[field] ?? 1) + (b.matchingImportance?.[field] ?? 1)) / 2;
 
   // Skill overlap: shared skills help collaboration.
   const shared = a.skills.filter((s) => b.skills.includes(s));
-  score += Math.min(shared.length * 8, 24);
+  score += Math.min(shared.length * 8, 24) * weight('skills');
 
   // Group diversity between the two.
   const aGroups = new Set(a.skills.map((s) => skillGroup(s)));
   const bGroups = new Set(b.skills.map((s) => skillGroup(s)));
   const diverse = [...aGroups].filter((g) => !bGroups.has(g) && g !== '').length;
-  score += Math.min(diverse * 4, 12);
+  score += Math.min(diverse * 4, 12) * weight('skills');
 
   // Role track mix.
   if (a.roleTrack === b.roleTrack) {
-    score += 5;
+    score += 5 * weight('role');
   } else if (COMPLEMENTARY.some(([x, y]) => (a.roleTrack === x && b.roleTrack === y) || (a.roleTrack === y && b.roleTrack === x))) {
-    score += 9;
+    score += 9 * weight('role');
   }
 
   // Experience spread: adjacent levels mix best (mentorship without a gap).
   // Uses form's ordered experiences if provided — position in that ladder matters, not the ID text.
-  const expOrder = (globalThis as unknown as { __expOrder?: string[] }).__expOrder as string[] | undefined
+  const expOrder = config?.experiences?.map((e) => e.id)
   let la: number, lb: number
   if (expOrder && expOrder.length > 1) {
-    const ia = expOrder.indexOf(a.experience); const ib = expOrder.indexOf(b.experience)
+    const ia = expOrder.indexOf(a.experience as typeof expOrder[number]); const ib = expOrder.indexOf(b.experience as typeof expOrder[number])
     la = ia === -1 ? 1 : ia; lb = ib === -1 ? 1 : ib
   } else {
     la = EXP_LEVEL[a.experience] ?? 1; lb = EXP_LEVEL[b.experience] ?? 1
   }
   const diff = Math.abs(la - lb);
-  if (diff === 1) score += 6;
-  else if (diff === 0) score += 3;
+  if (diff === 1) score += 6 * weight('experience');
+  else if (diff === 0) score += 3 * weight('experience');
 
   // Friend pulls.
   if (a.teammates.includes(b.userId) && b.teammates.includes(a.userId)) {
@@ -94,13 +121,13 @@ function skillGroup(skillId: string): string {
   return idx === -1 ? '' : skillId.slice(0, idx);
 }
 
-function teamScore(members: Participant[]): number {
+function teamScore(members: Participant[], config: FormConfig): number {
   if (members.length <= 1) return 0;
   let total = 0;
   let pairs = 0;
   for (let i = 0; i < members.length; i++) {
     for (let j = i + 1; j < members.length; j++) {
-      total += scorePair(members[i]!, members[j]!);
+      total += scorePair(members[i]!, members[j]!, config);
       pairs++;
     }
   }
@@ -156,8 +183,6 @@ const TEAM_NAMES = [
 ];
 
 export function buildTeams(participants: Participant[], config: FormConfig): MatchResult {
-  const expOrder = config.experiences?.map(e=>e.id) ?? []
-  ;(globalThis as unknown as { __expOrder?: string[] }).__expOrder = expOrder
   const teamSize = config.teamSize;
   const byId = new Map(participants.map((p) => [p.userId, p]));
   const conflicts: string[] = [];
@@ -188,7 +213,7 @@ export function buildTeams(participants: Participant[], config: FormConfig): Mat
     for (let t = 0; t < teams.length; t++) {
       if (teams[t]!.length >= teamSize) continue;
       for (let c = 0; c < candidates.length; c++) {
-        const memberScores = teams[t]!.map((m) => scorePair(m, candidates[c]!));
+        const memberScores = teams[t]!.map((m) => scorePair(m, candidates[c]!, config));
         const avg = memberScores.reduce((s, v) => s + v, 0) / memberScores.length;
         const tie = best === null ? 1 : 0;
         if (tie || avg > best!.score) {
@@ -210,7 +235,7 @@ export function buildTeams(participants: Participant[], config: FormConfig): Mat
   const result: MatchTeam[] = teams.map((members, i) => ({
     name: `Team ${TEAM_NAMES[i % TEAM_NAMES.length]}${i >= TEAM_NAMES.length ? ` ${Math.floor(i / TEAM_NAMES.length) + 1}` : ''}`,
     memberIds: members.map((m) => m.userId),
-    score: teamScore(members),
+    score: teamScore(members, config),
     notes: [],
   }));
 
@@ -276,7 +301,8 @@ export function suggestTeamsForParticipant(
             blockReason: null,
             createdAt: 0,
             updatedAt: 0,
-          }),
+            ...(m.matchingImportance ? { matchingImportance: m.matchingImportance } : {}),
+          }, config),
         0,
       );
       return { teamId: team.id, teamName: team.name, score: Math.round(total / team.members.length) };
