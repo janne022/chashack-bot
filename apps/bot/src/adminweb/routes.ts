@@ -1337,7 +1337,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/participants/:userId/team', async (req, reply) => {
     const { userId } = req.params as { userId: string };
     const body = req.body as { teamId?: string | null } | null;
-    const res = await adminAssign(db, 'web', await resolveEventId(req, await guildOf(req)), userId, body?.teamId ?? null);
+    const guildId = await guildOf(req);
+    const res = await adminAssign(db, 'web', await resolveEventId(req, guildId), userId, body?.teamId ?? null, (await getForm(db, guildId)).teamSize);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;

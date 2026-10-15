@@ -27,6 +27,11 @@ export interface TeamWithMembers extends Team {
   members: { userId: string; displayName: string; roleTrack: string; experience: string; skills: string[]; matchingImportance?: Partial<Record<'experience' | 'role' | 'skills', number>> }[];
 }
 
+/** Serialize team membership mutations across independent pooled connections. */
+export async function lockEventTeams(db: Db, eventId: string): Promise<boolean> {
+  return (await db.get<{ id: string }>('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId)) !== undefined;
+}
+
 interface TeamRow {
   id: string;
   event_id: string | null;
@@ -75,6 +80,7 @@ export async function createTeam(
   // Membership check → insert → assign owner: a read-modify-write pair, wrapped
   // so two concurrent creates cannot both pass the check.
   return db.transaction(async () => {
+    if (!(await lockEventTeams(db, eventId))) return err('not_found', 'Event not found.');
     const existingMembership = await getTeamForUser(db, eventId, ownerId);
     if (existingMembership !== null) return err('already_in_team', 'You are already in a team. Leave it first.');
 
@@ -161,10 +167,9 @@ export async function listOpenPublicTeams(db: Db, eventId: string, teamSize: num
 }
 
 export async function joinTeam(db: Db, actor: string, eventId: string, userId: string, teamId: string, teamSize: number): Promise<Result<Team>> {
-  // Capacity check → insert is a read-modify-write: two concurrent joins could
-  // both pass the full check without the transaction. The single-writer queue
-  // serialises them, preserving the atomicity the sync code had implicitly.
+  // Event-row locking serializes the read-modify-write across pooled handles.
   return db.transaction(async () => {
+    if (!(await lockEventTeams(db, eventId))) return err('not_found', 'Event not found.');
     const teamRow = await db.get<TeamRow>('SELECT * FROM teams WHERE id = ? FOR UPDATE', teamId);
     const team = teamRow === undefined ? null : toTeam(teamRow);
     if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
@@ -194,8 +199,9 @@ export async function joinPrivateTeam(
   code: string,
   teamSize: number,
 ): Promise<Result<Team>> {
-  // Same capacity check → insert race as joinTeam; atomic via transaction.
+  // Same capacity check → insert race as joinTeam; event lock spans pools.
   return db.transaction(async () => {
+    if (!(await lockEventTeams(db, eventId))) return err('not_found', 'Event not found.');
     const team = await getTeamByJoinCode(db, eventId, code);
     if (team === null) return err('not_found', 'No team with that code in this event.');
     const current = await getTeamForUser(db, eventId, userId);
@@ -232,18 +238,24 @@ export async function removeMember(db: Db, actor: string, teamId: string, userId
   return ok(undefined);
 }
 
-/** Admin move: silently assigns a participant to a team (no capacity check — admin override). */
-export async function adminAssign(db: Db, actor: string, eventId: string, userId: string, teamId: string | null): Promise<Result<void>> {
-  const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
-  if (event === undefined) return err('not_found', 'Event not found.');
-  if (teamId !== null) {
-    const team = await getTeam(db, teamId);
-    if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
-  }
-  const res = await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', teamId, Date.now(), eventId, userId);
-  if (res.changes === 0) return err('not_found', 'Participant not found in this event.');
-  await audit(db, actor, 'team.assign', eventId, { userId, teamId }, event.guild_id);
-  return ok(undefined);
+/** Organizer move: applies the same active-signup and capacity rules as joins. */
+export async function adminAssign(db: Db, actor: string, eventId: string, userId: string, teamId: string | null, teamSize: number): Promise<Result<void>> {
+  return db.transaction(async () => {
+    const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ? FOR UPDATE', eventId);
+    if (event === undefined) return err('not_found', 'Event not found.');
+    const participant = await db.get<{ status: string; team_id: string | null }>('SELECT status, team_id FROM participants WHERE event_id = ? AND user_id = ? FOR UPDATE', eventId, userId);
+    if (participant === undefined) return err('not_found', 'Participant not found in this event.');
+    if (teamId !== null) {
+      const teamRow = await db.get<TeamRow>('SELECT * FROM teams WHERE id = ? FOR UPDATE', teamId);
+      const team = teamRow === undefined ? null : toTeam(teamRow);
+      if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
+      if (participant.status !== 'active') return err('not_active', 'Participant signup is not active.');
+      if (participant.team_id !== teamId && (await countMembers(db, teamId)) >= teamSize) return err('team_full', `Team is full (${teamSize}/${teamSize}).`);
+    }
+    await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', teamId, Date.now(), eventId, userId);
+    await audit(db, actor, 'team.assign', eventId, { userId, teamId }, event.guild_id);
+    return ok(undefined);
+  });
 }
 
 export async function deleteTeam(db: Db, actor: string, teamId: string): Promise<Result<Team>> {

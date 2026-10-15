@@ -101,3 +101,20 @@ downstream cards; do not add placeholder UI here.
 The signup React route `/events/$eventId/signup` is owned by downstream card
 t_583f310e; this backend publishes its API and completion link but does not ship
 or claim the page.
+
+## Teams and member departure (#13/#23)
+
+- [x] Serialize team creation, joins, invitation creation/acceptance, matching
+  commits, and organizer assignment on the event row across independent pooled
+  PostgreSQL connections; organizer assignment enforces active status/capacity.
+- [x] Add real two-connection invite-accept capacity regression and organizer
+  capacity/partial-write regression.
+- [ ] Add participant team/invite endpoints and parity/privacy coverage.
+- [ ] Revalidate matching previews at commit; preserve formed teams and exclude
+  private answers from every output.
+- [ ] Delete only departed-guild registrations/answers/team links/requests;
+  add gateway/offline reconciliation with fail-closed lookup behavior and
+  identifier-only idempotence records.
+- [ ] Transfer ownership to a random eligible remaining member; reuse existing
+  empty-team cleanup, and test team leave/departure across two guilds.
+- [ ] Run exact-head CI and same-card independent QA before planner delivery.

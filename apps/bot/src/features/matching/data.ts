@@ -10,7 +10,7 @@ import type { FormConfig } from '../form/domain.js';
 import { getParticipant, listMatchable, projectParticipantForMatching } from '../signup/data.js';
 import { getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
-import { listTeams, type TeamWithMembers } from '../teams/data.js';
+import { listTeams, lockEventTeams, type TeamWithMembers } from '../teams/data.js';
 import { buildTeams, type MatchResult } from './domain.js';
 
 /** Teams for an event with their active members — input for placement suggestions. */
@@ -40,9 +40,9 @@ export async function commitMatch(db: Db, actor: string, eventId: string, guildI
   // The whole clear → insert → assign sequence was implicitly atomic when this
   // module was synchronous: an interleaved join/leave could desync the member
   // updates (participant assigned to a matched team id that the next
-  // statement deletes). The transaction + the handle's single-writer queue
-  // restore that guarantee across await points.
+  // statement deletes). The event row lock serializes pooled mutations.
   return db.transaction(async () => {
+    if (!(await lockEventTeams(db, eventId))) return err('not_found', 'Event not found in this guild.');
     const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
     if (event === undefined || event.guild_id !== guildId) return err('not_found', 'Event not found in this guild.');
     const preview = await previewMatch(db, eventId, config);
