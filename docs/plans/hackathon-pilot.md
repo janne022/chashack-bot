@@ -150,3 +150,15 @@ this is an explicit production launch blocker. Legal review of controller/minor
 participant posture is still required.
 Participant signup/team pages remain the dependent participant card's surface;
 these checks exercise real HTTP handlers, not an unimplemented page journey.
+
+## Organizer workspace (t_ce43eb96)
+
+- [ ] Keep template → event → assignment → schedule → preview → publish on the
+      existing console and reuse the pinned server-side form DTO unchanged.
+- [ ] Expose stable localized questions, private-field classification, mapped
+      choice IDs and importance in form/template editing.
+- [ ] Preserve typed state and show inline save/version conflicts; cosmetic
+      changes remain saveable when structural edits are rejected.
+- [ ] Verify success, error and empty journeys, en/sv, keyboard and mobile on
+      the actual served console.
+

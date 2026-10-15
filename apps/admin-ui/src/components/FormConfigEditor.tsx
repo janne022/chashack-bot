@@ -10,6 +10,7 @@ import { Label, Textarea } from "@/components/ui/textarea-label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { CustomQuestionsEditor } from "@/components/CustomQuestionsEditor"
 
 function Help({ children }: { children: React.ReactNode }) {
   return (
@@ -95,6 +96,7 @@ export function FormConfigEditor({
       <RoleTracksEditor value={value.roleTracks} onChange={v=>edit("roleTracks", v)} />
       <TeamPrefsEditor value={value.teamPrefs} onChange={v=>edit("teamPrefs", v as FormConfig["teamPrefs"])} />
       <SkillsEditor value={value.skills} onChange={v=>edit("skills", v)} />
+      <CustomQuestionsEditor value={value.customQuestions ?? []} onChange={v=>edit("customQuestions", v)} form={value} />
     </div>
   )
 }
