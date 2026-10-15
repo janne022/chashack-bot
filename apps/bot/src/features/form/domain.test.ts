@@ -111,7 +111,7 @@ test('custom question definitions reject private matching inputs and malformed c
 
 test('banner URLs allow only bounded HTTPS URLs without embedded credentials', () => {
   assert.equal(validBannerUrl('https://cdn.example.test/banner.webp'), true);
-  assert.equal(validBannerUrl('javascript:alert(1)'), false);
+  assert.equal(validBannerUrl('javascript:1'), false);
   assert.equal(validBannerUrl('http://example.test/banner.webp'), false);
   assert.equal(validBannerUrl('https://user:pass@example.test/a'), false);
 });
