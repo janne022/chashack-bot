@@ -25,6 +25,7 @@ export async function saveRegistrationAnswers(
   db: Db, eventId: string, userId: string, formVersion: number, answers: Record<string, string | string[]>,
 ): Promise<Result<RegistrationAnswers>> {
   return db.transaction(async () => {
+    await db.get('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
     const existing = await db.get<{ form_version: number }>(
       'SELECT form_version FROM registration_answers WHERE event_id = ? AND user_id = ?', eventId, userId,
     );

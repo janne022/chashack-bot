@@ -238,6 +238,7 @@
   "matching.preview_failed": "Förhandsgranskningen misslyckades",
   "matching.committed": "{count} team genomförda och utannonserade",
   "matching.commit_failed": "Genomförandet misslyckades",
+  "matching.stale_preview": "Förhandsvisningen har ändrats. Förhandsvisa igen innan du bekräftar.",
   "matching.last_match": "Senaste genomförda matchning: {count} team · {when}",
   "matching.nobody_title": "Ingen att matcha än",
   "matching.need_one_title": "Behöver en deltagare till",

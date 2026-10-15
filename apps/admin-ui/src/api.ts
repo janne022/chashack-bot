@@ -133,10 +133,10 @@ export const api = {
     return res.result
   },
 
-  async matchCommit(eventId?: string): Promise<MatchResult> {
+  async matchCommit(eventId?: string, revision?: string): Promise<MatchResult> {
     const res = await request<{ result: MatchResult }>('/api/match/commit', {
       method: 'POST',
-      body: JSON.stringify({ ...(eventId ? { eventId } : {}) }),
+      body: JSON.stringify({ revision, ...(eventId ? { eventId } : {}) }),
     })
     return res.result
   },

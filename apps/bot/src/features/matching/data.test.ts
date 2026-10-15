@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { openTestDb } from '../../shared/test-db.js';
 import { DEFAULT_FORM } from '../form/domain.js';
 import { commitMatch, previewMatch } from './data.js';
+import { createTeam } from '../teams/data.js';
 
 const GUILD = 'g1';
 const EVENT = 'ev1';
@@ -71,5 +72,51 @@ test('preview and commit use the event-pinned mapped answers with legacy fallbac
     const committed = await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
     assert.equal(committed.ok, true);
     if (committed.ok) assert.deepEqual(committed.value, preview.value);
+  } finally { await db.close(); }
+});
+
+test('preview revision refuses stale commit without touching formed teams', async () => {
+  const db = await seed();
+  try {
+    const formed = await createTeam(db, 'test', EVENT, GUILD, 'Formed', 'public', 'u3');
+    assert.ok(formed.ok);
+    const preview = await previewMatch(db, EVENT, DEFAULT_FORM);
+    assert.ok(preview.ok);
+    if (!preview.ok || !formed.ok) return;
+    const revision = (preview.value as unknown as { revision: string }).revision;
+    assert.match(revision ?? '', /^[a-f0-9]{64}$/);
+    await db.run("UPDATE participants SET status='blocked' WHERE event_id=? AND user_id='u2'", EVENT);
+    const result = await Reflect.apply(commitMatch, null, [db, 'test', EVENT, GUILD, DEFAULT_FORM, revision]);
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'stale_preview');
+    assert.deepEqual(await db.all('SELECT id FROM teams WHERE event_id=?', EVENT), [{ id: formed.value.id }]);
+    assert.equal((await db.get<{ team_id: string }>("SELECT team_id FROM participants WHERE event_id=? AND user_id='u3'", EVENT))!.team_id, formed.value.id);
+  } finally { await db.close(); }
+});
+
+test('existing matched teams survive a later match of new eligible opt-ins', async () => {
+  const db = await seed();
+  try {
+    assert.ok((await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM)).ok);
+    const original = await db.all('SELECT id FROM teams WHERE event_id=?', EVENT);
+    await db.run("INSERT INTO participants SELECT event_id,'new-one',guild_id,'New',experience,role_track,skills,team_pref,teammates,NULL,status,NULL,created_at,updated_at FROM participants WHERE event_id=? AND user_id='u1'", EVENT);
+    await db.run("INSERT INTO participants SELECT event_id,'new-two',guild_id,'New',experience,role_track,skills,team_pref,teammates,NULL,status,NULL,created_at,updated_at FROM participants WHERE event_id=? AND user_id='u2'", EVENT);
+    assert.ok((await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM)).ok);
+    assert.equal((await db.all('SELECT id FROM teams WHERE event_id=?', EVENT)).length, 2);
+    assert.ok(await db.get('SELECT id FROM teams WHERE id=?', original[0]!.id));
+  } finally { await db.close(); }
+});
+
+test('private answer changes never affect matching scores, revision or DTOs', async () => {
+  const db = await seed();
+  try {
+    const form = { ...DEFAULT_FORM, customQuestions: [{ id: 'private', kind: 'text', label: { en: 'Private' }, help: { en: '' }, required: false, presentation: 'web', visibility: 'organizer_only' }] };
+    await db.run('UPDATE events SET form_json=? WHERE id=?', JSON.stringify(form), EVENT);
+    const before = await previewMatch(db, EVENT, DEFAULT_FORM);
+    await db.run('INSERT INTO registration_answers VALUES (?,?,1,?,1)', EVENT, 'u1', JSON.stringify({ private: 'PRIVATE_SENTINEL' }));
+    const after = await previewMatch(db, EVENT, DEFAULT_FORM);
+    assert.deepEqual(after, before);
+    assert.equal(JSON.stringify(after).includes('PRIVATE_SENTINEL'), false);
+    if (after.ok) assert.ok((await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM, after.value.revision)).ok);
   } finally { await db.close(); }
 });

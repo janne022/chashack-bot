@@ -882,7 +882,8 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
   async function matchNow() {
     setBusy('match')
     try {
-      const res = await api.matchCommit(event.id)
+      const preview = await api.matchPreview(event.id)
+      const res = await api.matchCommit(event.id, preview.revision)
       toast.success(t('events.match_done', { count: res.teams.length }))
       await refresh()
     } catch (e) {

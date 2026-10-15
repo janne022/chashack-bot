@@ -4,6 +4,7 @@ import type { Db } from './db.js';
 import { parseDatabaseUrl } from './db-config.js';
 import { assertDisposableDatabase } from './database-guard.js';
 import { openPostgres, migratePostgres } from './postgres.js';
+import { setMembershipLookup } from '../features/signup/eligibility.js';
 
 const handles = new Set<Db>();
 after(async () => { for (const db of handles) await db.close(); });
@@ -31,6 +32,7 @@ export async function openTestDb(): Promise<Db> {
   try {
     await admin.run(`CREATE SCHEMA ${schema}`);
     const db = await openPostgres(url, schema);
+    setMembershipLookup(db, async () => true); // Fake current membership; never used by runtime bootstrap.
     try { await migratePostgres(db); } catch (error) { await db.close(); throw error; }
     const close = db.close.bind(db);
     db.close = async () => {

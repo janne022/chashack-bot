@@ -30,6 +30,7 @@ export interface MatchTeam {
 }
 
 export interface MatchResult {
+  revision?: string;
   teams: MatchTeam[];
   /** Mentioned-but-split friendships and oversized friend groups. */
   conflicts: string[];

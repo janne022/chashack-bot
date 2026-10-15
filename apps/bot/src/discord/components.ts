@@ -389,7 +389,7 @@ export async function onComponent(
   }
 
   // ── admin confirm buttons (require admin) ────────────────────────────────
-  if (id === IDS.matchConfirm || id === IDS.matchCancel) {
+  if (id === IDS.matchConfirm || id.startsWith(`${IDS.matchConfirm}:`) || id === IDS.matchCancel) {
     if (!ctx.isAdmin) {
       await i.reply(eph(t(locale, 'discord.admin.organizer_only_short')));
       return;

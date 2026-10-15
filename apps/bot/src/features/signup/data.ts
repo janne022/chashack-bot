@@ -10,6 +10,7 @@ import { getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
 import { deleteRegistrationAnswers, getRegistrationAnswers } from '../registration/data.js';
 import { projectMatchingParticipant } from '../matching/domain.js';
+import { isCurrentMember } from './eligibility.js';
 
 export type ParticipantStatus = 'active' | 'blocked' | 'withdrawn';
 
@@ -80,7 +81,7 @@ export async function upsertParticipant(
     // Data-layer gate: never write signups for events that are not active
     // (defense in depth — the interaction layer also gates, but a modal can
     // stay open across an event transition).
-    const eventRow = await db.get<{ status: string }>('SELECT status FROM events WHERE id = ?', eventId);
+    const eventRow = await db.get<{ status: string }>('SELECT status FROM events WHERE id = ? FOR UPDATE', eventId);
     if (eventRow === undefined) {
       return err('no_event', 'This signup has no active event behind it. An organizer must activate an event first.');
     }
@@ -146,14 +147,15 @@ export async function listParticipants(db: Db, eventId: string, status?: Partici
 export async function listMatchable(db: Db, eventId: string): Promise<Participant[]> {
   const rows = await db.all<ParticipantRow>(
     `SELECT * FROM participants
-       WHERE event_id = ? AND status = 'active' AND team_id IS NULL AND team_pref = 'random_team'`,
+       WHERE event_id = ? AND status = 'active' AND team_id IS NULL AND team_pref = 'random_team' ORDER BY user_id`,
     eventId,
   );
   const event = await getEvent(db, eventId);
-  if (event === null) return [];
+  if (event === null || event.status !== 'active') return [];
   const form = getEventForm(db, event, await getForm(db, event.guildId));
   const eligible: Participant[] = [];
   for (const row of rows) {
+    if (row.guild_id !== event.guildId || !(await isCurrentMember(db, event.guildId, row.user_id))) continue;
     const projected = await projectParticipantForMatching(db, toParticipant(row), form);
     if (projected !== null) eligible.push(projected);
   }
@@ -170,16 +172,20 @@ export async function projectParticipantForMatching(db: Db, participant: Partici
 }
 
 export async function setTeammates(db: Db, actor: string, eventId: string, userId: string, teammateIds: string[]): Promise<Result<Participant>> {
+  return db.transaction(async () => {
+  await db.get('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
   const participant = await getParticipant(db, eventId, userId);
   if (participant === null) return err('not_found', 'Sign up first with /hackathon join.');
   const clean = [...new Set(teammateIds.map((id) => id.trim()).filter((id) => /^\d{5,25}$/.test(id)))].slice(0, 10);
   await db.run('UPDATE participants SET teammates = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', JSON.stringify(clean), Date.now(), eventId, userId);
   await audit(db, actor, 'participant.teammates', eventId, { userId, count: clean.length }, participant.guildId);
   return ok((await getParticipant(db, eventId, userId))!);
+  });
 }
 
 export async function blockParticipant(db: Db, actor: string, eventId: string, userId: string, reason: string): Promise<Result<void>> {
-  const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
+  return db.transaction(async () => {
+  const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ? FOR UPDATE', eventId);
   if (event === undefined) return err('not_found', 'Event not found.');
   const res = await db.run(
     "UPDATE participants SET status = 'blocked', block_reason = ?, team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?",
@@ -191,10 +197,12 @@ export async function blockParticipant(db: Db, actor: string, eventId: string, u
   if (res.changes === 0) return err('not_found', 'Participant not found in this event.');
   await audit(db, actor, 'participant.block', eventId, { userId, reason }, event.guild_id);
   return ok(undefined);
+  });
 }
 
 export async function unblockParticipant(db: Db, actor: string, eventId: string, userId: string): Promise<Result<void>> {
-  const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
+  return db.transaction(async () => {
+  const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ? FOR UPDATE', eventId);
   if (event === undefined) return err('not_found', 'Event not found.');
   const res = await db.run(
     "UPDATE participants SET status = 'active', block_reason = NULL, updated_at = ? WHERE event_id = ? AND user_id = ? AND status = 'blocked'",
@@ -205,14 +213,18 @@ export async function unblockParticipant(db: Db, actor: string, eventId: string,
   if (res.changes === 0) return err('not_found', 'No blocked participant with that ID in this event.');
   await audit(db, actor, 'participant.unblock', eventId, { userId }, event.guild_id);
   return ok(undefined);
+  });
 }
 
 export async function reactivateParticipant(db: Db, actor: string, eventId: string, userId: string): Promise<Result<void>> {
+  return db.transaction(async () => {
+  await db.get('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
   const p = await getParticipant(db, eventId, userId);
   if (p === null) return err('not_found', 'Participant not found.');
   await db.run("UPDATE participants SET status = 'active', block_reason = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?", Date.now(), eventId, userId);
   await audit(db, actor, 'participant.reactivate', eventId, { userId }, p.guildId);
   return ok(undefined);
+  });
 }
 
 export async function listTeamRoster(db: Db, teamId: string): Promise<{ userId: string; displayName: string }[]> {
@@ -221,7 +233,7 @@ export async function listTeamRoster(db: Db, teamId: string): Promise<{ userId: 
 
 export async function withdrawParticipant(db: Db, actor: string, eventId: string, userId: string): Promise<Result<void>> {
   return db.transaction(async () => {
-    const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
+    const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ? FOR UPDATE', eventId);
     if (event === undefined) return err('not_found', 'Event not found.');
     const res = await db.run(
       "UPDATE participants SET status = 'withdrawn', team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ? AND status = 'active'",

@@ -181,6 +181,12 @@ docker run -d --name chashack \
   `HEALTHCHECK` hits `/healthz`.
 - `SKIP_DISCORD=1` is for CI and smoke tests only; OAuth login and current guild
   authorization require the Discord gateway to be available.
+- Enable the privileged Server Members Intent in the Discord developer portal.
+  Guild-member removal deletes that guild's personal registrations immediately;
+  boot, gateway resume and maintenance reconcile missed departures using fresh
+  REST membership lookups. Only Unknown Member (10007) proves absence; permission,
+  network and unavailable-guild errors never trigger personal deletion. Bot
+  uninstall is not a member-departure event.
 - CI (`.github/workflows/ci.yml`) gates every push/PR: supply-chain policy
   check, frozen-lockfile install, typecheck, build, tests, API smoke suite.
 - All pipeline deps are exact-pinned; CI runs on Node 24.
