@@ -97,7 +97,8 @@ export async function createJoinRequest(
   // Eligibility checks → insert: atomic so two concurrent requests cannot both
   // pass the same-team / capacity checks.
   return db.transaction(async () => {
-    const team = await getTeam(db, teamId);
+    const row = await db.get<{ id: string; event_id: string | null; guild_id: string; name: string; kind: string; owner_id: string | null; join_code: string | null; role_id: string | null; text_channel_id: string | null; voice_channel_id: string | null; color: string | null; created_at: number }>('SELECT * FROM teams WHERE id = ? FOR UPDATE', teamId);
+    const team = row === undefined ? null : await getTeam(db, teamId);
     if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
     if (team.kind === 'matched') return err('not_joinable', 'Matched teams cannot be requested.');
 
