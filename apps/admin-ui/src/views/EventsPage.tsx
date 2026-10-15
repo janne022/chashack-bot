@@ -944,14 +944,14 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
       <CardContent className="flex flex-col gap-4">
         {/* Actions first — they are the reason you opened the event. Offset below
             the mobile shell header so the two sticky bars don't overlap. */}
-        <div className="sticky top-14 z-[5] flex flex-wrap items-center gap-2 rounded-xl border border-border bg-background/95 p-2.5 backdrop-blur [&_button]:min-h-11 [&_a]:min-h-11 sm:[&_button]:min-h-7 sm:[&_a]:min-h-7 lg:top-4">
-          <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
+        <div className="sticky top-14 z-[5] flex flex-wrap items-center gap-2 rounded-xl border border-border bg-background/95 p-2.5 backdrop-blur [&_button]:h-11 [&_a]:h-11 sm:[&_button]:h-7 sm:[&_a]:h-7 lg:top-4">
+          <Button variant="secondary" size="sm" className="!h-11 sm:!h-7" onClick={() => setEditOpen(true)}>
             <Pencil />
             {t('events.edit_event')}
           </Button>
           {event.status === 'active' && (
             <Button asChild variant="outline" size="sm">
-              <a href={`/events/${encodeURIComponent(event.id)}`} target="_blank" rel="noreferrer">
+              <a className="!h-11 sm:!h-7" href={`/events/${encodeURIComponent(event.id)}`} target="_blank" rel="noreferrer">
                 <ExternalLink />
                 {t('events.public_preview')}
               </a>
@@ -960,11 +960,11 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
           {!ended && <NotificationButtons event={event} refresh={refresh} />}
           {!ended && (
             <>
-              <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void matchNow()}>
+              <Button variant="outline" size="sm" className="!h-11 sm:!h-7" disabled={busy !== null} onClick={() => void matchNow()}>
                 <UsersRound />
                 {t('events.match_now')}
               </Button>
-              <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void toggleLock()}>
+              <Button variant="outline" size="sm" className="!h-11 sm:!h-7" disabled={busy !== null} onClick={() => void toggleLock()}>
                 {event.matchLocked ? <Unlock /> : <Lock />}
                 {event.matchLocked ? t('events.unlock_teams') : t('events.lock_teams')}
               </Button>
@@ -973,6 +973,7 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
           <Button
             variant="ghost"
             size="sm"
+            className="!h-11 sm:!h-7"
             onClick={() => { void navigator.clipboard.writeText(event.id).then(() => toast.info(t('events.id_copied'))) }}
           >
             <Copy />
