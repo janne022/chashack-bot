@@ -14,7 +14,7 @@ import { adminAssign, listTeams, setGuildCategory, getTeam } from '../features/t
 import { previewMatch, commitMatch } from '../features/matching/data.js';
 import { getForm } from '../features/form/data.js';
 import { postOrUpdatePanel } from './signup-panel.js';
-import { provisionTeamSpace, grantTeamRole, destroyTeamSpace } from './provision.js';
+import { applyTeamLeave, provisionTeamSpace, grantTeamRole, destroyTeamSpace } from './provision.js';
 import {
   createEvent,
   getActiveEvent,
@@ -132,6 +132,7 @@ export async function handleAdminCommand(
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
+      if (res.value !== null) await applyTeamLeave({ db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value, user.id);
       // Provision + role + welcome, best effort (never block the reply).
       const moved = await getTeam(db, found.id);
       if (moved !== null) {

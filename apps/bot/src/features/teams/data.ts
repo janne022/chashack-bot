@@ -9,6 +9,8 @@ import { newId, newJoinCode } from '../../shared/db.js';
 import type { TeamKind } from '../form/domain.js';
 import { eligibleParticipant } from '../signup/eligibility.js';
 import { randomInt } from 'node:crypto';
+import { getEvent, getEventForm } from '../events/data.js';
+import { getForm } from '../form/data.js';
 
 export interface Team {
   id: string;
@@ -32,6 +34,13 @@ export interface TeamWithMembers extends Team {
 /** Serialize team membership mutations across independent pooled connections. */
 export async function lockEventTeams(db: Db, eventId: string): Promise<boolean> {
   return (await db.get<{ id: string }>('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId)) !== undefined;
+}
+
+/** Resolve the affected event's pinned capacity, never the caller's current event. */
+export async function eventTeamSize(db: Db, eventId: string, fallback: number): Promise<number> {
+  const event = await getEvent(db, eventId);
+  if (event === null) return fallback;
+  return getEventForm(db, event, { ...await getForm(db, event.guildId), teamSize: fallback }).teamSize;
 }
 
 interface TeamRow {
@@ -174,6 +183,7 @@ export async function joinTeam(db: Db, actor: string, eventId: string, userId: s
   // Event-row locking serializes the read-modify-write across pooled handles.
   return db.transaction(async () => {
     if (!(await lockEventTeams(db, eventId))) return err('not_found', 'Event not found.');
+    teamSize = await eventTeamSize(db, eventId, teamSize);
     const teamRow = await db.get<TeamRow>('SELECT * FROM teams WHERE id = ? FOR UPDATE', teamId);
     const team = teamRow === undefined ? null : toTeam(teamRow);
     if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
@@ -208,6 +218,7 @@ export async function joinPrivateTeam(
   // Same capacity check → insert race as joinTeam; event lock spans pools.
   return db.transaction(async () => {
     if (!(await lockEventTeams(db, eventId))) return err('not_found', 'Event not found.');
+    teamSize = await eventTeamSize(db, eventId, teamSize);
     const team = await getTeamByJoinCode(db, eventId, code);
     if (team === null) return err('not_found', 'No team with that code in this event.');
     if (await eligibleParticipant(db, eventId, userId) === null) return err('ineligible', 'Complete an active registration in this server first.');
@@ -227,7 +238,20 @@ export async function leaveTeam(db: Db, actor: string, eventId: string, userId: 
     await lockEventTeams(db, eventId);
     const team = await getTeamForUser(db, eventId, userId);
     if (team === null) return err('no_team', 'You are not in a team.');
-    await db.run('UPDATE participants SET team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?', Date.now(), eventId, userId);
+    return removeFromTeam(db, actor, team.id, userId);
+  });
+}
+
+/** Shared outgoing-member/owner semantics, including owners detached by withdrawal. */
+export async function removeFromTeam(db: Db, actor: string, teamId: string, userId: string): Promise<Result<Team>> {
+  return db.transaction(async () => {
+    const initial = await getTeam(db, teamId);
+    if (initial === null) return err('not_found', 'Team not found.');
+    await lockEventTeams(db, initial.eventId);
+    const team = await getTeam(db, teamId);
+    if (team === null) return err('not_found', 'Team not found.');
+    const eventId = team.eventId;
+    await db.run('UPDATE participants SET team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ? AND team_id = ?', Date.now(), eventId, userId, team.id);
     if (team.ownerId === userId) {
       const candidates = await db.all<{ user_id: string }>("SELECT user_id FROM participants WHERE team_id = ? AND status = 'active' ORDER BY user_id", team.id);
       const eligible: string[] = [];
@@ -242,18 +266,16 @@ export async function leaveTeam(db: Db, actor: string, eventId: string, userId: 
 }
 
 export async function removeMember(db: Db, actor: string, teamId: string, userId: string): Promise<Result<void>> {
-  const team = await getTeam(db, teamId);
-  if (team === null) return err('not_found', 'Team not found.');
-  await db.run('UPDATE participants SET team_id = NULL, updated_at = ? WHERE user_id = ? AND team_id = ?', Date.now(), userId, teamId);
-  await audit(db, actor, 'team.remove_member', team.eventId, { teamId, userId }, team.guildId);
-  return ok(undefined);
+  const removed = await removeFromTeam(db, actor, teamId, userId);
+  return removed.ok ? ok(undefined) : removed;
 }
 
-/** Organizer move: applies the same active-signup and capacity rules as joins. */
-export async function adminAssign(db: Db, actor: string, eventId: string, userId: string, teamId: string | null, teamSize: number): Promise<Result<void>> {
+/** Organizer move; return the outgoing team so callers can clean up its resources. */
+export async function adminAssign(db: Db, actor: string, eventId: string, userId: string, teamId: string | null, teamSize: number): Promise<Result<Team | null>> {
   return db.transaction(async () => {
     const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ? FOR UPDATE', eventId);
     if (event === undefined) return err('not_found', 'Event not found.');
+    teamSize = await eventTeamSize(db, eventId, teamSize);
     const participant = await db.get<{ status: string; team_id: string | null }>('SELECT status, team_id FROM participants WHERE event_id = ? AND user_id = ? FOR UPDATE', eventId, userId);
     if (participant === undefined) return err('not_found', 'Participant not found in this event.');
     if (teamId !== null) {
@@ -264,9 +286,15 @@ export async function adminAssign(db: Db, actor: string, eventId: string, userId
       if (participant.status !== 'active') return err('not_active', 'Participant signup is not active.');
       if (participant.team_id !== teamId && (await countMembers(db, teamId)) >= teamSize) return err('team_full', `Team is full (${teamSize}/${teamSize}).`);
     }
+    let previousTeam: Team | null = null;
+    if (participant.team_id !== null && participant.team_id !== teamId) {
+      const left = await removeFromTeam(db, actor, participant.team_id, userId);
+      if (!left.ok) return left;
+      previousTeam = left.value;
+    }
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', teamId, Date.now(), eventId, userId);
     await audit(db, actor, 'team.assign', eventId, { userId, teamId }, event.guild_id);
-    return ok(undefined);
+    return ok(previousTeam);
   });
 }
 

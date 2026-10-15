@@ -249,7 +249,7 @@
   "matching.mixed_experience": "blandade erfarenhetsnivåer",
   "matching.commit_these": "Genomför dessa team",
   "matching.commit_title": "Genomföra {count} team?",
-  "matching.commit_desc": "Tidigare matchade team upplöses, dessa blir permanenta och lagen utannonseras i Discord. Du kan köra matchningen igen om folk hoppar av.",
+  "matching.commit_desc": "Befintliga team hålls ihop. Dessa nya team bildas bara av behöriga deltagare utan team som har valt matchning, och presenteras i Discord. Du kan köra matchningen igen senare för nya deltagare utan team.",
   "matching.back": "Tillbaka",
   "matching.commit_announce": "Genomför & utannonsera",
   "form.title": "Anmälningsformulär",

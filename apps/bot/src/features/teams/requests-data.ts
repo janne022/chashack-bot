@@ -11,7 +11,7 @@
 import type { Db } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
-import { countMembers, getTeam, getTeamForUser, lockEventTeams, type Team } from './data.js';
+import { countMembers, eventTeamSize, getTeam, getTeamForUser, lockEventTeams, type Team } from './data.js';
 import { eligibleParticipant } from '../signup/eligibility.js';
 
 export type RequestKind = 'join_request' | 'invite';
@@ -99,6 +99,7 @@ export async function createJoinRequest(
   // pass the same-team / capacity checks.
   return db.transaction(async () => {
     if (!(await lockEventTeams(db, eventId))) return err('not_found', 'Event not found.');
+    teamSize = await eventTeamSize(db, eventId, teamSize);
     const row = await db.get<{ id: string; event_id: string | null; guild_id: string; name: string; kind: string; owner_id: string | null; join_code: string | null; role_id: string | null; text_channel_id: string | null; voice_channel_id: string | null; color: string | null; created_at: number }>('SELECT * FROM teams WHERE id = ? FOR UPDATE', teamId);
     const team = row === undefined ? null : await getTeam(db, teamId);
     if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
@@ -137,6 +138,7 @@ export async function createInvite(
   // Same eligibility → insert race as createJoinRequest; atomic via transaction.
   return db.transaction(async () => {
     if (!(await lockEventTeams(db, eventId))) return err('not_found', 'Event not found.');
+    teamSize = await eventTeamSize(db, eventId, teamSize);
     const teamRow = await db.get<RequestRow>('SELECT * FROM teams WHERE id = ? FOR UPDATE', teamId);
     const team = teamRow === undefined ? null : await getTeam(db, teamId);
     if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
@@ -200,6 +202,10 @@ export async function decideRequest(
     }
 
     // Accept: re-check the moving parts.
+    teamSize = await eventTeamSize(db, request.eventId, teamSize);
+    const decider = await eligibleParticipant(db, request.eventId, request.targetId);
+    if (decider === null) return err('ineligible', 'Complete an active registration in this server first.');
+    if (request.kind === 'join_request' && decider.teamId !== team.id) return err('not_your_decision', 'This request is not yours to decide.');
     const joinerId = request.kind === 'invite' ? request.targetId : request.requesterId;
     if (await eligibleParticipant(db, request.eventId, joinerId) === null) return err('ineligible', 'Complete an active registration in this server first.');
     if (team.eventId !== request.eventId || team.guildId !== request.guildId) return err('not_found', 'Team not found in this event.');

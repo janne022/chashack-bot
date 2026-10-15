@@ -249,7 +249,7 @@
   "matching.mixed_experience": "mixed experience levels",
   "matching.commit_these": "Commit these teams",
   "matching.commit_title": "Commit {count} teams?",
-  "matching.commit_desc": "Previous matched teams are dissolved, these become permanent, and the lineups are announced in Discord. You can re-run matching later if people drop.",
+  "matching.commit_desc": "Existing teams stay together. These new teams are formed only from eligible, unteamed participants who opted into matching, and announced in Discord. You can run matching again later for new unteamed participants.",
   "matching.back": "Back",
   "matching.commit_announce": "Commit & announce",
   "form.title": "Signup form",

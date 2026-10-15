@@ -25,6 +25,7 @@ import { TEAM_COLORS } from '../features/form/domain.js';
 import { buildSignupModal, buildCreateTeamModal, buildTeamSettingsModal, optionLabel } from './modal.js';
 import { IDS, cancelRow, decideRow, displayErr, embedOk, eph, type Ctx } from './shared.js';
 import { t } from '../shared/i18n.js';
+import { applyTeamLeave } from './provision.js';
 
 /** Browser: pick a public team with space → send join request. Shared with the panel button. */
 export async function teamsBrowser(
@@ -218,6 +219,8 @@ export async function handleUserCommand(
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
+      const provisionDeps = { db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
+      await applyTeamLeave(provisionDeps, res.value, i.user.id);
       await i.reply({
         embeds: [
           embedOk(t(locale, 'discord.teams.left_title'), t(locale, 'discord.teams.left_body', { name: res.value.name })),

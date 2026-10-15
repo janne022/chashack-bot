@@ -35,7 +35,7 @@ export async function previewMatch(db: Db, eventId: string, config: FormConfig):
   const event = await getEvent(db, eventId);
   const pinnedForm = event === null ? config : getEventForm(db, event, await getForm(db, event.guildId));
   const formed = (await listTeams(db, eventId)).map((team) => ({ id: team.id, members: team.members.map((member) => member.userId).sort() })).sort((a, b) => a.id.localeCompare(b.id));
-  const inputs = participants.map(({ userId, experience, roleTrack, skills, teammates, matchingImportance }) => ({ userId, experience, roleTrack, skills, teammates, matchingImportance })).sort((a, b) => a.userId.localeCompare(b.userId));
+  const inputs = participants.map(({ userId, experience, roleTrack, skills, teammates, matchingImportance, createdAt }) => ({ userId, experience, roleTrack, skills, teammates, matchingImportance, createdAt })).sort((a, b) => a.userId.localeCompare(b.userId));
   const revision = createHash('sha256').update(JSON.stringify([eventId, pinnedForm, inputs, formed])).digest('hex');
   return ok({ ...buildTeams(participants, pinnedForm), revision });
 }
