@@ -35,6 +35,13 @@ keep them out of repositories. Password rotation alone does not revoke existing
 PostgreSQL connections. Legacy user files remain sensitive even though the runtime
 no longer opens them; this change does not convert or delete those files.
 
+No rolling-backup or automated restore integration is configured in this repository.
+Before launch, the operator must configure encrypted rolling backups that remove
+deleted values within 30 days, preserve the identifier-only deletion ledger outside
+the snapshot retention window, and replay that ledger before the restored bot accepts
+requests. Verify this with an actual disposable restore; the synthetic fixture test
+is not operational evidence.
+
 ## Where secrets are allowed to live
 
 - `.env` on the specific host, created from `.env.example`. `.env` must be

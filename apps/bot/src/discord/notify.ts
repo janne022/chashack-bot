@@ -30,11 +30,13 @@ import { DEFAULT_FORM } from '../features/form/domain.js';
 import { destroyTeamSpace, botLocale } from './provision.js';
 import { postOrUpdatePanel } from './signup-panel.js';
 import { t } from '../shared/i18n.js';
+import { purgeEventPrivateAnswers, purgeExpiredPrivateAnswers } from '../features/registration/retention.js';
 
 export interface NotifyDeps {
   db: Db;
   client: Client;
   kysely?: KyselyDb;
+  now?: number;
 }
 
 const SNOWFLAKE_RE = /^[0-9]{17,20}$/;
@@ -230,7 +232,7 @@ export async function createDiscordEvents(
 export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
   const { db, client, kysely } = deps;
   const locale = botLocale();
-  const now = Date.now();
+  const now = deps.now ?? Date.now();
   const summary: string[] = [];
 
   // Collect all events (typed Kysely read when the instance is wired).
@@ -246,6 +248,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
     }
   }
   const actions = planMaintenance(allEvents, now);
+  for (const eventId of await purgeExpiredPrivateAnswers(db, now)) summary.push(`purged private answers: ${eventId}`);
   if (actions.length === 0) return summary;
 
   for (const action of actions) {
@@ -354,6 +357,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           break;
         }
         case 'cleanup': {
+          await purgeEventPrivateAnswers(db, event.id, now);
           const teams = await listTeams(db, event.id);
           const provisionDeps = { db, client, categoryIdFor: () => event.categoryId ?? undefined };
           for (const team of teams) {

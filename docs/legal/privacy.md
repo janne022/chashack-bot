@@ -114,10 +114,21 @@ The bot warns in the event channel **72 hours** and again **24 hours** before th
 teardown runs (`events.cleanup_warned_72h` / `events.cleanup_warned_24h`), so nobody is
 surprised.
 
-> **Planned, not built yet.** Deleting the event's database rows on this same 48-hour
-> clock is the documented goal (issue #23), but the purge job does not exist yet.
-> Today the clock removes the Discord artefacts only, and the rows stay until an
-> erasure request or a tenant purge (see below).
+**Private signup answers: end of event + 7 days.** Answers to organizer-only form
+questions (including dietary or accessibility answers configured with
+`visibility: organizer_only`) are removed by the maintenance sweep at `ends_at + 7
+days`. If event teardown or guild departure removes them sooner, that earlier
+deletion wins; the 48-hour Discord cleanup delay is never extended to retain them.
+Other answers remain under the event's existing data lifecycle. The deletion ledger
+stores only guild, event, user identifiers and deletion time, never answer values;
+restore replay must apply it before the service accepts requests.
+
+**Backups: intended maximum 30 days after deletion, not operationally verified.**
+This repository has no configured rolling-backup or restore automation. Therefore
+the 30-day purge bound and pre-serve replay are not yet guaranteed operationally and
+remain launch blockers until backup storage/rotation and restore procedures are
+implemented and tested. Do not treat this draft as evidence that production backups
+meet the bound.
 
 **Console sessions: 7 days.** A web-console session row lives 7 days and is deleted
 when it expires (`SESSION_TTL_MS = 7 days`; expired rows are deleted when the bot starts up and when someone signs in).
@@ -128,7 +139,7 @@ exists so that accidentally kicking the bot, or moving to a new server, does not
 the event. If the bot is re-invited inside the grace window,
 everything is still there.
 
-> **Planned, not built yet.** The grace period and the bulk sweep that follows it do
+> **Not built yet.** The grace period and the bulk sweep that follows it do
 > **not** exist today: removing the bot leaves that server's data in place, and
 > nothing purges it automatically. We intend the window to be **30 days**, but that
 > number is not final and nothing enforces it yet. This page will state the real
@@ -222,11 +233,16 @@ what the reader-facing text promises but the code does not do yet.
 - **PostgreSQL deployment** — source requires `DATABASE_URL`; actual hosting,
   database access controls and RLS still require deployment verification.
 - The exact **contact address** is a placeholder.
+- This policy and the service's use with minors, controller/processor allocation,
+  lawful basis and consent require qualified legal review before public launch.
 
 ### (b) Promises not yet implemented
 
-- Event-scoped row purge on the 48-hour clock (today the clock tears down Discord
-  artefacts only) — issue #23 R1.
+- Deletion of all event database rows on the 48-hour clock (the clock tears down
+  Discord artefacts only); organizer-only answers have the separately implemented
+  end+7-day sweep and earlier teardown/departure deletion.
+- Production rolling-backup expiry within 30 days and automated pre-serve deletion
+  replay — no backup plumbing exists in this repository; launch blocker.
 - Post-bot-removal bulk sweep after a grace period, and the 30-day number itself
   (proposed, owner to confirm) — issue #23 R1.
 - Per-guild export and erasure operations with dry-run + confirmation — issue #23 R2.
