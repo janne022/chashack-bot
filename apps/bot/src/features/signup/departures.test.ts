@@ -24,7 +24,7 @@ test('departure deletes one guild only, elects eligible successor, records ident
       assert.ok((await joinTeam(db, 'test', guild, 'successor', team.value.id, 4)).ok);
       await db.run("UPDATE participants SET team_id=?,status='blocked' WHERE event_id=? AND user_id='blocked'", team.value.id, guild);
       await db.run("INSERT INTO team_requests (event_id,guild_id,team_id,requester_id,target_id,kind,status,created_at) VALUES (?,?,?,'discord:same','blocked','invite','pending',1)", guild, guild, team.value.id);
-      await db.run("INSERT INTO audit_log (ts,actor,action,details,guild_id) VALUES (1,'discord:same','test',?,?)", JSON.stringify({ displayName: 'same', secret: 'SECRET_ANSWER' }), guild);
+      await db.run("INSERT INTO audit_log (ts,actor,action,details,guild_id) VALUES (1,'discord:same','test',?,?)", JSON.stringify({ displayName: 'same', privateAnswer: 'SECRET_ANSWER' }), guild);
     }
     const restored = await openTestDb();
     try {
