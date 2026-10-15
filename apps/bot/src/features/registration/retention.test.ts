@@ -15,9 +15,9 @@ function verifyFixtureArchive(bytes: Buffer, deletedAt: number, checkedAt: numbe
 
 test('fixture backup-retention check rejects a stale archive retaining a deletion sentinel', () => {
   const deletedAt = 1_700_000_000_000;
-  const bytes = gzipSync(JSON.stringify({ createdAt: deletedAt - 10 * 86_400_000, payload: 'PRIVATE_BACKUP_SENTINEL' }));
-  verifyFixtureArchive(bytes, deletedAt, deletedAt + 29 * 86_400_000, 'PRIVATE_BACKUP_SENTINEL');
-  assert.throws(() => verifyFixtureArchive(bytes, deletedAt, deletedAt + 30 * 86_400_000, 'PRIVATE_BACKUP_SENTINEL'), /beyond 30 days/);
+  const bytes = gzipSync(JSON.stringify({ createdAt: deletedAt - 10 * 86_400_000, payload: 'old-answer-marker' }));
+  verifyFixtureArchive(bytes, deletedAt, deletedAt + 29 * 86_400_000, 'old-answer-marker');
+  assert.throws(() => verifyFixtureArchive(bytes, deletedAt, deletedAt + 30 * 86_400_000, 'old-answer-marker'), /beyond 30 days/);
 });
 
 test('purges private answers at end plus seven days and replays without touching other events or fresh registrations', async () => {
