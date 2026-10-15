@@ -1156,6 +1156,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveEnd(event))
   const [signupActions, setSignupActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveSignup(event))
   const [busy, setBusy] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   // Anchored blocks follow the dates while the user edits them.
   useEffect(() => {
@@ -1177,6 +1178,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
 
   async function save() {
     setBusy(true)
+    setSaveError('')
     try {
       // Block actions ride the synthetic blocks. The legacy on_activate/on_start
       // announcement rows are dropped here — nothing sends them, their content
@@ -1210,7 +1212,9 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
       onClose()
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('events.schedule_save_failed'))
+      const message = e instanceof Error ? e.message : t('events.schedule_save_failed')
+      setSaveError(message)
+      toast.error(message)
     } finally { setBusy(false) }
   }
 
@@ -1224,6 +1228,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
               <CardDescription>{t('events.edit_schedule_desc')}</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              {saveError && <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"><p>{saveError}</p><Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void save()} disabled={busy}>{t('events.retry_save')}</Button></div>}
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.name')}</span>
                 <Input value={editName} onChange={(e)=>setEditName(e.target.value)} maxLength={100} />

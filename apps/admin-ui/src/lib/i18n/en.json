@@ -115,6 +115,7 @@
   "events.edit_schedule_desc": "Times are shown locally. Drag ideas: 12:00 Fika, 18:00 Dinner, 14:00 Voting, Prize ceremony.",
   "events.schedule_saved": "Schedule saved",
   "events.schedule_save_failed": "Could not save schedule",
+  "events.retry_save": "Retry save",
   "events.hackathon_starts": "Hackathon Starts",
   "events.hackathon_ends": "Hackathon Ends",
   "events.signup_window": "Signup window",
