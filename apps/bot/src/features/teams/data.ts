@@ -165,7 +165,8 @@ export async function joinTeam(db: Db, actor: string, eventId: string, userId: s
   // both pass the full check without the transaction. The single-writer queue
   // serialises them, preserving the atomicity the sync code had implicitly.
   return db.transaction(async () => {
-    const team = await getTeam(db, teamId);
+    const teamRow = await db.get<TeamRow>('SELECT * FROM teams WHERE id = ? FOR UPDATE', teamId);
+    const team = teamRow === undefined ? null : toTeam(teamRow);
     if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
     if (team.kind === 'private') return err('private_team', 'That team is private — an invite or join code is required.');
 
