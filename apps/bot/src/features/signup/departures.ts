@@ -56,5 +56,10 @@ export async function reconcileGuildMembers(db: Db, guildId: string, lookup: (us
 
 /** Feed the durable identifier ledger from outside a restored snapshot. */
 export async function replayMemberDeletions(db: Db, records: { guildId: string; userId: string; deletedAt: number }[]): Promise<void> {
-  for (const record of records) await deleteGuildMemberData(db, record.guildId, record.userId, record.deletedAt);
+  for (const record of records) {
+    const freshRegistration = await db.get(`SELECT 1 FROM participants p JOIN events e ON e.id=p.event_id
+      WHERE p.guild_id=? AND p.user_id=? AND p.created_at>? LIMIT 1`, record.guildId, record.userId, record.deletedAt);
+    if (freshRegistration !== undefined) continue;
+    await deleteGuildMemberData(db, record.guildId, record.userId, record.deletedAt);
+  }
 }

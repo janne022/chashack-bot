@@ -120,6 +120,14 @@ CREATE TABLE IF NOT EXISTS member_deletions (
       PRIMARY KEY (guild_id, user_id)
     );
 
+CREATE TABLE IF NOT EXISTS private_answer_deletions (
+      guild_id TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      deleted_at BIGINT NOT NULL,
+      PRIMARY KEY (guild_id, event_id, user_id)
+    );
+
 CREATE TABLE IF NOT EXISTS guild_settings (
       guild_id TEXT PRIMARY KEY,
       team_category_id TEXT,

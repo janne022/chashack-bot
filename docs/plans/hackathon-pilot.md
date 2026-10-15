@@ -124,6 +124,9 @@ use localized error embeds; both confirmation catalogs disclose team preservatio
 - [x] Delete only departed-guild registrations/answers/team links/requests;
   add gateway/offline reconciliation with fail-closed lookup behavior and
   identifier-only idempotence records.
+- [x] Purge organizer-only signup answers at event end + 7 days (earlier cleanup
+  or departure wins); preserve non-private answers and replay deletion identifiers
+  against synthetic pre-deletion snapshots. `node --test dist/features/registration/retention.test.js`.
 - [x] Transfer ownership to a random eligible remaining member; reuse existing
   empty-team cleanup, and test team leave/departure across two guilds.
 - [ ] Run exact-head CI and same-card independent QA before planner delivery.
@@ -140,5 +143,10 @@ preview. Existing formed teams are never cleared. Guild removal/reconciliation
 call the same deletion service, return empty-team resources to existing Discord
 cleanup and retain only guild/user/time identifiers for restore replay. A fake
 snapshot replay is tested; this does not claim a production backup retention SLA.
+There is no rolling-backup or restore automation in this repository. An operator
+must provide encrypted rolling backups, remove deleted values within 30 days, retain
+the deletion ledger outside snapshots, and replay it before serving restored data;
+this is an explicit production launch blocker. Legal review of controller/minor
+participant posture is still required.
 Participant signup/team pages remain the dependent participant card's surface;
 these checks exercise real HTTP handlers, not an unimplemented page journey.

@@ -54,7 +54,10 @@ test('departure deletes one guild only, elects eligible successor, records ident
     assert.equal((await db.all("SELECT * FROM participants WHERE guild_id='b'")).length, 2);
     // Rejoin is a fresh signup, not resurrection of answers or invitations.
     await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES ('a','same','a','New','','','[]','','[]','active',200,200)");
-    assert.equal((await db.all("SELECT * FROM registration_answers WHERE event_id='a' AND user_id='same'")).length, 0);
+    await db.run("INSERT INTO registration_answers VALUES ('a','same',1,'{\"fresh\":\"NEW_REGISTRATION\"}',200)");
+    await replayMemberDeletions(db, [{ guildId: 'a', userId: 'same', deletedAt: 100 }]);
+    assert.equal((await db.all("SELECT * FROM participants WHERE event_id='a' AND user_id='same'")).length, 1);
+    assert.equal((await db.get<{ answers_json: string }>("SELECT answers_json FROM registration_answers WHERE event_id='a' AND user_id='same'"))?.answers_json.includes('NEW_REGISTRATION'), true);
     const team = (await db.get<{ id: string }>("SELECT id FROM teams WHERE event_id='a'"))!;
     await deleteGuildMemberData(db, 'a', 'successor', 300);
     assert.equal(await getTeam(db, team.id), null, 'no eligible remaining member uses team deletion');
