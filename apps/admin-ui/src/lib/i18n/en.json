@@ -45,6 +45,7 @@
   "events.create_failed": "Create failed",
   "events.live": "live",
   "events.copy_id": "Copy id",
+  "events.public_preview": "Public preview",
   "events.id_copied": "Event id copied",
   "events.signups": "Signups",
   "events.teams": "Teams",
