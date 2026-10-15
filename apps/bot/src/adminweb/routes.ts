@@ -1235,7 +1235,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return
     }
     if (form.customQuestions !== undefined) {
-      const questions = validateCustomQuestions(form.customQuestions);
+      const questions = validateCustomQuestions(form.customQuestions, form as FormConfig);
       if (!questions.ok) return reply.code(400).send({ ok: false, code: 'invalid_questions', errors: questions.errors });
     }
     if (!validBannerUrl(form.bannerUrl) || (form.themePreset !== undefined && !['default', 'halloween', 'christmas'].includes(form.themePreset)) ||

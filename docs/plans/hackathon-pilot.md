@@ -63,6 +63,24 @@ they do not perform or claim a live Discord OAuth login.
 
 ## Shared versioned registration and public event contract (#13/#20)
 
+Mapping contract: `{ field: experience|role|skills, importance: low|normal|high,
+choiceValues: Record<choiceId, coreOptionId> }`. Choice keys exactly match the
+question's stable choice IDs and values must exist in the pinned form's target
+options. Experience/role require single choice; skills allow single or multi.
+Only non-private professional choices may map, with at most one question per
+target. Mappings are structural. Keep original core signup values and answers;
+derive matching values server-side, replacing a core value only when its mapped
+answer is present. Unanswered optional mappings retain core values. Multipliers
+are 0.5/1/2; pair contribution uses the mean of both participants' multipliers,
+applied independently to existing experience, role and capped skills components.
+Do not weight base/friend contributions or alter allocation rules. No answered
+mapping reproduces existing scores. Keep custom/private answers out of matching
+diagnostics and all non-owner DTOs.
+
+Backend owns mapping validation, projection/scoring, persistence, Discord link
+and public HTML. The participant signup React route and organizer editing are
+downstream cards; do not add placeholder UI here.
+
 - [ ] Add stable, localized custom questions to the event-pinned `FormConfig`;
       validate question limits, IDs, kinds, choices, and bounded mappings.
 - [ ] Persist one answer record per event/participant/form version; share the
