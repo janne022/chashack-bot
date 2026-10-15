@@ -60,3 +60,21 @@ or protected instruction edits are authorized.
 
 Browser session fixtures are synthetic and exercise the application UI/API only;
 they do not perform or claim a live Discord OAuth login.
+
+## Shared versioned registration and public event contract (#13/#20)
+
+- [ ] Add stable, localized custom questions to the event-pinned `FormConfig`;
+      validate question limits, IDs, kinds, choices, and bounded mappings.
+- [ ] Persist one answer record per event/participant/form version; share the
+      validated answer shape between Discord projection and participant API.
+- [ ] Implement participant self-scoped GET/PUT/DELETE registration, including
+      current membership checks and required-answer completion status.
+- [ ] Reject structural edits to populated published forms without an explicit
+      version migration; cosmetic changes preserve historical meaning.
+- [ ] Add public published-event DTO and escaped initial Open Graph HTML; never
+      expose private registration, roster, invite, or audit data.
+- [ ] Add regression tests for two-guild isolation, stale versions, validation,
+      completion, privacy, public metadata escaping, and idempotent PostgreSQL
+      schema migration. Use disposable PostgreSQL only.
+- [ ] Add en/sv Discord web-completion link and error copy; verify exact-head CI,
+      request same-card qa-judge review, one repair, then targeted verification.

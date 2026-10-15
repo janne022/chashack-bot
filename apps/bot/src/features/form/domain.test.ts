@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FORM, validateSignupInput, normalizeFormUpdate } from './domain.js';
+import { DEFAULT_FORM, validateSignupInput, normalizeFormUpdate, validateCustomAnswers, validateCustomQuestions, validBannerUrl } from './domain.js';
 
 const CONFIG = DEFAULT_FORM;
 
@@ -80,4 +80,38 @@ test('normalizeFormUpdate keeps ids slug-safe and dedupes', () => {
   assert.ok(!ids.includes(''));
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(next.roleTracks[0]!.label, 'Frontend');
+});
+
+test('custom answers reject unknown questions, invalid choices, and oversized text', () => {
+  const form = {
+    ...DEFAULT_FORM,
+    customQuestions: [{
+      id: 'q-goal', kind: 'text' as const, label: { en: 'Goal', sv: 'Mål' }, help: { en: '' },
+      required: true, presentation: 'web' as const, visibility: 'self_and_organizer' as const,
+    }, {
+      id: 'q-choice', kind: 'single_choice' as const, label: { en: 'Track' }, help: { en: '' },
+      required: false, presentation: 'both' as const, visibility: 'organizer_only' as const,
+      choices: [{ id: 'build', label: { en: 'Build' } }],
+    }],
+  };
+  assert.deepEqual(validateCustomAnswers(form, { 'q-goal': 'Build a game' }), {
+    ok: true, answers: { 'q-goal': 'Build a game' }, missingRequiredQuestionIds: [],
+  });
+  assert.equal(validateCustomAnswers(form, { rogue: 'x' }).ok, false);
+  assert.equal(validateCustomAnswers(form, { 'q-goal': 'valid', 'q-choice': 'unknown' }).ok, false);
+  assert.equal(validateCustomAnswers(form, { 'q-goal': 'x'.repeat(2001) }).ok, false);
+});
+
+test('custom question definitions reject private matching inputs and malformed choice sets', () => {
+  assert.equal(validateCustomQuestions([{ id: 'diet', kind: 'text', label: { en: 'Diet' }, help: { en: '' }, required: false,
+    presentation: 'web', visibility: 'organizer_only', mapping: { field: 'skills', importance: 'low' } }]).ok, false);
+  assert.equal(validateCustomQuestions([{ id: 'pick', kind: 'single_choice', label: { en: 'Pick' }, help: { en: '' }, required: true,
+    presentation: 'both', visibility: 'self_and_organizer', choices: [{ id: 'x', label: { en: 'X' } }, { id: 'x', label: { en: 'Dup' } }] }]).ok, false);
+});
+
+test('banner URLs allow only bounded HTTPS URLs without embedded credentials', () => {
+  assert.equal(validBannerUrl('https://cdn.example.test/banner.webp'), true);
+  assert.equal(validBannerUrl('javascript:alert(1)'), false);
+  assert.equal(validBannerUrl('http://example.test/banner.webp'), false);
+  assert.equal(validBannerUrl('https://user:pass@example.test/a'), false);
 });

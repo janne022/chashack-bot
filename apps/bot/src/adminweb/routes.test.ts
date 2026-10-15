@@ -6,6 +6,7 @@ import { createSession, getSession } from '../features/auth/data.js';
 import { openTestDb } from '../shared/test-db.js';
 import type { Env } from '../shared/env.js';
 import { registerRoutes } from './routes.js';
+import { DEFAULT_FORM } from '../features/form/domain.js';
 
 const signingKey = 'test-session-signing-key-at-least-32-characters';
 const config = {
@@ -152,6 +153,79 @@ test('foreign Origin is rejected for session-changing requests', async () => {
   });
   assert.equal(response.statusCode, 403);
   assert.equal(response.json().error, 'origin_mismatch');
+  await app.close();
+  await db.close();
+});
+
+test('public event DTO and initial HTML expose only published escaped content', async () => {
+  const db = await openTestDb();
+  const form = { ...DEFAULT_FORM, bannerUrl: 'https://cdn.example.test/banner.webp', customQuestions: [{ id: 'private-q', kind: 'text', label: { en: 'Private' }, help: { en: '' }, required: false,
+    presentation: 'web', visibility: 'organizer_only' }] };
+  await db.run('INSERT INTO events (id,guild_id,name,description,status,form_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+    'public-event', 'guild-public', '<Hack & Win>', 'Description </p> unsafe', 'active', JSON.stringify(form), 1, 1);
+  await db.run('INSERT INTO registration_answers (event_id,user_id,form_version,answers_json,updated_at) VALUES (?,?,?,?,?)',
+    'public-event', 'someone', form.version, JSON.stringify({ 'private-q': 'SENTINEL_PRIVATE' }), 1);
+  const app = Fastify({ logger: false });
+  registerRoutes(app, { db, config, announce: async () => undefined, client: null });
+  const dto = await app.inject({ url: '/api/public/events/public-event' });
+  assert.equal(dto.statusCode, 200);
+  assert.equal(dto.body.includes('SENTINEL_PRIVATE'), false);
+  const html = await app.inject({ url: '/events/public-event' });
+  assert.equal(html.statusCode, 200);
+  assert.match(html.body, /<title>&lt;Hack &amp; Win&gt;<\/title>/);
+  assert.match(html.body, /og:description/);
+  assert.match(html.body, /og:image" content="https:\/\/cdn\.example\.test\/banner\.webp/);
+  assert.equal(html.body.includes('SENTINEL_PRIVATE'), false);
+  await app.close();
+  await db.close();
+});
+
+test('participant registration saves validated answers and stale form versions preserve them', async () => {
+  const db = await openTestDb();
+  const form = { ...DEFAULT_FORM, version: 2, customQuestions: [{ id: 'goal', kind: 'text', label: { en: 'Goal' }, help: { en: '' }, required: true,
+    presentation: 'web', visibility: 'self_and_organizer' }] };
+  await db.run('INSERT INTO events (id,guild_id,name,description,status,form_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+    'signup-event', '11111111111111111', 'Signup', '', 'active', JSON.stringify(form), 1, 1);
+  const session = await createSession(db, { userId: 'participant-user', username: 'Participant', avatar: null, guilds: [], audience: 'participant' });
+  const guild = { id: '11111111111111111', members: { fetch: async () => ({ id: 'participant-user' }) } };
+  const client = { guilds: { fetch: async () => guild, cache: new Map([[guild.id, guild]]) } } as never;
+  const app = Fastify({ logger: false });
+  registerRoutes(app, { db, config, announce: async () => undefined, client });
+  const cookie = `hackpartsess=${encodeURIComponent(makeDiscordToken(signingKey, session.id, Date.now(), 'participant'))}`;
+  const headers = { cookie };
+  const put = (formVersion: number, answers: Record<string, string>) => app.inject({ method: 'PUT', url: '/api/participant/events/signup-event/registration', headers, payload: { formVersion, answers, teamPref: 'random_team' } });
+  const incomplete = await put(2, {});
+  assert.equal(incomplete.statusCode, 200);
+  assert.deepEqual(incomplete.json().missingRequiredQuestionIds, ['goal']);
+  assert.equal(incomplete.json().complete, false);
+  const complete = await put(2, { goal: 'A private answer sentinel' });
+  assert.equal(complete.statusCode, 200);
+  assert.equal(complete.json().complete, true);
+  assert.equal((await put(1, { goal: 'overwrite' })).statusCode, 409);
+  const get = await app.inject({ url: '/api/participant/events/signup-event/registration?userId=other', headers });
+  assert.equal(get.json().answers.goal, 'A private answer sentinel');
+  await app.close();
+  await db.close();
+});
+
+test('organizer registration answers remain tenant-scoped', async () => {
+  const db = await openTestDb();
+  const guildId = '11111111111111111';
+  const session = await createSession(db, { userId: 'guild-owner', username: 'Owner', avatar: null, guilds: [{ id: guildId, name: 'A', icon: null }] });
+  for (const [eventId, tenant, answer] of [['event-a', guildId, 'A_PRIVATE'], ['event-b', '22222222222222222', 'B_PRIVATE']]) {
+    await db.run('INSERT INTO events (id,guild_id,name,description,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)', eventId, tenant, eventId, '', 'active', 1, 1);
+    await db.run('INSERT INTO registration_answers (event_id,user_id,form_version,answers_json,updated_at) VALUES (?,?,?,?,?)', eventId, 'participant', 1, JSON.stringify({ secret: answer }), 1);
+  }
+  const guild = { id: guildId, name: 'A', ownerId: 'guild-owner', members: { fetch: async (userId: string) => ({ id: userId, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }) } };
+  const client = { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild } } as never;
+  const app = Fastify({ logger: false });
+  registerRoutes(app, { db, config, announce: async () => undefined, client });
+  const headers = { cookie: sessionCookie(session.id) };
+  const own = await app.inject({ url: '/api/events/event-a/registrations', headers });
+  assert.equal(own.statusCode, 200);
+  assert.equal(own.body.includes('A_PRIVATE'), true);
+  assert.equal(own.body.includes('B_PRIVATE'), false);
+  assert.equal((await app.inject({ url: '/api/events/event-b/registrations', headers })).statusCode, 404);
   await app.close();
   await db.close();
 });

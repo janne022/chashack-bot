@@ -118,7 +118,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
 
   await i.reply({
     embeds: [
-      embedOk(t(locale, 'discord.join.saved_title'), t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })),
+      embedOk(t(locale, 'discord.join.saved_title'), `${t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })}${ctx.webCompletionUrl ? `\n\n${t(locale, 'discord.join.web_completion', { url: `<${ctx.webCompletionUrl}>` })}` : ''}`),
       await buildParticipantEmbed(ctx.db, ctx.config, saved.value, locale),
     ],
     components: actions.components.length > 0 ? [actions] : [],

@@ -91,7 +91,7 @@ test('migration: fresh database via PostgreSQL bootstrap has all expected tables
   try {
     const sql = 'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = current_schema()';
     const tables = (await db.all<{ name: string }>(sql)).map((r) => r.name);
-    for (const t of ['meta', 'events', 'event_templates', 'form_config', 'participants', 'teams', 'team_requests', 'guild_settings', 'web_sessions', 'audit_log']) {
+    for (const t of ['meta', 'events', 'event_templates', 'form_config', 'participants', 'registration_answers', 'teams', 'team_requests', 'guild_settings', 'web_sessions', 'audit_log']) {
       assert.ok(tables.includes(t), `table ${t} must exist after migrate()`);
     }
     // Columns added by addColumnIfMissing (a fresh DB must have them too).

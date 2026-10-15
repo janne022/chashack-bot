@@ -12,7 +12,7 @@ import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import { DEFAULT_FORM, type FormConfig } from '../form/domain.js';
 import { getForm } from '../form/data.js';
-import { normalizeFormUpdate } from '../form/domain.js';
+import { normalizeFormUpdate, validateCustomQuestions, validBannerUrl } from '../form/domain.js';
 
 export type EventStatus = 'draft' | 'active' | 'ended';
 
@@ -346,6 +346,13 @@ export async function createEvent(db: Db, actor: string, guildId: string, input:
     if (input.signupEndsAt > input.startsAt) return err('bad_dates', 'Signup must end before the hackathon starts.');
   }
 
+  if (input.form?.customQuestions !== undefined) {
+    const questions = validateCustomQuestions(input.form.customQuestions);
+    if (!questions.ok) return err('invalid_questions', questions.errors.join('; '));
+  }
+  if (!validBannerUrl(input.form?.bannerUrl) || (input.form?.themePreset !== undefined && !['default', 'halloween', 'christmas'].includes(input.form.themePreset)) ||
+      (input.form?.accentColor !== undefined && !/^#[0-9a-fA-F]{6}$/.test(input.form.accentColor))) return err('invalid_theme', 'Theme preset, banner URL, or accent color is invalid.');
+
   const id = newId('ev');
   const form: FormConfig = normalizeFormUpdate({ ...await getForm(db, guildId), ...(input.form ?? {}) }, {});
   // The pool is a snapshot of the assignment collection picked at creation.
@@ -534,7 +541,18 @@ export async function updateEventForm(db: Db, actor: string, eventId: string, up
     const event = await getEvent(db, eventId);
     if (event === null) return err('not_found', 'Event not found.');
     const current = getEventForm(db, event, DEFAULT_FORM);
-    const next = normalizeFormUpdate(current, update);
+    let next = normalizeFormUpdate(current, update);
+    const structure = (form: FormConfig) => JSON.stringify((form.customQuestions ?? []).map((q) => ({
+      id: q.id, kind: q.kind, choices: q.choices?.map((c) => c.id).sort() ?? [], required: q.required,
+      presentation: q.presentation, visibility: q.visibility, mapping: q.mapping ?? null,
+    })).sort((a, b) => a.id.localeCompare(b.id)));
+    if (structure(current) !== structure(next)) {
+      const populated = await db.get<{ count: number }>('SELECT COUNT(*) AS count FROM participants WHERE event_id = ?', eventId);
+      if (event.status !== 'draft' && Number(populated?.count ?? 0) > 0) return err('form_version_conflict', 'This published event has registrations. Create an explicit version migration before changing question structure.');
+      next = { ...next, version: current.version + 1 };
+    } else {
+      next = { ...next, version: current.version };
+    }
     await db.run('UPDATE events SET form_json = ?, updated_at = ? WHERE id = ?', JSON.stringify(next), Date.now(), eventId);
     await audit(db, actor, 'event.form_update', eventId, null, event.guildId);
     return ok(next);
