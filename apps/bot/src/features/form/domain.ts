@@ -44,7 +44,7 @@ export interface CustomQuestion {
   presentation: 'web' | 'both';
   visibility: 'self_and_organizer' | 'organizer_only';
   choices?: { id: string; label: LocalizedText }[];
-  mapping?: { field: 'experience' | 'role' | 'skills'; importance: 'low' | 'normal' | 'high' };
+  mapping?: { field: 'experience' | 'role' | 'skills'; importance: 'low' | 'normal' | 'high'; choiceValues: Record<string, string> };
 }
 
 export type CustomAnswersResult =
@@ -60,7 +60,7 @@ export function validBannerUrl(value: unknown): value is string | null | undefin
   } catch { return false; }
 }
 
-export function validateCustomQuestions(raw: unknown): { ok: true; questions: CustomQuestion[] } | { ok: false; errors: string[] } {
+export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 'experiences' | 'roleTracks' | 'skills'>): { ok: true; questions: CustomQuestion[] } | { ok: false; errors: string[] } {
   if (!Array.isArray(raw)) return { ok: false, errors: ['questions must be an array'] };
   if (raw.length > 25) return { ok: false, errors: ['at most 25 custom questions are allowed'] };
   const errors: string[] = [];
@@ -81,7 +81,7 @@ export function validateCustomQuestions(raw: unknown): { ok: true; questions: Cu
       errors.push(`invalid question definition: ${item.id}`);
       continue;
     }
-    if (item.mapping !== undefined && (item.mapping === null || typeof item.mapping !== 'object' || item.visibility === 'organizer_only' || !['experience', 'role', 'skills'].includes(item.mapping.field) || !['low', 'normal', 'high'].includes(item.mapping.importance))) {
+    if (item.mapping !== undefined && (item.mapping === null || typeof item.mapping !== 'object' || !['experience', 'role', 'skills'].includes(item.mapping.field) || !['low', 'normal', 'high'].includes(item.mapping.importance) || item.visibility === 'organizer_only' || !['self_and_organizer'].includes(item.visibility) || (item.mapping.field === 'skills' ? !['single_choice', 'multi_choice'].includes(item.kind) : item.kind !== 'single_choice') || !item.mapping.choiceValues || typeof item.mapping.choiceValues !== 'object' || Array.isArray(item.mapping.choiceValues) || Object.getPrototypeOf(item.mapping.choiceValues) !== Object.prototype)) {
       errors.push(`private or invalid matching mapping: ${item.id}`);
       continue;
     }
@@ -92,6 +92,13 @@ export function validateCustomQuestions(raw: unknown): { ok: true; questions: Cu
         choice === null || typeof choice !== 'object' || !/^[a-zA-Z0-9_-]{1,64}$/.test(choice.id) || typeof choice.label?.en !== 'string' || choice.label.en.length < 1 || choice.label.en.length > 200)) {
         errors.push(`invalid choices: ${item.id}`);
       } else if (new Set(choices.map((choice) => choice.id)).size !== choices.length) errors.push(`duplicate choice IDs: ${item.id}`);
+    }
+    if (item.mapping !== undefined) {
+      const choiceIds = (item.choices ?? []).map((choice) => choice.id).sort();
+      const keys = Object.keys(item.mapping.choiceValues).sort();
+      const targets = item.mapping.field === 'experience' ? config?.experiences : item.mapping.field === 'role' ? config?.roleTracks : config?.skills;
+      if (keys.length !== choiceIds.length || keys.some((key, i) => key !== choiceIds[i]) || (targets && Object.values(item.mapping.choiceValues).some((value) => !targets.some((target) => target.id === value))) || (item.mapping.field === 'experience' && !config && Object.values(item.mapping.choiceValues).some((value) => !['first_timer', 'some_experience', 'veteran'].includes(value)))) errors.push(`invalid choice mapping: ${item.id}`);
+      if (questions.some((question) => question.mapping?.field === item.mapping!.field)) errors.push(`duplicate mapping target: ${item.mapping.field}`);
     }
     questions.push(item);
   }
@@ -106,7 +113,7 @@ export function validateCustomAnswers(
   const errors: string[] = [];
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, errors: ['answers must be an object'] };
   const input = raw as Record<string, unknown>;
-  const definitionCheck = validateCustomQuestions(config.customQuestions ?? []);
+  const definitionCheck = validateCustomQuestions(config.customQuestions ?? [], config as FormConfig);
   if (!definitionCheck.ok) return { ok: false, errors: ['invalid form question definitions'] };
   const questions = definitionCheck.questions;
   const byId = new Map(questions.map((question) => [question.id, question]));
