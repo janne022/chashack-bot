@@ -16,7 +16,7 @@ import {
 } from 'discord.js';
 import type { Db } from '../shared/db.js';
 import { listTeamRoster } from '../features/signup/data.js';
-import { setProvisioning, setRole, setTextChannel, setVoiceChannel } from '../features/teams/data.js';
+import { getTeam, setProvisioning, setRole, setTextChannel, setVoiceChannel } from '../features/teams/data.js';
 import type { Team } from '../features/teams/data.js';
 import { teamColor } from '../features/form/domain.js';
 import { t } from '../shared/i18n.js';
@@ -171,6 +171,12 @@ export async function grantTeamRole(deps: ProvisionDeps, team: Team, userId: str
   } catch (error) {
     console.warn(`grant role failed:`, error);
   }
+}
+
+/** Revoke the team role (leave/kick/delete). */
+export async function applyTeamLeave(deps: ProvisionDeps, team: Team, userId: string): Promise<void> {
+  await revokeTeamRole(deps, team, userId);
+  if (await getTeam(deps.db, team.id) === null) await destroyTeamSpace(deps, team);
 }
 
 /** Revoke the team role (leave/kick/delete). */

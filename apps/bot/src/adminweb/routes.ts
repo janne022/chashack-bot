@@ -39,6 +39,7 @@ import {
   deleteTeam,
   rotateJoinCode,
   adminAssign,
+  getTeam,
   listTeams,
   removeMember,
   updateTeamSettings,
@@ -72,6 +73,7 @@ import type { FormConfig } from '../features/form/domain.js';
 import { validateCustomAnswers, validateCustomQuestions, validBannerUrl } from '../features/form/domain.js';
 import { getRegistrationAnswers, listRegistrationAnswers, saveRegistrationAnswers } from '../features/registration/data.js';
 import { registerParticipantTeamRoutes } from './participant-teams.js';
+import { applyTeamLeave } from '../discord/provision.js';
 import { setMembershipLookup } from '../features/signup/eligibility.js';
 import { lookupGuildMember } from '../discord/member-lifecycle.js';
 
@@ -1351,6 +1353,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send(res);
       return;
     }
+    if (res.value !== null && deps.client !== null && !deps.config.skipDiscord) {
+      await applyTeamLeave({ db, client: deps.client, categoryIdFor: () => undefined }, res.value, userId);
+    }
     return { ok: true };
   });
 
@@ -1409,10 +1414,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/teams/:teamId/remove-member', async (req, reply) => {
     const { teamId } = req.params as { teamId: string };
     const body = req.body as { userId?: string } | null;
+    const previousTeam = await getTeam(db, teamId);
     const res = await removeMember(db, 'web', teamId, body?.userId ?? '');
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
+    }
+    if (previousTeam !== null && deps.client !== null && !deps.config.skipDiscord) {
+      await applyTeamLeave({ db, client: deps.client, categoryIdFor: () => undefined }, previousTeam, body?.userId ?? '');
     }
     return { ok: true };
   });

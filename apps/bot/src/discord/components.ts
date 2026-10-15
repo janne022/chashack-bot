@@ -25,7 +25,7 @@ import {
   joinPrivateTeam,
 } from '../features/teams/data.js';
 import { createJoinRequest, decideRequest, cancelRequest } from '../features/teams/requests-data.js';
-import { applyTeamJoin } from './provision.js';
+import { applyTeamJoin, applyTeamLeave } from './provision.js';
 import { buildSignupModal, buildCreateTeamModal, CREATE_TEAM_IDS, TEAM_SETTINGS_IDS } from './modal.js';
 import { IDS, buildParticipantEmbed, displayErr, embedErr, embedOk, eph, type Ctx } from './shared.js';
 import { commitMatchAndAnnounce, resetEventConfirmed } from './admin-commands.js';
@@ -296,8 +296,8 @@ export async function onComponent(
     if (base === IDS.reqCancel) {
       const res = await cancelRequest(ctx.db, ctx.actor, requestId);
       await i.update({
-        content: res.ok ? t(locale, 'discord.teams.cancelled') : t(locale, 'discord.teams.cancel_failed', { message: res.message }),
-        embeds: [],
+        content: res.ok ? t(locale, 'discord.teams.cancelled') : '',
+        embeds: res.ok ? [] : [displayErr(locale, res.code, res.message)],
         components: [],
       });
       return;
@@ -306,7 +306,7 @@ export async function onComponent(
     const decision = base === IDS.reqAccept ? 'accept' : 'decline';
     const res = await decideRequest(ctx.db, ctx.actor, requestId, decision, ctx.config.teamSize);
     if (!res.ok) {
-      await i.update({ content: `⚠️ ${res.message}`, embeds: [], components: [] });
+      await i.update({ content: '', embeds: [displayErr(locale, res.code, res.message)], components: [] });
       return;
     }
 
@@ -423,8 +423,10 @@ export async function onComponent(
     const userId = id.slice(IDS.adminMoveSelect.length + 1);
     const value = (i as StringSelectMenuInteraction).values[0] ?? '';
     const res = await adminAssign(ctx.db, ctx.actor, ctx.eventId, userId, value === '__none__' ? null : value, ctx.config.teamSize);
+    if (res.ok && res.value !== null) await applyTeamLeave({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value, userId);
     await i.update({
-      content: res.ok ? t(locale, 'discord.admin.moved_done', { user: userId }) : t(locale, 'discord.admin.failed_label', { message: res.message }),
+      content: res.ok ? t(locale, 'discord.admin.moved_done', { user: userId }) : '',
+      embeds: res.ok ? [] : [displayErr(locale, res.code, res.message)],
       components: [],
     });
     return;

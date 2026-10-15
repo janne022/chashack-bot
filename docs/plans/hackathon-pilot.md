@@ -104,6 +104,15 @@ or claim the page.
 
 ## Teams and member departure (#13/#23)
 
+Bounded QA repair (QA1–QA8): pinned event capacity is re-read under the shared
+event lock, including old-event request decisions; join-request approvers must
+remain eligible members/owners. Organizer moves and member removals use the
+same outgoing-owner succession, and departure also discovers detached ownership.
+Discord leave/move callers revoke outgoing access and clean deleted resources.
+Preview revisions include the matcher's creation-time ordering input. Departure
+strips the departed guild from surviving other-guild sessions. Invitation failures
+use localized error embeds; both confirmation catalogs disclose team preservation.
+
 - [x] Serialize team creation, joins, invitation creation/acceptance, matching
   commits, and organizer assignment on the event row across independent pooled
   PostgreSQL connections; organizer assignment enforces active status/capacity.
