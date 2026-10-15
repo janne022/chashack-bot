@@ -45,6 +45,7 @@
   "events.create_failed": "Kunde inte skapa",
   "events.live": "live",
   "events.copy_id": "Kopiera id",
+  "events.public_preview": "Offentlig förhandsvisning",
   "events.id_copied": "Event-id kopierat",
   "events.signups": "Anmälningar",
   "events.teams": "Team",

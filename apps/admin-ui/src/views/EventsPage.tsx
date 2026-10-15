@@ -1,4 +1,4 @@
-import { CalendarDays, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Unlock, Send, LayoutTemplate, FilePlus, FileCheck, Layers, ClipboardList, Search, Rocket, Pencil, ChevronDown, ChevronUp, ChevronLeft, ArrowRight } from 'lucide-react'
+import { CalendarDays, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Unlock, Send, LayoutTemplate, FilePlus, FileCheck, Layers, ClipboardList, Search, Rocket, Pencil, ChevronDown, ChevronUp, ChevronLeft, ArrowRight, ExternalLink } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useNavigate, useSearch } from '@tanstack/react-router'
@@ -944,11 +944,19 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
       <CardContent className="flex flex-col gap-4">
         {/* Actions first — they are the reason you opened the event. Offset below
             the mobile shell header so the two sticky bars don't overlap. */}
-        <div className="sticky top-14 z-[5] flex flex-wrap items-center gap-2 rounded-xl border border-border bg-background/95 p-2.5 backdrop-blur lg:top-4">
+        <div className="sticky top-14 z-[5] flex flex-wrap items-center gap-2 rounded-xl border border-border bg-background/95 p-2.5 backdrop-blur [&_button]:min-h-11 [&_a]:min-h-11 sm:[&_button]:min-h-7 sm:[&_a]:min-h-7 lg:top-4">
           <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
             <Pencil />
             {t('events.edit_event')}
           </Button>
+          {event.status === 'active' && (
+            <Button asChild variant="outline" size="sm">
+              <a href={`/events/${encodeURIComponent(event.id)}`} target="_blank" rel="noreferrer">
+                <ExternalLink />
+                {t('events.public_preview')}
+              </a>
+            </Button>
+          )}
           {!ended && <NotificationButtons event={event} refresh={refresh} />}
           {!ended && (
             <>

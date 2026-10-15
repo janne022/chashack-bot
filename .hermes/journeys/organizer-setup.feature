@@ -9,6 +9,7 @@ Feature: Organizer setup
     Given a Swedish event template and assignment collection are available
     When I configure signup questions and schedule, preview the event, and publish it
     Then the saved definition and publication result are visible
+    And I can open the published event preview from its workspace
     And the persisted preview agrees with the configured event definition
 
   @journey:organizer-setup
