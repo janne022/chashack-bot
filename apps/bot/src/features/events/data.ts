@@ -556,6 +556,8 @@ export async function updateEventForm(db: Db, actor: string, eventId: string, up
     } else {
       next = { ...next, version: current.version };
     }
+    const questions = validateCustomQuestions(next.customQuestions ?? [], next);
+    if (!questions.ok) return err('invalid_questions', questions.errors.join('; '));
     await db.run('UPDATE events SET form_json = ?, updated_at = ? WHERE id = ?', JSON.stringify(next), Date.now(), eventId);
     await audit(db, actor, 'event.form_update', eventId, null, event.guildId);
     return ok(next);
