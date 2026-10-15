@@ -113,6 +113,13 @@ CREATE INDEX IF NOT EXISTS idx_requests_team ON team_requests(team_id, status);
 
 CREATE INDEX IF NOT EXISTS idx_requests_target ON team_requests(target_id, status);
 
+CREATE TABLE IF NOT EXISTS member_deletions (
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      deleted_at BIGINT NOT NULL,
+      PRIMARY KEY (guild_id, user_id)
+    );
+
 CREATE TABLE IF NOT EXISTS guild_settings (
       guild_id TEXT PRIMARY KEY,
       team_category_id TEXT,

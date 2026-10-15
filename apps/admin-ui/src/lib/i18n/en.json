@@ -238,6 +238,7 @@
   "matching.preview_failed": "Preview failed",
   "matching.committed": "{count} teams committed and announced",
   "matching.commit_failed": "Commit failed",
+  "matching.stale_preview": "The preview changed. Preview again before committing.",
   "matching.last_match": "Last committed match: {count} teams · {when}",
   "matching.nobody_title": "Nobody to match yet",
   "matching.need_one_title": "Need one more participant",

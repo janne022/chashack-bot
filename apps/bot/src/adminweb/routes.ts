@@ -73,6 +73,7 @@ import { validateCustomAnswers, validateCustomQuestions, validBannerUrl } from '
 import { getRegistrationAnswers, listRegistrationAnswers, saveRegistrationAnswers } from '../features/registration/data.js';
 import { registerParticipantTeamRoutes } from './participant-teams.js';
 import { setMembershipLookup } from '../features/signup/eligibility.js';
+import { lookupGuildMember } from '../discord/member-lifecycle.js';
 
 export interface WebDeps {
   db: Db;
@@ -556,16 +557,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const event = await getEvent(db, eventId);
     if (event === null || event.status !== 'active' || deps.client === null) return null;
     try {
-      const guild = await deps.client.guilds.fetch(event.guildId);
-      await guild.members.fetch(userId);
+      if (!(await lookupGuildMember(deps.client, event.guildId, userId))) return null;
     } catch { return null; }
     return event;
   };
 
   setMembershipLookup(db, async (guildId, userId) => {
     if (deps.client === null) return false;
-    const guild = await deps.client.guilds.fetch(guildId);
-    return (await guild.members.fetch({ user: userId, force: true })) !== null;
+    return lookupGuildMember(deps.client, guildId, userId);
   });
   registerParticipantTeamRoutes(app, deps, participantSessionFrom, participantEvent);
 
@@ -1427,11 +1426,13 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return { ok: true, result: res.value };
   });
 
-app.post('/api/match/commit', async (req) => {
+app.post('/api/match/commit', async (req, reply) => {
     const eventId = await resolveEventId(req, await guildOf(req));
-    const res = await commitMatch(db, 'web', eventId, await guildOf(req), await getForm(db, await guildOf(req)));
+    const revision = (req.body as { revision?: unknown } | null)?.revision;
+    if (typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision)) return reply.code(409).send({ code: 'stale_preview' });
+    const res = await commitMatch(db, 'web', eventId, await guildOf(req), await getForm(db, await guildOf(req)), revision);
     if (!res.ok) {
-      return { ok: false, code: res.code, message: res.message };
+      return reply.code(409).send({ ok: false, code: res.code, message: res.message });
     }
     // Provision matched team spaces + roles (parity with the Discord commit flow).
     if (deps.client !== null) {

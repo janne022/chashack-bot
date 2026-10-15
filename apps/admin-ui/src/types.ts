@@ -73,6 +73,7 @@ export interface MatchTeam {
 }
 
 export interface MatchResult {
+  revision?: string
   teams: MatchTeam[]
   conflicts: string[]
 }

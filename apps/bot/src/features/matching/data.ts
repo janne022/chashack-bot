@@ -1,6 +1,6 @@
 /**
  * Matching service: preview (no writes) and commit (write matched teams).
- * Re-running the match clears previous matched teams first.
+ * Existing formed teams are never rebuilt by a later match.
  */
 import type { Db } from '../../shared/db.js';
 import { newId } from '../../shared/db.js';
@@ -12,6 +12,7 @@ import { getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
 import { listTeams, lockEventTeams, type TeamWithMembers } from '../teams/data.js';
 import { buildTeams, type MatchResult } from './domain.js';
+import { createHash } from 'node:crypto';
 
 /** Teams for an event with their active members — input for placement suggestions. */
 export async function listTeamsWithMembers(db: Db, eventId: string, config?: FormConfig): Promise<TeamWithMembers[]> {
@@ -33,10 +34,13 @@ export async function previewMatch(db: Db, eventId: string, config: FormConfig):
   if (participants.length < 2) return err('not_enough', 'Need at least 2 unteamed participants opted into random matching.');
   const event = await getEvent(db, eventId);
   const pinnedForm = event === null ? config : getEventForm(db, event, await getForm(db, event.guildId));
-  return ok(buildTeams(participants, pinnedForm));
+  const formed = (await listTeams(db, eventId)).map((team) => ({ id: team.id, members: team.members.map((member) => member.userId).sort() })).sort((a, b) => a.id.localeCompare(b.id));
+  const inputs = participants.map(({ userId, experience, roleTrack, skills, teammates, matchingImportance }) => ({ userId, experience, roleTrack, skills, teammates, matchingImportance })).sort((a, b) => a.userId.localeCompare(b.userId));
+  const revision = createHash('sha256').update(JSON.stringify([eventId, pinnedForm, inputs, formed])).digest('hex');
+  return ok({ ...buildTeams(participants, pinnedForm), revision });
 }
 
-export async function commitMatch(db: Db, actor: string, eventId: string, guildId: string, config: FormConfig): Promise<Result<MatchResult>> {
+export async function commitMatch(db: Db, actor: string, eventId: string, guildId: string, config: FormConfig, expectedRevision?: string): Promise<Result<MatchResult>> {
   // The whole clear → insert → assign sequence was implicitly atomic when this
   // module was synchronous: an interleaved join/leave could desync the member
   // updates (participant assigned to a matched team id that the next
@@ -46,14 +50,8 @@ export async function commitMatch(db: Db, actor: string, eventId: string, guildI
     const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ?', eventId);
     if (event === undefined || event.guild_id !== guildId) return err('not_found', 'Event not found in this guild.');
     const preview = await previewMatch(db, eventId, config);
+    if (expectedRevision !== undefined && (!preview.ok || preview.value.revision !== expectedRevision)) return err('stale_preview', 'The preview changed. Preview again before committing.');
     if (!preview.ok) return preview;
-
-    // Clear previous matched teams.
-    const previous = await db.all<{ id: string }>("SELECT id FROM teams WHERE event_id = ? AND kind = 'matched'", eventId);
-    for (const t of previous) {
-      await db.run('UPDATE participants SET team_id = NULL WHERE team_id = ?', t.id);
-      await db.run('DELETE FROM teams WHERE id = ?', t.id);
-    }
 
     // Create the new matched teams and assign members. Event-scoped on purpose:
     // the row carries event_id and the member update is filtered by it, so a match

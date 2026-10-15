@@ -178,6 +178,7 @@ export async function joinTeam(db: Db, actor: string, eventId: string, userId: s
     const team = teamRow === undefined ? null : toTeam(teamRow);
     if (team === null || team.eventId !== eventId) return err('not_found', 'Team not found in this event.');
     if (team.kind === 'private') return err('private_team', 'That team is private — an invite or join code is required.');
+    if (team.kind !== 'public') return err('not_joinable', 'That team cannot be joined.');
 
     const participant = await db.get<{ status: string }>('SELECT status FROM participants WHERE event_id = ? AND user_id = ?', eventId, userId);
     if (participant === undefined) return err('no_signup', 'Sign up first with /hackathon join.');
@@ -230,12 +231,12 @@ export async function leaveTeam(db: Db, actor: string, eventId: string, userId: 
     if (team.ownerId === userId) {
       const candidates = await db.all<{ user_id: string }>("SELECT user_id FROM participants WHERE team_id = ? AND status = 'active' ORDER BY user_id", team.id);
       const eligible: string[] = [];
-      for (const candidate of candidates) if (await eligibleParticipant(db, eventId, candidate.user_id) !== null) eligible.push(candidate.user_id);
+      for (const candidate of candidates) if (await eligibleParticipant(db, eventId, candidate.user_id, true) !== null) eligible.push(candidate.user_id);
       if (eligible.length === 0) return deleteTeam(db, actor, team.id);
       await db.run('UPDATE teams SET owner_id = ? WHERE id = ?', eligible[randomInt(eligible.length)]!, team.id);
     }
-    await db.run('UPDATE participants SET team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?', Date.now(), eventId, userId);
     await audit(db, actor, 'team.leave', eventId, { teamId: team.id, userId }, team.guildId);
+    if (await countMembers(db, team.id) === 0) return deleteTeam(db, actor, team.id);
     return ok(team);
   });
 }
@@ -275,6 +276,7 @@ export async function deleteTeam(db: Db, actor: string, teamId: string): Promise
   return db.transaction(async () => {
     const team = await getTeam(db, teamId);
     if (team === null) return err('not_found', 'Team not found.');
+    await lockEventTeams(db, team.eventId);
     await db.run('UPDATE participants SET team_id = NULL WHERE team_id = ?', teamId);
     await db.run('DELETE FROM team_requests WHERE team_id = ?', teamId);
     await db.run('DELETE FROM teams WHERE id = ?', teamId);

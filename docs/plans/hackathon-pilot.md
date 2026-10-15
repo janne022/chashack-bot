@@ -109,12 +109,27 @@ or claim the page.
   PostgreSQL connections; organizer assignment enforces active status/capacity.
 - [x] Add real two-connection invite-accept capacity regression and organizer
   capacity/partial-write regression.
-- [ ] Add participant team/invite endpoints and parity/privacy coverage.
-- [ ] Revalidate matching previews at commit; preserve formed teams and exclude
+- [x] Add participant team/invite endpoints and parity/privacy coverage.
+- [x] Revalidate matching previews at commit; preserve formed teams and exclude
   private answers from every output.
-- [ ] Delete only departed-guild registrations/answers/team links/requests;
+- [x] Delete only departed-guild registrations/answers/team links/requests;
   add gateway/offline reconciliation with fail-closed lookup behavior and
   identifier-only idempotence records.
-- [ ] Transfer ownership to a random eligible remaining member; reuse existing
+- [x] Transfer ownership to a random eligible remaining member; reuse existing
   empty-team cleanup, and test team leave/departure across two guilds.
 - [ ] Run exact-head CI and same-card independent QA before planner delivery.
+
+Shared contract: all membership writes reuse event-row transactions and the
+parent's `projectParticipantForMatching` completion/projection, with fresh,
+fail-closed Discord membership checks (fake lookup only in test fixtures).
+Participant routes derive actor/user/guild from the session and resolved event;
+open-team DTOs contain counts, not rosters; own-team DTOs contain names/IDs only.
+Discord create/join-code/join-request/invite/accept and organizer assignment use
+the same data checks as HTTP. Web and Discord confirmation carry the preview
+revision; scheduled matching recomputes inside the transaction without a user
+preview. Existing formed teams are never cleared. Guild removal/reconciliation
+call the same deletion service, return empty-team resources to existing Discord
+cleanup and retain only guild/user/time identifiers for restore replay. A fake
+snapshot replay is tested; this does not claim a production backup retention SLA.
+Participant signup/team pages remain the dependent participant card's surface;
+these checks exercise real HTTP handlers, not an unimplemented page journey.

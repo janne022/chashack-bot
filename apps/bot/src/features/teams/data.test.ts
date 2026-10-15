@@ -4,8 +4,9 @@ import { openTestDb } from '../../shared/test-db.js';
 import { openPostgres } from '../../shared/postgres.js';
 import { DEFAULT_FORM, validateSignupInput } from '../form/domain.js';
 import { upsertParticipant } from '../signup/data.js';
-import { adminAssign, createTeam, listTeams } from './data.js';
+import { adminAssign, createTeam, joinTeam, listTeams } from './data.js';
 import { createInvite, decideRequest } from './requests-data.js';
+import { setMembershipLookup } from '../signup/eligibility.js';
 
 test('organizer reassignment enforces team capacity', async () => {
   const db = await openTestDb();
@@ -34,6 +35,7 @@ test('pooled invite acceptance cannot exceed team capacity', async () => {
   assert.ok(url);
   const schema = (await db.get<{ schema: string }>('SELECT current_schema() AS schema'))!.schema;
   const peer = await openPostgres(url!, schema);
+  setMembershipLookup(peer, async () => true);
   try {
     await db.run("INSERT INTO events (id,guild_id,name,status,created_at,updated_at) VALUES ('ev','g','test','active',1,1)");
     for (const userId of ['owner', 'one', 'two']) {
@@ -53,5 +55,28 @@ test('pooled invite acceptance cannot exceed team capacity', async () => {
     ]);
     assert.equal(results.filter((result) => result.ok).length, 1);
     assert.equal((await listTeams(db, 'ev')).find((item) => item.id === team.value.id)?.members.length, 2);
+  } finally { await peer.close(); await db.close(); }
+});
+
+for (const operation of ['join', 'assign'] as const) test(`pooled ${operation} last-slot race has one winner`, async () => {
+  const db = await openTestDb();
+  const schema = (await db.get<{ schema: string }>('SELECT current_schema() AS schema'))!.schema;
+  const peer = await openPostgres(process.env.DATABASE_URL!, schema);
+  setMembershipLookup(peer, async () => true);
+  try {
+    await db.run("INSERT INTO events (id,guild_id,name,status,created_at,updated_at) VALUES ('ev','g','test','active',1,1)");
+    for (const user of ['owner', 'one', 'two']) {
+      const input = validateSignupInput(DEFAULT_FORM, { displayName: user, experience: 'some_experience', roleTrack: 'fullstack', skills: ['devops'], teamPref: 'random_team' });
+      assert.ok(input.ok);
+      if (input.ok) await upsertParticipant(db, 'test', 'ev', 'g', user, input.value);
+    }
+    const team = await createTeam(db, 'test', 'ev', 'g', 'Alpha', 'public', 'owner');
+    assert.ok(team.ok);
+    if (!team.ok) return;
+    const mutate = operation === 'join' ? joinTeam : adminAssign;
+    const results = await Promise.all([mutate(db, 'test', 'ev', 'one', team.value.id, 2), mutate(peer, 'test', 'ev', 'two', team.value.id, 2)]);
+    assert.equal(results.filter((result) => result.ok).length, 1);
+    assert.equal((await listTeams(db, 'ev'))[0]!.members.length, 2);
+    assert.equal((await db.all("SELECT user_id FROM participants WHERE event_id='ev' AND team_id IS NULL")).length, 1);
   } finally { await peer.close(); await db.close(); }
 });

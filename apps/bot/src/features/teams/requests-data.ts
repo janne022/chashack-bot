@@ -157,7 +157,7 @@ export async function createInvite(
       return err('already_requested', 'They already have a pending invite to that team.');
     }
 
-    const res = await insert(db, eventId, guildId, teamId, actor, targetId, 'invite');
+    const res = await insert(db, eventId, guildId, teamId, team.ownerId, targetId, 'invite');
     if (res.ok) await audit(db, actor, 'request.create', eventId, { teamId, targetId, kind: 'invite' }, guildId);
     return res;
   });

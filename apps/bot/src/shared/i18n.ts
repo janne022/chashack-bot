@@ -27,6 +27,9 @@ const EN: Catalog = {
   'errors.already_decided': 'That request was already handled.',
   'errors.not_active': 'That signup is not active.',
   'errors.no_signup': 'No signup found — use `/hackathon join` first.',
+  'errors.ineligible': 'Complete your registration and remain a current server member before joining a team.',
+  'errors.stale_preview': 'The preview changed. Preview again before committing.',
+  'errors.not_owner': 'Only the eligible team owner can invite.',
   'errors.not_joinable': 'That team cannot be requested.',
   'errors.matched_team': 'Matched teams are managed by the matching engine.',
 
@@ -388,6 +391,9 @@ const SV: Catalog = {
   'errors.already_decided': 'Den förfrågan har redan hanterats.',
   'errors.not_active': 'Den anmälan är inte aktiv.',
   'errors.no_signup': 'Ingen anmälan hittades — använd `/hackathon join` först.',
+  'errors.ineligible': 'Slutför din anmälan och var kvar som medlem på servern innan du går med i ett team.',
+  'errors.stale_preview': 'Förhandsvisningen har ändrats. Förhandsvisa igen innan du bekräftar.',
+  'errors.not_owner': 'Endast teamets behöriga ägare kan bjuda in.',
   'errors.not_joinable': 'Det teamet går inte att begära inträde i.',
   'errors.matched_team': 'Matchade teams hanteras av matchningsmotorn.',
 

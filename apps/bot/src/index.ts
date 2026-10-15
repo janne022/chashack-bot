@@ -10,15 +10,17 @@ import { registerInteractionHandlers } from './discord/dispatch.js';
 import { startAdminServer } from './adminweb/server.js';
 import { runMaintenance } from './discord/notify.js';
 import { registerCommands, registerCommandsInGuild } from './register-commands-lib.js';
+import { registerMemberLifecycle } from './discord/member-lifecycle.js';
 
 const config = env();
 const db = await openDatabase(config.databaseUrl);
 const kysely = createKysely(db);
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
-  partials: [Partials.Channel],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  partials: [Partials.Channel, Partials.GuildMember],
 });
+const reconcileMembers = registerMemberLifecycle(db, client);
 
 client.once(Events.ClientReady, async (ready) => {
   console.log(`Logged in as ${ready.user.tag}`);
@@ -82,6 +84,7 @@ const server = await startAdminServer({ db, config, announce, client });
 // Low frequency is fine — the planner is time-based, not edge-triggered.
 const MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
 const maintenanceTimer = setInterval(() => {
+  if (!config.skipDiscord && client.isReady()) void reconcileMembers().catch((error) => console.error('Member reconciliation failed:', error));
   void runMaintenance({ db, client, kysely })
     .then((summary) => {
       for (const line of summary) console.log(`[maintenance] ${line}`);

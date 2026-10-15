@@ -204,7 +204,7 @@ export async function handleAdminCommand(
       }
       await i.reply({
         embeds: [matchPreviewEmbed(res.value, config, locale)],
-        components: [confirmRow(IDS.matchConfirm, IDS.matchCancel, t(locale, 'discord.admin.match_confirm_btn'), locale)],
+        components: [confirmRow(`${IDS.matchConfirm}:${res.value.revision}`, IDS.matchCancel, t(locale, 'discord.admin.match_confirm_btn'), locale)],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -218,7 +218,7 @@ export async function handleAdminCommand(
       }
       await i.reply({
         embeds: [matchPreviewEmbed(res.value, config, locale)],
-        components: [confirmRow(IDS.matchConfirm, IDS.matchCancel, t(locale, 'discord.admin.match_confirm_btn'), locale)],
+        components: [confirmRow(`${IDS.matchConfirm}:${res.value.revision}`, IDS.matchCancel, t(locale, 'discord.admin.match_confirm_btn'), locale)],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -247,7 +247,12 @@ export async function commitMatchAndAnnounce(
   announce: (guildId: string, content: string) => Promise<void>,
 ): Promise<void> {
   const locale = ctx.botLocale;
-  const res = await commitMatch(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, ctx.config);
+  const revision = i.customId.slice(`${IDS.matchConfirm}:`.length);
+  if (!/^[a-f0-9]{64}$/.test(revision)) {
+    await i.update({ embeds: [displayErr(locale, 'stale_preview', '')], components: [] });
+    return;
+  }
+  const res = await commitMatch(ctx.db, ctx.actor, ctx.eventId, ctx.guildId, ctx.config, revision);
   if (!res.ok) {
     await i.update({ embeds: [displayErr(locale, res.code, res.message)], components: [] });
     return;

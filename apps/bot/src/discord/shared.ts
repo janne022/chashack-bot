@@ -76,6 +76,9 @@ export function embedInfo(title: string, description: string, color = 0x5865f2):
 }
 
 const FRIENDLY: Record<string, { key: string }> = {
+  ineligible: { key: 'errors.ineligible' },
+  stale_preview: { key: 'errors.stale_preview' },
+  not_owner: { key: 'errors.not_owner' },
   blocked: { key: 'errors.blocked' },
   already_in_team: { key: 'errors.already_in_team' },
   team_full: { key: 'errors.team_full' },

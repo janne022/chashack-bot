@@ -100,13 +100,13 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
   async function commit() {
     setBusy(true)
     try {
-      const result = await api.matchCommit(eventId)
+      const result = await api.matchCommit(eventId, preview?.revision)
       setPreview(null)
       toast.success(t('matching.committed', { count: result.teams.length }))
       await refresh()
       await loadSuggestions()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('matching.commit_failed'))
+      toast.error(e instanceof Error && 'code' in e && e.code === 'stale_preview' ? t('matching.stale_preview') : t('matching.commit_failed'))
     } finally {
       setBusy(false)
     }
