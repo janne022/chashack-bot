@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 
-const port = 8493, base = `http://127.0.0.1:${port}`;
+const port = 8491, base = `http://127.0.0.1:${port}`;
 const chromePath = '/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome';
 const profile = await mkdtemp(join(tmpdir(), 'chashack-participant-'));
 const chrome = spawn(chromePath, ['--headless=new','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], {detached:true,stdio:'ignore'}); // g0:allow:secrets t_583f310e — synthetic local browser flags only.
@@ -47,6 +47,7 @@ try {
   const click=async expr=>{const r=await evaluate(`(()=>{const e=${expr};if(!e)throw Error('missing click target');e.scrollIntoView({block:'center'});return e.getBoundingClientRect().toJSON()})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);await delay(150)};
   const ax=async(selector='textarea#idea')=>{const doc=await send('DOM.getDocument',{depth:0,pierce:true},sid);const node=await send('DOM.querySelector',{nodeId:doc.root.nodeId,selector},sid);return send('Accessibility.getPartialAXTree',{nodeId:node.nodeId,fetchRelatives:true},sid)};
   await send('Page.enable',{},sid);await send('Runtime.enable',{},sid);await send('Network.enable',{},sid);await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);
+  check('participant route is served on the actual required browser origin',new URL(base).port==='8491');
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
   await nav('/'); await evaluate(`localStorage.setItem('chas-locale','sv')`);
   await nav(`/events/${eventId}/signup`);
