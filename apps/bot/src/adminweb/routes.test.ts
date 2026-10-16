@@ -7,6 +7,7 @@ import { openTestDb } from '../shared/test-db.js';
 import type { Env } from '../shared/env.js';
 import { registerRoutes } from './routes.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
+import { registerInteractionHandlers } from '../discord/dispatch.js';
 
 const signingKey = 'test-session-signing-key-at-least-32-characters';
 const config = {
@@ -193,6 +194,44 @@ test('expensive actor quota is shared across target ids and denies before audit 
   assert.equal(denied.statusCode, 429);
   const after = await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'match.lock'");
   assert.equal(after?.n, before?.n);
+  await app.close();
+  await db.close();
+});
+
+test('registered Discord dispatch shares HTTP expensive quota and denies before side effects in both locales', async () => {
+  const db = await openTestDb();
+  const guildId = '11111111111111111';
+  let dmCalls = 0;
+  const guild = { id: guildId, ownerId: 'operator', members: { fetch: async (id: string) => ({ id, permissions: { has: (name: string) => name === 'Administrator', bitfield: 8n }, roles: { cache: new Map() } }) } };
+  const handlers = new Map<string, (interaction: never) => void>();
+  const client = { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild }, users: { fetch: async () => ({ send: async () => { dmCalls++; } }) }, on: (name: string, handler: (interaction: never) => void) => handlers.set(name, handler) };
+  const app = Fastify({ logger: false });
+  registerRoutes(app, { db, config, announce: async () => undefined, client: client as never });
+  for (const locale of ['en', 'sv'] as const) {
+    const actor = `shared-${locale}`;
+    const localeSession = await createSession(db, { userId: actor, username: 'admin', avatar: null, guilds: [{ id: guildId, name: 'Guild', icon: null }] });
+    for (let i = 0; i < 5; i++) {
+      const response = await app.inject({ method: 'POST', url: `/api/match/lock?eventId=target-${locale}-${i}`, headers: { cookie: sessionCookie(localeSession.id) } });
+      assert.equal(response.statusCode, 200);
+    }
+    const exhausted = await app.inject({ method: 'POST', url: '/api/match/lock?eventId=boundary', headers: { cookie: sessionCookie(localeSession.id) } });
+    assert.equal(exhausted.statusCode, 429);
+    const retryAfter = Number(exhausted.headers['retry-after']);
+    assert.ok(retryAfter > 0 && retryAfter <= 60);
+    const beforeCounts = await Promise.all(['participants', 'teams', 'team_requests', 'audit_log'].map(async table => (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`))?.n ?? 0));
+    registerInteractionHandlers(client as never, { db, adminIds: [], client: client as never, teamCategoryId: undefined, botLanguage: locale, announce: async () => undefined });
+    let reply: unknown;
+    let finish!: () => void;
+    const answered = new Promise<void>((resolve) => { finish = resolve; });
+    const interaction = { customId: 'hack:team:create', user: { id: actor }, guildId, memberPermissions: { has: () => true }, member: { roles: [] }, inGuild: () => true, isAutocomplete: () => false, isChatInputCommand: () => false, isModalSubmit: () => false, isButton: () => true, isStringSelectMenu: () => false, isRepliable: () => true, replied: false, deferred: false, reply: async (payload: unknown) => { reply = payload; finish(); }, update: async (payload: unknown) => { reply = payload; finish(); } };
+    handlers.get('interactionCreate')!(interaction as never);
+    await answered;
+    const content = JSON.stringify(reply);
+    assert.ok(content.includes(`${retryAfter}s`), content);
+    assert.match(content, locale === 'en' ? /Too many changes|try again/i : /För många ändringar|försök igen/i);
+    const afterCounts = await Promise.all(['participants', 'teams', 'team_requests', 'audit_log'].map(async table => (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`))?.n ?? 0));
+    assert.deepEqual([...afterCounts, dmCalls], [...beforeCounts, 0]);
+  }
   await app.close();
   await db.close();
 });
