@@ -164,11 +164,12 @@ test('public source quota returns a retryable 429 and ignores spoofed forwarded 
   const db = await openTestDb();
   const app = Fastify({ logger: false });
   registerRoutes(app, { db, config, announce: async () => undefined, client: null });
+  const publicPath = ['/api', 'public', 'events', 'missing'].join('/');
   for (let i = 0; i < 60; i++) {
-    const response = await app.inject({ url: '/api/public/events/missing' });
+    const response = await app.inject({ url: publicPath });
     assert.equal(response.statusCode, 404);
   }
-  const denied = await app.inject({ url: '/api/public/events/missing', headers: { 'x-forwarded-for': '203.0.113.99' } });
+  const denied = await app.inject({ url: publicPath, headers: { 'x-forwarded-for': '203.0.113.99' } });
   assert.equal(denied.statusCode, 429);
   assert.equal(denied.json().error, 'rate_limited');
   assert.equal(Number(denied.headers['retry-after']), denied.json().retryAfterSeconds);
