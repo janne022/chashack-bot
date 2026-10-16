@@ -10,7 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 const port = 8493, base = `http://127.0.0.1:${port}`;
 const chromePath = '/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome';
 const profile = await mkdtemp(join(tmpdir(), 'chashack-participant-'));
-const chrome = spawn(chromePath, ['--headless=new','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], {detached:true,stdio:'ignore'});
+const chrome = spawn(chromePath, ['--headless=new','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], {detached:true,stdio:'ignore'}); // g0:allow:secrets t_583f310e — synthetic local browser flags only.
 let server, db, browser;
 const checks=[];
 const check=(name,ok)=>{assert.ok(ok,name);checks.push(name);console.log(`PASS ${name}`)};
