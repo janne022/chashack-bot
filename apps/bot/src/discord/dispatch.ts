@@ -127,7 +127,9 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
             }
           }
         }
-        if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+        if (interaction.isButton() && !interaction.replied && !interaction.deferred) {
+          await interaction.update({ content: t(deps.botLanguage, 'discord.admin.stale_control'), components: [] });
+        } else if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
           await interaction.reply(eph(t(deps.botLanguage, 'discord.admin.stale_control')));
         }
         return;
