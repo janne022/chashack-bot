@@ -85,12 +85,22 @@ https://fastify.dev/docs/latest/Reference/Hooks/
 Runtime requires DATABASE_URL and distinct MIGRATION_DATABASE_URL on the same
 host/port/database and configured application schema/search_path. The migration
 connection is closed after transactional bootstrap, before opening the runtime
-pool. Startup refuses an app role that is superuser, BYPASSRLS, owns application
-tables, or has CREATE on the application schema. Runtime must not be a member of
-the migration/owner role; never grant it that role or persistent schema/database
-CREATE. Existing single-credential superuser deployments intentionally fail until
+pool. Startup checks the login and every direct/indirect role membership, including
+NOINHERIT roles reachable through SET ROLE. It refuses superuser, BYPASSRLS,
+CREATEROLE, CREATEDB, REPLICATION, application relation/function ownership, and
+schema/database CREATE authority. Membership in such roles is conservatively
+refused even if its SET option is disabled; ordinary DML-only membership is allowed.
+Runtime must not be a member of the migration/owner role; never grant it that role
+or persistent schema/database CREATE. Existing single-credential superuser deployments intentionally fail until
 operators provision separate roles. AppHost/production configuration must supply
 these two identities; merely injecting the old superuser connection is not safe.
+
+`db-startup.test.ts` exercises actual startup refusal for inherited ownership and
+transitive NOINHERIT elevated/schema-creation roles, with a DML-only membership
+positive control. The check uses PostgreSQL's `pg_has_role(..., 'MEMBER')`, which
+includes direct/indirect membership independently of inheritance/SET options:
+https://www.postgresql.org/docs/current/functions-info.html
+https://www.postgresql.org/docs/current/role-membership.html
 
 Example provisioning, to adapt and execute only by the operator in their own
 application database (passwords are configured out of band):
