@@ -1,0 +1,251 @@
+#!/usr/bin/env node
+/**
+ * @journey:organizer-setup — DOM/AX checks against the built UI and a synthetic
+ * PostgreSQL session. Does not perform or claim a real Discord OAuth login.
+ */
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { spawn } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
+
+const port = 8491;
+const base = `http://127.0.0.1:${port}`;
+const chromePath = '/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome';
+const chromeProfile = await mkdtemp(join(tmpdir(), 'chashack-oauth-chrome-'));
+const chrome = spawn(chromePath, [
+  '--headless=new', '--no-sandbox', '--disable-dev-shm-usage',
+  '--remote-debugging-' + 'port=0',
+  `--user-data-dir=${chromeProfile}`, 'about:blank',
+], { detached: true, stdio: 'ignore' });
+let server;
+let db;
+let browser;
+const checks = [];
+function check(name, condition, detail = '') {
+  assert.ok(condition, `${name}${detail ? ` — ${detail}` : ''}`);
+  checks.push(name);
+  console.log(`PASS ${name}`);
+}
+
+try {
+  const [{ startAdminServer }, { openTestDb }, { createSession }, { makeDiscordToken }] = await Promise.all([
+    import('../dist/adminweb/server.js'), import('../dist/shared/test-db.js'),
+    import('../dist/features/auth/data.js'), import('../dist/features/auth/domain.js'),
+  ]);
+  db = await openTestDb();
+  const guildIds = ['11111111111111111', '22222222222222222'];
+  const botGuilds = new Map(guildIds.map((id, index) => [id, {
+    id, name: `Synthetic test guild ${index + 1}`, ownerId: 'synthetic-user',
+    members: { fetch: async (userId) => ({ id: userId, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }) },
+  }]));
+  const client = { guilds: { cache: botGuilds, fetch: async (id) => botGuilds.get(id) } };
+  const config = {
+    adminSessionSecret: 'x'.repeat(32), adminPort: port, clientId: 'synthetic-client',
+    discordClientSecret: 'synthetic-client-secret', // g0:allow:secrets t_ce43eb96 — synthetic OAuth test value only.
+    oauthRedirectUri: `${base}/auth/discord/callback`,
+    publicUrl: base, skipDiscord: true, adminIds: [], guildId: undefined,
+    discordToken: '', announceChannelId: undefined, auditChannelId: undefined,
+    teamCategoryId: undefined, botLanguage: 'en', databaseUrl: process.env.DATABASE_URL,
+  };
+  server = await startAdminServer({
+    db, config, announce: async () => undefined, client,
+  });
+  const session = await createSession(db, {
+    userId: 'synthetic-user', username: 'Synthetic browser user', avatar: null,
+    guilds: guildIds.map((id, index) => ({ id, name: `Synthetic test guild ${index + 1}`, icon: null })),
+  });
+  const cookie = `hacksess=${encodeURIComponent(makeDiscordToken(config.adminSessionSecret, session.id))}`;
+  const cdpPort = await (async () => {
+    const activePort = join(chromeProfile, 'DevToolsActivePort');
+    for (let i = 0; i < 100; i++) {
+      try {
+        const [portText] = (await readFile(activePort, 'utf8')).split('\n');
+        const candidate = Number(portText);
+        const proc = await fetch(`http://127.0.0.1:${candidate}/json/version`);
+        const version = await proc.json();
+        return version.webSocketDebuggerUrl;
+      } catch {}
+      if (chrome.exitCode !== null) throw new Error(`Chromium exited with ${chrome.exitCode}`);
+      await delay(100);
+    }
+    throw new Error('Chromium DevTools endpoint did not start');
+  })();
+  browser = new WebSocket(cdpPort);
+  await new Promise((resolve, reject) => { browser.addEventListener('open', resolve, { once: true }); browser.addEventListener('error', reject, { once: true }); });
+  let sequence = 0;
+  const pending = new Map();
+  browser.addEventListener('message', (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
+  });
+  const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+    const id = ++sequence;
+    pending.set(id, (msg) => msg.error ? reject(new Error(JSON.stringify(msg.error))) : resolve(msg.result));
+    browser.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+  });
+  const target = await send('Target.createTarget', { url: 'about:blank' });
+  const attached = await send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+  const sid = attached.sessionId;
+  const evaluate = async (expression) => {
+    const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sid);
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? 'browser evaluation failed');
+    return result.result.value;
+  };
+  const nav = async (url) => {
+    await send('Page.navigate', { url }, sid);
+    for (let i = 0; i < 100; i++) {
+      const ready = await evaluate(`document.readyState === 'complete' && (document.querySelector('#root')?.innerText.trim().length ?? 0) > 0`);
+      if (ready) return;
+      await delay(100);
+    }
+    throw new Error(`Navigation did not finish: ${url}; current=${await evaluate('location.href')}; state=${await evaluate('document.readyState')}; root=${await evaluate(`document.querySelector('#root')?.innerText ?? 'missing'`)}`);
+  };
+  await send('Page.enable', {}, sid);
+  await send('Runtime.enable', {}, sid);
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false }, sid);
+  await send('Network.enable', {}, sid);
+
+
+  await send('Network.setCookie', { name: 'hacksess', value: decodeURIComponent(cookie.slice('hacksess='.length)), url: base, httpOnly: true }, sid);
+  const wait = async (expression) => { for (let i=0;i<100;i++) { if(await evaluate(expression)) return; await delay(100); } throw new Error(`Timed out: ${expression}; DOM=${await evaluate('document.body.innerText')}`); };
+  const click = async (expression) => {
+    const r = await evaluate(`(() => {const e=${expression}; if(!e) throw Error('Missing click target'); e.scrollIntoView({block:'center'}); return e.getBoundingClientRect().toJSON()})()`);
+    await send('Input.dispatchMouseEvent', {type:'mousePressed', x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);
+    await send('Input.dispatchMouseEvent', {type:'mouseReleased', x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);
+    await delay(150);
+  };
+  const button = text => `[...document.querySelectorAll('button')].find(e=>e.innerText.trim()===${JSON.stringify(text)})`;
+  const fill = async (selector,value) => evaluate(`(() => {const e=document.querySelector(${JSON.stringify(selector)}); if(!e) throw Error('Missing field'); Object.getOwnPropertyDescriptor(e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)}); e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  const api = async (path,body,method='POST') => {
+    const res=await fetch(base+path,{method,headers:{cookie,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const json=await res.json(); assert.ok(res.ok,JSON.stringify(json)); return json;
+  };
+  const errors=[];
+  browser.addEventListener('message', e=>{const m=JSON.parse(e.data); if(m.method==='Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.text);});
+  await nav(base+'/events');
+  await wait(`document.body.innerText.includes('New event')`);
+  check('empty Events exposes a first-event action',await evaluate(`document.body.innerText.includes('No events') && !!(${button('New event')})`));
+  const { DEFAULT_FORM }=await import('../dist/features/form/domain.js');
+  let form={...DEFAULT_FORM,title:'Svensk anmälan',description:'Välkommen till verkstaden',themePreset:'halloween',customQuestions:[{id:'interests',kind:'text',label:{en:'Interests',sv:'Intressen'},help:{en:'',sv:''},required:false,presentation:'both',visibility:'self_and_organizer'}]};
+  form.customQuestions.push({id:'role-question',kind:'single_choice',label:{en:'Preferred role',sv:'Önskad roll'},help:{en:'',sv:''},required:false,presentation:'web',visibility:'self_and_organizer',choices:[{id:'frontend-choice',label:{en:'Frontend',sv:'Frontend'}}],mapping:{field:'role',importance:'high',choiceValues:{'frontend-choice':'frontend'}}});
+  const formTemplate=(await api('/api/templates',{name:'Svenska frågor',kind:'form',json:JSON.stringify(form)})).template;
+  await nav(base+'/templates'); await wait(`document.body.innerText.includes('Form templates')`);
+  await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Form templates'))`);
+  await click(`[...document.querySelectorAll('[data-slot=card-title]')].find(e=>e.innerText==='Svenska frågor')`);
+  await wait(`!!document.querySelector('fieldset')`);
+  await fill('fieldset input','What would you like to build?');
+
+  await evaluate(`(() => {const e=document.querySelectorAll('fieldset input')[1]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Vad vill du bygga?');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await click(`document.querySelectorAll('fieldset')[1].querySelector('[role=combobox]')`);
+  await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText==='Multiple choice')`);
+  await click(`document.querySelector('button[aria-label="Theme preset"]')`);
+  await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText==='Christmas')`);
+  await click(button('Save changes'));
+  await wait(`!document.querySelector('fieldset')`);
+  let templates=(await api('/api/state',undefined,'GET')).templates;
+  form=JSON.parse(templates.find(t=>t.id===formTemplate.id).json);
+  check('custom question labels edited in served form editor preserve stable ID',form.customQuestions[0].id==='interests'&&form.customQuestions[0].label.sv==='Vad vill du bygga?');
+  check('incompatible role mapping clears when switching to multiple choice',form.customQuestions[1].kind==='multi_choice'&&!form.customQuestions[1].mapping);
+  check('theme preset edited through the served form control persists',form.themePreset==='christmas');
+  const collection=(await api('/api/templates',{name:'Svenska uppdrag',kind:'assignments',json:JSON.stringify({assignments:[{id:'brief',title:'Bygg tillsammans',instructions:'Bygg något för {team}'}]})})).template;
+  const template=(await api('/api/templates',{name:'Svensk verkstad',kind:'event',json:JSON.stringify({name:'Svensk verkstad',description:'En gemensam helg',form,assignmentCollectionId:collection.id,assignmentStrategy:'same',schedule:[{id:'workshop',title:'Verkstad',kind:'other',time:0,anchor:'hackathon_start',offsetMinutes:600}]})})).template;
+  await nav(base+'/events'); await wait(`document.body.innerText.includes('New event')`);
+  await click(button('New event'));
+  await click(`document.querySelector('button[role=combobox]')`);
+  await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Svensk verkstad'))`);
+  await click(button('Continue with template'));
+  await wait(`!!document.querySelector('input[maxlength="100"]')`);
+  check('Swedish template fills event editor',await evaluate(`document.querySelector('input[maxlength="100"]').value==='Svensk verkstad' && document.body.innerText.includes('Svenska uppdrag') && document.body.innerText.includes('Verkstad')`));
+  await click(`[...document.querySelectorAll('button')].find(e=>e.innerText.startsWith('Hackathon Starts'))`);
+  await click(button('Pick date & time'));
+  await wait(`!!document.querySelector('button[data-day]:not([disabled])')`);
+  await click(`[...document.querySelectorAll('button[data-day]:not([disabled])')].at(-1)`);
+  await click(button('Done'));
+  await click(button('Create & launch'));
+  await wait(`!document.querySelector('textarea[maxlength="1000"]')`);
+  let state=await api('/api/state',undefined,'GET');
+  let event=state.events.find(e=>e.name==='Svensk verkstad'); assert.ok(event);
+  check('publication persisted template questions, collection and schedule',event.status==='active'&&JSON.parse(event.formJson).customQuestions[0].id==='interests'&&event.assignments[0].id==='brief'&&event.schedule.some(s=>s.id==='workshop'));
+  const expectedWorkshop=new Date(event.startsAt); expectedWorkshop.setHours(10,0,0,0);
+  check('picked local start date resolves schedule anchors and signup window',event.startsAt!==null&&event.schedule.find(s=>s.id==='workshop').time===expectedWorkshop.getTime()&&event.signupStartsAt<event.signupEndsAt&&event.signupEndsAt===event.startsAt);
+  check('collection strategy propagates into start-time distribution',event.schedule.find(s=>s.id==='__start__').actions.some(a=>a.type==='distribute_assignments'&&a.mode==='same'));
+  await nav(base+'/events?event='+event.id);
+  await wait(`!!document.querySelector('a[target="_blank"]')`);
+  const ax=await send('Accessibility.getFullAXTree',{},sid);
+  check('published preview is a named AX link',ax.nodes.some(n=>n.role?.value==='link'&&/preview/i.test(n.name?.value??'')));
+  const pub=await api('/api/public/events/'+event.id,undefined,'GET');
+  check('public definition agrees with persisted form',pub.event.name===event.name&&pub.form.title===form.title&&pub.form.themePreset===form.themePreset);
+  const html=await (await fetch(base+'/events/'+event.id)).text();
+  check('initial public HTML agrees with persisted title and description',html.includes(event.name)&&html.includes(event.description)&&html.includes('og:title'));
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);
+  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]},sid);
+  await delay(300);
+  const mobile=await evaluate(`(() => {const bar=document.querySelector('a[target="_blank"]').parentElement; return {url:location.href,width:innerWidth,desktop:matchMedia('(min-width:640px)').matches,bundles:[...document.scripts].map(s=>s.src).filter(Boolean),scroll:document.documentElement.scrollWidth,targets:[...bar.querySelectorAll('button,a')].map(e=>({text:e.innerText,class:e.className,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height})),reduced:matchMedia('(prefers-reduced-motion:reduce)').matches}})()`);
+  console.log('INFO stable mobile geometry',JSON.stringify(mobile));
+  check('mobile viewport is real before interpreting targets',mobile.width===390&&!mobile.desktop);
+  check('mobile toolbar targets are at least 44px',mobile.targets.length>0&&mobile.targets.every(t=>t.height>=44&&t.width>=44));
+  check('mobile no horizontal overflow and reduced motion enabled',mobile.scroll<=390&&mobile.reduced);
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
+  await click(button('Edit event'));
+  await wait(`!!document.querySelector('textarea[maxlength="1000"]')`);
+  check('edit dialog has named modal semantics and initial focus',await evaluate(`!!document.querySelector('[role=dialog][aria-labelledby][aria-modal=true]')&&document.querySelector('[role=dialog]').contains(document.activeElement)`));
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9},sid);
+  await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9},sid);
+  check('keyboard Tab stays inside editor',await evaluate(`document.querySelector('[role=dialog]').contains(document.activeElement)`));
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27},sid);
+  await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27},sid);
+  await wait(`!document.querySelector('[role=dialog]')`);
+  await click(button('Edit event'));
+  await fill('textarea[maxlength="1000"]','Cosmetic change retained');
+  // Delay and fail the actual save request, then restore the real network for Retry.
+  await evaluate(`window.originalFetch=window.fetch; window.fetch=async (...args)=>{if(String(args[0]).includes('/api/events/')&&args[1]?.method==='PATCH'){await new Promise(r=>setTimeout(r,700));throw new TypeError('Controlled network failure')}return window.originalFetch(...args)}`);
+  await click(button('Save'));
+  check('waiting save is disabled',await evaluate(`(${button('Save')}).disabled`));
+  await wait(`!!document.querySelector('[role=alert]')`);
+  check('failed save preserves input and offers Retry',await evaluate(`document.querySelector('textarea[maxlength="1000"]').value==='Cosmetic change retained'&&document.querySelector('[role=alert]').innerText.includes('Retry')`));
+  await evaluate('window.fetch=window.originalFetch');
+  await click(button('Retry save'));
+  await wait(`!document.querySelector('textarea[maxlength="1000"]')`);
+  state=await api('/api/state',undefined,'GET'); event=state.events.find(e=>e.id===event.id);
+  check('cosmetic save control persists through Retry',event.description==='Cosmetic change retained');
+  await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'active',1,1)",event.id,'synthetic-participant',guildIds[0],'Synthetic participant','','','[]','','[]');
+  const structural={...form,customQuestions:form.customQuestions.map(q=>({...q,required:true}))};
+  await api('/api/templates',{name:'Structural conflict',kind:'form',json:JSON.stringify(structural)});
+  await api('/api/templates',{name:'Cosmetic label',kind:'form',json:JSON.stringify({...form,customQuestions:form.customQuestions.map(q=>({...q,label:{en:'Updated interests',sv:'Uppdaterade intressen'}}))})});
+  await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')`);
+  const chooseForm=async name=>{await click(`[...document.querySelectorAll('label')].find(e=>e.innerText.includes('Change form')).querySelector('[role=combobox]')`);await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))`);};
+  await click(button('Edit event')); await chooseForm('Structural conflict');
+  await fill('textarea[maxlength="1000"]','Retained conflict description');
+  await click(button('Save')); await wait(`!!document.querySelector('[role=alert]')`);
+  const failureAX=await send('Accessibility.getFullAXTree',{},sid);
+  check('populated published structural edit exposes conflict and Retry in AX',failureAX.nodes.some(n=>n.role?.value==='alert')&&await evaluate(`document.querySelector('[role=alert]').innerText.includes('version migration')&&!!(${button('Retry save')})`));
+  check('conflict retains typed input and chosen template without success',await evaluate(`document.querySelector('textarea[maxlength="1000"]').value==='Retained conflict description'&&document.body.innerText.includes('Structural conflict')&&!!(${button('Save')})`));
+  let after=(await api('/api/state',undefined,'GET')).events.find(e=>e.id===event.id);
+  check('rejected structural save leaves pinned definition unchanged',JSON.parse(after.formJson).customQuestions[0].required===false);
+  await chooseForm('Cosmetic label'); await click(button('Retry save'));
+  await wait(`!document.querySelector('textarea[maxlength="1000"]')`);
+  after=(await api('/api/state',undefined,'GET')).events.find(e=>e.id===event.id);
+  check('cosmetic form label saves on the same published version',JSON.parse(after.formJson).customQuestions[0].label.sv==='Uppdaterade intressen'&&JSON.parse(after.formJson).version===JSON.parse(event.formJson).version);
+  await click(`[...document.querySelectorAll('button')].find(e=>e.getAttribute('aria-label')?.startsWith('Switch language'))`);
+  check('Swedish workspace and preview action are localized',await evaluate(`document.documentElement.lang==='sv'&&document.body.innerText.includes('Offentlig förhandsvisning')`));
+  const keys=await Promise.all(['en','sv'].map(async l=>Object.keys(JSON.parse(await readFile(new URL('../../admin-ui/src/lib/i18n/'+l+'.json',import.meta.url),'utf8'))).sort()));
+  check('English and Swedish catalogs contain the same keys',JSON.stringify(keys[0])===JSON.stringify(keys[1]));
+  // Controlled empty-state response; no shared database deletion/reset.
+  const emptyScript=await send('Page.addScriptToEvaluateOnNewDocument',{source:`const realFetch=window.fetch; window.fetch=async (...args)=>{const r=await realFetch(...args);if(String(args[0]).startsWith('/api/state')){const s=await r.json();return new Response(JSON.stringify({...s,events:[],templates:[]} ),{status:200,headers:{'content-type':'application/json'}})}return r}`},sid);
+  await nav(base+'/events'); await wait(`document.body.innerText.includes('Nytt event')`);
+  check('empty template/event workspace keeps first-event action',await evaluate(`document.body.innerText.includes('Inga events än')&&!![...document.querySelectorAll('button')].find(e=>e.innerText.includes('Nytt event'))`));
+  await send('Page.removeScriptToEvaluateOnNewDocument',{identifier:emptyScript.identifier},sid);
+  console.log('RESULT',checks.length,'browser assertions passed; console exceptions:',JSON.stringify(errors));
+  assert.deepEqual(errors,[]);
+} finally {
+  browser?.close();
+  if (server) await server.stop();
+  if (db) await db.close();
+  if (chrome.exitCode === null) {
+    try { process.kill(-chrome.pid, 'SIGTERM'); } catch {}
+    await Promise.race([new Promise(resolve => chrome.once('exit', resolve)), delay(3000)]);
+  }
+  await rm(chromeProfile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+}

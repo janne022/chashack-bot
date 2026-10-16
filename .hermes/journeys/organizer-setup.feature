@@ -1,5 +1,7 @@
 Feature: Organizer setup
   An organizer builds an event from reusable templates, prepares its signup form and schedule, then publishes it.
+  # Runnable DOM/AX assertions: DATABASE_URL=<approved _test fixture> node apps/bot/scripts/organizer-browser.mjs
+  # Build first with pnpm build. Uses installed Chromium and an isolated PostgreSQL schema.
 
   Background:
     Given the organizer console is open for a seeded authorized guild
@@ -11,6 +13,8 @@ Feature: Organizer setup
     Then the saved definition and publication result are visible
     And I can open the published event preview from its workspace
     And the persisted preview agrees with the configured event definition
+    And custom question IDs and the selected theme survive editing and publication
+    And an incompatible role mapping is removed when changing to multiple choice
 
   @journey:organizer-setup
   Scenario: Organizer setup - failure
@@ -20,6 +24,8 @@ Feature: Organizer setup
     And my edits remain available and no saved or published success is shown
     When I make a cosmetic label change and the server rejects the save
     Then an inline error offers Retry and the typed label remains
+    When the real server accepts a cosmetic form label change
+    Then the label is persisted without changing the published form version
 
   @journey:organizer-setup
   Scenario: Organizer setup - empty
