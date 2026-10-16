@@ -248,7 +248,7 @@ test('DM invite acceptance dispatches using its stored event and installed guild
   } finally { await db.close(); }
 });
 
-test('DM join-request decline dispatches to the pinned team owner', async () => {
+test('DM join-request decline dispatches to the pinned team owner and rejects forwarded controls', async () => {
   const db = await fixture();
   try {
     setMembershipLookup(db, async () => true);
@@ -256,6 +256,7 @@ test('DM join-request decline dispatches to the pinned team owner', async () => 
     assert.ok(team.ok);
     const request = await createJoinRequest(db, 'discord:member', 'ev', GUILD, 'member', team.value.id, 2);
     assert.ok(request.ok);
+    const auditBefore = await db.all('SELECT * FROM audit_log ORDER BY id');
     const handlers = new Map<string, (interaction: unknown) => void>();
     const guild = { members: { me: { id: 'bot' }, fetch: async () => new Map() }, roles: { everyone: { id: GUILD } }, channels: { fetch: async () => null } };
     const client = { on: (name: string, handler: (interaction: unknown) => void) => handlers.set(name, handler), guilds: { cache: new Map([[GUILD, guild]]) }, users: { fetch: async () => ({ send: async () => undefined }) } } as never;
@@ -263,9 +264,19 @@ test('DM join-request decline dispatches to the pinned team owner', async () => 
     let finish!: () => void;
     const ready = new Promise<void>((resolve) => { finish = resolve; });
     let response: unknown;
-    const interaction = { customId: `${IDS.reqDecline}:${request.value.id}`, user: { id: 'owner' }, inGuild: () => false, isAutocomplete: () => false, isChatInputCommand: () => false, isModalSubmit: () => false, isButton: () => true, isStringSelectMenu: () => false, isRepliable: () => true, replied: false, deferred: false, update: async (payload: unknown) => { response = payload; finish(); }, reply: async (payload: unknown) => { response = payload; finish(); } };
+    const interaction = { customId: `${IDS.reqDecline}:${request.value.id}`, user: { id: 'other' }, inGuild: () => false, isAutocomplete: () => false, isChatInputCommand: () => false, isModalSubmit: () => false, isButton: () => true, isStringSelectMenu: () => false, isRepliable: () => true, replied: false, deferred: false, update: async (payload: unknown) => { response = payload; finish(); }, reply: async (payload: unknown) => { response = payload; finish(); } };
     handlers.get('interactionCreate')!(interaction);
     await ready;
+    assert.equal((await db.get<{ status: string }>('SELECT status FROM team_requests WHERE id=?', request.value.id))!.status, 'pending');
+    assert.deepEqual(response, { content: 'That control is stale — run the command again.', components: [] });
+    assert.deepEqual(await db.all('SELECT * FROM audit_log ORDER BY id'), auditBefore);
+    let finishOwner!: () => void;
+    const ownerReady = new Promise<void>((resolve) => { finishOwner = resolve; });
+    interaction.user = { id: 'owner' };
+    interaction.update = async (payload: unknown) => { response = payload; finishOwner(); };
+    interaction.reply = async (payload: unknown) => { response = payload; finishOwner(); };
+    handlers.get('interactionCreate')!(interaction);
+    await ownerReady;
     assert.equal((await db.get<{ status: string }>('SELECT status FROM team_requests WHERE id=?', request.value.id))!.status, 'declined');
     assert.ok(JSON.stringify(response).includes('Declined.'), JSON.stringify(response));
   } finally { await db.close(); }
