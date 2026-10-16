@@ -20,6 +20,14 @@ CREATE TABLE IF NOT EXISTS meta (
       value TEXT NOT NULL
     );
 
+CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+      bucket TEXT NOT NULL,
+      window_start BIGINT NOT NULL,
+      count INTEGER NOT NULL,
+      PRIMARY KEY (bucket, window_start)
+    );
+CREATE INDEX IF NOT EXISTS idx_rate_limit_window ON rate_limit_buckets(window_start);
+
 CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY,
       guild_id TEXT NOT NULL,
