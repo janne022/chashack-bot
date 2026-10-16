@@ -106,7 +106,11 @@ test('real app-role handlers bind fresh participant authority, public projection
     assert.equal(dto.statusCode, 200, dto.body);
     assert.ok(!dto.body.includes('UPDATED') && !dto.body.includes('PRIVATE_'));
     assert.deepEqual(dto.json().form.questions, []);
-    assert.equal((await app.inject({ url: '/events/a' })).statusCode, 200);
+    const page = await app.inject({ url: '/events/a' });
+    assert.equal(page.statusCode, 200);
+    assert.match(page.body, /<main[^>]*>/);
+    assert.match(page.body, /Sign up|Anmäl/);
+    assert.match(page.body, /event-details/);
     assert.equal((await app.inject({ url: route('api', 'public', 'events', 'draft') })).statusCode, 404);
     assert.equal((await app.inject({ url: '/events/draft' })).statusCode, 404);
     const unavailableApp = Fastify({ logger: false });
