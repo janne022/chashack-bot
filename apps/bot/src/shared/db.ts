@@ -39,12 +39,19 @@ export async function openDatabase(databaseUrl: string | undefined, migrationDat
   try { await migratePostgres(migrationDb); } finally { await migrationDb.close(); }
   const db = await openPostgres(databaseUrl);
   try {
-    const role = await db.get<{rolsuper: boolean; rolbypassrls: boolean; owns_tables: boolean; can_create: boolean}>(`
-      SELECT r.rolsuper, r.rolbypassrls,
-        EXISTS (SELECT 1 FROM pg_class c WHERE c.relnamespace = current_schema()::regnamespace AND c.relkind IN ('r','p') AND c.relowner = r.oid) AS owns_tables,
-        has_schema_privilege(r.oid, current_schema(), 'CREATE') AS can_create
-      FROM pg_roles r WHERE r.rolname = current_user`);
-    if (!role || role.rolsuper || role.rolbypassrls || role.owns_tables || role.can_create) throw new Error('DATABASE_URL role must be non-owner, non-superuser, NOBYPASSRLS, and have no schema DDL');
+    // MEMBER includes transitive/NOINHERIT memberships, not just active privileges.
+    // Conservatively refuse elevated membership even when SET is currently disabled.
+    const role = await db.get<{ unsafe_authority: boolean }>(`
+      SELECT EXISTS (
+        SELECT 1 FROM pg_roles r WHERE pg_has_role(current_user, r.oid, 'MEMBER') AND (
+          r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication
+          OR EXISTS (SELECT 1 FROM pg_class c WHERE c.relnamespace = current_schema()::regnamespace AND c.relowner = r.oid)
+          OR EXISTS (SELECT 1 FROM pg_proc p WHERE p.pronamespace = current_schema()::regnamespace AND p.proowner = r.oid)
+          OR has_schema_privilege(r.oid, current_schema(), 'CREATE')
+          OR has_database_privilege(r.oid, current_database(), 'CREATE')
+        )
+      ) AS unsafe_authority`);
+    if (!role || role.unsafe_authority) throw new Error('DATABASE_URL role must be non-owner, non-superuser, NOBYPASSRLS, and have no DDL or elevated role memberships');
     return db;
   } catch (error) { await db.close(); throw error; }
 }
