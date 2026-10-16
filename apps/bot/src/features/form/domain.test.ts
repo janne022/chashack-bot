@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FORM, validateSignupInput, normalizeFormUpdate, validateCustomAnswers, validateCustomQuestions, validBannerUrl } from './domain.js';
+import { DEFAULT_FORM, validateSignupInput, normalizeFormUpdate, validateCustomAnswers, validateCustomQuestions, validBannerUrl, normalizeAppearance } from './domain.js';
 
 const CONFIG = DEFAULT_FORM;
 
@@ -68,4 +68,12 @@ test('required organizer-only fields do not block participant completion', () =>
 
 test('banner URLs allow only bounded HTTPS URLs without embedded credentials', () => {
   assert.equal(validBannerUrl('https://cdn.example.test/banner.webp'), true); assert.equal(validBannerUrl('javascript:1'), false); assert.equal(validBannerUrl('http://example.test/banner.webp'), false); assert.equal(validBannerUrl('https://user:pass@example.test/a'), false);
+});
+
+test('appearance normalization accepts only supported preset, colors, and HTTPS image URLs', () => {
+  assert.deepEqual(normalizeAppearance({ themePreset: 'halloween', accentColor: '#123456', bannerUrl: 'https://cdn.example.test/banner.webp' }), {
+    themePreset: 'halloween', accentColor: '#123456', bannerUrl: 'https://cdn.example.test/banner.webp',
+  });
+  assert.equal(normalizeAppearance({ themePreset: 'halloween', css: 'body{}' }), null);
+  assert.equal(normalizeAppearance({ backgroundUrl: 'http://example.test/bg' }), null);
 });

@@ -70,7 +70,7 @@ import { getForm, updateForm, resetForm } from '../features/form/data.js';
 import { refreshSignupPanel, postOrUpdatePanel } from '../discord/signup-panel.js';
 import { sendAnnouncement, createDiscordEvents } from '../discord/notify.js';
 import type { FormConfig } from '../features/form/domain.js';
-import { validateCustomAnswers, validateCustomQuestions, validBannerUrl } from '../features/form/domain.js';
+import { validateCustomAnswers, validateCustomQuestions, validBannerUrl, normalizeAppearance } from '../features/form/domain.js';
 import { getRegistrationAnswers, listRegistrationAnswers, saveRegistrationAnswers } from '../features/registration/data.js';
 import { registerParticipantTeamRoutes } from './participant-teams.js';
 import { applyTeamLeave } from '../discord/provision.js';
@@ -617,7 +617,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       event: { id: event.id, name: event.name, description: event.description, startsAt: event.startsAt, endsAt: event.endsAt },
       form: { version: form.version, title: form.title, description: form.description,
         themePreset: ['default', 'halloween', 'christmas'].includes(form.themePreset ?? '') ? form.themePreset : 'default',
-        accentColor: /^#[0-9a-fA-F]{6}$/.test(form.accentColor ?? '') ? form.accentColor : '#5865f2',
+        accentColor: /^#[0-9a-fA-F]{6}$/.test(form.accentColor ?? '') ? form.accentColor : form.themePreset === 'halloween' ? '#ef793e' : form.themePreset === 'christmas' ? '#347b57' : '#55bbda',
         bannerUrl: validBannerUrl(form.bannerUrl) ? form.bannerUrl ?? null : null,
         questions: (form.customQuestions ?? []).filter((q) => q.visibility === 'self_and_organizer' && (q.presentation === 'web' || q.presentation === 'both')) },
     };
@@ -630,12 +630,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const escape = (value: string): string => value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
     const name = escape(event.name);
     const description = escape(event.description);
+    const presetAccent = form.themePreset === 'halloween' ? '#ef793e' : form.themePreset === 'christmas' ? '#347b57' : '#55bbda';
+    const accent = /^#[0-9a-fA-F]{6}$/.test(form.accentColor ?? '') ? form.accentColor : presetAccent;
     const image = validBannerUrl(form.bannerUrl) && form.bannerUrl ? `<meta property="og:image" content="${escape(form.bannerUrl)}">` : '';
     const metadata = `<title>${name}</title><meta name="description" content="${description}"><meta property="og:title" content="${name}"><meta property="og:description" content="${description}">${image}`;
     const date = (value: number | null): string => value === null ? '' : escape(new Intl.DateTimeFormat('en', { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' }).format(value));
     const dates = event.startsAt === null && event.endsAt === null ? '' : `<dl class="event-details">${event.startsAt === null ? '' : `<div><dt>Starts</dt><dd><time datetime="${new Date(event.startsAt).toISOString()}">${date(event.startsAt)} UTC</time></dd></div>`}${event.endsAt === null ? '' : `<div><dt>Ends</dt><dd><time datetime="${new Date(event.endsAt).toISOString()}">${date(event.endsAt)} UTC</time></dd></div>`}</dl>`;
     const banner = validBannerUrl(form.bannerUrl) && form.bannerUrl ? `<img class="banner" src="${escape(form.bannerUrl)}" alt="" referrerpolicy="no-referrer">` : '';
-    return reply.type('text/html; charset=utf-8').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${metadata}<style>*{box-sizing:border-box}body{margin:0;background:#0a0c10;color:#eef2f7;font:16px/1.6 system-ui,sans-serif}.page{max-width:1040px;margin:auto;padding:clamp(20px,5vw,64px)}.banner{display:block;width:100%;max-height:360px;object-fit:cover;border-radius:16px;margin-bottom:32px}h1{font-size:clamp(2rem,6vw,3.5rem);line-height:1.1;margin:0 0 16px}.description{max-width:68ch;color:#c4cad5;white-space:pre-wrap}.event-details{display:flex;gap:32px;flex-wrap:wrap;margin:32px 0}.event-details dt{font-size:.8rem;color:#aab3c3}.event-details dd{margin:0;font-weight:600}a.action{display:inline-block;background:#55bbda;color:#0a0c10;padding:12px 20px;border-radius:10px;font-weight:700;text-decoration:none}a:focus-visible{outline:3px solid #55bbda;outline-offset:3px}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}</style></head><body><main class="page">${banner}<h1>${name}</h1><p class="description">${description || 'Event details and registration.'}</p>${dates}<a class="action" href="/events/${encodeURIComponent(event.id)}/signup">Sign up</a></main></body></html>`);
+    return reply.type('text/html; charset=utf-8').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${metadata}<style>*{box-sizing:border-box}body{margin:0;background:#0a0c10;color:#eef2f7;font:16px/1.6 system-ui,sans-serif}.page{max-width:1040px;margin:auto;padding:clamp(20px,5vw,64px)}.banner{display:block;width:100%;max-height:360px;object-fit:cover;border-radius:16px;margin-bottom:32px}h1{font-size:clamp(2rem,6vw,3.5rem);line-height:1.1;margin:0 0 16px}.description{max-width:68ch;color:#c4cad5;white-space:pre-wrap}.event-details{display:flex;gap:32px;flex-wrap:wrap;margin:32px 0}.event-details dt{font-size:.8rem;color:#aab3c3}.event-details dd{margin:0;font-weight:600}a.action{display:inline-block;background:${accent};color:#0a0c10;padding:12px 20px;border-radius:10px;font-weight:700;text-decoration:none}a:focus-visible{outline:3px solid ${accent};outline-offset:3px}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}</style></head><body><main class="page">${banner}<h1>${name}</h1><p class="description">${description || 'Event details and registration.'}</p>${dates}<a class="action" href="/events/${encodeURIComponent(event.id)}/signup">Sign up</a></main></body></html>`);
   });
 
   const participantEvent = async (eventId: string, userId: string) => {
@@ -1208,8 +1210,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/templates', async (req, reply) => {
     const body = req.body as { eventId?: string; name?: string; kind?: string; formJson?: string; json?: string } | null
     const kind = body?.kind ?? 'event'
-    if (kind !== 'event' && kind !== 'form' && kind !== 'announcement' && kind !== 'assignments') {
-      await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be event|form|announcement|assignments' })
+    if (kind !== 'event' && kind !== 'form' && kind !== 'announcement' && kind !== 'assignments' && kind !== 'theme') {
+      await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be event|form|announcement|assignments|theme' })
       return
     }
     let json: string
@@ -1230,6 +1232,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         await reply.code(400).send({ ok: false, code: 'bad_json', message: e instanceof Error ? e.message : 'Invalid form JSON' })
         return
       }
+    } else if (kind === 'theme') {
+      let parsed: unknown = null;
+      try { parsed = JSON.parse(body?.json ?? body?.formJson ?? 'null') } catch { /* rejected below */ }
+      const appearance = normalizeAppearance(parsed);
+      if (!appearance) { await reply.code(400).send({ ok: false, code: 'bad_appearance', message: 'Theme appearance is invalid.' }); return }
+      json = JSON.stringify(appearance)
     } else if (kind === 'announcement') {
       if (body?.json === undefined && body?.formJson === undefined) {
         await reply.code(400).send({ ok: false, code: 'bad_input', message: 'json is required for announcement templates.' })
@@ -1282,6 +1290,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         const { normalizeFormUpdate } = await import('../features/form/domain.js')
         const { DEFAULT_FORM } = await import('../features/form/domain.js')
         json = JSON.stringify(normalizeFormUpdate(DEFAULT_FORM as never, parsed as never))
+      } else if (existing.kind === 'theme') {
+        const appearance = normalizeAppearance(parsed);
+        if (!appearance) throw new Error('Theme appearance is invalid.');
+        json = JSON.stringify(appearance);
       } else {
         JSON.stringify(parsed) // just check valid
       }
