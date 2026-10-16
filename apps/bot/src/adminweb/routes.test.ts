@@ -233,3 +233,21 @@ test('organizer registration answers remain tenant-scoped', async () => {
   await app.close();
   await db.close();
 });
+
+test('theme templates persist only normalized appearance snapshots', async () => {
+  const db = await openTestDb();
+  const guildId = '11111111111111111';
+  const session = await createSession(db, { userId: 'theme-owner', username: 'Owner', avatar: null, guilds: [{ id: guildId, name: 'Guild', icon: null }] });
+  const guild = { id: guildId, ownerId: 'theme-owner', members: { fetch: async (id: string) => ({ id, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }) } };
+  const app = Fastify({ logger: false });
+  registerRoutes(app, { db, config, announce: async () => undefined, client: { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild } } as never });
+  const headers = { cookie: sessionCookie(session.id) };
+  const saved = await app.inject({ method: 'POST', url: '/api/templates', headers, payload: { name: 'Seasonal', kind: 'theme', json: JSON.stringify({ themePreset: 'halloween', accentColor: '#123456', bannerUrl: 'https://cdn.example.test/banner.webp' }) } });
+  assert.equal(saved.statusCode, 200);
+  assert.equal(saved.json().template.kind, 'theme');
+  assert.deepEqual(JSON.parse(saved.json().template.json), { themePreset: 'halloween', accentColor: '#123456', bannerUrl: 'https://cdn.example.test/banner.webp' });
+  const invalid = await app.inject({ method: 'POST', url: '/api/templates', headers, payload: { name: 'Unsafe', kind: 'theme', json: JSON.stringify({ css: 'body{}' }) } });
+  assert.equal(invalid.statusCode, 400);
+  await app.close();
+  await db.close();
+});

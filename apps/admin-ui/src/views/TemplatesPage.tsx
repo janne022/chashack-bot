@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { LayoutTemplate, BookCopy, Megaphone, Plus, Trash2, Pencil, Copy, ListChecks } from "lucide-react"
+import { LayoutTemplate, BookCopy, Megaphone, Plus, Trash2, Pencil, Copy, ListChecks, Palette } from "lucide-react"
 import { toast } from "sonner"
 import { useAppContext } from "@/lib/app-context"
 import { useT } from "@/lib/i18n"
@@ -19,6 +19,7 @@ import { dateTime } from "@/lib/format"
 import { DEFAULT_FORM } from "@/lib/default-form"
 import { validateQuestions } from "@/lib/question-validation"
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 
 export function TemplatesPage() {
   const { state, refresh } = useAppContext()
@@ -27,8 +28,9 @@ export function TemplatesPage() {
   const formTemplates = (state.templates ?? []).filter(tpl => tpl.kind === "form")
   const announcementTemplates = (state.templates ?? []).filter(tpl => tpl.kind === "announcement")
   const assignmentCollections = (state.templates ?? []).filter(tpl => tpl.kind === "assignments")
+  const themes = (state.templates ?? []).filter(tpl => tpl.kind === "theme")
 
-  const [tab, setTab] = useState<"event" | "form" | "announcement" | "assignments">("event")
+  const [tab, setTab] = useState<"event" | "form" | "announcement" | "assignments" | "theme">("event")
   const [editingFormId, setEditingFormId] = useState<string | null>(null)
   const [editingEventId, setEditingEventId] = useState<string | null>(null)
   const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | null>(null)
@@ -37,6 +39,9 @@ export function TemplatesPage() {
   const [creatingEvent, setCreatingEvent] = useState(false)
   const [creatingAnnouncement, setCreatingAnnouncement] = useState(false)
   const [creatingCollection, setCreatingCollection] = useState(false)
+  const [editingThemeId, setEditingThemeId] = useState<string | null>(null)
+  const [creatingTheme, setCreatingTheme] = useState(false)
+  const [deletingThemeId, setDeletingThemeId] = useState<string | null>(null)
 
   return (
     <div className="flex flex-col gap-6">
@@ -53,6 +58,7 @@ export function TemplatesPage() {
           <TabsTrigger value="form" className="gap-2"><BookCopy className="size-4" /> Form templates ({formTemplates.length})</TabsTrigger>
           <TabsTrigger value="announcement" className="gap-2"><Megaphone className="size-4" /> Announcements ({announcementTemplates.length})</TabsTrigger>
           <TabsTrigger value="assignments" className="gap-2"><ListChecks className="size-4" /> Assignment collections ({assignmentCollections.length})</TabsTrigger>
+          <TabsTrigger value="theme" className="gap-2"><Palette className="size-4" /> Themes ({themes.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="event" className="flex flex-col gap-4 mt-4">
@@ -221,9 +227,46 @@ export function TemplatesPage() {
             />
           )}
         </TabsContent>
+        <TabsContent value="theme" className="flex flex-col gap-4 mt-4">
+          <div className="flex justify-end"><Button onClick={()=>setCreatingTheme(true)}><Plus className="size-4" /> {t('templates.new_theme')}</Button></div>
+          {themes.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">{t('templates.no_themes')}</CardContent></Card> : <div className="grid gap-3 md:grid-cols-2">{themes.map(theme=><Card key={theme.id}><CardHeader><CardTitle>{theme.name}</CardTitle><CardDescription>{t('templates.theme_desc')}</CardDescription></CardHeader><CardContent className="flex gap-2"><Button size="sm" variant="secondary" onClick={()=>setEditingThemeId(theme.id)}><Pencil className="size-3.5" /> {t('templates.edit_theme')}</Button><Button size="sm" variant="ghost" onClick={()=>setDeletingThemeId(theme.id)}><Trash2 className="size-3.5" /> {t('templates.theme_delete')}</Button></CardContent></Card>)}</div>}
+          {(creatingTheme||editingThemeId)&&<ThemeDialog template={editingThemeId?themes.find(x=>x.id===editingThemeId)??null:null} onClose={()=>{setCreatingTheme(false);setEditingThemeId(null)}} onSaved={refresh}/>}
+          <AlertDialog open={!!deletingThemeId} onOpenChange={open=>{if(!open)setDeletingThemeId(null)}}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t('templates.theme_delete_title',{name:themes.find(x=>x.id===deletingThemeId)?.name??''})}</AlertDialogTitle><AlertDialogDescription>{t('templates.theme_delete_desc')}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel><AlertDialogAction onClick={async()=>{const id=deletingThemeId;if(!id)return;setDeletingThemeId(null);try{await api.deleteTemplate(id);await refresh()}catch(e){toast.error(e instanceof Error?e.message:'Delete failed')}}}>{t('templates.theme_delete')}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+        </TabsContent>
       </Tabs>
     </div>
   )
+}
+
+function ThemeDialog({ template, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; onClose: ()=>void; onSaved: ()=>Promise<void> }) {
+  const t=useT()
+  const [name, setName] = useState(template?.name ?? '')
+  const [appearance, setAppearance] = useState<{themePreset?: string; accentColor?: string; bannerUrl?: string | null}>(() => {
+    try { return JSON.parse(template?.json ?? '{}') as {themePreset?: string; accentColor?: string; bannerUrl?: string | null} } catch { return {} }
+  })
+  const [busy, setBusy] = useState(false)
+  async function save() {
+    if (name.trim().length < 2) { toast.error(t('templates.theme_name_required')); return }
+    if (appearance.bannerUrl && !/^https:\/\//i.test(appearance.bannerUrl)) { toast.error(t('templates.theme_invalid_url')); return }
+    setBusy(true)
+    try {
+      const json = JSON.stringify({themePreset: appearance.themePreset ?? 'default', accentColor: appearance.accentColor ?? '#55bbda', bannerUrl: appearance.bannerUrl || null})
+      if (template) await api.updateTemplate(template.id, {name: name.trim(), json})
+      else await api.createTemplateRaw(name.trim(), 'theme', json)
+      await onSaved(); toast.success(t('templates.theme_saved')); onClose()
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Save failed') }
+    finally { setBusy(false) }
+  }
+  return <Dialog open onOpenChange={open=>{if(!open&&!busy)onClose()}}><DialogContent>
+    <DialogTitle>{template ? t('templates.edit_theme') : t('templates.new_theme')}</DialogTitle>
+    <DialogDescription>{t('templates.theme_desc')}</DialogDescription>
+    <label className="text-sm">{t('templates.theme_name')}<Input value={name} maxLength={80} onChange={e=>setName(e.target.value)} /></label>
+    <label className="text-sm">{t('templates.theme_preset')}<Select value={appearance.themePreset ?? 'default'} onValueChange={themePreset=>setAppearance({...appearance,themePreset})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="default">{t('form.default_theme')}</SelectItem><SelectItem value="halloween">{t('form.halloween')}</SelectItem><SelectItem value="christmas">{t('form.christmas')}</SelectItem></SelectContent></Select></label>
+    <label className="text-sm">{t('templates.theme_accent')}<Input type="color" value={appearance.accentColor ?? '#55bbda'} onChange={e=>setAppearance({...appearance,accentColor:e.target.value})} /></label>
+    <label className="text-sm">{t('templates.theme_banner')}<Input type="url" value={appearance.bannerUrl ?? ''} onChange={e=>setAppearance({...appearance,bannerUrl:e.target.value || null})} /></label>
+    <div className="rounded-lg border p-3" style={{borderColor:appearance.accentColor ?? '#55bbda'}}><strong style={{color:appearance.accentColor ?? '#55bbda'}}>{name || t('templates.theme_preview')}</strong>{appearance.bannerUrl && <img src={appearance.bannerUrl} alt="" referrerPolicy="no-referrer" className="mt-2 h-20 w-full rounded object-cover" onError={e=>{e.currentTarget.hidden=true}} />}<p className="text-sm text-muted-foreground">{t('templates.theme_preview')}</p></div>
+    <div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button><Button disabled={busy} onClick={()=>void save()}>{t('templates.theme_save')}</Button></div>
+  </DialogContent></Dialog>
 }
 
 function FormTemplateDialog({ template, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; onClose: ()=>void; onSaved: ()=>Promise<void> }) {

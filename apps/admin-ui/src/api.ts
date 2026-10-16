@@ -274,7 +274,7 @@ export const api = {
     })
   },
 
-  async listTemplates(kind?: 'event' | 'form' | 'announcement'): Promise<{ templates: { id: string; name: string; kind: string; createdAt: number }[] }> {
+  async listTemplates(kind?: 'event' | 'form' | 'announcement' | 'assignments' | 'theme'): Promise<{ templates: { id: string; name: string; kind: string; createdAt: number }[] }> {
     const url = kind ? `/api/templates?kind=${kind}` : '/api/templates'
     return request(url)
   },
@@ -294,7 +294,7 @@ export const api = {
     })
   },
 
-  async createTemplateRaw(name: string, kind: 'event' | 'form' | 'announcement' | 'assignments', json: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
+  async createTemplateRaw(name: string, kind: 'event' | 'form' | 'announcement' | 'assignments' | 'theme', json: string): Promise<{ template: { id: string; name: string; kind: string; createdAt: number } }> {
     return request('/api/templates', {
       method: 'POST',
       body: JSON.stringify({ name, kind, json }),
