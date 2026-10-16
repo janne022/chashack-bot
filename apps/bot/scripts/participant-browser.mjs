@@ -86,8 +86,10 @@ try {
   check('eligible participant can create own team through served UI',await evaluate(`document.body.innerText.includes('Workshop crew')`));
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-b'].split('=')[1]),url:base,httpOnly:true},sid);
   await nav(`/team?eventId=${eventId}`);await wait(`document.body.innerText.includes('Workshop crew')`);
+  await evaluate(`window.teamFetch=window.fetch;window.fetch=async(...args)=>{if(String(args[0]).includes('/join')&&args[1]?.method==='POST')await new Promise(r=>setTimeout(r,600));return window.teamFetch(...args)}`);
   await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Gå med i laget'))`);
-  await wait(`document.body.innerText.includes('2 medlemmar')`);
+  check('team join announces waiting and disables its trigger',await evaluate(`!!document.querySelector('[role=status][aria-live=polite]')&&[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Gå med i laget'))?.disabled`));
+  await wait(`document.body.innerText.includes('2 medlemmar')`);await evaluate('window.fetch=window.teamFetch');
   check('participant can join a public team and teammate view excludes private answers',await evaluate(`document.body.innerText.includes('Workshop crew')&&!document.body.innerText.includes('CLASSIFIED ANSWER')`));
   await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Lämna laget'))`);
   await wait(`!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Gå med i laget'))`);
