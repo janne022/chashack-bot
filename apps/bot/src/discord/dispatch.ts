@@ -139,7 +139,11 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
             await interaction.reply(eph(t(deps.botLanguage, 'discord.rate_limit_unavailable')));
             return;
           }
-          await interaction.reply(eph(t(deps.botLanguage, 'discord.admin.stale_control')));
+          if (interaction.isButton()) {
+            await interaction.update({ content: t(deps.botLanguage, 'discord.admin.stale_control'), components: [] });
+          } else {
+            await interaction.reply(eph(t(deps.botLanguage, 'discord.admin.stale_control')));
+          }
         }
         return;
       }
