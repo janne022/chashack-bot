@@ -55,6 +55,7 @@ try {
   check('served Swedish signup uses event locale label',await evaluate(`document.documentElement.lang==='sv'&&document.querySelector('label[for=idea]')?.innerText.includes('Din idé')`));
   await click(`document.querySelector('form button[type=submit]')`);
   check('required answer validation names field, associates error and focuses it',await evaluate(`(()=>{const e=document.querySelector('#idea');return e.getAttribute('aria-invalid')==='true'&&!!document.getElementById(e.getAttribute('aria-describedby'))&&document.activeElement===e})()`));
+  check('required field error is localized in Swedish',await evaluate(`document.getElementById(document.querySelector('#idea').getAttribute('aria-describedby'))?.innerText==='Din idé måste fyllas i.'`));
   await evaluate(`(()=>{const e=document.querySelector('#idea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'Jag bygger en robot');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   const before=await ax();check('signup field is exposed by the browser accessibility tree with its localized name',before.nodes.some(n=>n.role?.value==='textbox'&&n.name?.value.startsWith('Din idé')));
   await evaluate(`window.realFetch=window.fetch;window.fetch=async(...args)=>{if(String(args[0]).includes('/registration')&&args[1]?.method==='PUT'){await new Promise(r=>setTimeout(r,400));throw Error('controlled save failure')}return window.realFetch(...args)}`);
@@ -93,6 +94,11 @@ try {
   await wait(`document.body.innerText.includes('2 medlemmar')`);await evaluate('window.fetch=window.teamFetch');
   check('participant can join a public team and teammate view excludes private answers',await evaluate(`document.body.innerText.includes('Workshop crew')&&!document.body.innerText.includes('CLASSIFIED ANSWER')`));
   await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Lämna laget'))`);
+  check('leaving a team first presents a named confirmation and preserves membership on cancel',await evaluate(`!!document.querySelector('[role=alertdialog]')&&document.querySelector('[role=alertdialog]').innerText.includes('Workshop crew')`));
+  await click(`[...document.querySelectorAll('[role=alertdialog] button')].find(b=>/Cancel|Avbryt/.test(b.innerText))`);
+  check('canceling the named leave confirmation keeps the participant in their team',await evaluate(`!document.querySelector('[role=alertdialog]')&&document.body.innerText.includes('2 medlemmar')`));
+  await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Lämna laget'))`);
+  await click(`[...document.querySelectorAll('[role=alertdialog] button')].find(b=>b.innerText.includes('Lämna laget'))`);
   await wait(`!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Gå med i laget'))`);
   check('participant can leave a team and return to open team choices',await evaluate(`!document.body.innerText.includes('2 medlemmar')`));
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
@@ -109,6 +115,14 @@ try {
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-c'].split('=')[1]),url:base,httpOnly:true},sid);
   await nav(`/team?eventId=${eventId}`);await wait(`document.body.innerText.includes('Inga öppna lag')`);
   check('full teams are excluded with a useful empty-state explanation and create action',await evaluate(`document.body.innerText.includes('Inga öppna lag')&&document.body.innerText.includes('Skapa ett lag eller kom tillbaka senare.')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skapa lag'))`));
+  const fullTeamId=(await db.get("SELECT id FROM teams WHERE event_id=? AND name='Workshop crew'",eventId)).id;
+  await evaluate(`(()=>{window.fullTeamFetch=window.fetch;window.fetch=async(...args)=>{const r=await window.fullTeamFetch(...args);if(String(args[0]).endsWith('/teams')&&r.ok){const body=await r.clone().json();body.teams.push({id:${JSON.stringify(fullTeamId)},name:'Workshop crew (full)',kind:'public',memberCount:2});return new Response(JSON.stringify(body),{status:r.status,headers:{'content-type':'application/json'}})}return r}})()`);
+  await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Uppdatera lag'))`);
+  await wait(`document.body.innerText.includes('Workshop crew (full)')`);
+  await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Gå med i laget'))`);
+  await wait(`!!document.querySelector('[role=alert]')`);
+  check('attempting to join a now-full team reports capacity conflict and offers refresh',await evaluate(`document.querySelector('[role=alert]').innerText.includes('fullt')&&[...document.querySelectorAll('[role=alert] button')].some(b=>b.innerText.includes('Uppdatera lag'))`));
+  await evaluate('window.fetch=window.fullTeamFetch');
   members.delete('participant-c');
   await nav(`/events/${eventId}/signup`);await wait(`document.body.innerText.includes('aktuell medlem')`);
   check('nonmember sees the membership explanation and no team allocation action',await evaluate(`document.body.innerText.includes('aktuell medlem')&&!document.querySelector('form')&&!document.body.innerText.includes('Visa lag')`));
