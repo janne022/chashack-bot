@@ -127,6 +127,17 @@ try {
   await nav(base+'/events');
   await wait(`document.body.innerText.includes('New event')`);
   check('empty Events exposes a first-event action',await evaluate(`document.body.innerText.includes('No events') && !!(${button('New event')})`));
+  const verifyOtter = async (width, height) => {
+    await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }, sid);
+    const placement = await evaluate(`(() => {const image=[...document.images].find(e=>e.getAttribute('aria-hidden')==='true'&&e.alt==='');if(!image)return null;const r=image.getBoundingClientRect(),p=image.parentElement.getBoundingClientRect();return {src:image.currentSrc,loaded:image.complete&&image.naturalWidth>0,hidden:image.getAttribute('aria-hidden')==='true'&&image.alt==='',viewport:innerWidth,scroll:document.documentElement.scrollWidth,image:{x:r.x,y:r.y,w:r.width,h:r.height},parent:{x:p.x,y:p.y,w:p.width,h:p.height}}})()`);
+    const ax = await send('Accessibility.getFullAXTree', {}, sid);
+    check(`empty Events otter loads and remains decorative at ${width}px`, placement?.loaded && placement.hidden && !ax.nodes.some(n => n.role?.value === 'img' && /otter/i.test(n.name?.value ?? '')));
+    check(`empty Events otter placement fits ${width}px viewport`, placement?.viewport === width && placement.scroll <= width && placement.image.x >= placement.parent.x && placement.image.x + placement.image.w <= placement.parent.x + placement.parent.w);
+    console.log('INFO empty Events otter geometry', JSON.stringify(placement));
+  };
+  await verifyOtter(1440, 1000);
+  await verifyOtter(390, 844);
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false }, sid);
   const { DEFAULT_FORM }=await import('../dist/features/form/domain.js');
   let form={...DEFAULT_FORM,title:'Svensk anmälan',description:'Välkommen till verkstaden',themePreset:'halloween',customQuestions:[{id:'interests',kind:'text',label:{en:'Interests',sv:'Intressen'},help:{en:'',sv:''},required:false,presentation:'both',visibility:'self_and_organizer'}]};
   form.customQuestions.push({id:'role-question',kind:'single_choice',label:{en:'Preferred role',sv:'Önskad roll'},help:{en:'',sv:''},required:false,presentation:'web',visibility:'self_and_organizer',choices:[{id:'frontend-choice',label:{en:'Frontend',sv:'Frontend'}}],mapping:{field:'role',importance:'high',choiceValues:{'frontend-choice':'frontend'}}});
