@@ -5,6 +5,7 @@ class ApiError extends Error {
     message: string,
     public readonly code: string,
     public readonly unauthorized = false,
+    public readonly retryAfterSeconds?: number,
   ) {
     super(message)
   }
@@ -24,9 +25,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
   if (!res.ok) {
+    const retryAfterSeconds = res.status === 429 ? Number(res.headers.get('retry-after')) : NaN
+    const message = (body.message as string) ?? 'Request failed'
     throw new ApiError(
-      (body.message as string) ?? 'Request failed',
+      res.status === 429 && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? `${message} (retry in ${retryAfterSeconds}s)`
+        : message,
       (body.code as string) ?? 'error',
+      false,
+      Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? retryAfterSeconds : undefined,
     )
   }
   return body as T
