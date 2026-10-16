@@ -10,6 +10,15 @@ import { AppContextProvider } from './lib/app-context'
  * (routes/ folder). Children render inside the shell when authenticated.
  */
 export default function App({ children }: { children: ReactNode }) {
+  // Participant journeys use their isolated Discord audience; do not gate them
+  // behind organizer state or render the organizer shell.
+  if (window.location.pathname.startsWith('/events/') || window.location.pathname === '/my-hackathons' || window.location.pathname === '/team') {
+    return <>{children}</>
+  }
+  return <OrganizerApp>{children}</OrganizerApp>
+}
+
+function OrganizerApp({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null)
   const [authed, setAuthed] = useState<boolean | null>(null) // null = checking
   const [error, setError] = useState<string | null>(null)
