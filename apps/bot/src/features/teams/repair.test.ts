@@ -19,6 +19,7 @@ import { handleUserCommand } from '../../discord/user-commands.js';
 import { onComponent } from '../../discord/components.js';
 import { IDS, type Ctx } from '../../discord/shared.js';
 import { t } from '../../shared/i18n.js';
+import { registerInteractionHandlers } from '../../discord/dispatch.js';
 
 const GUILD = '11111111111111111';
 async function seedUser(db: Db, user: string, at = 1) {
@@ -203,6 +204,47 @@ test('QA7 Swedish invitation refusal uses localized error presentation', async (
     await onComponent({ customId: `${IDS.reqAccept}:${invite.value.id}`, user: { id: 'member' }, update: async (payload: unknown) => { response = payload; } } as never, ctx);
     assert.ok(JSON.stringify(response).includes(t('sv', 'errors.ineligible')), JSON.stringify(response));
     assert.equal(JSON.stringify(response).includes('Complete an active registration'), false);
+  } finally { await db.close(); }
+});
+
+test('DM invite acceptance dispatches using its stored event and installed guild', async () => {
+  const db = await fixture();
+  try {
+    setMembershipLookup(db, async () => true);
+    const team = await createTeam(db, 'test', 'ev', GUILD, 'Alpha', 'private', 'owner');
+    if (!team.ok) throw new Error(team.message);
+    await db.run("UPDATE teams SET role_id='role', text_channel_id='text', voice_channel_id='voice' WHERE id=?", team.value.id);
+    const invite = await createInvite(db, 'discord:owner', 'ev', GUILD, team.value.id, 'member', 2);
+    if (!invite.ok) throw new Error(invite.message);
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const member = { roles: { cache: new Map(), add: async () => undefined } };
+    const guild = {
+      members: { me: { id: 'bot' }, fetch: async (id?: string) => id ? member : new Map() },
+      roles: { everyone: { id: GUILD } },
+      channels: { fetch: async () => ({ isTextBased: () => false }) },
+    };
+    const client = {
+      on: (name: string, handler: (interaction: unknown) => void) => handlers.set(name, handler),
+      guilds: { cache: new Map([[GUILD, guild]]), fetch: async () => guild },
+      users: { fetch: async () => ({ send: async () => undefined }) },
+    } as never;
+    registerInteractionHandlers(client, { db, adminIds: [], client, teamCategoryId: undefined, botLanguage: 'en', announce: async () => undefined });
+    let finish!: () => void;
+    const responseReady = new Promise<void>((resolve) => { finish = resolve; });
+    let response: unknown;
+    const interaction = {
+      customId: `${IDS.reqAccept}:${invite.value.id}`, user: { id: 'member' },
+      inGuild: () => false, isAutocomplete: () => false, isChatInputCommand: () => false,
+      isModalSubmit: () => false, isButton: () => true, isStringSelectMenu: () => false,
+      isRepliable: () => true, replied: false, deferred: false,
+      update: async (payload: unknown) => { response = payload; finish(); },
+      reply: async (payload: unknown) => { response = payload; finish(); },
+    };
+    handlers.get('interactionCreate')!(interaction);
+    await responseReady;
+    assert.equal((await getTeam(db, team.value.id))?.ownerId, 'owner');
+    assert.equal((await db.get<{ team_id: string }>("SELECT team_id FROM participants WHERE user_id='member'"))!.team_id, team.value.id);
+    assert.ok(JSON.stringify(response).includes('new member'), JSON.stringify(response));
   } finally { await db.close(); }
 });
 

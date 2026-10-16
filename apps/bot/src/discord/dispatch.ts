@@ -11,6 +11,7 @@ import type { Db } from '../shared/db.js';
 import { getForm } from '../features/form/data.js';
 import { listTeams, getGuildSettings } from '../features/teams/data.js';
 import { getActiveEvent, getEvent, getEventForm } from '../features/events/data.js';
+import { isCurrentMember } from '../features/signup/eligibility.js';
 import { handleUserCommand } from './user-commands.js';
 import { handleAdminCommand } from './admin-commands.js';
 import { runWithGuildContext } from '../shared/postgres.js';
@@ -100,6 +101,33 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
       }
       const guildId = interaction.inGuild() ? interaction.guildId : null;
       if (guildId === null) {
+        if (interaction.isButton()) {
+          const action = /^(hack:req:(?:accept|decline|cancel)):(\d+)$/.exec(interaction.customId);
+          if (action) {
+            const requestId = Number(action[2]);
+            for (const installedGuildId of client.guilds.cache.keys()) {
+              const request = await runWithGuildContext(deps.db, installedGuildId, () =>
+                deps.db.get<{ event_id: string; guild_id: string; target_id: string; requester_id: string }>(
+                  'SELECT event_id, guild_id, target_id, requester_id FROM team_requests WHERE id = ? AND guild_id = ?', requestId, installedGuildId,
+                ),
+              );
+              if (!request || request.event_id === null || request.guild_id !== installedGuildId) continue;
+              const recipient = action[1] === 'hack:req:cancel' ? request.requester_id : request.target_id;
+              if (recipient !== interaction.user.id) break;
+              const event = await runWithGuildContext(deps.db, installedGuildId, () => getEvent(deps.db, request.event_id));
+              if (!event || event.guildId !== installedGuildId || !await isCurrentMember(deps.db, installedGuildId, interaction.user.id)) break;
+              const guildDefault = await runWithGuildContext(deps.db, installedGuildId, () => getForm(deps.db, installedGuildId));
+              const ctx: Ctx = {
+                db: deps.db, config: getEventForm(deps.db, event, guildDefault), botLocale: deps.botLanguage,
+                eventId: event.id, eventName: event.name, hasActiveEvent: event.status === 'active',
+                guildId: installedGuildId, actor: `discord:${interaction.user.id}`, isAdmin: false, client,
+                categoryIdFor, dm,
+              };
+              await runWithGuildContext(deps.db, installedGuildId, () => onComponent(interaction, { ...ctx, announce: deps.announce }));
+              return;
+            }
+          }
+        }
         if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
           try {
             const quota = await consumeQuota(deps.db, 'source', `discord-user:${interaction.user.id}`, 60);
@@ -111,7 +139,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
             await interaction.reply(eph(t(deps.botLanguage, 'discord.rate_limit_unavailable')));
             return;
           }
-          await interaction.reply(eph(t(deps.botLanguage, 'discord.admin.use_in_server')));
+          await interaction.reply(eph(t(deps.botLanguage, 'discord.admin.stale_control')));
         }
         return;
       }
