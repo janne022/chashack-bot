@@ -13,6 +13,7 @@ import { listTeams, getGuildSettings } from '../features/teams/data.js';
 import { getActiveEvent, getEvent, getEventForm } from '../features/events/data.js';
 import { handleUserCommand } from './user-commands.js';
 import { handleAdminCommand } from './admin-commands.js';
+import { runWithGuildContext } from '../shared/postgres.js';
 import { handleEventAdminCommand, handleEventInfo } from './event-commands.js';
 import { HACKATHON_ADMIN_NAME } from './commands.js';
 import { onComponent, onModalSubmit } from './components.js';
@@ -89,7 +90,8 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
     (await getGuildSettings(deps.db, guildId)).teamCategoryId ?? deps.teamCategoryId;
   const dm = makeDm(client);
 
-  client.on('interactionCreate', async (interaction: Interaction) => {
+  client.on('interactionCreate', (interaction: Interaction) => {
+    const handle = async () => {
     try {
       if (interaction.isAutocomplete()) {
         await handleAutocomplete(interaction, deps);
@@ -195,6 +197,10 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         /* interaction token expired */
       }
     }
+    };
+    const guildId = interaction.inGuild() ? interaction.guildId : null;
+    if (guildId === null) void handle();
+    else runWithGuildContext(deps.db, guildId, () => { void handle(); });
   });
 }
 

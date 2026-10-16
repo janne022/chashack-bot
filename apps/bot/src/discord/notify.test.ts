@@ -22,17 +22,17 @@ test('maintenance waits for the schedule marker read before returning', async ()
   const markerComplete = new Promise<void>((resolve) => { markerFinished = resolve; });
   const markerGate = new Promise<void>((resolve) => { release = resolve; });
   db.get = (async (...args: [string, ...unknown[]]) => {
-    if (String(args[0]).includes('FROM events WHERE id') && ++getCount === 2) {
+    if (String(args[0]).includes('FROM events WHERE id') && ++getCount === 1) {
       entered();
       await markerGate;
     }
     const result = await originalGet(...args);
-    if (getCount === 2 && String(args[0]).includes('FROM events WHERE id')) markerFinished();
+    if (getCount === 1 && String(args[0]).includes('FROM events WHERE id')) markerFinished();
     return result;
   }) as typeof db.get;
 
   let settled = false;
-  const maintenance = runMaintenance({ db, client: {} as Client }).finally(() => { settled = true; });
+  const maintenance = runMaintenance({ db, client: { guilds: { cache: new Map([['guild-1', { id: 'guild-1' }]]) } } as unknown as Client }).finally(() => { settled = true; });
   try {
     await markerEntered;
     await nextTurn();

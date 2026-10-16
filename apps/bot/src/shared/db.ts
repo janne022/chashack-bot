@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { parseDatabaseUrl } from './db-config.js';
 export interface AsyncDb {
   /** Run a SELECT (or any row-returning statement) → all rows. */
   all<T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T[]>;
@@ -25,12 +26,27 @@ export interface Db extends AsyncDb {
 }
 
 /** PostgreSQL is the only runtime database; never fall back to a local file. */
-export async function openDatabase(databaseUrl: string | undefined): Promise<Db> {
+export async function openDatabase(databaseUrl: string | undefined, migrationDatabaseUrl: string | undefined): Promise<Db> {
   if (databaseUrl === undefined) throw new Error('DATABASE_URL is required');
+  if (migrationDatabaseUrl === undefined) throw new Error('MIGRATION_DATABASE_URL is required');
+  const appConfig = parseDatabaseUrl(databaseUrl);
+  const migrationConfig = parseDatabaseUrl(migrationDatabaseUrl);
+  if (appConfig.host !== migrationConfig.host || appConfig.port !== migrationConfig.port || appConfig.database !== migrationConfig.database || appConfig.user === migrationConfig.user) {
+    throw new Error('MIGRATION_DATABASE_URL must use a distinct role on the same PostgreSQL database');
+  }
   const { openPostgres, migratePostgres } = await import('./postgres.js');
+  const migrationDb = await openPostgres(migrationDatabaseUrl);
+  try { await migratePostgres(migrationDb); } finally { await migrationDb.close(); }
   const db = await openPostgres(databaseUrl);
-  try { await migratePostgres(db); return db; }
-  catch (error) { await db.close(); throw error; }
+  try {
+    const role = await db.get<{rolsuper: boolean; rolbypassrls: boolean; owns_tables: boolean; can_create: boolean}>(`
+      SELECT r.rolsuper, r.rolbypassrls,
+        EXISTS (SELECT 1 FROM pg_class c WHERE c.relnamespace = current_schema()::regnamespace AND c.relkind IN ('r','p') AND c.relowner = r.oid) AS owns_tables,
+        has_schema_privilege(r.oid, current_schema(), 'CREATE') AS can_create
+      FROM pg_roles r WHERE r.rolname = current_user`);
+    if (!role || role.rolsuper || role.rolbypassrls || role.owns_tables || role.can_create) throw new Error('DATABASE_URL role must be non-owner, non-superuser, NOBYPASSRLS, and have no schema DDL');
+    return db;
+  } catch (error) { await db.close(); throw error; }
 }
 
 /** Short readable id for events/teams. */

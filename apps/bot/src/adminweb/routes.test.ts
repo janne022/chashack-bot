@@ -129,7 +129,9 @@ test('participant identity is isolated from organizer APIs and registrations are
     );
   }
   const app = Fastify({ logger: false });
-  registerRoutes(app, { db, config, announce: async () => undefined, client: null });
+  const guild = { id: 'guild-a', members: { fetch: async () => ({ id: 'subject-user' }) } };
+  const client = { guilds: { cache: new Map([[guild.id, guild]]), fetch: async () => guild } } as never;
+  registerRoutes(app, { db, config, announce: async () => undefined, client });
   const cookie = `hackpartsess=${encodeURIComponent(makeDiscordToken(signingKey, session.id, Date.now(), 'participant'))}`;
   const me = await app.inject({ url: '/api/participant/me', headers: { cookie } });
   assert.deepEqual(me.json(), { user: { id: 'subject-user', username: 'Subject', avatar: null } });
@@ -167,7 +169,8 @@ test('public event DTO and initial HTML expose only published escaped content', 
   await db.run('INSERT INTO registration_answers (event_id,user_id,form_version,answers_json,updated_at) VALUES (?,?,?,?,?)',
     'public-event', 'someone', form.version, JSON.stringify({ 'private-q': 'SENTINEL_PRIVATE' }), 1);
   const app = Fastify({ logger: false });
-  registerRoutes(app, { db, config, announce: async () => undefined, client: null });
+  const client = { guilds: { cache: new Map([['guild-public', { id: 'guild-public' }]]) } } as never;
+  registerRoutes(app, { db, config, announce: async () => undefined, client });
   const dto = await app.inject({ url: route('api', 'public', 'events', 'public-event') });
   assert.equal(dto.statusCode, 200);
   assert.equal(dto.body.includes('SENTINEL_PRIVATE'), false);

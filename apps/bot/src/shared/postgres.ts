@@ -58,9 +58,25 @@ export interface PostgresDb extends Db {
   close(): Promise<void>;
 }
 
-export async function openPostgres(value: string, schema?: string): Promise<PostgresDb> {
+const guildContext = new AsyncLocalStorage<{ db: Db; guildId: string }>();
+
+/** Scope database calls to one guild; PostgreSQL context lives only for each leased transaction. */
+export function withGuildContext<T>(db: Db, guildId: string, fn: () => Promise<T>): Promise<T> {
+  try { return Promise.resolve(runWithGuildContext(db, guildId, fn)); }
+  catch (error) { return Promise.reject(error); }
+}
+
+/** Bind a callback-style request lifecycle to a guild's async context. */
+export function runWithGuildContext<T>(db: Db, guildId: string, fn: () => T): T {
+  if (!guildId) throw new Error('Guild context is required');
+  const active = guildContext.getStore();
+  if (active?.db === db && active.guildId !== guildId) throw new Error('Cannot change guild inside an active guild context');
+  return guildContext.run({ db, guildId }, fn);
+}
+
+export async function openPostgres(value: string, schema?: string, poolSize = 10): Promise<PostgresDb> {
   if (schema !== undefined && !/^fixture_[a-f0-9]+$/.test(schema)) throw new Error('Invalid fixture schema');
-  const pool = new Pool({ connectionTimeoutMillis: 5000, ...parseDatabaseUrl(value),
+  const pool = new Pool({ max: poolSize, connectionTimeoutMillis: 5000, ...parseDatabaseUrl(value),
     ...(schema === undefined ? {} : { options: `-c search_path=${schema}` }),
     types: { getTypeParser(oid: number, format?: 'text' | 'binary') {
       if (oid === 20 && format !== 'binary') return (value: string) => {
@@ -72,7 +88,7 @@ export async function openPostgres(value: string, schema?: string): Promise<Post
     } },
   });
   pool.on('error', () => console.error('PostgreSQL idle connection failed'));
-  type TransactionContext = { client: PoolClient; depth: number; active: boolean; parent?: TransactionContext };
+  type TransactionContext = { client: PoolClient; depth: number; active: boolean; guildId: string | undefined; parent?: TransactionContext };
   const context = new AsyncLocalStorage<TransactionContext>();
   const isActive = (tx: TransactionContext): boolean => tx.active && (tx.parent === undefined || isActive(tx.parent));
   // ponytail: per-handle queue preserves check/write semantics; relax only with explicit slice concurrency contracts.
@@ -84,11 +100,14 @@ export async function openPostgres(value: string, schema?: string): Promise<Post
     queue = result.catch(() => undefined);
     return result;
   };
-  const query = (sql: string, params: unknown[]) => {
+  const query = (sql: string, params: unknown[]): Promise<import('pg').QueryResult> => {
     const tx = context.getStore();
+    const tenant = guildContext.getStore();
+    if (!tx && tenant?.db === db) return db.transaction(() => query(sql, params));
     const execute = () => (tx?.client ?? pool).query(postgresSql(sql), params);
     if (tx) {
       if (!isActive(tx) || closed) return Promise.reject(new Error('Transaction is closed'));
+      if ((tenant?.db === db ? tenant.guildId : undefined) !== tx.guildId) return Promise.reject(new Error('Cannot change guild inside an active transaction'));
       return execute();
     }
     return enqueue(execute);
@@ -105,7 +124,7 @@ export async function openPostgres(value: string, schema?: string): Promise<Post
       if (parent) {
         if (!isActive(parent) || closed) return Promise.reject(new Error('Transaction is closed'));
         const name = `sp_${parent.depth + 1}`;
-        const tx = { client: parent.client, depth: parent.depth + 1, active: true, parent };
+        const tx = { client: parent.client, depth: parent.depth + 1, active: true, guildId: parent.guildId, parent };
         return context.run(tx, async () => {
           try {
             await parent.client.query(`SAVEPOINT ${name}`);
@@ -123,12 +142,14 @@ export async function openPostgres(value: string, schema?: string): Promise<Post
       }
       return enqueue(async () => {
         const client = await pool.connect();
-        const tx = { client, depth: 0, active: true };
+        const tenant = guildContext.getStore();
+        const tx = { client, depth: 0, active: true, guildId: tenant?.db === db ? tenant.guildId : undefined };
         let broken = false;
         try {
           await client.query('BEGIN');
           return await context.run(tx, async () => {
             try {
+              await client.query("SELECT set_config('app.guild_id', $1, true)", [tx.guildId ?? '']);
               const result = await fn();
               await client.query('COMMIT');
               return result;

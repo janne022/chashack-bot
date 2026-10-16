@@ -1,4 +1,5 @@
 import type { Db } from '../../shared/db.js';
+import { withGuildContext } from '../../shared/postgres.js';
 import type { CustomQuestion } from '../form/domain.js';
 
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -63,5 +64,5 @@ export async function purgeEventPrivateAnswers(db: Db, eventId: string, now: num
 
 /** Replay durable identifiers against a restored snapshot before serving it. */
 export async function replayPrivateAnswerDeletions(db: Db, records: Deletion[]): Promise<void> {
-  for (const record of records) await db.transaction(() => erasePrivateAnswers(db, record));
+  for (const record of records) await withGuildContext(db, record.guildId, () => db.transaction(() => erasePrivateAnswers(db, record)));
 }
