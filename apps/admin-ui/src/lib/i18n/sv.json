@@ -1,5 +1,9 @@
 {
   "common.app_name": "ChasHack",
+  "form.label_required": "Ange en engelsk etikett (krävs som reservspråk).",
+  "form.choice_required": "Lägg till minst ett svarsalternativ.",
+  "form.mapping_required": "Välj ett matchningsvärde för svaret eller stäng av matchning för hela frågan.",
+  "form.mapping_duplicate": "Bara en fråga kan kopplas till varje matchningsfält.",
   "common.organizer_console": "Organizerkonsol",
   "common.sections": "Avsnitt",
   "common.refresh_data": "Uppdatera data",
@@ -442,7 +446,7 @@
   "form.low": "Låg",
   "form.normal": "Normal",
   "form.high": "Hög",
-  "form.unmapped": "Ingen koppling",
+  "form.unmapped": "Välj ett matchningsvärde",
   "form.remove_question": "Ta bort fråga",
   "form.add_question": "Lägg till fråga",
   "form.importance": "Vikt",

@@ -1,5 +1,9 @@
 {
   "common.app_name": "ChasHack",
+  "form.label_required": "Enter an English label (required for fallback).",
+  "form.choice_required": "Add at least one answer choice.",
+  "form.mapping_required": "Choose a matching target for this answer, or turn off matching for the whole question.",
+  "form.mapping_duplicate": "Only one question can map to each matching field.",
   "common.organizer_console": "Organizer console",
   "common.sections": "Sections",
   "common.refresh_data": "Refresh data",
@@ -442,7 +446,7 @@
   "form.low": "Low",
   "form.normal": "Normal",
   "form.high": "High",
-  "form.unmapped": "No mapping",
+  "form.unmapped": "Choose a target",
   "form.remove_question": "Remove question",
   "form.add_question": "Add question",
   "form.importance": "Importance",

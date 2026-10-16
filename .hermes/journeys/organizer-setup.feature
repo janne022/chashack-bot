@@ -32,3 +32,30 @@ Feature: Organizer setup
     Given the organizer has no event templates or events
     When I open the organizer workspace
     Then a clear first-event or template action is available instead of a blank panel
+
+  @journey:organizer-setup
+  Scenario: Organizer setup - replacement identity failure
+    Given a populated published form with stored question and choice answers
+    When I delete and replace a question or choice in its template
+    Then the replacement gets a new persisted identity
+    And binding the replacement shows an inline structural version conflict
+    And the published definition, version and historical answers remain unchanged
+
+  @journey:organizer-setup
+  Scenario: Organizer setup - definition validation failure
+    When I leave an English question or choice label blank, remove all choices, or leave a matching target incomplete
+    Then saving keeps my input and focuses the invalid control with an associated localized error
+    And the invalid form template is not persisted
+    And duplicate mappings also block embedded event-template save
+    And invalid custom questions block event creation before either template or event writes
+    When I choose a valid matching target
+    Then the mapped form saves successfully
+
+  @journey:organizer-setup
+  Scenario: Organizer setup - form editor keyboard lifecycle
+    When I open a form template to configure custom questions
+    Then the accessibility tree exposes a named modal with focus inside
+    And Tab and Shift+Tab wrap between the first field and the last action
+    When I press Escape
+    Then the editor closes and focus returns to its opener
+    And Enter reopens that form editor

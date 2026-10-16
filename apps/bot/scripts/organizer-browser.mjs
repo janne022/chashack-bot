@@ -135,7 +135,36 @@ try {
   await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Form templates'))`);
   await click(`[...document.querySelectorAll('[data-slot=card-title]')].find(e=>e.innerText==='Svenska frågor')`);
   await wait(`!!document.querySelector('fieldset')`);
+  const formAX=await send('Accessibility.getFullAXTree',{},sid);
+  check('form-template editor is a named AX modal with initial focus',formAX.nodes.some(n=>n.role?.value==='dialog'&&n.name?.value==='Edit form template')&&await evaluate(`document.querySelector('[role=dialog][aria-modal=true]').contains(document.activeElement)`));
+  const key=async (name,modifiers=0)=>{const code={Tab:9,Escape:27,Enter:13}[name];await send('Input.dispatchKeyEvent',{type:'keyDown',key:name,code:name,windowsVirtualKeyCode:code,modifiers},sid);await send('Input.dispatchKeyEvent',{type:'keyUp',key:name,code:name,windowsVirtualKeyCode:code,modifiers},sid);await delay(150);};
+  await evaluate(`(${button('Save changes')}).focus()`);
+  await key('Tab');
+  check('Tab wraps from form footer to initial field',await evaluate(`document.activeElement===document.querySelector('#form-template-name')`));
+  await key('Tab',8);
+  check('Shift+Tab wraps inside form editor',await evaluate(`document.activeElement===(${button('Save changes')})`));
+  await key('Escape'); await wait(`!document.querySelector('[role=dialog]')`);
+  check('Escape closes form editor and restores its opener',await evaluate(`document.activeElement.innerText.includes('Svenska frågor')&&!document.querySelector('fieldset')`));
+  await key('Enter');
+  await wait(`!!document.querySelector('fieldset')`);
+  // QA2: reject an invalid definition before any template write, retaining input.
+  await evaluate(`(() => {const e=document.querySelectorAll('fieldset input')[1];Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Endast svenska');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await fill('fieldset input','');
+  await click(button('Save changes'));
+  check('blank English question label blocks save with associated error and focus',await evaluate(`(() => {const e=document.querySelector('fieldset input');return !!e&&e.value===''&&e.getAttribute('aria-invalid')==='true'&&document.getElementById(e.getAttribute('aria-describedby'))?.innerText.includes('English label')&&document.activeElement===e&&document.querySelectorAll('fieldset input')[1].value==='Endast svenska'})()`));
+  check('invalid question did not persist',JSON.parse((await api('/api/state',undefined,'GET')).templates.find(t=>t.id===formTemplate.id).json).customQuestions[0].label.en==='Interests');
   await fill('fieldset input','What would you like to build?');
+  await click(`document.getElementById('role-question-frontend-choice-target')`);
+  await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText==='Choose a target')`);
+  await click(button('Save changes'));
+  check('incomplete choice mapping blocks save with target error and focus',await evaluate(`(() => {const e=document.getElementById('role-question-frontend-choice-target');return !!e&&e.getAttribute('aria-invalid')==='true'&&!!document.getElementById(e.getAttribute('aria-describedby'))&&document.activeElement===e&&document.querySelector('fieldset input').value==='What would you like to build?'})()`));
+  check('invalid mapping did not persist',JSON.parse((await api('/api/state',undefined,'GET')).templates.find(t=>t.id===formTemplate.id).json).customQuestions[1].mapping.choiceValues['frontend-choice']==='frontend');
+  await click(`document.getElementById('role-question-frontend-choice-target')`);
+  await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText==='Frontend')`);
+  await click(button('Save changes')); await wait(`!document.querySelector('fieldset')`);
+  check('valid mapped form saves successfully',JSON.parse((await api('/api/state',undefined,'GET')).templates.find(t=>t.id===formTemplate.id).json).customQuestions[1].mapping.choiceValues['frontend-choice']==='frontend');
+  await click(`[...document.querySelectorAll('[data-slot=card-title]')].find(e=>e.innerText==='Svenska frågor')`);
+  await wait(`!!document.querySelector('fieldset')`);
 
   await evaluate(`(() => {const e=document.querySelectorAll('fieldset input')[1]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Vad vill du bygga?');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await click(`document.querySelectorAll('fieldset')[1].querySelector('[role=combobox]')`);
@@ -228,10 +257,79 @@ try {
   await wait(`!document.querySelector('textarea[maxlength="1000"]')`);
   after=(await api('/api/state',undefined,'GET')).events.find(e=>e.id===event.id);
   check('cosmetic form label saves on the same published version',JSON.parse(after.formJson).customQuestions[0].label.sv==='Uppdaterade intressen'&&JSON.parse(after.formJson).version===JSON.parse(event.formJson).version);
+  // QA1: replacement identities must be structural, including after a reload.
+  for (const kind of ['text','single_choice']) {
+    const original={...DEFAULT_FORM,customQuestions:[{id:'question_1',kind,label:{en:'Original question'},help:{en:''},required:false,presentation:'web',visibility:'self_and_organizer',...(kind==='text'?{}:{choices:[{id:'option_1',label:{en:'Original choice'}}]})}]};
+    const name=`Identity ${kind}`;
+    const tpl=(await api('/api/templates',{name,kind:'form',json:JSON.stringify(original)})).template;
+    const published=(await api('/api/events',{name,formTemplateId:tpl.id,launch:true})).event;
+    const pinned=JSON.parse(published.formJson);
+    const historical={question_1:kind==='text'?'Original answer':'option_1'};
+    await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'active',1,1)",published.id,'identity-user',guildIds[0],'Synthetic participant','','','[]','','[]');
+    await db.run('INSERT INTO registration_answers (event_id,user_id,form_version,answers_json,updated_at) VALUES (?,?,?,?,?)',published.id,'identity-user',pinned.version,JSON.stringify(historical),1);
+    await nav(base+'/templates'); await wait(`document.body.innerText.includes('Form templates')`);
+    await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Form templates'))`);
+    await click(`[...document.querySelectorAll('[data-slot=card-title]')].find(e=>e.innerText===${JSON.stringify(name)})`);
+    await wait(`!!document.querySelector('fieldset')`);
+    if (kind==='text') {
+      await click(button('Remove question')); await click(button('Add question'));
+      await fill('fieldset input','Replacement question');
+    } else {
+      await click(`document.querySelector('button[aria-label="Delete option_1"]')`);
+      await click(button('Save changes'));
+      check('empty choice set blocks save and focuses answer type',await evaluate(`document.activeElement.id==='question_1-kind'&&document.activeElement.getAttribute('aria-invalid')==='true'`));
+      await click(button('Add choice')); await click(button('Save changes'));
+      check('blank choice label blocks save with associated error',await evaluate(`document.activeElement.matches('input[aria-invalid=true]')&&!!document.getElementById(document.activeElement.getAttribute('aria-describedby'))`));
+      await fill('fieldset input[aria-label^="English"]','Replacement choice');
+    }
+    const replacement=await evaluate(kind==='text'?`document.querySelector('fieldset legend code').innerText`:`document.querySelector('fieldset input[aria-label^="English"]').getAttribute('aria-label').split(' ').at(-1)`);
+    check(`${kind} replacement does not recycle deleted identity`,replacement!==(kind==='text'?'question_1':'option_1'));
+    await click(button('Save changes')); await wait(`!document.querySelector('fieldset')`);
+    const saved=JSON.parse((await api('/api/state',undefined,'GET')).templates.find(t=>t.id===tpl.id).json);
+    check(`${kind} replacement identity persists`,(kind==='text'?saved.customQuestions[0].id:saved.customQuestions[0].choices[0].id)===replacement);
+    await nav(base+'/events?event='+published.id); await wait(`!!(${button('Edit event')})`);
+    await click(button('Edit event')); await chooseForm(name); await click(button('Save'));
+    await wait(`!!document.querySelector('[role=alert]')`);
+    check(`${kind} replacement reports structural conflict in served editor`,await evaluate(`document.querySelector('[role=alert]').innerText.includes('version migration')&&!!(${button('Retry save')})`));
+    const unchanged=(await api('/api/state',undefined,'GET')).events.find(e=>e.id===published.id);
+    const stored=await db.get('SELECT form_version,answers_json FROM registration_answers WHERE event_id=? AND user_id=?',published.id,'identity-user');
+    check(`${kind} conflict preserves pinned form and historical answers`,unchanged.formJson===published.formJson&&stored.form_version===pinned.version&&stored.answers_json===JSON.stringify(historical));
+    await key('Escape'); await wait(`!document.querySelector('[role=dialog]')`);
+  }
+  // QA2 sibling boundaries: embedded event templates and custom event creation.
+  const mappedQuestion={id:'map-a',kind:'single_choice',label:{en:'Role'},help:{en:''},required:false,presentation:'web',visibility:'self_and_organizer',choices:[{id:'frontend',label:{en:'Frontend'}}],mapping:{field:'role',importance:'normal',choiceValues:{frontend:'frontend'}}};
+  await api('/api/templates',{name:'Invalid embedded form',kind:'event',json:JSON.stringify({name:'Invalid embedded form',form:{...DEFAULT_FORM,customQuestions:[mappedQuestion,{...mappedQuestion,id:'map-b'}]}})});
+  await nav(base+'/templates'); await wait(`document.body.innerText.includes('Invalid embedded form')`);
+  await click(`[...document.querySelectorAll('[data-slot=card-title]')].find(e=>e.innerText==='Invalid embedded form')`);
+  await wait(`!!document.querySelector('fieldset')`);
+  await evaluate(`window.boundaryWrites=[];const real=window.fetch;window.fetch=(...args)=>{if(args[1]?.method==='POST'||args[1]?.method==='PATCH')window.boundaryWrites.push(String(args[0]));return real(...args)}`);
+  await click(button('Save changes'));
+  check('embedded event template rejects duplicate mappings before write',await evaluate(`document.activeElement.id==='map-b-mapping'&&document.activeElement.getAttribute('aria-invalid')==='true'&&document.getElementById(document.activeElement.getAttribute('aria-describedby')).innerText.includes('Only one question')&&window.boundaryWrites.length===0`));
+  await key('Escape'); await wait(`!document.querySelector('[role=dialog]')`);
+  check('event-template editor restores its opener',await evaluate(`document.activeElement.innerText.includes('Invalid embedded form')`));
+  await nav(base+'/events'); await wait(`!!(${button('New event')})`);
+  await click(button('New event'));
+  await click(`[...document.querySelectorAll('.fixed button')].find(e=>e.innerText.includes('Create a fresh event from scratch.'))`);
+  await wait(`!!document.querySelector('input[maxlength="100"]')`);
+  await fill('[role=dialog] input[maxlength="100"]','Validation boundary');
+  await click(`[...document.querySelectorAll('button')].find(e=>e.innerText.startsWith('Build new form'))`);
+  await click(button('Add question')); await wait(`!!document.querySelector('fieldset')`);
+  await evaluate(`window.boundaryWrites=[];const real=window.fetch;window.fetch=(...args)=>{if(args[1]?.method==='POST'||args[1]?.method==='PATCH')window.boundaryWrites.push(String(args[0]));return real(...args)}`);
+  await click(button('Create & launch'));
+  check('custom event creation rejects invalid question before template or event write',await evaluate(`document.activeElement.matches('fieldset input[aria-invalid=true]')&&document.querySelector('[role=dialog] input[maxlength="100"]').value==='Validation boundary'&&window.boundaryWrites.length===0`));
+  await key('Escape'); await wait(`!document.querySelector('[role=dialog]')`);
+  await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')`);
   await click(`[...document.querySelectorAll('button')].find(e=>e.getAttribute('aria-label')?.startsWith('Switch language'))`);
   check('Swedish workspace and preview action are localized',await evaluate(`document.documentElement.lang==='sv'&&document.body.innerText.includes('Offentlig förhandsvisning')`));
   const keys=await Promise.all(['en','sv'].map(async l=>Object.keys(JSON.parse(await readFile(new URL('../../admin-ui/src/lib/i18n/'+l+'.json',import.meta.url),'utf8'))).sort()));
   check('English and Swedish catalogs contain the same keys',JSON.stringify(keys[0])===JSON.stringify(keys[1]));
+  await nav(base+'/templates'); await wait(`document.body.innerText.includes('Form templates')`);
+  await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Form templates'))`);
+  await click(`[...document.querySelectorAll('[data-slot=card-title]')].find(e=>e.innerText==='Svenska frågor')`);
+  await wait(`!!document.querySelector('fieldset')`);
+  await fill('fieldset input',''); await click(button('Save changes'));
+  check('Swedish validation error is associated with the focused field',await evaluate(`(() => {const e=document.querySelector('fieldset input');return document.activeElement===e&&document.getElementById(e.getAttribute('aria-describedby'))?.innerText.includes('Ange en engelsk etikett')})()`));
+  await key('Escape'); await wait(`!document.querySelector('[role=dialog]')`);
   // Controlled empty-state response; no shared database deletion/reset.
   const emptyScript=await send('Page.addScriptToEvaluateOnNewDocument',{source:`const realFetch=window.fetch; window.fetch=async (...args)=>{const r=await realFetch(...args);if(String(args[0]).startsWith('/api/state')){const s=await r.json();return new Response(JSON.stringify({...s,events:[],templates:[]} ),{status:200,headers:{'content-type':'application/json'}})}return r}`},sid);
   await nav(base+'/events'); await wait(`document.body.innerText.includes('Nytt event')`);
