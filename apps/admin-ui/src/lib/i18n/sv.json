@@ -24,6 +24,7 @@
   "participant.my_error": "Kunde inte ladda dina hackathon.",
   "participant.my_empty": "Inga hackathon ännu",
   "participant.my_empty_desc": "Öppna ett evenemangs anmälningssida från din Discord-server och anmäl dig med ditt Discord-konto. Du måste vara medlem i servern.",
+  "participant.open_discord": "Öppna Discord",
   "participant.status": "Anmälan: {status}",
   "participant.active": "Aktiv",
   "participant.view_signup": "Visa anmälan",

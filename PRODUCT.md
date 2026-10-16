@@ -91,8 +91,10 @@ Constraints and deliberate limits:
   session identity/subject authorization remains the application's responsibility.
 - **Swedish is a first-class language** for both participants and organizers —
   new user-facing copy ships in `en` + `sv` together.
-- **Participant web flows are not shipped yet.** Signup and team work remains in
-  Discord; participant OAuth identity and self-scoped API are planned.
+- **Participant web flows** provide published-event signup completion, a
+  self-scoped My hackathons view, and eligible team create/join/invite/respond/leave
+  actions. Discord remains the identity and community boundary; the same
+  participant actions remain available there, including DM-closed fallbacks.
 - **Everything provisioned is torn down** — team roles, channels and matched
   teams are removed by cleanup on the configured delay, so an event leaves no
   residue.
@@ -132,9 +134,9 @@ Constraints and deliberate limits:
    after cleanup) and who acts there.
 2. **The schedule is the source of truth.** Timed, idempotent actions fire the
    posts; manual buttons are conveniences, never the mechanism.
-3. **Discord is the participant boundary.** Planned participant web identity will use
-   identify-only OAuth; signup and team flows remain available in Discord, including
-   DM-closed fallbacks.
+3. **Discord is the participant boundary.** Participant web identity uses
+   identify-only OAuth and fresh guild membership checks; Discord signup and team
+   flows remain available, including DM-closed fallbacks.
 4. **Provisioning is reversible.** Anything the bot creates for an event can be
    torn down by the bot, and cleanup is the default end state.
 5. **Swedish parity is a release gate**, not a translation backlog: a feature that

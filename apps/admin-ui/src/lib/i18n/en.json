@@ -24,6 +24,7 @@
   "participant.my_error": "Could not load your hackathons.",
   "participant.my_empty": "No hackathons yet",
   "participant.my_empty_desc": "Open an event’s signup page from your Discord server and register with your Discord account. You must be a current server member.",
+  "participant.open_discord": "Open Discord",
   "participant.status": "Registration: {status}",
   "participant.active": "Active",
   "participant.view_signup": "View signup",
