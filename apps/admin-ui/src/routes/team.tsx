@@ -2,26 +2,29 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useT } from '@/lib/i18n'
 
 export const Route = createFileRoute('/team')({ component: TeamPage })
-type Team = { id: string; name: string; memberCount: number; kind: string }
-type TeamList = { teams: Team[]; ownTeam: Team | null; invitations: { id: number; teamId: string; teamName?: string }[] }
+type Team = { id: string; name: string; memberCount: number; kind: string; ownerId?: string; joinCode?: string }
+type TeamList = { teams: Team[]; ownTeam: Team | null; invitations: { id: number; teamId: string; requesterId: string; kind: 'invite' | 'join_request' }[] }
 function TeamPage() {
+  const t = useT()
   const eventId = new URLSearchParams(location.search).get('eventId') ?? ''
   const [data, setData] = useState<TeamList | null>(null)
   const [name, setName] = useState('')
+  const [targetId, setTargetId] = useState('')
   const [error, setError] = useState('')
   const [waiting, setWaiting] = useState(false)
   const base = `/api/participant/events/${encodeURIComponent(eventId)}`
   const load = async () => {
-    if (!eventId) { setError('Open teams from a completed event registration.'); return }
+    if (!eventId) { setError(t('participant.team_no_event')); return }
     setError('')
     try {
       const response = await fetch(`${base}/teams`)
       if (response.status === 401) { location.assign('/auth/participant'); return }
-      if (!response.ok) throw new Error(response.status === 404 ? 'Complete your event registration before joining a team.' : 'Could not load teams.')
+      if (!response.ok) throw new Error(response.status === 404 ? t('participant.team_complete') : t('participant.team_conflict'))
       setData(await response.json() as TeamList)
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not load teams.') }
+    } catch (e) { setError(e instanceof Error ? e.message : t('participant.my_error')) }
   }
   useEffect(() => { void load() }, [eventId])
   const mutate = async (path: string, method: string, body?: object) => {
@@ -29,15 +32,16 @@ function TeamPage() {
     try {
       const response = await fetch(`${base}${path}`, { method, ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) })
       const result = await response.json() as { error?: string }
-      if (!response.ok) throw new Error(result.error === 'team_full' ? 'That team is full. Choose another team.' : result.error === 'already_in_team' ? 'Leave your current team before joining another.' : 'That team changed. Refresh and try again.')
+      if (!response.ok) throw new Error(result.error === 'team_full' ? t('participant.team_full') : result.error === 'already_in_team' ? t('participant.team_complete') : t('participant.team_conflict'))
       await load()
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not update your team.') }
+    } catch (e) { setError(e instanceof Error ? e.message : t('participant.team_mutation_failed')) }
     finally { setWaiting(false) }
   }
   const create = async (e: FormEvent) => { e.preventDefault(); if (name.trim()) await mutate('/teams', 'POST', { name: name.trim(), kind: 'public' }) }
-  return <main className="mx-auto max-w-3xl space-y-6 p-4 sm:p-8"><header><a href="/my-hackathons" className="text-sm text-accent underline">My hackathons</a><h1 className="mt-3 text-3xl font-bold">Your team</h1><p className="mt-2 text-muted-foreground">Create a team, or join an open team for this hackathon.</p></header>
-    {error && <section role="alert" className="space-y-3"><p>{error}</p><Button variant="outline" onClick={() => void load()}>Refresh teams</Button></section>}
-    {!data ? !error && <p aria-busy="true">Loading teams…</p> : data.ownTeam ? <section className="rounded-xl border p-5"><h2 className="text-lg font-semibold">{data.ownTeam.name}</h2><p className="mt-2 text-sm">{data.ownTeam.memberCount} members · {data.ownTeam.kind} team</p><Button className="mt-4" variant="outline" disabled={waiting} onClick={() => void mutate('/team', 'DELETE')}>Leave team</Button></section> : <><form className="flex flex-wrap gap-2" onSubmit={(e) => void create(e)}><label className="sr-only" htmlFor="team-name">New team name</label><Input id="team-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="Team name" required/><Button disabled={waiting}>{waiting ? 'Saving…' : 'Create team'}</Button></form>{data.teams.length === 0 ? <section className="rounded-xl border border-dashed p-6"><h2 className="font-semibold">No open teams</h2><p className="mt-2 text-muted-foreground">Create a team or check back later.</p></section> : <ul className="space-y-3">{data.teams.map((team) => <li key={team.id} className="flex items-center justify-between gap-3 rounded-xl border p-4"><div><h2 className="font-semibold">{team.name}</h2><p className="text-sm text-muted-foreground">{team.memberCount} members</p></div><Button disabled={waiting} onClick={() => void mutate(`/teams/${encodeURIComponent(team.id)}/join`, 'POST')}>Join team</Button></li>)}</ul>}</>}
-    {waiting && <p role="status" aria-live="polite">Updating team…</p>}
+  return <main className="mx-auto max-w-3xl space-y-6 p-4 sm:p-8"><header><a href="/my-hackathons" className="text-sm text-accent underline">{t('participant.my_title')}</a><h1 className="mt-3 text-3xl font-bold">{t('participant.team_title')}</h1><p className="mt-2 text-muted-foreground">{t('participant.team_desc')}</p></header>
+    {error && <section role="alert" className="space-y-3"><p>{error}</p><Button variant="outline" onClick={() => void load()}>{t('participant.team_refresh')}</Button></section>}
+    {!data ? !error && <p aria-busy="true">{t('participant.team_loading')}</p> : data.ownTeam ? <section className="rounded-xl border p-5"><h2 className="text-lg font-semibold">{data.ownTeam.name}</h2><p className="mt-2 text-sm">{t('participant.team_members', { count: data.ownTeam.memberCount, kind: data.ownTeam.kind })}</p><Button className="mt-4" variant="outline" disabled={waiting} onClick={() => void mutate('/team', 'DELETE')}>{t('participant.team_leave')}</Button>{data.ownTeam.joinCode && <form className="mt-4 flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); if (targetId.trim()) void mutate(`/teams/${encodeURIComponent(data.ownTeam!.id)}/invites`, 'POST', { targetId: targetId.trim() }) }}><label htmlFor="invite-id" className="sr-only">{t('participant.invite_id')}</label><Input id="invite-id" value={targetId} onChange={(e) => setTargetId(e.target.value)} placeholder={t('participant.invite_id')} required/><Button disabled={waiting}>{t('participant.invite_send')}</Button></form>}</section> : <><form className="flex flex-wrap gap-2" onSubmit={(e) => void create(e)}><label className="sr-only" htmlFor="team-name">{t('participant.team_name')}</label><Input id="team-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder={t('participant.team_name')} required/><Button disabled={waiting}>{waiting ? t('participant.team_save') : t('participant.team_create')}</Button></form>{data.teams.length === 0 ? <section className="rounded-xl border border-dashed p-6"><h2 className="font-semibold">{t('participant.team_empty')}</h2><p className="mt-2 text-muted-foreground">{t('participant.team_empty_desc')}</p></section> : <ul className="space-y-3">{data.teams.map((team) => <li key={team.id} className="flex items-center justify-between gap-3 rounded-xl border p-4"><div><h2 className="font-semibold">{team.name}</h2><p className="text-sm text-muted-foreground">{t('participant.team_member_count', { count: team.memberCount })}</p></div><Button disabled={waiting} onClick={() => void mutate(`/teams/${encodeURIComponent(team.id)}/join`, 'POST')}>{t('participant.team_join')}</Button></li>)}</ul>}</>}
+    {data?.invitations.length ? <section className="space-y-3"><h2 className="text-lg font-semibold">{t('participant.invites')}</h2>{data.invitations.filter((invite) => invite.kind === 'invite').map((invite) => <div key={invite.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"><p>{t('participant.team_invitation_from', { id: invite.requesterId })}</p><div className="flex gap-2"><Button disabled={waiting} onClick={() => void mutate(`/invitations/${invite.id}/respond`, 'POST', { decision: 'accept' })}>{t('participant.accept')}</Button><Button variant="outline" disabled={waiting} onClick={() => void mutate(`/invitations/${invite.id}/respond`, 'POST', { decision: 'decline' })}>{t('participant.decline')}</Button></div></div>)}</section> : null}
+    {waiting && <p role="status" aria-live="polite">{t('participant.team_updating')}</p>}
   </main>
 }
