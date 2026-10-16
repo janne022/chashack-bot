@@ -11,6 +11,7 @@ import { STRATEGY_OPTIONS } from '@/lib/assignment-strategy'
 import { DEFAULT_FORM } from '@/lib/default-form'
 import { SYNTHETIC_BLOCK_IDS, resolveScheduleAnchors } from '@/lib/schedule-anchor'
 import { FormConfigEditor } from '@/components/FormConfigEditor'
+import { validateQuestions } from '@/lib/question-validation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -453,6 +454,7 @@ function NewEventButton() {
   }
 
   async function create(launch: boolean) {
+    if (formMode === 'custom' && !validateQuestions(customForm)) return
     const starts = startsAt !== '' ? Date.parse(startsAt) || null : null
     const ends = endsAt !== '' ? Date.parse(endsAt) || null : null
     const signupStarts = signupStartsAt !== '' ? Date.parse(signupStartsAt) || null : null
@@ -613,15 +615,12 @@ function NewEventButton() {
         </div>
       )}
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
-          <Card
-            className="w-full max-w-[min(48rem,95vw)] animate-pop-in overflow-y-auto max-h-[85vh]"
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-          >
+        <Dialog open onOpenChange={next => { if (!next && !busy) setOpen(false) }}>
+          <DialogContent aria-modal="true" showCloseButton={false} className="sm:max-w-[min(48rem,95vw)] overflow-y-auto max-h-[85vh]">
             <CardHeader className="flex flex-row items-start justify-between gap-4">
               <div>
-                <CardTitle>{t('events.create_title')}</CardTitle>
-                <CardDescription>{t('events.create_desc')}</CardDescription>
+                <DialogTitle>{t('events.create_title')}</DialogTitle>
+                <DialogDescription>{t('events.create_desc')}</DialogDescription>
               </div>
               <Button variant="ghost" size="sm" onClick={() => { setOpen(false); setChooserOpen(true) }}>
                 {t('events.change_template')}
@@ -858,8 +857,8 @@ function NewEventButton() {
                 </Button>
               </div>
             </CardContent>
-          </Card>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </>
   )

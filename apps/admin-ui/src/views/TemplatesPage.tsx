@@ -17,6 +17,8 @@ import { TagAutocompleteInput, TagAutocompleteTextarea } from "@/components/TagA
 import type { Assignment, FormConfig } from "@/types"
 import { dateTime } from "@/lib/format"
 import { DEFAULT_FORM } from "@/lib/default-form"
+import { validateQuestions } from "@/lib/question-validation"
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 
 export function TemplatesPage() {
   const { state, refresh } = useAppContext()
@@ -61,7 +63,9 @@ export function TemplatesPage() {
                 <Card
                   key={tpl.id}
                   className="card-interactive cursor-pointer flex flex-col"
-                  onClick={() => setEditingEventId(tpl.id)}
+                  tabIndex={0}
+                  onClick={e => { e.currentTarget.focus(); setEditingEventId(tpl.id) }}
+                  onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setEditingEventId(tpl.id) } }}
                 >
                   <CardHeader className="pb-3">
                     <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
@@ -98,7 +102,9 @@ export function TemplatesPage() {
                 <Card
                   key={tpl.id}
                   className="card-interactive cursor-pointer flex flex-col"
-                  onClick={() => setEditingFormId(tpl.id)}
+                  tabIndex={0}
+                  onClick={e => { e.currentTarget.focus(); setEditingFormId(tpl.id) }}
+                  onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setEditingFormId(tpl.id) } }}
                 >
                   <CardHeader className="pb-3">
                     <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
@@ -222,6 +228,7 @@ export function TemplatesPage() {
 
 function FormTemplateDialog({ template, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; onClose: ()=>void; onSaved: ()=>Promise<void> }) {
   const t = useT()
+  const [returnFocus] = useState(() => document.activeElement as HTMLElement | null)
   const [name, setName] = useState(template?.name ?? "")
   const [config, setConfig] = useState<FormConfig>(()=>{
     if (template) { try { return JSON.parse(template.json) as FormConfig } catch { return DEFAULT_FORM } }
@@ -232,6 +239,7 @@ function FormTemplateDialog({ template, onClose, onSaved }: { template: { id: st
 
   async function save() {
     if (name.trim().length < 2) { toast.error("Name must be at least 2 characters"); return }
+    if (!validateQuestions(config)) return
     setBusy(true)
     try {
       const json = JSON.stringify(config)
@@ -244,16 +252,16 @@ function FormTemplateDialog({ template, onClose, onSaved }: { template: { id: st
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
-      <Card className="w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col animate-pop-in" onClick={e=>e.stopPropagation()}>
+    <Dialog open onOpenChange={next => { if (!next && !busy) onClose() }}>
+      <DialogContent aria-modal="true" showCloseButton={false} className="sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" onCloseAutoFocus={e => { e.preventDefault(); returnFocus?.focus() }}>
         <CardHeader className="shrink-0">
-          <CardTitle>{isEdit ? "Edit form template" : "New form template"}</CardTitle>
-          <CardDescription>Design the signup modal — title, roles, skills, team preferences. This becomes reusable.</CardDescription>
+          <DialogTitle>{isEdit ? "Edit form template" : "New form template"}</DialogTitle>
+          <DialogDescription>Design the signup modal — title, roles, skills, team preferences. This becomes reusable.</DialogDescription>
         </CardHeader>
         <div className="flex-1 overflow-y-auto px-6 pb-4 flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Template name</label>
-            <Input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Standard hackathon form" maxLength={80} />
+            <label htmlFor="form-template-name" className="text-sm font-medium">Template name</label>
+            <Input id="form-template-name" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Standard hackathon form" maxLength={80} />
           </div>
           <FormConfigEditor value={config} onChange={setConfig} />
         </div>
@@ -261,13 +269,14 @@ function FormTemplateDialog({ template, onClose, onSaved }: { template: { id: st
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button disabled={busy || name.trim().length<2} onClick={()=>void save()}>{isEdit ? "Save changes" : "Create template"}</Button>
         </div>
-      </Card>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function EventTemplateDialog({ template, formTemplates, assignmentCollections, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; formTemplates: { id: string; name: string; json: string }[]; assignmentCollections: { id: string; name: string }[]; onClose: ()=>void; onSaved: ()=>Promise<void> }) {
   const t = useT()
+  const [returnFocus] = useState(() => document.activeElement as HTMLElement | null)
   const [draft, setDraft] = useState<EventTemplateDraft>(()=>{
     if (template) {
       try {
@@ -292,6 +301,7 @@ function EventTemplateDialog({ template, formTemplates, assignmentCollections, o
 
   async function save() {
     if (draft.name.trim().length < 2) { toast.error("Name must be at least 2 characters"); return }
+    if (!validateQuestions(draft.form)) return
     setBusy(true)
     try {
       const payload = { name: draft.name.trim(), description: draft.description, cleanupDelayHours: draft.cleanupDelayHours, form: draft.form, schedule: draft.schedule, assignmentCollectionId: draft.assignmentCollectionId || undefined, assignmentStrategy: draft.assignmentStrategy }
@@ -305,11 +315,11 @@ function EventTemplateDialog({ template, formTemplates, assignmentCollections, o
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
-      <Card className="w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col animate-pop-in" onClick={e=>e.stopPropagation()}>
+    <Dialog open onOpenChange={next => { if (!next && !busy) onClose() }}>
+      <DialogContent aria-modal="true" showCloseButton={false} className="sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" onCloseAutoFocus={e => { e.preventDefault(); returnFocus?.focus() }}>
         <CardHeader className="shrink-0">
-          <CardTitle>{isEdit ? "Edit event template" : "New event template"}</CardTitle>
-          <CardDescription>Reusable event — name, schedule, cleanup and embedded signup form.</CardDescription>
+          <DialogTitle>{isEdit ? "Edit event template" : "New event template"}</DialogTitle>
+          <DialogDescription>Reusable event — name, schedule, cleanup and embedded signup form.</DialogDescription>
         </CardHeader>
         <div className="flex-1 overflow-y-auto px-6 pb-4">
           <EventTemplateEditor value={draft} onChange={setDraft} formTemplates={formTemplates} assignmentCollections={assignmentCollections.map(c => ({ id: c.id, name: c.name }))} />
@@ -318,8 +328,8 @@ function EventTemplateDialog({ template, formTemplates, assignmentCollections, o
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button disabled={busy || draft.name.trim().length<2} onClick={()=>void save()}>{isEdit ? "Save changes" : "Create template"}</Button>
         </div>
-      </Card>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

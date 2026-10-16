@@ -102,6 +102,29 @@ The signup React route `/events/$eventId/signup` is owned by downstream card
 t_583f310e; this backend publishes its API and completion link but does not ship
 or claim the page.
 
+## Organizer workspace (t_ce43eb96)
+
+- [x] Keep template → event → assignment → schedule → preview → publish on the
+      existing console and reuse the pinned server-side form DTO unchanged.
+- [x] Expose stable localized questions, private-field classification, mapped
+      choice IDs and importance in form/template editing.
+- [x] Preserve typed state and show inline save/version conflicts; cosmetic
+      changes remain saveable when structural edits are rejected.
+- [x] Verify success, error and empty journeys, en/sv, keyboard and mobile on
+      the actual served console.
+
+Run after building: `DATABASE_URL=postgresql://postgres@127.0.0.1:55432/chashack_test node apps/bot/scripts/organizer-browser.mjs`.
+The runner reuses the existing OAuth browser fixture pattern, installed Chromium,
+native WebSocket/CDP and an isolated schema. It tests synthetic organizer authority,
+not Discord OAuth or real Discord delivery. Publication is the existing active-event
+transition; the participant completion page remains owned by t_583f310e.
+Mobile evidence is collected in one persistent CDP target: actual innerWidth=390,
+desktop media query=false, asset URL and rendered classes recorded before all seven
+toolbar targets measure 44px. The earlier 28px trace was not a mobile regression.
+Axe is unavailable/unmeasured; no dependency was installed. Prior detector and
+desktop/mobile capture evidence is retained; no new broad design/a11y audit.
+- [ ] Exact-head CI and authentic same-card qa-judge review; planner owns merge.
+
 ## Teams and member departure (#13/#23)
 
 Bounded QA repair (QA1–QA8): pinned event capacity is re-read under the shared
@@ -151,25 +174,3 @@ participant posture is still required.
 Participant signup/team pages remain the dependent participant card's surface;
 these checks exercise real HTTP handlers, not an unimplemented page journey.
 
-## Organizer workspace (t_ce43eb96)
-
-- [x] Keep template → event → assignment → schedule → preview → publish on the
-      existing console and reuse the pinned server-side form DTO unchanged.
-- [x] Expose stable localized questions, private-field classification, mapped
-      choice IDs and importance in form/template editing.
-- [x] Preserve typed state and show inline save/version conflicts; cosmetic
-      changes remain saveable when structural edits are rejected.
-- [x] Verify success, error and empty journeys, en/sv, keyboard and mobile on
-      the actual served console.
-
-Run after building: `DATABASE_URL=postgresql://postgres@127.0.0.1:55432/chashack_test node apps/bot/scripts/organizer-browser.mjs`.
-The runner reuses the existing OAuth browser fixture pattern, installed Chromium,
-native WebSocket/CDP and an isolated schema. It tests synthetic organizer authority,
-not Discord OAuth or real Discord delivery. Publication is the existing active-event
-transition; the participant completion page remains owned by t_583f310e.
-Mobile evidence is collected in one persistent CDP target: actual innerWidth=390,
-desktop media query=false, asset URL and rendered classes recorded before all seven
-toolbar targets measure 44px. The earlier 28px trace was not a mobile regression.
-Axe is unavailable/unmeasured; no dependency was installed. Prior detector and
-desktop/mobile capture evidence is retained; no new broad design/a11y audit.
-- [ ] Exact-head CI and authentic same-card qa-judge review; planner owns merge.

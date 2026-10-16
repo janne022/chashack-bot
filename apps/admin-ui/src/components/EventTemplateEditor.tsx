@@ -1,5 +1,5 @@
 "use client"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type { FormConfig, ScheduleItem, AssignmentStrategy } from "@/types"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScheduleEditor } from "@/components/ui/schedule-editor"
 import { FormConfigEditor } from "@/components/FormConfigEditor"
 import { STRATEGY_OPTIONS } from "@/lib/assignment-strategy"
+import { questionErrors } from "@/lib/question-validation"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
 export interface EventTemplateDraft {
@@ -36,6 +37,8 @@ export function EventTemplateEditor({
   const [formMode, setFormMode] = useState<"inline" | "template">("inline")
   const [selectedFormId, setSelectedFormId] = useState<string>("")
   const [showForm, setShowForm] = useState(false)
+  const formVisible = showForm || Object.keys(questionErrors(value.form)).length > 0
+  useEffect(() => { if (formVisible) setShowForm(true) }, [formVisible])
 
   function pickFormTemplate(id: string) {
     setSelectedFormId(id)
@@ -98,8 +101,8 @@ export function EventTemplateEditor({
               </Select>
             )}
           </div>
-          {showForm && <FormConfigEditor value={value.form} onChange={form=>onChange({ ...value, form })} />}
-          {!showForm && <div className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2 text-sm text-muted-foreground">{value.form.title} · team size {value.form.teamSize} · {value.form.roleTracks.length} roles · {value.form.skills.length} skills</div>}
+          {formVisible && <FormConfigEditor value={value.form} onChange={form=>onChange({ ...value, form })} />}
+          {!formVisible && <div className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2 text-sm text-muted-foreground">{value.form.title} · team size {value.form.teamSize} · {value.form.roleTracks.length} roles · {value.form.skills.length} skills</div>}
         </CardContent>
       </Card>
 
