@@ -19,6 +19,7 @@ import { HACKATHON_ADMIN_NAME } from './commands.js';
 import { onComponent, onModalSubmit } from './components.js';
 import { eph, type Ctx } from './shared.js';
 import { t } from '../shared/i18n.js';
+import { consumeQuota } from '../shared/rate-limit.js';
 
 export interface RouterDeps {
   db: Db;
@@ -100,6 +101,16 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
       const guildId = interaction.inGuild() ? interaction.guildId : null;
       if (guildId === null) {
         if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+          try {
+            const quota = await consumeQuota(deps.db, 'source', `discord-user:${interaction.user.id}`, 60);
+            if (!quota.allowed) {
+              await interaction.reply(eph(t(deps.botLanguage, 'discord.rate_limited', { seconds: String(quota.retryAfterSeconds) })));
+              return;
+            }
+          } catch {
+            await interaction.reply(eph(t(deps.botLanguage, 'discord.rate_limit_unavailable')));
+            return;
+          }
           await interaction.reply(eph(t(deps.botLanguage, 'discord.admin.use_in_server')));
         }
         return;
@@ -131,6 +142,33 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         categoryIdFor,
         dm,
       };
+
+      const adminRoute = interaction.isChatInputCommand() &&
+        (interaction.commandName === HACKATHON_ADMIN_NAME || interaction.options.getSubcommandGroup(false) === 'admin');
+      if (!adminRoute || ctx.isAdmin) {
+        const sub = interaction.isChatInputCommand() ? interaction.options.getSubcommand(false) ?? '' : '';
+        const operation = interaction.isChatInputCommand() ? sub : interaction.isModalSubmit() || interaction.isButton() || interaction.isStringSelectMenu() ? interaction.customId : '';
+        const readOnly = ['event', 'status', 'teams', 'invitations', 'team-requests', 'team-code', 'console'];
+        const browseControl = ['hack:panel:signup', 'hack:panel:teams', 'hack:follow:browse-teams', 'hack:follow:create-team', 'hack:teams:select', 'hack:match:cancel', 'hack:reset:cancel'];
+        const mutation = interaction.isChatInputCommand() ? !readOnly.includes(sub)
+          : interaction.isModalSubmit() || interaction.isStringSelectMenu() ? operation !== 'hack:teams:select'
+            : !browseControl.includes(operation);
+        if (mutation) {
+          const expensive = /invite|provision|create.team|join|match|team.create|req:|admin:move/i.test(operation);
+          try {
+            const ordinary = await consumeQuota(deps.db, 'ordinary', `${interaction.user.id}:${guildId}`, 30);
+            const costly = expensive ? await consumeQuota(deps.db, 'expensive', `${interaction.user.id}:${guildId}`, 5) : { allowed: true, retryAfterSeconds: 0 };
+            const denied = ordinary.allowed ? costly : ordinary;
+            if (!denied.allowed) {
+              await interaction.reply(eph(t(locale, 'discord.rate_limited', { seconds: String(denied.retryAfterSeconds) })));
+              return;
+            }
+          } catch {
+            await interaction.reply(eph(t(locale, 'discord.rate_limit_unavailable')));
+            return;
+          }
+        }
+      }
 
       if (interaction.isChatInputCommand()) {
         const group = interaction.options.getSubcommandGroup(false);

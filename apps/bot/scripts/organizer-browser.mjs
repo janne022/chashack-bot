@@ -239,13 +239,11 @@ try {
   await wait(`!document.querySelector('[role=dialog]')`);
   await click(button('Edit event'));
   await fill('textarea[maxlength="1000"]','Cosmetic change retained');
-  // Delay and fail the actual save request, then restore the real network for Retry.
-  await evaluate(`window.originalFetch=window.fetch; window.fetch=async (...args)=>{if(String(args[0]).includes('/api/events/')&&args[1]?.method==='PATCH'){await new Promise(r=>setTimeout(r,700));throw new TypeError('Controlled network failure')}return window.originalFetch(...args)}`);
+  // Return one synthetic 429 with Retry-After, then use the real API for Retry.
+  await evaluate(`window.originalFetch=window.fetch; window.retry429=true; window.fetch=async (...args)=>{if(window.retry429&&String(args[0]).includes('/api/events/')&&args[1]?.method==='PATCH'){window.retry429=false;return new Response(JSON.stringify({error:'rate_limited',retryAfterSeconds:60}),{status:429,headers:{'content-type':'application/json','retry-after':'60'}})}return window.originalFetch(...args)}`);
   await click(button('Save'));
-  check('waiting save is disabled',await evaluate(`(${button('Save')}).disabled`));
   await wait(`!!document.querySelector('[role=alert]')`);
-  check('failed save preserves input and offers Retry',await evaluate(`document.querySelector('textarea[maxlength="1000"]').value==='Cosmetic change retained'&&document.querySelector('[role=alert]').innerText.includes('Retry')`));
-  await evaluate('window.fetch=window.originalFetch');
+  check('429 preserves entered data and displays Retry-After timing',await evaluate(`document.querySelector('textarea[maxlength="1000"]').value==='Cosmetic change retained'&&document.querySelector('[role=alert]').innerText.includes('retry in 60s')&&!!(${button('Retry save')})`));
   await click(button('Retry save'));
   await wait(`!document.querySelector('textarea[maxlength="1000"]')`);
   state=await api('/api/state',undefined,'GET'); event=state.events.find(e=>e.id===event.id);

@@ -5,6 +5,7 @@ import { openTestDb } from './test-db.js';
 const inventory: Record<string, string[]> = {
   teams: ['id','event_id','guild_id','name','kind','owner_id','join_code','role_id','text_channel_id','voice_channel_id','color','created_at'],
   meta: ['key','value'],
+  rate_limit_buckets: ['bucket','window_start','count'],
   events: ['id','guild_id','name','description','starts_at','ends_at','signup_starts_at','signup_ends_at','status','form_json','panel_channel_id','category_id','cleanup_delay_hours','cleanup_done','cleanup_warned_72h','cleanup_warned_24h','reminded_24h','match_at','match_locked','discord_event_ids','announcement_channel_id','schedule_channel_id','schedule_json','announcements_json','assignments_json','announced_schedule_ids','created_at','updated_at'],
   event_templates: ['id','guild_id','name','kind','json','created_at'],
   form_config: ['guild_id','json','updated_at'],
@@ -36,7 +37,9 @@ test('RLS inventory exactly matches the live schema, with only documented global
     }, {});
     assert.deepEqual(grouped, inventory);
     const states = await db.all<{tablename: string; rowsecurity: boolean; forcerowsecurity: boolean}>("SELECT c.relname AS tablename,c.relrowsecurity AS rowsecurity,c.relforcerowsecurity AS forcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relkind='r' ORDER BY c.relname");
-    const exempt = ['meta','web_sessions'];
+    // The quota table stores only hashed bucket keys and counters; source-address
+    // quotas are intentionally shared across guilds, without tenant content.
+    const exempt = ['meta','rate_limit_buckets','web_sessions'];
     assert.deepEqual(states.filter((table) => table.rowsecurity && table.forcerowsecurity).map((table) => table.tablename), Object.keys(policies).sort());
     assert.deepEqual(states.filter((table) => !table.rowsecurity).map((table) => table.tablename), exempt);
     assert.ok(states.every((table) => table.rowsecurity === !exempt.includes(table.tablename)));
