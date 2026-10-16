@@ -187,7 +187,7 @@ export interface EventTemplate {
   id: string
   guildId: string | null
   name: string
-  kind: 'event' | 'form' | 'announcement' | 'assignments'
+  kind: 'event' | 'form' | 'announcement' | 'assignments' | 'theme'
   json: string
   createdAt: number
 }

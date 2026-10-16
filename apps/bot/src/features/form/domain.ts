@@ -34,6 +34,19 @@ export interface FormConfig {
   accentColor?: string;
 }
 
+export type FormAppearance = { themePreset: 'default' | 'halloween' | 'christmas'; accentColor: string; bannerUrl: string | null };
+
+export function normalizeAppearance(value: unknown): FormAppearance | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  if (Object.keys(raw).some((key) => !['themePreset', 'accentColor', 'bannerUrl'].includes(key))) return null;
+  const themePreset = raw.themePreset ?? 'default';
+  const accentColor = raw.accentColor ?? '#55bbda';
+  const bannerUrl = raw.bannerUrl ?? null;
+  if (!['default', 'halloween', 'christmas'].includes(String(themePreset)) || typeof accentColor !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(accentColor) || !validBannerUrl(bannerUrl)) return null;
+  return { themePreset: themePreset as FormAppearance['themePreset'], accentColor, bannerUrl: bannerUrl || null };
+}
+
 export type LocalizedText = { en: string; sv?: string };
 export interface CustomQuestion {
   id: string;
