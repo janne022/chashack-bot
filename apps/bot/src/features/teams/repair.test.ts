@@ -248,6 +248,29 @@ test('DM invite acceptance dispatches using its stored event and installed guild
   } finally { await db.close(); }
 });
 
+test('DM join-request decline dispatches to the pinned team owner', async () => {
+  const db = await fixture();
+  try {
+    setMembershipLookup(db, async () => true);
+    const team = await createTeam(db, 'test', 'ev', GUILD, 'Alpha', 'private', 'owner');
+    assert.ok(team.ok);
+    const request = await createJoinRequest(db, 'discord:member', 'ev', GUILD, 'member', team.value.id, 2);
+    assert.ok(request.ok);
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const guild = { members: { me: { id: 'bot' }, fetch: async () => new Map() }, roles: { everyone: { id: GUILD } }, channels: { fetch: async () => null } };
+    const client = { on: (name: string, handler: (interaction: unknown) => void) => handlers.set(name, handler), guilds: { cache: new Map([[GUILD, guild]]) }, users: { fetch: async () => ({ send: async () => undefined }) } } as never;
+    registerInteractionHandlers(client, { db, adminIds: [], client, teamCategoryId: undefined, botLanguage: 'en', announce: async () => undefined });
+    let finish!: () => void;
+    const ready = new Promise<void>((resolve) => { finish = resolve; });
+    let response: unknown;
+    const interaction = { customId: `${IDS.reqDecline}:${request.value.id}`, user: { id: 'owner' }, inGuild: () => false, isAutocomplete: () => false, isChatInputCommand: () => false, isModalSubmit: () => false, isButton: () => true, isStringSelectMenu: () => false, isRepliable: () => true, replied: false, deferred: false, update: async (payload: unknown) => { response = payload; finish(); }, reply: async (payload: unknown) => { response = payload; finish(); } };
+    handlers.get('interactionCreate')!(interaction);
+    await ready;
+    assert.equal((await db.get<{ status: string }>('SELECT status FROM team_requests WHERE id=?', request.value.id))!.status, 'declined');
+    assert.ok(JSON.stringify(response).includes('Declined.'), JSON.stringify(response));
+  } finally { await db.close(); }
+});
+
 for (const [locale, preservation, eligible] of [
   ['en', 'Existing teams stay together.', 'eligible, unteamed participants who opted into matching'],
   ['sv', 'Befintliga team hålls ihop.', 'behöriga deltagare utan team som har valt matchning'],
