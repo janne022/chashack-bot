@@ -76,6 +76,7 @@ import { registerParticipantTeamRoutes } from './participant-teams.js';
 import { applyTeamLeave } from '../discord/provision.js';
 import { setMembershipLookup } from '../features/signup/eligibility.js';
 import { lookupGuildMember } from '../discord/member-lifecycle.js';
+import { runWithGuildContext, withGuildContext } from '../shared/postgres.js';
 
 export interface WebDeps {
   db: Db;
@@ -159,13 +160,66 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return live?.session?.selectedGuildId ?? '';
   };
 
+  app.addHook('preValidation', (req, reply, done) => {
+    if (req.url.startsWith('/api/participant/events/')) {
+      void (async () => {
+        const session = await participantSessionFrom(req);
+        const eventId = (req.params as { eventId?: string }).eventId;
+        if (session && eventId) {
+          for (const guildId of installedGuildIds()) {
+            if (!await currentMember(guildId, session.userId)) continue;
+            const event = await withGuildContext(db, guildId, () => getEvent(db, eventId));
+            if (event?.guildId === guildId && event.status === 'active') {
+              runWithGuildContext(db, guildId, done);
+              return;
+            }
+          }
+          void reply.code(404).send({ error: 'event_unavailable' });
+          return;
+        }
+        done();
+      })().catch(done);
+      return;
+    }
+    if (!req.url.startsWith('/api/') || req.url.startsWith('/api/public/') || req.url.startsWith('/api/participant/')) {
+      done();
+      return;
+    }
+    void sessionFrom(req).then((live) => {
+      const requested = req.url === '/api/auth/guild' ? (req.body as { guildId?: string } | null)?.guildId : undefined;
+      const guildId = requested ?? live?.session.selectedGuildId ?? '';
+      if (!live || !guildId) { done(); return; }
+      runWithGuildContext(db, guildId, done);
+    }).catch(done);
+  });
+
+  // ponytail: O(installed guilds) discovery; index the trusted inventory only if this ceiling matters.
+  const installedGuildIds = (): string[] => deps.client === null ? [] : [...deps.client.guilds.cache.values()]
+    .filter((guild) => guild.available !== false).map((guild) => guild.id);
+  const currentMember = async (guildId: string, userId: string): Promise<boolean> => {
+    if (deps.client === null) return false;
+    try { return await lookupGuildMember(deps.client, guildId, userId); }
+    catch { return false; }
+  };
+  const publishedEvent = async (eventId: string) => {
+    for (const guildId of installedGuildIds()) {
+      const projection = await withGuildContext(db, guildId, async () => {
+        const event = await getEvent(db, eventId);
+        if (event === null || event.guildId !== guildId || event.status === 'draft') return null;
+        return { event, form: getEventForm(db, event, await getForm(db, guildId)) };
+      });
+      if (projection !== null) return projection;
+    }
+    return null;
+  };
+
   const ownerAdminRequests = new WeakSet<FastifyRequest>();
   const freshGuildAccess = async (userId: string, guildId: string): Promise<{ allowed: boolean; ownerOrAdmin: boolean }> => {
     if (deps.client === null || !isSnowflake(guildId)) return { allowed: false, ownerOrAdmin: false };
     try {
       const guild = await deps.client.guilds.fetch(guildId);
       const member = await guild.members.fetch(userId);
-      const setting = await db.get<{ mod_role_ids: string }>('SELECT mod_role_ids FROM guild_settings WHERE guild_id = ?', guildId);
+      const setting = await withGuildContext(db, guildId, () => db.get<{ mod_role_ids: string }>('SELECT mod_role_ids FROM guild_settings WHERE guild_id = ?', guildId));
       const decoded: unknown = setting === undefined ? [] : JSON.parse(setting.mod_role_ids);
       const delegated = Array.isArray(decoded) ? decoded.filter((id): id is string => typeof id === 'string') : [];
       const ownerOrAdmin = guild.ownerId === userId || member.permissions.has('Administrator');
@@ -530,9 +584,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/public/events/:eventId', async (req, reply) => {
     const eventId = (req.params as { eventId: string }).eventId;
-    const event = await getEvent(db, eventId);
-    if (event === null || event.status === 'draft') return reply.code(404).send({ error: 'not_found' });
-    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    const published = await publishedEvent(eventId);
+    if (published === null) return reply.code(404).send({ error: 'not_found' });
+    const { event, form } = published;
     return {
       event: { id: event.id, name: event.name, description: event.description, startsAt: event.startsAt, endsAt: event.endsAt },
       form: { version: form.version, title: form.title, description: form.description,
@@ -544,12 +598,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.get('/events/:eventId', async (req, reply) => {
-    const event = await getEvent(db, (req.params as { eventId: string }).eventId);
-    if (event === null || event.status === 'draft') return reply.code(404).type('text/html; charset=utf-8').send('<!doctype html><title>Event not found</title>');
+    const published = await publishedEvent((req.params as { eventId: string }).eventId);
+    if (published === null) return reply.code(404).type('text/html; charset=utf-8').send('<!doctype html><title>Event not found</title>');
+    const { event, form } = published;
     const escape = (value: string): string => value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
     const name = escape(event.name);
     const description = escape(event.description);
-    const form = getEventForm(db, event, await getForm(db, event.guildId));
     const image = validBannerUrl(form.bannerUrl) && form.bannerUrl ? `<meta property="og:image" content="${escape(form.bannerUrl)}">` : '';
     const metadata = `<title>${name}</title><meta property="og:title" content="${name}"><meta property="og:description" content="${description}">${image}`;
     return reply.type('text/html; charset=utf-8').send(`<!doctype html><html><head><meta charset="utf-8">${metadata}</head><body><main><h1>${name}</h1><p>${description}</p></main></body></html>`);
@@ -637,13 +691,18 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/participant/registrations', async (req) => {
     const session = await participantSessionFrom(req);
-    const rows = await db.all<{ event_id: string; name: string; description: string; starts_at: number | null; ends_at: number | null; status: string; team_id: string | null }>(
+    const rows: { event_id: string; name: string; description: string; starts_at: number | null; ends_at: number | null; status: string; team_id: string | null }[] = [];
+    for (const guildId of installedGuildIds()) {
+      if (!await currentMember(guildId, session!.userId)) continue;
+      rows.push(...await withGuildContext(db, guildId, () => db.all<typeof rows[number]>(
       `SELECT e.id AS event_id, e.name, e.description, e.starts_at, e.ends_at, e.status, p.team_id
        FROM participants p JOIN events e ON e.id = p.event_id
-       WHERE p.user_id = ? AND p.status <> 'withdrawn' AND e.status <> 'draft'
+       WHERE p.user_id = ? AND e.guild_id = ? AND p.guild_id = e.guild_id AND p.status <> 'withdrawn' AND e.status <> 'draft'
        ORDER BY e.starts_at DESC NULLS LAST, e.id`,
-      session!.userId,
-    );
+      session!.userId, guildId,
+      )));
+    }
+    rows.sort((a, b) => (b.starts_at ?? -Infinity) - (a.starts_at ?? -Infinity) || a.event_id.localeCompare(b.event_id));
     return { registrations: rows.map((row) => ({
       eventId: row.event_id, name: row.name, description: row.description,
       startsAt: row.starts_at, endsAt: row.ends_at, status: row.status, teamId: row.team_id,

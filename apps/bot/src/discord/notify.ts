@@ -6,10 +6,10 @@
  */
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type Client } from 'discord.js';
 import type { Db } from '../shared/db.js';
+import { withGuildContext } from '../shared/postgres.js';
 import { audit } from '../shared/audit.js';
 import {
   getActiveEvent,
-  getEvent,
   getEventForm,
   listEvents,
   planMaintenance,
@@ -235,25 +235,20 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
   const now = deps.now ?? Date.now();
   const summary: string[] = [];
 
-  // Collect all events (typed Kysely read when the instance is wired).
-  let allEvents: HackathonEvent[];
-  if (kysely !== undefined) {
-    const { listEventsForMaintenance } = await import('../features/events/data.js');
-    allEvents = await listEventsForMaintenance(kysely);
-  } else {
-    allEvents = [];
-    const { listEventGuilds } = await import('../features/events/data.js');
-    for (const guildId of await listEventGuilds(db)) {
-      allEvents.push(...await listEvents(db, guildId));
-    }
-  }
+  // System maintenance enumerates installed guilds, then uses ordinary tenant-scoped reads.
+  const guildIds = [...client.guilds.cache.values()].filter((guild) => guild.available !== false).map((guild) => guild.id);
+  const allEvents: HackathonEvent[] = [];
+  for (const guildId of guildIds) allEvents.push(...await withGuildContext(db, guildId, () => listEvents(db, guildId)));
   const actions = planMaintenance(allEvents, now);
-  for (const eventId of await purgeExpiredPrivateAnswers(db, now)) summary.push(`purged private answers: ${eventId}`);
+  for (const guildId of guildIds) {
+    for (const eventId of await withGuildContext(db, guildId, () => purgeExpiredPrivateAnswers(db, now))) summary.push(`purged private answers: ${eventId}`);
+  }
   if (actions.length === 0) return summary;
 
   for (const action of actions) {
-    const event = await getEventRef(db, action.eventId);
+    const event = allEvents.find((candidate) => candidate.id === action.eventId) ?? null;
     if (event === null) continue;
+    await withGuildContext(db, event.guildId, async () => {
     try {
       switch (action.type) {
         case 'remind_24h': {
@@ -545,13 +540,11 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
     } catch (error) {
       console.error(`maintenance ${action.type} failed for ${action.eventId}:`, error);
     }
+    });
   }
   return summary;
 }
 
-async function getEventRef(db: Db, eventId: string): Promise<HackathonEvent | null> {
-  return await getEvent(db, eventId);
-}
 
 /** The event's form config (falls back to the guild default). */
 function getEventFormLocal(db: Db, event: { id: string; formJson: string | null }): import('../features/form/domain.js').FormConfig {

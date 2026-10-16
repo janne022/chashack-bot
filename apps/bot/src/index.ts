@@ -13,7 +13,7 @@ import { registerCommands, registerCommandsInGuild } from './register-commands-l
 import { registerMemberLifecycle } from './discord/member-lifecycle.js';
 
 const config = env();
-const db = await openDatabase(config.databaseUrl);
+const db = await openDatabase(config.databaseUrl, config.migrationDatabaseUrl);
 const kysely = createKysely(db);
 
 const client = new Client({

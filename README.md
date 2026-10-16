@@ -100,7 +100,7 @@ apps/admin-ui    React admin panel (Vite)
 
 ```bash
 pnpm install                      # workspace install (supply-chain gated)
-cp .env.example apps/bot/.env     # fill in DATABASE_URL, Discord OAuth/bot creds + session secret
+cp .env.example apps/bot/.env     # fill in DATABASE_URL, MIGRATION_DATABASE_URL, Discord creds + session secret
 pnpm build                        # bot (tsc) + admin UI (vite)
 pnpm register:commands            # register the commands in every guild the bot is in (instant)
 pnpm --filter bot start           # bot + admin UI on ADMIN_PORT
@@ -128,11 +128,14 @@ flag and is the origin trusted by the API's CSRF check.
 
 ## Development
 
-`DATABASE_URL` is required. Missing, empty or invalid values fail startup; there
+`DATABASE_URL` (restricted app role) and `MIGRATION_DATABASE_URL` (distinct DDL role
+on the same database) are required. Missing, empty or invalid values fail startup; there
 is no file or in-memory fallback. PostgreSQL bootstrap is additive and repeatable;
 legacy user files are untouched. See [database development and fake recovery](docs/DEV.md)
 for disposable PostgreSQL checks and limitations. Export a guarded _test/_ci URL
-before running the test, smoke or development-console commands.
+before running the test, smoke or development-console commands. See
+[PostgreSQL RLS](docs/POSTGRES-RLS.md) for role provisioning, fail-closed tenant
+policies, trusted guild discovery, maintenance exceptions and the tested inventory.
 
 ```bash
 pnpm typecheck            # both apps, strict TS

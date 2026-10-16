@@ -56,8 +56,9 @@ self-cleaning weekend.
   block/unblock/remove, moving participants, category, match preview/commit,
   reset; `/hackathon auto-match at:` for a scheduled match.
 - Runtime: one Node process (bot + API + static console), backed by PostgreSQL
-  only (`DATABASE_URL` is required); `SKIP_DISCORD=1` is for tests/smoke only and
-  cannot authorize organizer requests. PostgreSQL RLS is separate work.
+  only (restricted `DATABASE_URL` and separate `MIGRATION_DATABASE_URL` are required);
+  `SKIP_DISCORD=1` is for tests/smoke only and cannot authorize organizer requests.
+  PostgreSQL enforces fail-closed guild RLS with transaction-local context.
 - Both languages are shipped: `en` + `sv` for the console, and bot copy is
   localized too.
 
@@ -85,8 +86,9 @@ Confirmed functionality (the README is the detailed inventory; this is the shape
 Constraints and deliberate limits:
 
 - **Guild-scoped organizer authority.** Fresh bot membership and owner/admin or
-  delegated-role checks are required on each API request. PostgreSQL RLS is not
-  implemented by this application-level authorization change.
+  delegated-role checks are required on each API request. PostgreSQL RLS separately
+  excludes foreign tenant rows even when a SQL query omits its guild filter;
+  session identity/subject authorization remains the application's responsibility.
 - **Swedish is a first-class language** for both participants and organizers —
   new user-facing copy ships in `en` + `sv` together.
 - **Participant web flows are not shipped yet.** Signup and team work remains in

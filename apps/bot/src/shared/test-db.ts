@@ -18,7 +18,7 @@ function track(db: Db): Db {
 }
 
 /** Same feature fixtures, isolated schemas so concurrent test handles never collide. */
-export async function openTestDb(): Promise<Db> {
+export async function openTestDb(poolSize = 10): Promise<Db> {
   const url = process.env.DATABASE_URL;
   if (url === undefined) throw new Error('DATABASE_URL is required for PostgreSQL fixtures');
   assertDisposableDatabase(parseDatabaseUrl(url).database);
@@ -31,7 +31,7 @@ export async function openTestDb(): Promise<Db> {
   } catch (error) { await admin.close(); throw error; }
   try {
     await admin.run(`CREATE SCHEMA ${schema}`);
-    const db = await openPostgres(url, schema);
+    const db = await openPostgres(url, schema, poolSize);
     setMembershipLookup(db, async () => true); // Fake current membership; never used by runtime bootstrap.
     try { await migratePostgres(db); } catch (error) { await db.close(); throw error; }
     const close = db.close.bind(db);

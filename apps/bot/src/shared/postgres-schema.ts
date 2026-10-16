@@ -164,4 +164,64 @@ CREATE TABLE IF NOT EXISTS audit_log (
     );
 
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
+
+ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE events FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON events;
+CREATE POLICY tenant_isolation ON events USING (guild_id = NULLIF(current_setting('app.guild_id', true), '')) WITH CHECK (guild_id = NULLIF(current_setting('app.guild_id', true), ''));
+
+ALTER TABLE event_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_templates FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON event_templates;
+DROP POLICY IF EXISTS tenant_select ON event_templates;
+DROP POLICY IF EXISTS tenant_modify ON event_templates;
+CREATE POLICY tenant_select ON event_templates FOR SELECT USING (guild_id IS NULL OR guild_id = NULLIF(current_setting('app.guild_id', true), ''));
+CREATE POLICY tenant_modify ON event_templates FOR ALL USING (guild_id = NULLIF(current_setting('app.guild_id', true), '')) WITH CHECK (guild_id = NULLIF(current_setting('app.guild_id', true), ''));
+
+ALTER TABLE form_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE form_config FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON form_config;
+CREATE POLICY tenant_isolation ON form_config USING (guild_id = NULLIF(current_setting('app.guild_id', true), '')) WITH CHECK (guild_id = NULLIF(current_setting('app.guild_id', true), ''));
+
+ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teams FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON teams;
+CREATE POLICY tenant_isolation ON teams USING (guild_id = NULLIF(current_setting('app.guild_id', true), '')) WITH CHECK (guild_id = NULLIF(current_setting('app.guild_id', true), '') AND (event_id IS NULL OR EXISTS (SELECT 1 FROM events WHERE events.id = teams.event_id AND events.guild_id = teams.guild_id)));
+
+ALTER TABLE participants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE participants FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON participants;
+CREATE POLICY tenant_isolation ON participants USING (guild_id = NULLIF(current_setting('app.guild_id', true), '')) WITH CHECK (guild_id = NULLIF(current_setting('app.guild_id', true), '') AND EXISTS (SELECT 1 FROM events WHERE events.id = participants.event_id AND events.guild_id = participants.guild_id) AND (team_id IS NULL OR EXISTS (SELECT 1 FROM teams WHERE teams.id = participants.team_id AND teams.event_id = participants.event_id AND teams.guild_id = participants.guild_id)));
+
+ALTER TABLE team_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE team_requests FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON team_requests;
+CREATE POLICY tenant_isolation ON team_requests USING (guild_id = NULLIF(current_setting('app.guild_id', true), '')) WITH CHECK (guild_id = NULLIF(current_setting('app.guild_id', true), '') AND EXISTS (SELECT 1 FROM teams WHERE teams.id = team_requests.team_id AND teams.guild_id = team_requests.guild_id AND teams.event_id IS NOT DISTINCT FROM team_requests.event_id));
+
+ALTER TABLE guild_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE guild_settings FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON guild_settings;
+CREATE POLICY tenant_isolation ON guild_settings USING (guild_id = NULLIF(current_setting('app.guild_id', true), '')) WITH CHECK (guild_id = NULLIF(current_setting('app.guild_id', true), ''));
+
+ALTER TABLE member_deletions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE member_deletions FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON member_deletions;
+CREATE POLICY tenant_isolation ON member_deletions USING (guild_id = NULLIF(current_setting('app.guild_id', true), '')) WITH CHECK (guild_id = NULLIF(current_setting('app.guild_id', true), ''));
+
+ALTER TABLE private_answer_deletions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private_answer_deletions FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON private_answer_deletions;
+CREATE POLICY tenant_isolation ON private_answer_deletions USING (guild_id = NULLIF(current_setting('app.guild_id', true), '')) WITH CHECK (guild_id = NULLIF(current_setting('app.guild_id', true), ''));
+
+ALTER TABLE registration_answers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE registration_answers FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON registration_answers;
+CREATE POLICY tenant_isolation ON registration_answers USING (EXISTS (SELECT 1 FROM events WHERE events.id = registration_answers.event_id)) WITH CHECK (EXISTS (SELECT 1 FROM events WHERE events.id = registration_answers.event_id));
+
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON audit_log;
+CREATE POLICY tenant_isolation ON audit_log USING (guild_id IS NOT NULL AND guild_id = NULLIF(current_setting('app.guild_id', true), '')) WITH CHECK (guild_id IS NOT NULL AND guild_id = NULLIF(current_setting('app.guild_id', true), ''));
+DROP POLICY IF EXISTS host_auth_append ON audit_log;
+CREATE POLICY host_auth_append ON audit_log FOR INSERT WITH CHECK (guild_id IS NULL AND ((actor = 'web' AND action = 'web.oauth_start') OR (actor = 'discord' AND action IN ('web.login', 'web.logout'))));
 `;

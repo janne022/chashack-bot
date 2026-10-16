@@ -1,4 +1,5 @@
 import type { Db } from '../../shared/db.js';
+import { withGuildContext } from '../../shared/postgres.js';
 import { getTeam, leaveTeam, removeFromTeam, type Team } from '../teams/data.js';
 
 /** Confirmed personal departure only; bot uninstall/lookup errors never call this. */
@@ -57,9 +58,11 @@ export async function reconcileGuildMembers(db: Db, guildId: string, lookup: (us
 /** Feed the durable identifier ledger from outside a restored snapshot. */
 export async function replayMemberDeletions(db: Db, records: { guildId: string; userId: string; deletedAt: number }[]): Promise<void> {
   for (const record of records) {
+    await withGuildContext(db, record.guildId, async () => {
     const freshRegistration = await db.get(`SELECT 1 FROM participants p JOIN events e ON e.id=p.event_id
       WHERE p.guild_id=? AND p.user_id=? AND p.created_at>? LIMIT 1`, record.guildId, record.userId, record.deletedAt);
-    if (freshRegistration !== undefined) continue;
+    if (freshRegistration !== undefined) return;
     await deleteGuildMemberData(db, record.guildId, record.userId, record.deletedAt);
+    });
   }
 }

@@ -12,8 +12,8 @@ import type { Env } from '../shared/env.js';
   const key = 'participant-team-test-signing-key-32-characters';
   const config = { adminSessionSecret: key, adminIds: [], botLanguage: 'en', skipDiscord: true } as unknown as Env;
   const members = new Set(['owner', 'joiner', 'invitee', 'other']);
-  const guild = { members: { fetch: async (input: string | { user: string }) => { const id = typeof input === 'string' ? input : input.user; if (!members.has(id)) throw new Error('unknown member'); return { id }; } } };
-  const client = { guilds: { fetch: async () => guild } } as never;
+  const guild = { id: 'g', members: { fetch: async (input: string | { user: string }) => { const id = typeof input === 'string' ? input : input.user; if (!members.has(id)) throw new Error('unknown member'); return { id }; } } };
+  const client = { guilds: { cache: new Map([[guild.id, guild]]), fetch: async () => guild } } as never;
   const app = Fastify();
   registerRoutes(app, { db, config, client, announce: async () => undefined });
   try {

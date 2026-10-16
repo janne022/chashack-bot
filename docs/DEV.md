@@ -1,6 +1,8 @@
 # PostgreSQL development and fake recovery
 
-PostgreSQL is the only application database. DATABASE_URL is required; missing,
+PostgreSQL is the only application database. Runtime requires DATABASE_URL for a
+restricted app role plus MIGRATION_DATABASE_URL for a separate DDL role on the same
+database; see [RLS roles and grants](POSTGRES-RLS.md). Missing,
 empty or malformed values refuse startup without exposing credentials. Supply a
 postgresql:// URL or the unquoted Aspire shape
 `Host=localhost;Port=5432;Database=chashack_test;Username=postgres;Password=...`.
@@ -46,7 +48,11 @@ production import tool. Do not mark a real database fake or use production URLs.
 
 No automatic import, conversion or deletion of legacy user files is performed.
 Historical file-based migration tests are obsolete, not a supported second engine.
-RLS, deployment migration and backup retention guarantees are separate work.
+RLS is exercised separately with non-owner/non-superuser/NOBYPASSRLS fixture roles
+in `shared/postgres-rls.test.ts` and real-handler `adminweb/routes-rls.test.ts`.
+The fixture administrator URL is used only to create/drop isolated schemas and
+ephemeral roles; superuser-only feature tests/smoke are not RLS evidence.
+Production role provisioning/deployment and backup retention remain operational work.
 
 ## CI coverage
 
