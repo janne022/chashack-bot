@@ -111,8 +111,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE chashack_migrate IN SCHEMA public
   GRANT USAGE ON SEQUENCES TO chashack_app;
 ```
 
-No TRUNCATE, REFERENCES, TRIGGER, table ownership, schema CREATE, superuser or
-BYPASSRLS grant goes to the app. PostgreSQL's database-level TEMP privilege is not
+Only the four DML privileges and sequence USAGE shown above go to the app, never
+table ownership, schema CREATE, superuser or BYPASSRLS. PostgreSQL's database-level TEMP privilege is not
 an application-schema DDL grant; do not confuse temporary scratch objects with
 ownership/access to application tables. Global catalog seeding/host maintenance
 requiring row access must be performed by the operator's separate administrative
