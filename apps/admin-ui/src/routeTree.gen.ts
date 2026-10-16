@@ -15,10 +15,13 @@ import { Route as ConfigRouteImport } from './routes/config'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as FormRouteImport } from './routes/form'
 import { Route as MatchingRouteImport } from './routes/matching'
+import { Route as MyHackathonsRouteImport } from './routes/my-hackathons'
 import { Route as OperationsRouteImport } from './routes/operations'
 import { Route as ParticipantsRouteImport } from './routes/participants'
+import { Route as TeamRouteImport } from './routes/team'
 import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as TemplatesRouteImport } from './routes/templates'
+import { Route as EventsEventIdSignupRouteImport } from './routes/events.$eventId.signup'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -50,6 +53,11 @@ const MatchingRoute = MatchingRouteImport.update({
   path: '/matching',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MyHackathonsRoute = MyHackathonsRouteImport.update({
+  id: '/my-hackathons',
+  path: '/my-hackathons',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OperationsRoute = OperationsRouteImport.update({
   id: '/operations',
   path: '/operations',
@@ -58,6 +66,11 @@ const OperationsRoute = OperationsRouteImport.update({
 const ParticipantsRoute = ParticipantsRouteImport.update({
   id: '/participants',
   path: '/participants',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TeamRoute = TeamRouteImport.update({
+  id: '/team',
+  path: '/team',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TeamsRoute = TeamsRouteImport.update({
@@ -70,43 +83,57 @@ const TemplatesRoute = TemplatesRouteImport.update({
   path: '/templates',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EventsEventIdSignupRoute = EventsEventIdSignupRouteImport.update({
+  id: '/$eventId/signup',
+  path: '/$eventId/signup',
+  getParentRoute: () => EventsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
-  '/events': typeof EventsRoute
+  '/events': typeof EventsRouteWithChildren
   '/form': typeof FormRoute
   '/matching': typeof MatchingRoute
+  '/my-hackathons': typeof MyHackathonsRoute
   '/operations': typeof OperationsRoute
   '/participants': typeof ParticipantsRoute
+  '/team': typeof TeamRoute
   '/teams': typeof TeamsRoute
   '/templates': typeof TemplatesRoute
+  '/events/$eventId/signup': typeof EventsEventIdSignupRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
-  '/events': typeof EventsRoute
+  '/events': typeof EventsRouteWithChildren
   '/form': typeof FormRoute
   '/matching': typeof MatchingRoute
+  '/my-hackathons': typeof MyHackathonsRoute
   '/operations': typeof OperationsRoute
   '/participants': typeof ParticipantsRoute
+  '/team': typeof TeamRoute
   '/teams': typeof TeamsRoute
   '/templates': typeof TemplatesRoute
+  '/events/$eventId/signup': typeof EventsEventIdSignupRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
   '/config': typeof ConfigRoute
-  '/events': typeof EventsRoute
+  '/events': typeof EventsRouteWithChildren
   '/form': typeof FormRoute
   '/matching': typeof MatchingRoute
+  '/my-hackathons': typeof MyHackathonsRoute
   '/operations': typeof OperationsRoute
   '/participants': typeof ParticipantsRoute
+  '/team': typeof TeamRoute
   '/teams': typeof TeamsRoute
   '/templates': typeof TemplatesRoute
+  '/events/$eventId/signup': typeof EventsEventIdSignupRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -117,10 +144,13 @@ export interface FileRouteTypes {
     | '/events'
     | '/form'
     | '/matching'
+    | '/my-hackathons'
     | '/operations'
     | '/participants'
+    | '/team'
     | '/teams'
     | '/templates'
+    | '/events/$eventId/signup'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -129,10 +159,13 @@ export interface FileRouteTypes {
     | '/events'
     | '/form'
     | '/matching'
+    | '/my-hackathons'
     | '/operations'
     | '/participants'
+    | '/team'
     | '/teams'
     | '/templates'
+    | '/events/$eventId/signup'
   id:
     | '__root__'
     | '/'
@@ -141,21 +174,26 @@ export interface FileRouteTypes {
     | '/events'
     | '/form'
     | '/matching'
+    | '/my-hackathons'
     | '/operations'
     | '/participants'
+    | '/team'
     | '/teams'
     | '/templates'
+    | '/events/$eventId/signup'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuditRoute: typeof AuditRoute
   ConfigRoute: typeof ConfigRoute
-  EventsRoute: typeof EventsRoute
+  EventsRoute: typeof EventsRouteWithChildren
   FormRoute: typeof FormRoute
   MatchingRoute: typeof MatchingRoute
+  MyHackathonsRoute: typeof MyHackathonsRoute
   OperationsRoute: typeof OperationsRoute
   ParticipantsRoute: typeof ParticipantsRoute
+  TeamRoute: typeof TeamRoute
   TeamsRoute: typeof TeamsRoute
   TemplatesRoute: typeof TemplatesRoute
 }
@@ -204,6 +242,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MatchingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/my-hackathons': {
+      id: '/my-hackathons'
+      path: '/my-hackathons'
+      fullPath: '/my-hackathons'
+      preLoaderRoute: typeof MyHackathonsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/operations': {
       id: '/operations'
       path: '/operations'
@@ -216,6 +261,13 @@ declare module '@tanstack/react-router' {
       path: '/participants'
       fullPath: '/participants'
       preLoaderRoute: typeof ParticipantsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/team': {
+      id: '/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof TeamRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/teams': {
@@ -232,18 +284,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TemplatesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/events/$eventId/signup': {
+      id: '/events/$eventId/signup'
+      path: '/$eventId/signup'
+      fullPath: '/events/$eventId/signup'
+      preLoaderRoute: typeof EventsEventIdSignupRouteImport
+      parentRoute: typeof EventsRoute
+    }
   }
 }
+
+interface EventsRouteChildren {
+  EventsEventIdSignupRoute: typeof EventsEventIdSignupRoute
+}
+
+const EventsRouteChildren: EventsRouteChildren = {
+  EventsEventIdSignupRoute: EventsEventIdSignupRoute,
+}
+
+const EventsRouteWithChildren =
+  EventsRoute._addFileChildren(EventsRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuditRoute: AuditRoute,
   ConfigRoute: ConfigRoute,
-  EventsRoute: EventsRoute,
+  EventsRoute: EventsRouteWithChildren,
   FormRoute: FormRoute,
   MatchingRoute: MatchingRoute,
+  MyHackathonsRoute: MyHackathonsRoute,
   OperationsRoute: OperationsRoute,
   ParticipantsRoute: ParticipantsRoute,
+  TeamRoute: TeamRoute,
   TeamsRoute: TeamsRoute,
   TemplatesRoute: TemplatesRoute,
 }
