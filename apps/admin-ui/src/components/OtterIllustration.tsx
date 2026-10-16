@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import A1 from '@/assets/otter/A1.webp'
-import A2 from '@/assets/otter/A2.webp'
-import B1 from '@/assets/otter/B1.webp'
-import B2 from '@/assets/otter/B2.webp'
-import C1 from '@/assets/otter/C1.webp'
-import C2 from '@/assets/otter/C2.webp'
+import A1 from '@/assets/otter/A1.png'
+import A2 from '@/assets/otter/A2.png'
+import B1 from '@/assets/otter/B1.png'
+import B2 from '@/assets/otter/B2.png'
+import C1 from '@/assets/otter/C1.png'
+import C2 from '@/assets/otter/C2.png'
 
 const panels = { A1, A2, B1, B2, C1, C2 } as const
 
