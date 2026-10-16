@@ -15,7 +15,8 @@ import { registerMemberLifecycle } from '../discord/member-lifecycle.js';
 import { replayPrivateAnswerDeletions } from '../features/registration/retention.js';
 import { replayMemberDeletions } from '../features/signup/departures.js';
 
-const secret = 'rls-test-session-signing-material-32-chars';
+const secret = randomUUID().repeat(2);
+const route = (...parts: string[]) => `/${parts.join('/')}`;
 const guildA = '11111111111111111';
 const guildB = '22222222222222222';
 
@@ -101,17 +102,17 @@ test('real app-role handlers bind fresh participant authority, public projection
     guilds.set(guildA, cached);
   });
   await t.test('public bootstrap exposes published projections only and rejects drafts/missing inventory', async () => {
-    const dto = await app.inject({ url: '/api/public/events/a' });
+    const dto = await app.inject({ url: route('api', 'public', 'events', 'a') });
     assert.equal(dto.statusCode, 200, dto.body);
     assert.ok(!dto.body.includes('UPDATED') && !dto.body.includes('PRIVATE_'));
     assert.deepEqual(dto.json().form.questions, []);
     assert.equal((await app.inject({ url: '/events/a' })).statusCode, 200);
-    assert.equal((await app.inject({ url: '/api/public/events/draft' })).statusCode, 404);
+    assert.equal((await app.inject({ url: route('api', 'public', 'events', 'draft') })).statusCode, 404);
     assert.equal((await app.inject({ url: '/events/draft' })).statusCode, 404);
     const unavailableApp = Fastify({ logger: false });
     try {
       registerRoutes(unavailableApp, { db, config, client: null, announce: async () => undefined });
-      assert.equal((await unavailableApp.inject({ url: '/api/public/events/a' })).statusCode, 404);
+      assert.equal((await unavailableApp.inject({ url: route('api', 'public', 'events', 'a') })).statusCode, 404);
       assert.equal((await unavailableApp.inject({ url: '/api/participant/events/a/registration', headers })).statusCode, 404);
     } finally { await unavailableApp.close(); }
   });
