@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ScheduleEditor } from '@/components/ui/schedule-editor'
 import { AssignmentsEditor } from '@/components/AssignmentsEditor'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -1221,7 +1222,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
       onClose()
       await refresh()
     } catch (e) {
-      const message = e instanceof Error ? e.message : t('events.schedule_save_failed')
+      const message = e instanceof Error && 'code' in e && e.code === 'form_version_conflict' ? t('events.form_conflict') : e instanceof Error ? e.message : t('events.schedule_save_failed')
       setSaveError(message)
       toast.error(message)
     } finally { setBusy(false) }
@@ -1230,11 +1231,11 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   return (
     <>
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
-          <Card className="w-full max-w-xl animate-pop-in max-h-[85vh] overflow-y-auto" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+        <Dialog open={open} onOpenChange={next => { if (!next && !busy) onClose() }}>
+          <DialogContent aria-modal="true" showCloseButton={false} className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
             <CardHeader>
-              <CardTitle>{t('events.edit_schedule_title')}</CardTitle>
-              <CardDescription>{t('events.edit_schedule_desc')}</CardDescription>
+              <DialogTitle>{t('events.edit_schedule_title')}</DialogTitle>
+              <DialogDescription>{t('events.edit_schedule_desc')}</DialogDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               {saveError && <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"><p>{saveError}</p><Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void save()} disabled={busy}>{t('events.retry_save')}</Button></div>}
@@ -1293,15 +1294,15 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                     ))}
                   </SelectContent>
                 </Select>
-                <span className="text-xs text-muted-foreground">Leave empty to keep the current form.</span>
+                <span className="text-xs text-muted-foreground">{t('events.keep_form')}</span>
               </label>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+                <Button variant="outline" disabled={busy} onClick={onClose}>{t('common.cancel')}</Button>
                 <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>
               </div>
             </CardContent>
-          </Card>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </>
   )

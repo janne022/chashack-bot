@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CustomQuestionsEditor } from "@/components/CustomQuestionsEditor"
+import { useT } from "@/lib/i18n"
 
 function Help({ children }: { children: React.ReactNode }) {
   return (
@@ -30,6 +31,7 @@ export function FormConfigEditor({
   value: FormConfig
   onChange: (next: FormConfig) => void
 }) {
+  const t = useT()
   function edit<K extends keyof FormConfig>(key: K, v: FormConfig[K]) {
     onChange({ ...value, [key]: v })
   }
@@ -96,6 +98,8 @@ export function FormConfigEditor({
       <RoleTracksEditor value={value.roleTracks} onChange={v=>edit("roleTracks", v)} />
       <TeamPrefsEditor value={value.teamPrefs} onChange={v=>edit("teamPrefs", v as FormConfig["teamPrefs"])} />
       <SkillsEditor value={value.skills} onChange={v=>edit("skills", v)} />
+      <label className="flex flex-col gap-2 text-sm"><span>{t('form.theme')}</span><Select value={value.themePreset ?? 'default'} onValueChange={v=>edit('themePreset', v as FormConfig['themePreset'])}><SelectTrigger aria-label={t('form.theme')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="default">{t('form.default_theme')}</SelectItem><SelectItem value="halloween">{t('form.halloween')}</SelectItem><SelectItem value="christmas">{t('form.christmas')}</SelectItem></SelectContent></Select></label>
+      <p className="text-sm text-muted-foreground">{t('form.version_hint')}</p>
       <CustomQuestionsEditor value={value.customQuestions ?? []} onChange={v=>edit("customQuestions", v)} form={value} />
     </div>
   )
