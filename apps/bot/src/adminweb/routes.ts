@@ -77,6 +77,7 @@ import { applyTeamLeave } from '../discord/provision.js';
 import { setMembershipLookup } from '../features/signup/eligibility.js';
 import { lookupGuildMember } from '../discord/member-lifecycle.js';
 import { runWithGuildContext, withGuildContext } from '../shared/postgres.js';
+import { consumeQuota } from '../shared/rate-limit.js';
 
 export interface WebDeps {
   db: Db;
@@ -131,6 +132,17 @@ function isSnowflake(id: string): boolean {
 
 export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   const { db, config } = deps;
+  app.addHook('onRequest', async (req, reply) => {
+    const isPublicEntry = req.url.startsWith('/auth/') || req.url.startsWith('/api/public/') || req.url.startsWith('/events/');
+    const isApi = req.url.startsWith('/api/');
+    if (!isPublicEntry && !isApi) return;
+    if (isApi && !isPublicEntry && (await sessionFrom(req)) !== null) return;
+    if (isApi && !isPublicEntry && (await participantSessionFrom(req)) !== null) return;
+    try {
+      const result = await consumeQuota(db, 'source', req.raw.socket.remoteAddress ?? 'unknown', 60);
+      if (!result.allowed) reply.header('Retry-After', result.retryAfterSeconds).code(429).send({ error: 'rate_limited', retryAfterSeconds: result.retryAfterSeconds });
+    } catch { reply.code(503).send({ error: 'rate_limiter_unavailable', retryable: true }); }
+  });
 
   /**
    * An authenticated request. A Discord token only counts while its row exists:
@@ -355,6 +367,20 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
   });
 
+  app.addHook('preHandler', async (req, reply) => {
+    if (!req.url.startsWith('/api/') || ['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) return;
+    const participant = req.url.startsWith('/api/participant/');
+    const session = participant ? await participantSessionFrom(req) : (await sessionFrom(req))?.session ?? null;
+    if (session === null) return;
+    const key = `${session.userId}:${session.selectedGuildId ?? ''}`;
+    const expensive = /invite|invitation|teams?|match/i.test(req.url);
+    try {
+      const ordinary = await consumeQuota(db, 'ordinary', key, 30);
+      const costly = expensive ? await consumeQuota(db, 'expensive', key, 5) : { allowed: true, retryAfterSeconds: 0 };
+      const denied = ordinary.allowed ? costly : ordinary;
+      if (!denied.allowed) reply.header('Retry-After', denied.retryAfterSeconds).code(429).send({ error: 'rate_limited', retryAfterSeconds: denied.retryAfterSeconds });
+    } catch { reply.code(503).send({ error: 'rate_limiter_unavailable', retryable: true }); }
+  });
 
   /**
    * Where Discord sends the code back. Never derived from an attacker-controlled

@@ -160,6 +160,42 @@ test('foreign Origin is rejected for session-changing requests', async () => {
   await db.close();
 });
 
+test('public source quota returns a retryable 429 and ignores spoofed forwarded addresses', async () => {
+  const db = await openTestDb();
+  const app = Fastify({ logger: false });
+  registerRoutes(app, { db, config, announce: async () => undefined, client: null });
+  for (let i = 0; i < 60; i++) {
+    const response = await app.inject({ url: '/api/public/events/missing' });
+    assert.equal(response.statusCode, 404);
+  }
+  const denied = await app.inject({ url: '/api/public/events/missing', headers: { 'x-forwarded-for': '203.0.113.99' } });
+  assert.equal(denied.statusCode, 429);
+  assert.equal(denied.json().error, 'rate_limited');
+  assert.equal(Number(denied.headers['retry-after']), denied.json().retryAfterSeconds);
+  await app.close();
+  await db.close();
+});
+
+test('expensive actor quota is shared across target ids and denies before audit or mutation', async () => {
+  const db = await openTestDb();
+  const guildId = '11111111111111111';
+  const session = await createSession(db, { userId: 'quota-admin', username: 'admin', avatar: null, guilds: [{ id: guildId, name: 'Guild', icon: null }] });
+  const guild = { id: guildId, ownerId: 'someone-else', members: { fetch: async (id: string) => ({ id, permissions: { has: (name: string) => name === 'Administrator', bitfield: 8n }, roles: { cache: new Map() } }) } };
+  const app = Fastify({ logger: false });
+  registerRoutes(app, { db, config, announce: async () => undefined, client: { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild } } as never });
+  for (let i = 0; i < 5; i++) {
+    const response = await app.inject({ method: 'POST', url: `/api/match/lock?eventId=attacker-selected-${i}`, headers: { cookie: sessionCookie(session.id) } });
+    assert.equal(response.statusCode, 200);
+  }
+  const before = await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'match.lock'");
+  const denied = await app.inject({ method: 'POST', url: '/api/match/lock?eventId=another-target', headers: { cookie: sessionCookie(session.id) } });
+  assert.equal(denied.statusCode, 429);
+  const after = await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'match.lock'");
+  assert.equal(after?.n, before?.n);
+  await app.close();
+  await db.close();
+});
+
 test('public event DTO and initial HTML expose only published escaped content', async () => {
   const db = await openTestDb();
   const form = { ...DEFAULT_FORM, bannerUrl: 'https://cdn.example.test/banner.webp', customQuestions: [{ id: 'private-q', kind: 'text', label: { en: 'Private' }, help: { en: '' }, required: false,
