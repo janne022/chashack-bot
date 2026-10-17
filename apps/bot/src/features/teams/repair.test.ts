@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import type { Db } from '../../shared/db.js';
 import type { Env } from '../../shared/env.js';
@@ -20,6 +21,8 @@ import { onComponent } from '../../discord/components.js';
 import { IDS, type Ctx } from '../../discord/shared.js';
 import { t } from '../../shared/i18n.js';
 import { registerInteractionHandlers } from '../../discord/dispatch.js';
+import { openPostgres, withGuildContext } from '../../shared/postgres.js';
+import { getActiveEvent } from '../events/data.js';
 
 const GUILD = '11111111111111111';
 async function seedUser(db: Db, user: string, at = 1) {
@@ -280,6 +283,98 @@ test('DM join-request decline dispatches to the pinned team owner and rejects fo
     assert.equal((await db.get<{ status: string }>('SELECT status FROM team_requests WHERE id=?', request.value.id))!.status, 'declined');
     assert.ok(JSON.stringify(response).includes('Declined.'), JSON.stringify(response));
   } finally { await db.close(); }
+});
+
+test('DM request dispatch pins guild and non-current event under app-role RLS, rejects stale and departed actors', async () => {
+  const ownerDb = await fixture(['owner', 'member', 'other', 'extra'], 3);
+  const role = `dm_${randomUUID().replaceAll('-', '')}`;
+  const password = randomUUID();
+  let appDb: Awaited<ReturnType<typeof openPostgres>> | undefined;
+  try {
+    const otherGuild = '22222222222222222';
+    await ownerDb.run('INSERT INTO events (id,guild_id,name,status,form_json,created_at,updated_at) VALUES (?,?,?,?,?,2,2)', 'ev-new', GUILD, 'Newer', 'active', JSON.stringify({ ...DEFAULT_FORM, teamSize: 3 }));
+    await ownerDb.run('INSERT INTO events (id,guild_id,name,status,form_json,created_at,updated_at) VALUES (?,?,?,?,?,3,3)', 'ev-b', otherGuild, 'Other guild', 'active', JSON.stringify(DEFAULT_FORM));
+    await ownerDb.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES ('ev-b','owner',?,'owner','some_experience','backend','[]','random_team','[]','active',1,1)", otherGuild);
+    const decoy = await createTeam(ownerDb, 'test', 'ev-b', otherGuild, 'Decoy', 'private', 'owner');
+    assert.ok(decoy.ok);
+    assert.equal((await getActiveEvent(ownerDb, GUILD))?.id, 'ev-new');
+    const team = await createTeam(ownerDb, 'test', 'ev', GUILD, 'Pinned', 'private', 'owner');
+    assert.ok(team.ok);
+    await ownerDb.run("UPDATE teams SET role_id='role',text_channel_id='text',voice_channel_id='voice' WHERE id=?", team.value.id);
+    const schema = (await ownerDb.get<{ name: string }>('SELECT current_schema() AS name'))!.name;
+    await ownerDb.run(`CREATE ROLE ${role} LOGIN PASSWORD '${password}' NOSUPERUSER NOBYPASSRLS`);
+    await ownerDb.run(`GRANT USAGE ON SCHEMA ${schema} TO ${role}`);
+    await ownerDb.run(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${role}`);
+    await ownerDb.run(`GRANT USAGE ON ALL SEQUENCES IN SCHEMA ${schema} TO ${role}`);
+    const url = new URL(process.env.DATABASE_URL!);
+    url.username = role;
+    url.password = password;
+    appDb = await openPostgres(url.toString(), schema, 1);
+    assert.deepEqual(await appDb.all('SELECT * FROM team_requests'), []);
+    assert.equal((await appDb.get<{ user: string }>('SELECT current_user AS user'))!.user, role);
+    setMembershipLookup(appDb, async () => true);
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const outbound: unknown[] = [];
+    const member = { roles: { cache: new Map(), add: async () => undefined } };
+    const guild = { members: { me: { id: 'bot' }, fetch: async (id?: string) => id ? member : new Map() }, roles: { everyone: { id: GUILD } }, channels: { fetch: async () => ({ isTextBased: () => false }) } };
+    const client = { on: (name: string, handler: (interaction: unknown) => void) => handlers.set(name, handler), guilds: { cache: new Map([[otherGuild, guild], [GUILD, guild]]), fetch: async () => guild }, users: { fetch: async () => ({ send: async (payload: unknown) => { outbound.push(payload); } }) } } as never;
+    registerInteractionHandlers(client, { db: appDb, adminIds: [], client, teamCategoryId: undefined, botLanguage: 'en', announce: async () => undefined });
+    const click = async (id: string, actor: string) => {
+      let finish!: (value: unknown) => void;
+      const ready = new Promise<unknown>((resolve) => { finish = resolve; });
+      const interaction = { customId: id, user: { id: actor }, inGuild: () => false, isAutocomplete: () => false, isChatInputCommand: () => false, isModalSubmit: () => false, isButton: () => true, isStringSelectMenu: () => false, isRepliable: () => true, replied: false, deferred: false, update: async (value: unknown) => finish(value), reply: async (value: unknown) => finish(value) };
+      handlers.get('interactionCreate')!(interaction);
+      return ready;
+    };
+    const stale = { content: 'That control is stale — run the command again.', components: [] };
+    const status = (id: number) => ownerDb.get<{ status: string }>('SELECT status FROM team_requests WHERE id=?', id);
+    const invite = await createInvite(ownerDb, 'discord:owner', 'ev', GUILD, team.value.id, 'member', 3);
+    assert.ok(invite.ok);
+    const before = await ownerDb.all('SELECT * FROM audit_log ORDER BY id');
+    assert.deepEqual(await click(`${IDS.reqAccept}:${invite.value.id}`, 'other'), stale);
+    assert.deepEqual(await ownerDb.all('SELECT * FROM audit_log ORDER BY id'), before);
+    assert.deepEqual(outbound, []);
+    setMembershipLookup(appDb, async (_guild, user) => user !== 'member');
+    assert.deepEqual(await click(`${IDS.reqAccept}:${invite.value.id}`, 'member'), stale);
+    assert.equal((await status(invite.value.id))!.status, 'pending');
+    assert.deepEqual(outbound, []);
+    setMembershipLookup(appDb, async () => true);
+    assert.ok(JSON.stringify(await click(`${IDS.reqAccept}:${invite.value.id}`, 'member')).includes('Pinned'));
+    assert.equal((await status(invite.value.id))!.status, 'accepted');
+    assert.equal((await ownerDb.get<{ team_id: string }>("SELECT team_id FROM participants WHERE event_id='ev' AND user_id='member'"))!.team_id, team.value.id);
+    const afterAccept = outbound.length;
+    const replay = await click(`${IDS.reqAccept}:${invite.value.id}`, 'member');
+    assert.ok(JSON.stringify(replay).includes('already handled'), JSON.stringify(replay));
+    assert.deepEqual((replay as { components: unknown[] }).components, []);
+    assert.equal(outbound.length, afterAccept);
+    const decline = await createInvite(ownerDb, 'discord:owner', 'ev', GUILD, team.value.id, 'other', 3);
+    assert.ok(decline.ok);
+    assert.ok(JSON.stringify(await click(`${IDS.reqDecline}:${decline.value.id}`, 'other')).includes('Declined.'));
+    assert.equal((await status(decline.value.id))!.status, 'declined');
+    const cancelledInvite = await createInvite(ownerDb, 'discord:owner', 'ev', GUILD, team.value.id, 'extra', 3);
+    assert.ok(cancelledInvite.ok);
+    assert.deepEqual(await click(`${IDS.reqCancel}:${cancelledInvite.value.id}`, 'extra'), stale);
+    assert.ok(JSON.stringify(await click(`${IDS.reqCancel}:${cancelledInvite.value.id}`, 'owner')).includes('Request cancelled.'));
+    assert.equal((await status(cancelledInvite.value.id))!.status, 'cancelled');
+    const request = await createJoinRequest(ownerDb, 'discord:other', 'ev', GUILD, 'other', team.value.id, 3);
+    assert.ok(request.ok);
+    const ownRequest = await createJoinRequest(ownerDb, 'discord:extra', 'ev', GUILD, 'extra', team.value.id, 3);
+    assert.ok(ownRequest.ok);
+    assert.deepEqual(await click(`${IDS.reqCancel}:${ownRequest.value.id}`, 'owner'), stale);
+    assert.ok(JSON.stringify(await click(`${IDS.reqCancel}:${ownRequest.value.id}`, 'extra')).includes('Request cancelled.'));
+    assert.equal((await status(ownRequest.value.id))!.status, 'cancelled');
+    assert.deepEqual(await click(`${IDS.reqAccept}:${request.value.id}`, 'other'), stale);
+    assert.ok(JSON.stringify(await click(`${IDS.reqAccept}:${request.value.id}`, 'owner')).includes('Pinned'));
+    assert.equal((await status(request.value.id))!.status, 'accepted');
+    assert.equal((await ownerDb.get<{ team_id: string }>("SELECT team_id FROM participants WHERE event_id='ev' AND user_id='other'"))!.team_id, team.value.id);
+    assert.deepEqual(await withGuildContext(appDb, otherGuild, () => appDb!.all('SELECT * FROM team_requests')), []);
+    assert.equal((await withGuildContext(appDb, GUILD, () => appDb!.get<{ status: string }>('SELECT status FROM team_requests WHERE id=?', request.value.id)))!.status, 'accepted');
+  } finally {
+    await appDb?.close();
+    await ownerDb.run(`DROP OWNED BY ${role}`);
+    await ownerDb.run(`DROP ROLE IF EXISTS ${role}`);
+    await ownerDb.close();
+  }
 });
 
 for (const [locale, preservation, eligible] of [
