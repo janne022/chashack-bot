@@ -4,10 +4,11 @@
  * PostgreSQL session. Does not perform or claim a real Discord OAuth login.
  */
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const port = 8491;
@@ -117,6 +118,7 @@ try {
     await delay(150);
   };
   const button = text => `[...document.querySelectorAll('button')].find(e=>e.innerText.trim()===${JSON.stringify(text)})`;
+  const screenshot = async name => {const dir=join(process.env.TMPDIR??tmpdir(),'participant-appearance-evidence');await mkdir(dir,{recursive:true});const bytes=Buffer.from((await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false},sid)).data,'base64');const path=join(dir,name);await writeFile(path,bytes);console.log(`SCREENSHOT ${path} sha256=${createHash('sha256').update(bytes).digest('hex')}`)};
   const fill = async (selector,value) => evaluate(`(() => {const e=document.querySelector(${JSON.stringify(selector)}); if(!e) throw Error('Missing field'); Object.getOwnPropertyDescriptor(e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)}); e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   const api = async (path,body,method='POST') => {
     const res=await fetch(base+path,{method,headers:{cookie,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -189,6 +191,54 @@ try {
   check('custom question labels edited in served form editor preserve stable ID',form.customQuestions[0].id==='interests'&&form.customQuestions[0].label.sv==='Vad vill du bygga?');
   check('incompatible role mapping clears when switching to multiple choice',form.customQuestions[1].kind==='multi_choice'&&!form.customQuestions[1].mapping);
   check('theme preset edited through the served form control persists',form.themePreset==='christmas');
+
+  await nav(base+'/templates'); await wait(`document.body.innerText.includes('Form templates')`);
+  await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Themes'))`);
+  await click(button('New theme')); await wait(`!!document.querySelector('[role=dialog] input[maxlength="80"]')`);
+  await fill('[role=dialog] input[maxlength="80"]','Autumn guild theme');
+  await click(`document.querySelector('[role=dialog] [role=combobox]')`);
+  await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText==='Halloween')`);
+  await fill('[role=dialog] input[type=color]','#ef793e');
+  check('appearance editor exposes a live, named theme preview',await evaluate(`document.querySelector('[role=dialog]').innerText.includes('Autumn guild theme')&&document.querySelector('[role=dialog] input[type=color]').value==='#ef793e'`));
+  await screenshot('theme-editor-desktop-en.png');
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);
+  check('theme editor dialog fits the mobile viewport',await evaluate(`(()=>{const d=document.querySelector('[role=dialog]')?.getBoundingClientRect();return !!d&&document.documentElement.scrollWidth<=innerWidth&&d.left>=0&&d.right<=innerWidth})()`));
+  await screenshot('theme-editor-mobile-en.png');
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
+  await click(button('Save theme')); await wait(`document.body.innerText.includes('Autumn guild theme')`);
+  let theme=(await api('/api/state',undefined,'GET')).templates.find(item=>item.kind==='theme');
+  check('theme created through UI stores only the normalized appearance snapshot',theme?.name==='Autumn guild theme'&&Object.keys(JSON.parse(theme.json)).sort().join(',')==='accentColor,bannerUrl,themePreset'&&JSON.parse(theme.json).themePreset==='halloween'&&JSON.parse(theme.json).accentColor==='#ef793e');
+
+  await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Form templates'))`);
+  await click(`[...document.querySelectorAll('[data-slot=card-title]')].find(e=>e.innerText==='Svenska frågor')`);
+  await wait(`!!document.querySelector('[aria-label="Saved theme"]')`);
+  await click(`document.querySelector('[aria-label="Saved theme"]')`);
+  await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Autumn guild theme'))`);
+  await fill('[role=dialog] input[aria-label="Banner image URL (HTTPS)"]','https://example.com/missing-banner.png');
+  await wait(`!!document.querySelector('[role=dialog] img[alt="Signup banner preview"]')`);
+  await evaluate(`document.querySelector('[role=dialog] img[alt="Signup banner preview"]')?.dispatchEvent(new Event('error'))`);
+  check('broken theme banner preview falls back without broken-image chrome',await evaluate(`document.querySelector('[role=dialog] img[alt="Signup banner preview"]')?.hidden===true`));
+  await click(button('Clear banner'));
+  check('clear banner removes the URL and preview',await evaluate(`document.querySelector('[role=dialog] input[aria-label="Banner image URL (HTTPS)"]').value===''&&!document.querySelector('[role=dialog] img[alt="Signup banner preview"]')`));
+  await click(button('Reset appearance'));
+  check('reset restores the default preset and accent',await evaluate(`document.querySelector('[role=dialog] [aria-label="Theme preset"]').innerText.includes('Default')&&document.querySelector('[role=dialog] input[aria-label="Accent color"]').value==='#55bbda'`));
+  await click(`document.querySelector('[role=dialog] [aria-label="Saved theme"]')`);
+  await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Autumn guild theme'))`);
+  await click(button('Save changes')); await wait(`!document.querySelector('fieldset')`);
+  templates=(await api('/api/state',undefined,'GET')).templates;
+  form=JSON.parse(templates.find(item=>item.id===formTemplate.id).json);
+  check('applying a saved theme to a form copies appearance fields only',form.themePreset==='halloween'&&form.accentColor==='#ef793e'&&form.customQuestions[0].id==='interests');
+
+  await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Themes'))`);
+  await click(`[...document.querySelectorAll('[data-slot=card]')].find(e=>e.innerText.includes('Autumn guild theme')).querySelector('button:last-of-type')`);
+  await wait(`!!document.querySelector('[role=alertdialog]')`);
+  check('deleting a named theme requires a matching confirmation',await evaluate(`document.querySelector('[role=alertdialog]').innerText.includes('Autumn guild theme')`));
+  await click(`[...document.querySelectorAll('[role=alertdialog] button')].find(e=>e.innerText.includes('Delete'))`);
+  await wait(`!document.body.innerText.includes('Autumn guild theme')`);
+  templates=(await api('/api/state',undefined,'GET')).templates;
+  form=JSON.parse(templates.find(item=>item.id===formTemplate.id).json);
+  check('deleting a theme leaves forms that already copied its appearance intact',!templates.some(item=>item.kind==='theme')&&form.themePreset==='halloween'&&form.accentColor==='#ef793e');
+
   const collection=(await api('/api/templates',{name:'Svenska uppdrag',kind:'assignments',json:JSON.stringify({assignments:[{id:'brief',title:'Bygg tillsammans',instructions:'Bygg något för {team}'}]})})).template;
   const template=(await api('/api/templates',{name:'Svensk verkstad',kind:'event',json:JSON.stringify({name:'Svensk verkstad',description:'En gemensam helg',form,assignmentCollectionId:collection.id,assignmentStrategy:'same',schedule:[{id:'workshop',title:'Verkstad',kind:'other',time:0,anchor:'hackathon_start',offsetMinutes:600}]})})).template;
   await nav(base+'/events'); await wait(`document.body.innerText.includes('New event')`);

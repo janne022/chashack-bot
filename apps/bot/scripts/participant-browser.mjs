@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /** @journey:participant — served participant signup, empty state and team lifecycle. Synthetic sessions/membership only; no live Discord OAuth claim. */
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const port = 8491, base = `http://127.0.0.1:${port}`;
 const chromePath = '/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome';
 const profile = await mkdtemp(join(tmpdir(), 'chashack-participant-'));
+const evidenceDir = join(process.env.TMPDIR ?? tmpdir(), 'participant-appearance-evidence');
 const chrome = spawn(chromePath, ['--headless=new','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], {detached:true,stdio:'ignore'}); // g0:allow:secrets t_583f310e — synthetic local browser flags only.
 let server, db, browser;
 const checks=[];
@@ -25,7 +27,7 @@ try {
   const config={adminSessionSecret:'x'.repeat(32),adminPort:port,clientId:'synthetic-client',discordClientSecret:'synthetic-client-secret', // g0:allow:secrets t_583f310e — synthetic fixture only.
     oauthRedirectUri:`${base}/auth/discord/callback`,publicUrl:base,skipDiscord:true,adminIds:[],guildId:undefined,discordToken:'',announceChannelId:undefined,auditChannelId:undefined,teamCategoryId:undefined,botLanguage:'en',databaseUrl:process.env.DATABASE_URL};
   server=await startAdminServer({db,config,announce:async()=>undefined,client});
-  const form={...DEFAULT_FORM,title:'Svensk anmälan',description:'Välkommen',teamSize:2,customQuestions:[{id:'idea',kind:'text',label:{en:'Your idea',sv:'Din idé'},help:{en:'',sv:''},required:true,presentation:'web',visibility:'self_and_organizer'},{id:'private',kind:'text',label:{en:'Private answer',sv:'Privat svar'},help:{en:'',sv:''},required:false,presentation:'web',visibility:'organizer_only'}]};
+  const form={...DEFAULT_FORM,title:'Svensk anmälan',description:'Välkommen',teamSize:2,themePreset:'halloween',accentColor:'#ef793e',bannerUrl:'https://example.com/missing-banner.png',customQuestions:[{id:'idea',kind:'text',label:{en:'Your idea',sv:'Din idé'},help:{en:'',sv:''},required:true,presentation:'web',visibility:'self_and_organizer'},{id:'private',kind:'text',label:{en:'Private answer',sv:'Privat svar'},help:{en:'',sv:''},required:false,presentation:'web',visibility:'organizer_only'}]};
   const eventId='participant-browser-event';
   await db.run('INSERT INTO events (id,guild_id,name,description,status,form_json,created_at,updated_at) VALUES (?,?,?,?,?,?,1,1)',eventId,guildId,'Svensk hackathon','Bygg tillsammans','active',JSON.stringify(form));
   const cookies={};
@@ -44,6 +46,7 @@ try {
   const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true},sid);if(r.exceptionDetails)throw Error(r.exceptionDetails.text);return r.result.value};
   const nav=async path=>{await send('Page.navigate',{url:base+path},sid);for(let i=0;i<100;i++){if(await evaluate(`document.readyState==='complete'&&document.querySelector('#root')?.innerText.trim().length>0`))return;await delay(100)}throw Error(`navigation timeout ${path}: ${await evaluate('document.body.innerText')}`)};
   const wait=async expr=>{for(let i=0;i<100;i++){if(await evaluate(expr))return;await delay(100)}throw Error(`wait timeout ${expr}; URL=${await evaluate('location.href')}; DOM=${await evaluate('document.body.innerText')}`)};
+  const screenshot=async name=>{await mkdir(evidenceDir,{recursive:true});const data=(await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false},sid)).data;const path=join(evidenceDir,name);await writeFile(path,Buffer.from(data,'base64'));console.log(`SCREENSHOT ${path} sha256=${createHash('sha256').update(Buffer.from(data,'base64')).digest('hex')}`)};
   const click=async expr=>{const r=await evaluate(`(()=>{const e=${expr};if(!e)throw Error('missing click target');e.scrollIntoView({block:'center'});return e.getBoundingClientRect().toJSON()})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);await delay(150)};
   const ax=async(selector='textarea#idea')=>{const doc=await send('DOM.getDocument',{depth:0,pierce:true},sid);const node=await send('DOM.querySelector',{nodeId:doc.root.nodeId,selector},sid);return send('Accessibility.getPartialAXTree',{nodeId:node.nodeId,fetchRelatives:true},sid)};
   await send('Page.enable',{},sid);await send('Runtime.enable',{},sid);await send('Network.enable',{},sid);await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);
@@ -53,6 +56,11 @@ try {
   await nav(`/events/${eventId}/signup`);
   await wait(`!!document.querySelector('textarea#idea')`);
   check('served Swedish signup uses event locale label',await evaluate(`document.documentElement.lang==='sv'&&document.querySelector('label[for=idea]')?.innerText.includes('Din idé')`));
+  check('seasonal accent is resolved on the served participant page',await evaluate(`getComputedStyle(document.querySelector('a[href^="/my-hackathons"]')).color==='rgb(239, 121, 62)'`));
+  check('primary submit uses the seasonal accent with a readable foreground',await evaluate(`(()=>{const s=getComputedStyle(document.querySelector('form button[type=submit]'));return s.backgroundColor==='rgb(239, 121, 62)'&&s.color==='rgb(17, 24, 39)'})()`));
+  await evaluate(`document.querySelector('img[referrerpolicy="no-referrer"]')?.dispatchEvent(new Event('error'))`);
+  check('broken optional banner falls back without a broken image surface',await evaluate(`document.querySelector('img[referrerpolicy="no-referrer"]')?.hidden===true`));
+  await screenshot('signup-mobile-sv.png');
   await click(`document.querySelector('form button[type=submit]')`);
   check('required answer validation names field, associates error and focuses it',await evaluate(`(()=>{const e=document.querySelector('#idea');return e.getAttribute('aria-invalid')==='true'&&!!document.getElementById(e.getAttribute('aria-describedby'))&&document.activeElement===e})()`));
   check('required field error is localized in Swedish',await evaluate(`document.getElementById(document.querySelector('#idea').getAttribute('aria-describedby'))?.innerText==='Din idé måste fyllas i.'`));
@@ -67,6 +75,7 @@ try {
   await click(`document.querySelector('form button[type=submit]')`);
   await wait(`document.body.innerText.includes('team')||document.body.innerText.includes('lag')`);
   check('successful registration persists answers to the same session',JSON.parse((await db.get('SELECT answers_json FROM registration_answers WHERE event_id=? AND user_id=?',eventId,'participant-a')).answers_json).idea==='Jag bygger en robot');
+  check('post-signup team action uses the same seasonal accent',await evaluate(`getComputedStyle(document.querySelector('a[href^="/team?eventId"]')).color==='rgb(239, 121, 62)'`));
   const reg=await fetch(`${base}/api/participant/events/${eventId}/registration`,{headers:{cookie:cookies['participant-a']}});check('registration completion response is true',reg.ok&&(await reg.json()).complete===true);
   await nav('/my-hackathons');await wait(`document.body.innerText.includes('Svensk hackathon')`);
   check('My hackathons shows only the signed-in participant registration',await evaluate(`document.body.innerText.includes('Svensk hackathon')&&!document.body.innerText.includes('participant-b')`));
@@ -134,6 +143,8 @@ try {
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
   await nav('/');await evaluate(`localStorage.setItem('chas-locale','en')`);await nav(`/events/${eventId}/signup`);await wait(`!!document.querySelector('textarea#idea')`);
   check('English locale also renders the participant signup labels',await evaluate(`document.documentElement.lang==='en'&&document.querySelector('label[for=idea]')?.innerText.includes('Your idea')`));
+  check('desktop signup fits the viewport with no horizontal overflow',await evaluate(`document.documentElement.scrollWidth<=innerWidth`));
+  await screenshot('signup-desktop-en.png');
   await send('Network.setCookie',{name:'hacksess',value:decodeURIComponent(cookies.organizer.split('=')[1]),url:base,httpOnly:true},sid);
   await nav('/operations?tab=participants');await wait(`document.body.innerText.includes('Participants')`);
   const reassignment=await evaluate(`document.querySelector('[role=combobox][aria-label*="participant-a"]')?.getAttribute('aria-label')`);
