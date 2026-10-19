@@ -198,8 +198,10 @@ test('expensive actor quota is shared across target ids and denies before audit 
   await db.close();
 });
 
-test('registered Discord dispatch shares HTTP expensive quota and denies before side effects in both locales', async () => {
+test('registered Discord dispatch shares HTTP expensive quota and denies before side effects in both locales', async (t) => {
   const db = await openTestDb();
+  const fixedNow = Date.now();
+  t.mock.method(Date, 'now', () => Math.floor(fixedNow / 60_000) * 60_000 + 1_000);
   const guildId = '11111111111111111';
   let dmCalls = 0;
   const guild = { id: guildId, ownerId: 'operator', members: { fetch: async (id: string) => ({ id, permissions: { has: (name: string) => name === 'Administrator', bitfield: 8n }, roles: { cache: new Map() } }) } };
@@ -227,8 +229,7 @@ test('registered Discord dispatch shares HTTP expensive quota and denies before 
     handlers.get('interactionCreate')!(interaction as never);
     await answered;
     const content = JSON.stringify(reply);
-    const discordRetry = Number(content.match(/(\d+)s\b/)?.[1]);
-    assert.ok(discordRetry > 0 && discordRetry <= retryAfter, content);
+    assert.ok(content.includes(`${retryAfter}s`), content);
     assert.match(content, locale === 'en' ? /Too many changes|try again/i : /För många ändringar|försök igen/i);
     const afterCounts = await Promise.all(['participants', 'teams', 'team_requests', 'audit_log'].map(async table => (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`))?.n ?? 0));
     assert.deepEqual([...afterCounts, dmCalls], [...beforeCounts, 0]);
