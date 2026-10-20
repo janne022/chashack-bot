@@ -10,19 +10,16 @@
 // exports =1 globally and the dashboard crashes under it
 // (TypeInitializationException, OTLP DEADLINE_EXCEEDED). Do not call `aspire`
 // directly in shell sessions without the override.
-import { createBuilder } from './.aspire/modules/aspire.mjs';
+import { createBuilder, EndpointProperty, refExpr } from './.aspire/modules/aspire.mjs';
 
 const builder = await createBuilder();
 
-// ── Secrets ──────────────────────────────────────────────────────────────────
-// The bot fails fast when ADMIN_PASSWORD is unset (even with SKIP_DISCORD=1),
-// so the AppHost always injects it. Local dev default: "admin". Export
-// ADMIN_PASSWORD in the environment to override; never put a real value here —
-// Aspire only runs the local stack; the Dockerfile/workflow remain the deploy path.
-const adminPassword = builder.addParameter('admin-password', {
-    value: process.env.ADMIN_PASSWORD ?? 'admin',
-    secret: true,
-});
+// Persist generated secrets alongside Aspire's PostgreSQL administrator secret:
+// a named data volume survives restarts, so its role passwords must survive too.
+const passwordShape = { minLength: 48, lower: true, numeric: true, upper: false, special: false };
+const appPassword = await builder.addParameterWithGeneratedValue('app-role-password', passwordShape, { secret: true, persist: true });
+const migrationPassword = await builder.addParameterWithGeneratedValue('migration-role-password', passwordShape, { secret: true, persist: true });
+const sessionSecret = await builder.addParameterWithGeneratedValue('admin-session-secret', passwordShape, { secret: true, persist: true });
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 const volumePrefix = process.env.APPHOST_VOLUME_PREFIX ?? 'chashack';
@@ -33,6 +30,9 @@ const databaseResourceName = databaseName.replaceAll('_', '-');
 const postgres = await builder
     .addPostgres('postgres')
     .withDataVolume({ name: `${volumePrefix}-pgdata` })
+    .withInitFiles('./postgres-init')
+    .withEnvironment('CHASHACK_APP_PASSWORD', appPassword)
+    .withEnvironment('CHASHACK_MIGRATION_PASSWORD', migrationPassword)
     // Web DB UI (pgWeb) — shows up in the dashboard for ad-hoc queries.
     .withPgWeb()
     // Declare the database on the CONTAINER, not only via addDatabase below:
@@ -41,13 +41,14 @@ const postgres = await builder
     // container initialises a database named after the user instead.
     .withEnvironment('POSTGRES_DB', databaseName);
 
-// Reference the DATABASE (not the server) so dependents get a connection
-// string scoped to this database. NOTE the form: Aspire injects an ADO.NET-style
-// connection string (Host=...;Port=...;Username=...;Password=...;Database=...),
-// NOT a postgresql:// URL — anything consuming it must not assume a URL.
-const db = await postgres.addDatabase(databaseResourceName, {
-    databaseName,
-});
+// The bot needs two separate PostgreSQL roles on the same database. Aspire's
+// default database reference uses the administrator and must never be the app URL.
+const db = await postgres.addDatabase(databaseResourceName, { databaseName });
+const postgresEndpoint = await postgres.getEndpoint('tcp');
+const postgresHost = await postgresEndpoint.property(EndpointProperty.Host);
+const postgresPort = await postgresEndpoint.property(EndpointProperty.Port);
+const appUrl = refExpr`postgresql://chashack_app:${appPassword}@${postgresHost}:${postgresPort}/${databaseName}`;
+const migrationUrl = refExpr`postgresql://chashack_migrate:${migrationPassword}@${postgresHost}:${postgresPort}/${databaseName}`;
 
 const cache = await builder
     .addRedis('cache')
@@ -67,9 +68,8 @@ const botApi = await builder
     .addNodeApp('bot-api', './apps/bot', 'dist/index.js')
     .withPnpm()
     .withReference(db)
-    // PostgreSQL is the only application database. Remember: DATABASE_URL is
-    // an ADO.NET-style string, not a URL (see above).
-    .withEnvironment('DATABASE_URL', db)
+    .withEnvironment('DATABASE_URL', appUrl)
+    .withEnvironment('MIGRATION_DATABASE_URL', migrationUrl)
     .withReference(cache)
     .withEnvironment('REDIS_URL', cache)
     // Local runs start the admin web server without the Discord gateway;
@@ -77,7 +77,7 @@ const botApi = await builder
     // the stack at real Discord (see docs/DEV.md).
     .withEnvironment('SKIP_DISCORD', '1')
     .withEnvironment('DISCORD_GUILD_ID', process.env.DISCORD_GUILD_ID ?? '')
-    .withEnvironment('ADMIN_PASSWORD', adminPassword)
+    .withEnvironment('ADMIN_SESSION_SECRET', sessionSecret)
     // This process binds its local endpoint directly; Aspire requires the
     // host and target ports to match when proxying is disabled.
     .withEndpoint({ name: 'http', scheme: 'http', port: apiPort, targetPort: apiPort, env: 'ADMIN_PORT', isProxied: false })

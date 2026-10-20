@@ -172,8 +172,8 @@ encoded there and in `apphost.mts`:
 Direct run, no Aspire:
 
 ```bash
-# DATABASE_URL must already point to the configured disposable PostgreSQL database.
-cd apps/bot && SKIP_DISCORD=1 ADMIN_PASSWORD=<tmp> DISCORD_GUILD_ID=<snowflake> node dist/index.js
+# DATABASE_URL (restricted app role) and MIGRATION_DATABASE_URL (DDL role) must point to the same disposable PostgreSQL database.
+cd apps/bot && SKIP_DISCORD=1 ADMIN_SESSION_SECRET=<temporary-32+-character-secret> DISCORD_GUILD_ID=<snowflake> node dist/index.js
 ```
 
 - A snowflake-shaped guild id is required, or event creation returns `guild_not_configured`.
