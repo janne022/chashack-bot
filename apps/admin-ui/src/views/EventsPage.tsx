@@ -6,11 +6,13 @@ import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
 import { api } from '@/api'
 import { createEventSchema, announceSchema } from '@/lib/schemas'
-import type { Assignment, AssignmentStrategy, FormConfig, HackathonEvent, Participant } from '@/types'
+import type { Assignment, AssignmentStrategy, FormConfig, FormAppearance, HackathonEvent, Participant } from '@/types'
 import { STRATEGY_OPTIONS } from '@/lib/assignment-strategy'
 import { DEFAULT_FORM } from '@/lib/default-form'
 import { SYNTHETIC_BLOCK_IDS, resolveScheduleAnchors } from '@/lib/schedule-anchor'
 import { FormConfigEditor } from '@/components/FormConfigEditor'
+import { AppearanceControls } from '@/components/appearance-controls'
+import { resolveAppearance } from '@/components/participant-appearance'
 import { validateQuestions } from '@/lib/question-validation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -1161,6 +1163,11 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [editName, setEditName] = useState(event.name)
   const [editDescription, setEditDescription] = useState(event.description)
   const [editFormTemplateId, setEditFormTemplateId] = useState<string>('')
+  const [appearance, setAppearance] = useState<FormAppearance>(() => {
+    try { return resolveAppearance(event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config) }
+    catch { return resolveAppearance(state.config) }
+  })
+  const [appearanceDirty, setAppearanceDirty] = useState(false)
   const [startActions, setStartActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveStart(event))
   const [endActions, setEndActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveEnd(event))
   const [signupActions, setSignupActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveSignup(event))
@@ -1213,8 +1220,12 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
         cleanupDelayHours: editCleanup,
       })
       // Form change is a separate endpoint — only call it when the user picked one.
-      if (editFormTemplateId) {
-        await api.setEventForm(event.id, { formTemplateId: editFormTemplateId })
+      if (editFormTemplateId || appearanceDirty) {
+        if (appearanceDirty) {
+          const template = formTemplates.find(item => item.id === editFormTemplateId)
+          const base = template ? JSON.parse(template.json) as FormConfig : event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config
+          await api.setEventForm(event.id, { formJson: JSON.stringify({ ...base, appearance }) })
+        } else await api.setEventForm(event.id, { formTemplateId: editFormTemplateId })
         setEditFormTemplateId('')
       }
       toast.success(t('events.schedule_saved'))
@@ -1295,6 +1306,9 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 </Select>
                 <span className="text-xs text-muted-foreground">{t('events.keep_form')}</span>
               </label>
+              <section className="space-y-3"><h3 className="font-semibold">{t('form.appearance')}</h3>
+                <AppearanceControls value={appearance} onChange={next => { setAppearance(next); setAppearanceDirty(true) }} previewTitle={editName} />
+              </section>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" disabled={busy} onClick={onClose}>{t('common.cancel')}</Button>
                 <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>

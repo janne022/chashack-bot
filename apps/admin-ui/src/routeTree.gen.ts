@@ -21,6 +21,7 @@ import { Route as ParticipantsRouteImport } from './routes/participants'
 import { Route as TeamRouteImport } from './routes/team'
 import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as TemplatesRouteImport } from './routes/templates'
+import { Route as EventsEventIdIndexRouteImport } from './routes/events.$eventId.index'
 import { Route as EventsEventIdSignupRouteImport } from './routes/events.$eventId.signup'
 
 const IndexRoute = IndexRouteImport.update({
@@ -83,6 +84,11 @@ const TemplatesRoute = TemplatesRouteImport.update({
   path: '/templates',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EventsEventIdIndexRoute = EventsEventIdIndexRouteImport.update({
+  id: '/$eventId/',
+  path: '/$eventId/',
+  getParentRoute: () => EventsRoute,
+} as any)
 const EventsEventIdSignupRoute = EventsEventIdSignupRouteImport.update({
   id: '/$eventId/signup',
   path: '/$eventId/signup',
@@ -103,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/teams': typeof TeamsRoute
   '/templates': typeof TemplatesRoute
   '/events/$eventId/signup': typeof EventsEventIdSignupRoute
+  '/events/$eventId/': typeof EventsEventIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/teams': typeof TeamsRoute
   '/templates': typeof TemplatesRoute
   '/events/$eventId/signup': typeof EventsEventIdSignupRoute
+  '/events/$eventId': typeof EventsEventIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -134,6 +142,7 @@ export interface FileRoutesById {
   '/teams': typeof TeamsRoute
   '/templates': typeof TemplatesRoute
   '/events/$eventId/signup': typeof EventsEventIdSignupRoute
+  '/events/$eventId/': typeof EventsEventIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -151,6 +160,7 @@ export interface FileRouteTypes {
     | '/teams'
     | '/templates'
     | '/events/$eventId/signup'
+    | '/events/$eventId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -166,6 +176,7 @@ export interface FileRouteTypes {
     | '/teams'
     | '/templates'
     | '/events/$eventId/signup'
+    | '/events/$eventId'
   id:
     | '__root__'
     | '/'
@@ -181,6 +192,7 @@ export interface FileRouteTypes {
     | '/teams'
     | '/templates'
     | '/events/$eventId/signup'
+    | '/events/$eventId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -284,6 +296,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TemplatesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/events/$eventId/': {
+      id: '/events/$eventId/'
+      path: '/$eventId'
+      fullPath: '/events/$eventId/'
+      preLoaderRoute: typeof EventsEventIdIndexRouteImport
+      parentRoute: typeof EventsRoute
+    }
     '/events/$eventId/signup': {
       id: '/events/$eventId/signup'
       path: '/$eventId/signup'
@@ -296,10 +315,12 @@ declare module '@tanstack/react-router' {
 
 interface EventsRouteChildren {
   EventsEventIdSignupRoute: typeof EventsEventIdSignupRoute
+  EventsEventIdIndexRoute: typeof EventsEventIdIndexRoute
 }
 
 const EventsRouteChildren: EventsRouteChildren = {
   EventsEventIdSignupRoute: EventsEventIdSignupRoute,
+  EventsEventIdIndexRoute: EventsEventIdIndexRoute,
 }
 
 const EventsRouteWithChildren =

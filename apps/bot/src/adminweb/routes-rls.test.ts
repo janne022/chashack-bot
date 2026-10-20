@@ -110,7 +110,7 @@ test('real app-role handlers bind fresh participant authority, public projection
     assert.equal(page.statusCode, 200);
     assert.match(page.body, /<main[^>]*>/);
     assert.match(page.body, /Sign up|Anmäl/);
-    assert.match(page.body, /event-details/);
+    assert.match(page.body, /<script type="module"[^>]+src="\/assets\//);
     assert.equal((await app.inject({ url: route('api', 'public', 'events', 'draft') })).statusCode, 404);
     assert.equal((await app.inject({ url: '/events/draft' })).statusCode, 404);
     const unavailableApp = Fastify({ logger: false });

@@ -32,22 +32,60 @@ export interface FormConfig {
   bannerUrl?: string | null;
   themePreset?: 'default' | 'halloween' | 'christmas';
   accentColor?: string;
+  appearance?: FormAppearance;
 }
 
-export type FormAppearance = { themePreset: 'default' | 'halloween' | 'christmas'; accentColor: string; bannerUrl: string | null };
+export type FormAppearance = {
+  themePreset: 'default' | 'halloween' | 'christmas'; accentColor: string; bannerUrl: string | null;
+  mode?: 'light' | 'dark'; backgroundColor?: string; surfaceColor?: string; textColor?: string; backgroundUrl?: string | null;
+};
+
+const presetAccent = { default: '#55bbda', halloween: '#ef793e', christmas: '#347b57' } as const;
+const color = (value: unknown): value is string => typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
+function luminance(hex: string): number {
+  const channels = hex.slice(1).match(/.{2}/g)!.map(part => {
+    const n = parseInt(part, 16) / 255;
+    return n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4;
+  });
+  return channels[0]! * .2126 + channels[1]! * .7152 + channels[2]! * .0722;
+}
 
 export function normalizeAppearance(value: unknown): FormAppearance | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
-  if (Object.keys(raw).some((key) => !['themePreset', 'accentColor', 'bannerUrl'].includes(key))) return null;
+  if (Object.keys(raw).some((key) => !['themePreset', 'accentColor', 'bannerUrl', 'mode', 'backgroundColor', 'surfaceColor', 'textColor', 'backgroundUrl'].includes(key))) return null;
   const themePreset = raw.themePreset ?? 'default';
-  const accentColor = raw.accentColor ?? '#55bbda';
+  if (typeof themePreset !== 'string' || !(themePreset in presetAccent)) return null;
+  const accentColor = raw.accentColor ?? presetAccent[themePreset as keyof typeof presetAccent];
   const bannerUrl = raw.bannerUrl ?? null;
-  if (!['default', 'halloween', 'christmas'].includes(String(themePreset)) || typeof accentColor !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(accentColor) || !validBannerUrl(bannerUrl)) return null;
-  return { themePreset: themePreset as FormAppearance['themePreset'], accentColor, bannerUrl: bannerUrl || null };
+  if (!color(accentColor) || !validBannerUrl(bannerUrl) || !validBannerUrl(raw.backgroundUrl) ||
+      (raw.mode !== undefined && raw.mode !== 'light' && raw.mode !== 'dark') ||
+      ['backgroundColor', 'surfaceColor', 'textColor'].some(key => raw[key] !== undefined && !color(raw[key]))) return null;
+  const result: FormAppearance = { themePreset: themePreset as FormAppearance['themePreset'], accentColor, bannerUrl: bannerUrl || null };
+  if (raw.mode !== undefined) result.mode = raw.mode as 'light' | 'dark';
+  for (const key of ['backgroundColor', 'surfaceColor', 'textColor'] as const) if (raw[key] !== undefined) result[key] = raw[key] as string;
+  if (raw.backgroundUrl !== undefined) result.backgroundUrl = (raw.backgroundUrl || null) as string | null;
+  const dark = result.mode === 'dark' || (result.mode === undefined && result.themePreset !== 'default');
+  const background = result.backgroundColor ?? (dark ? '#0a0c10' : '#f7f5f0');
+  const surface = result.surfaceColor ?? (dark ? '#11141b' : '#fffdf9');
+  const text = result.textColor ?? (dark ? '#eef2f7' : '#1a1d24');
+  for (const ground of [background, surface]) {
+    const [bright, dim] = [luminance(ground), luminance(text)].sort((a, b) => b - a);
+    if ((bright! + .05) / (dim! + .05) < 4.5) return null;
+  }
+  return result;
 }
 
 export type LocalizedText = { en: string; sv?: string };
+/** A legacy event without appearance keeps its saved flat fields. */
+export function resolveAppearance(form: Pick<FormConfig, 'appearance' | 'themePreset' | 'accentColor' | 'bannerUrl'>): FormAppearance {
+  const preset = form.themePreset && form.themePreset in presetAccent ? form.themePreset : 'default';
+  return normalizeAppearance(form.appearance) ?? normalizeAppearance({
+    themePreset: preset,
+    accentColor: color(form.accentColor) ? form.accentColor : presetAccent[preset],
+    bannerUrl: validBannerUrl(form.bannerUrl) ? form.bannerUrl : null,
+  })!;
+}
 export interface CustomQuestion {
   id: string;
   kind: 'text' | 'single_choice' | 'multi_choice';

@@ -3,6 +3,9 @@
  * routes are POST + JSON. UI files served from public/.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Db } from '../shared/db.js';
 import type { Env } from '../shared/env.js';
 import {
@@ -70,7 +73,7 @@ import { getForm, updateForm, resetForm } from '../features/form/data.js';
 import { refreshSignupPanel, postOrUpdatePanel } from '../discord/signup-panel.js';
 import { sendAnnouncement, createDiscordEvents } from '../discord/notify.js';
 import type { FormConfig } from '../features/form/domain.js';
-import { validateCustomAnswers, validateCustomQuestions, validBannerUrl, normalizeAppearance } from '../features/form/domain.js';
+import { validateCustomAnswers, validateCustomQuestions, validBannerUrl, normalizeAppearance, resolveAppearance } from '../features/form/domain.js';
 import { getRegistrationAnswers, listRegistrationAnswers, saveRegistrationAnswers } from '../features/registration/data.js';
 import { registerParticipantTeamRoutes } from './participant-teams.js';
 import { applyTeamLeave } from '../discord/provision.js';
@@ -590,9 +593,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return {
       event: { id: event.id, name: event.name, description: event.description, startsAt: event.startsAt, endsAt: event.endsAt },
       form: { version: form.version, title: form.title, description: form.description,
-        themePreset: ['default', 'halloween', 'christmas'].includes(form.themePreset ?? '') ? form.themePreset : 'default',
-        accentColor: /^#[0-9a-fA-F]{6}$/.test(form.accentColor ?? '') ? form.accentColor : form.themePreset === 'halloween' ? '#ef793e' : form.themePreset === 'christmas' ? '#347b57' : '#55bbda',
-        bannerUrl: validBannerUrl(form.bannerUrl) ? form.bannerUrl ?? null : null,
+        appearance: resolveAppearance(form),
         questions: (form.customQuestions ?? []).filter((q) => q.visibility === 'self_and_organizer' && (q.presentation === 'web' || q.presentation === 'both')) },
     };
   });
@@ -604,14 +605,21 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const escape = (value: string): string => value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
     const name = escape(event.name);
     const description = escape(event.description);
-    const presetAccent = form.themePreset === 'halloween' ? '#ef793e' : form.themePreset === 'christmas' ? '#347b57' : '#55bbda';
-    const accent = /^#[0-9a-fA-F]{6}$/.test(form.accentColor ?? '') ? form.accentColor : presetAccent;
-    const image = validBannerUrl(form.bannerUrl) && form.bannerUrl ? `<meta property="og:image" content="${escape(form.bannerUrl)}">` : '';
+    const appearance = resolveAppearance(form);
+    const image = appearance.bannerUrl ? `<meta property="og:image" content="${escape(appearance.bannerUrl)}">` : '';
     const metadata = `<title>${name}</title><meta name="description" content="${description}"><meta property="og:title" content="${name}"><meta property="og:description" content="${description}">${image}`;
     const date = (value: number | null): string => value === null ? '' : escape(new Intl.DateTimeFormat('en', { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' }).format(value));
     const dates = event.startsAt === null && event.endsAt === null ? '' : `<dl class="event-details">${event.startsAt === null ? '' : `<div><dt>Starts</dt><dd><time datetime="${new Date(event.startsAt).toISOString()}">${date(event.startsAt)} UTC</time></dd></div>`}${event.endsAt === null ? '' : `<div><dt>Ends</dt><dd><time datetime="${new Date(event.endsAt).toISOString()}">${date(event.endsAt)} UTC</time></dd></div>`}</dl>`;
-    const banner = validBannerUrl(form.bannerUrl) && form.bannerUrl ? `<img class="banner" src="${escape(form.bannerUrl)}" alt="" referrerpolicy="no-referrer">` : '';
-    return reply.type('text/html; charset=utf-8').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${metadata}<style>*{box-sizing:border-box}body{margin:0;background:#0a0c10;color:#eef2f7;font:16px/1.6 system-ui,sans-serif}.page{max-width:1040px;margin:auto;padding:clamp(20px,5vw,64px)}.banner{display:block;width:100%;max-height:360px;object-fit:cover;border-radius:16px;margin-bottom:32px}h1{font-size:clamp(2rem,6vw,3.5rem);line-height:1.1;margin:0 0 16px}.description{max-width:68ch;color:#c4cad5;white-space:pre-wrap}.event-details{display:flex;gap:32px;flex-wrap:wrap;margin:32px 0}.event-details dt{font-size:.8rem;color:#aab3c3}.event-details dd{margin:0;font-weight:600}a.action{display:inline-block;background:${accent};color:#0a0c10;padding:12px 20px;border-radius:10px;font-weight:700;text-decoration:none}a:focus-visible{outline:3px solid ${accent};outline-offset:3px}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}</style></head><body><main class="page">${banner}<h1>${name}</h1><p class="description">${description || 'Event details and registration.'}</p>${dates}<a class="action" href="/events/${encodeURIComponent(event.id)}/signup">Sign up</a></main></body></html>`);
+    const fallback = `<main><h1>${name}</h1><p>${description}</p>${dates}<a href="/events/${encodeURIComponent(event.id)}/signup">Sign up</a></main>`;
+    const here = dirname(fileURLToPath(import.meta.url));
+    const candidates = [process.env.ADMIN_UI_DIST, join(here, '..', '..', '..', 'admin-ui', 'dist'), join(here, '..', '..', 'admin-ui', 'dist')].filter((path): path is string => !!path);
+    for (const path of candidates) {
+      try {
+        const shell = await readFile(join(path, 'index.html'), 'utf8');
+        return reply.type('text/html; charset=utf-8').send(shell.replace('<title>Hackathon Admin</title>', metadata).replace('<div id="root"></div>', `<div id="root">${fallback}</div>`));
+      } catch { /* API-only mode still serves accessible details. */ }
+    }
+    return reply.type('text/html; charset=utf-8').send(`<!doctype html><html lang="en"><head>${metadata}</head><body>${fallback}</body></html>`);
   });
 
   const participantEvent = async (eventId: string, userId: string) => {
@@ -1198,6 +1206,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       // validate form shape
       try {
         const parsed = JSON.parse(json) as Record<string, unknown>
+        if (parsed.appearance !== undefined && !normalizeAppearance(parsed.appearance)) throw new Error('Invalid appearance.');
         const { normalizeFormUpdate } = await import('../features/form/domain.js')
         const { DEFAULT_FORM } = await import('../features/form/domain.js')
         const normalized = normalizeFormUpdate(DEFAULT_FORM as never, parsed as never)
@@ -1261,6 +1270,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     try {
       const parsed = JSON.parse(json)
       if (existing.kind === 'form') {
+        if (parsed.appearance !== undefined && !normalizeAppearance(parsed.appearance)) throw new Error('Invalid appearance.');
         const { normalizeFormUpdate } = await import('../features/form/domain.js')
         const { DEFAULT_FORM } = await import('../features/form/domain.js')
         json = JSON.stringify(normalizeFormUpdate(DEFAULT_FORM as never, parsed as never))
@@ -1323,7 +1333,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       const questions = validateCustomQuestions(form.customQuestions, form as FormConfig);
       if (!questions.ok) return reply.code(400).send({ ok: false, code: 'invalid_questions', errors: questions.errors });
     }
-    if (!validBannerUrl(form.bannerUrl) || (form.themePreset !== undefined && !['default', 'halloween', 'christmas'].includes(form.themePreset)) ||
+    if ((form.appearance !== undefined && !normalizeAppearance(form.appearance)) || !validBannerUrl(form.bannerUrl) || (form.themePreset !== undefined && !['default', 'halloween', 'christmas'].includes(form.themePreset)) ||
         (form.accentColor !== undefined && !/^#[0-9a-fA-F]{6}$/.test(form.accentColor))) {
       return reply.code(400).send({ ok: false, code: 'invalid_theme' });
     }

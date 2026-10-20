@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CustomQuestionsEditor } from "@/components/CustomQuestionsEditor"
+import { AppearanceControls } from "@/components/appearance-controls"
+import { resolveAppearance } from "@/components/participant-appearance"
 import { useT } from "@/lib/i18n"
 import { useAppContext } from "@/lib/app-context"
 
@@ -103,14 +105,9 @@ export function FormConfigEditor({
       <SkillsEditor value={value.skills} onChange={v=>edit("skills", v)} />
       <Card>
         <CardHeader><CardTitle>{t('form.appearance')}</CardTitle><CardDescription>{t('form.appearance_help')}</CardDescription></CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          {themes.length > 0 && <label className="flex flex-col gap-2 text-sm sm:col-span-2"><span>{t('form.saved_theme')}</span><Select value="" onValueChange={id=>{const selected=themes.find(theme=>theme.id===id);if(!selected)return;try{const appearance=JSON.parse(selected.json) as Pick<FormConfig,'themePreset'|'accentColor'|'bannerUrl'>;onChange({...value,...appearance})}catch{toast.error(t('form.theme_invalid'))}}}><SelectTrigger aria-label={t('form.saved_theme')}><SelectValue placeholder={t('form.apply_theme')} /></SelectTrigger><SelectContent>{themes.map(theme=><SelectItem key={theme.id} value={theme.id}>{theme.name}</SelectItem>)}</SelectContent></Select></label>}
-          <label className="flex flex-col gap-2 text-sm"><span>{t('form.theme')}</span><Select value={value.themePreset ?? 'default'} onValueChange={v=>edit('themePreset', v as FormConfig['themePreset'])}><SelectTrigger aria-label={t('form.theme')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="default">{t('form.default_theme')}</SelectItem><SelectItem value="halloween">{t('form.halloween')}</SelectItem><SelectItem value="christmas">{t('form.christmas')}</SelectItem></SelectContent></Select></label>
-          <label className="flex flex-col gap-2 text-sm"><span>{t('form.accent_color')}</span><Input type="color" aria-label={t('form.accent_color')} value={value.accentColor ?? '#55bbda'} onChange={e=>edit('accentColor', e.target.value)} /></label>
-          <label className="flex flex-col gap-2 text-sm sm:col-span-2"><span>{t('form.banner_url')}</span><Input type="url" inputMode="url" aria-label={t('form.banner_url')} placeholder="https://example.com/banner.jpg" value={value.bannerUrl ?? ''} onChange={e=>edit('bannerUrl', e.target.value || null)} />
-            <span className="text-xs text-muted-foreground">{t('form.banner_help')}</span>
-            <div className="flex items-center gap-3">{value.bannerUrl && <img src={value.bannerUrl} alt={t('form.banner_preview')} referrerPolicy="no-referrer" className="h-20 w-40 rounded-md border object-cover" onError={e=>{e.currentTarget.hidden=true}} />}<Button type="button" variant="outline" size="sm" disabled={!value.bannerUrl} onClick={()=>edit('bannerUrl', null)}>{t('form.clear_banner')}</Button><Button type="button" variant="ghost" size="sm" onClick={()=>onChange({...value,themePreset:'default',accentColor:'#55bbda',bannerUrl:null})}>{t('form.reset_appearance')}</Button></div>
-          </label>
+        <CardContent className="space-y-4">
+          {themes.length > 0 && <label className="flex flex-col gap-2 text-sm"><span>{t('form.saved_theme')}</span><Select value="" onValueChange={id=>{const selected=themes.find(theme=>theme.id===id);if(!selected)return;try{const appearance=JSON.parse(selected.json) as FormConfig['appearance'];onChange({...value,appearance})}catch{toast.error(t('form.theme_invalid'))}}}><SelectTrigger aria-label={t('form.saved_theme')}><SelectValue placeholder={t('form.apply_theme')} /></SelectTrigger><SelectContent>{themes.map(theme=><SelectItem key={theme.id} value={theme.id}>{theme.name}</SelectItem>)}</SelectContent></Select></label>}
+          <AppearanceControls value={resolveAppearance(value)} onChange={appearance=>onChange({...value,appearance})} previewTitle={value.title} />
         </CardContent>
       </Card>
       <p className="text-sm text-muted-foreground">{t('form.version_hint')}</p>

@@ -11,10 +11,11 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FormConfigEditor } from "@/components/FormConfigEditor"
+import { AppearanceControls } from "@/components/appearance-controls"
 import { EventTemplateEditor, type EventTemplateDraft } from "@/components/EventTemplateEditor"
 import { AssignmentsEditor } from "@/components/AssignmentsEditor"
 import { TagAutocompleteInput, TagAutocompleteTextarea } from "@/components/TagAutocomplete"
-import type { Assignment, FormConfig } from "@/types"
+import type { Assignment, FormConfig, FormAppearance } from "@/types"
 import { dateTime } from "@/lib/format"
 import { DEFAULT_FORM } from "@/lib/default-form"
 import { validateQuestions } from "@/lib/question-validation"
@@ -241,8 +242,8 @@ export function TemplatesPage() {
 function ThemeDialog({ template, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; onClose: ()=>void; onSaved: ()=>Promise<void> }) {
   const t=useT()
   const [name, setName] = useState(template?.name ?? '')
-  const [appearance, setAppearance] = useState<{themePreset?: string; accentColor?: string; bannerUrl?: string | null}>(() => {
-    try { return JSON.parse(template?.json ?? '{}') as {themePreset?: string; accentColor?: string; bannerUrl?: string | null} } catch { return {} }
+  const [appearance, setAppearance] = useState<FormAppearance>(() => {
+    try { const saved = JSON.parse(template?.json ?? '{}') as Partial<FormAppearance>; return { themePreset: saved.themePreset ?? 'default', accentColor: saved.accentColor ?? '#55bbda', bannerUrl: saved.bannerUrl ?? null, ...saved } } catch { return { themePreset: 'default', accentColor: '#55bbda', bannerUrl: null } }
   })
   const [busy, setBusy] = useState(false)
   async function save() {
@@ -250,21 +251,18 @@ function ThemeDialog({ template, onClose, onSaved }: { template: { id: string; n
     if (appearance.bannerUrl && !/^https:\/\//i.test(appearance.bannerUrl)) { toast.error(t('templates.theme_invalid_url')); return }
     setBusy(true)
     try {
-      const json = JSON.stringify({themePreset: appearance.themePreset ?? 'default', accentColor: appearance.accentColor ?? '#55bbda', bannerUrl: appearance.bannerUrl || null})
+      const json = JSON.stringify(appearance)
       if (template) await api.updateTemplate(template.id, {name: name.trim(), json})
       else await api.createTemplateRaw(name.trim(), 'theme', json)
       await onSaved(); toast.success(t('templates.theme_saved')); onClose()
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Save failed') }
     finally { setBusy(false) }
   }
-  return <Dialog open onOpenChange={open=>{if(!open&&!busy)onClose()}}><DialogContent>
+  return <Dialog open onOpenChange={open=>{if(!open&&!busy)onClose()}}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
     <DialogTitle>{template ? t('templates.edit_theme') : t('templates.new_theme')}</DialogTitle>
     <DialogDescription>{t('templates.theme_desc')}</DialogDescription>
     <label className="text-sm">{t('templates.theme_name')}<Input value={name} maxLength={80} onChange={e=>setName(e.target.value)} /></label>
-    <label className="text-sm">{t('templates.theme_preset')}<Select value={appearance.themePreset ?? 'default'} onValueChange={themePreset=>setAppearance({...appearance,themePreset})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="default">{t('form.default_theme')}</SelectItem><SelectItem value="halloween">{t('form.halloween')}</SelectItem><SelectItem value="christmas">{t('form.christmas')}</SelectItem></SelectContent></Select></label>
-    <label className="text-sm">{t('templates.theme_accent')}<Input type="color" value={appearance.accentColor ?? '#55bbda'} onChange={e=>setAppearance({...appearance,accentColor:e.target.value})} /></label>
-    <label className="text-sm">{t('templates.theme_banner')}<Input type="url" value={appearance.bannerUrl ?? ''} onChange={e=>setAppearance({...appearance,bannerUrl:e.target.value || null})} /></label>
-    <div className="rounded-lg border p-3" style={{borderColor:appearance.accentColor ?? '#55bbda'}}><strong style={{color:appearance.accentColor ?? '#55bbda'}}>{name || t('templates.theme_preview')}</strong>{appearance.bannerUrl && <img src={appearance.bannerUrl} alt="" referrerPolicy="no-referrer" className="mt-2 h-20 w-full rounded object-cover" onError={e=>{e.currentTarget.hidden=true}} />}<p className="text-sm text-muted-foreground">{t('templates.theme_preview')}</p></div>
+    <AppearanceControls value={appearance} onChange={setAppearance} previewTitle={name} />
     <div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button><Button disabled={busy} onClick={()=>void save()}>{t('templates.theme_save')}</Button></div>
   </DialogContent></Dialog>
 }

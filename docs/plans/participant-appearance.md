@@ -41,14 +41,14 @@ Public /events/:eventId becomes a real styled event landing page with dates, eve
 
 ## Acceptance checklist
 
-- [ ] Fresh default event yields a coherent public event page and one-page signup at desktop and390px, not raw h1/p or six-question pages.
-- [ ] Actual editor controls for all supported appearance fields persist through create/edit/form/event templates; defaults and legacy rows render safely.
-- [ ] Default and existing seasonal presets visibly differ as intended; custom colors/banner/background appear on both public and signup pages; image failure/clearing works without layout shift or losing form input.
-- [ ] Named reusable theme can be saved, reapplied and managed from Templates; editing/deleting it leaves an already-applied event snapshot unchanged; guild B cannot read/apply/edit guild A's themes.
-- [ ] Appearance-only edits on a populated published event preserve form version, saved answers and matching behavior. Existing structural-conflict controls remain.
-- [ ] Real served journeys cover anonymous -> Discord continuation, current member signup/edit, nonmember refusal, invalid/missing answer focus, save failure with typed data retained, stale version and successful next team action; preserve existing participant regression coverage.
-- [ ] en/sv parity, keyboard/AX focus/label/error semantics, reduced motion, image fallbacks and no overflow at390px and1440px. One batched screenshot inspection of public page, signup and appearance editor; one fixes batch/confirmation, not open-ended polishing.
-- [ ] Route JSX is readable, multi-line and compositional; no nested all-in-one question renderer and no formatting-only claim of refactoring.
+- [x] Fresh default event yields a coherent public event page and one-page signup at desktop and390px, not raw h1/p or six-question pages. Served Chromium public mobile/desktop and signup mobile/desktop journeys.
+- [x] Actual editor controls for all supported appearance fields persist through create/edit/form/event templates; defaults and legacy rows render safely. Organizer browser plus appearance normalization tests.
+- [x] Default and existing seasonal presets visibly differ as intended; custom colors/banner/background appear on both public and signup pages; image failure/clearing works without layout shift or losing form input. Participant browser exercises appearance-over-legacy precedence, broken URLs and retry.
+- [x] Named reusable theme can be saved, reapplied and managed from Templates; editing/deleting it leaves an already-applied event snapshot unchanged; guild B cannot read/apply/edit guild A's themes. Organizer browser and two-guild route tests.
+- [x] Appearance-only edits on a populated published event preserve form version, saved answers and matching behavior. Compiled form-version regression.
+- [x] Real served journeys cover anonymous Discord continuation affordance, current member signup/edit, nonmember refusal, invalid/missing answer focus, save failure with typed data retained, stale version and successful next team action; preserve existing participant regression coverage. Synthetic Chromium sessions only; live Discord OAuth is not claimed.
+- [x] en/sv parity, keyboard/AX focus/label/error semantics, reduced motion, image fallbacks and no overflow at390px and1440px. One batched screenshot inspection of public page, signup and appearance editor; one fixes batch/confirmation, not open-ended polishing. Public CTA, empty date panel and mobile touch targets repaired after inspection; screenshots captured by served-browser scripts under participant-appearance-evidence.
+- [x] Route JSX is readable, multi-line and compositional; no nested all-in-one question renderer and no formatting-only claim of refactoring.
 - [ ] Frozen install, typecheck, clean build -> compiled DB tests, API smoke and existing hpipe gates; all applicable exact-head CI successful after final PR metadata. One genuine independent review, one bounded repair, targeted verification and planner-owned native rebase merge/landing.
 
 ## Explicit exclusions

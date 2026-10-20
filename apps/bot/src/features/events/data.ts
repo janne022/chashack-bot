@@ -12,7 +12,7 @@ import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import { DEFAULT_FORM, type FormConfig } from '../form/domain.js';
 import { getForm } from '../form/data.js';
-import { normalizeFormUpdate, validateCustomQuestions, validBannerUrl } from '../form/domain.js';
+import { normalizeFormUpdate, validateCustomQuestions, validBannerUrl, normalizeAppearance } from '../form/domain.js';
 
 export type EventStatus = 'draft' | 'active' | 'ended';
 
@@ -350,7 +350,7 @@ export async function createEvent(db: Db, actor: string, guildId: string, input:
     const questions = validateCustomQuestions(input.form.customQuestions, { ...await getForm(db, guildId), ...input.form });
     if (!questions.ok) return err('invalid_questions', questions.errors.join('; '));
   }
-  if (!validBannerUrl(input.form?.bannerUrl) || (input.form?.themePreset !== undefined && !['default', 'halloween', 'christmas'].includes(input.form.themePreset)) ||
+  if ((input.form?.appearance !== undefined && !normalizeAppearance(input.form.appearance)) || !validBannerUrl(input.form?.bannerUrl) || (input.form?.themePreset !== undefined && !['default', 'halloween', 'christmas'].includes(input.form.themePreset)) ||
       (input.form?.accentColor !== undefined && !/^#[0-9a-fA-F]{6}$/.test(input.form.accentColor))) return err('invalid_theme', 'Theme preset, banner URL, or accent color is invalid.');
 
   const id = newId('ev');
@@ -535,6 +535,7 @@ export function getEventForm(db: Db, event: HackathonEvent | null, guildDefault:
 }
 
 export async function updateEventForm(db: Db, actor: string, eventId: string, update: Partial<FormConfig>): Promise<Result<FormConfig>> {
+  if (update.appearance !== undefined && !normalizeAppearance(update.appearance)) return err('invalid_theme', 'Appearance is invalid.');
   // Read current → merge → write: atomic so the stored form is the merge of one
   // editor's update, not an interleave of two.
   return db.transaction(async () => {
