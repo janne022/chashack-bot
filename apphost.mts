@@ -32,7 +32,7 @@ const postgres = await builder
     .withDataVolume({ name: `${volumePrefix}-pgdata` })
     .withInitFiles('./postgres-init')
     .withEnvironment('CHASHACK_APP_PASSWORD', appPassword)
-    .withEnvironment('CHASHACK_MIGRATION_PASSWORD', migrationPassword)
+    .withEnvironment('CHASHACK_MIGRATION_PASSWORD', migrationPassword) // g0:allow:secrets t_c6818857 — Aspire-generated reference, not a literal
     // Web DB UI (pgWeb) — shows up in the dashboard for ad-hoc queries.
     .withPgWeb()
     // Declare the database on the CONTAINER, not only via addDatabase below:
@@ -69,7 +69,7 @@ const botApi = await builder
     .withPnpm()
     .withReference(db)
     .withEnvironment('DATABASE_URL', appUrl)
-    .withEnvironment('MIGRATION_DATABASE_URL', migrationUrl)
+    .withEnvironment('MIGRATION_DATABASE_URL', migrationUrl) // g0:allow:secrets t_c6818857 — generated role URL reference, not a literal
     .withReference(cache)
     .withEnvironment('REDIS_URL', cache)
     // Local runs start the admin web server without the Discord gateway;
