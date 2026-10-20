@@ -33,15 +33,25 @@ Dashboard. `pnpm smoke:apphost` also verifies `/healthz` responds successfully.
 
 - `postgres` — PostgreSQL with database `chashack` by default and pgWeb.
 - `cache` — Redis and Redis Insight; wiring only, no production cache consumer.
-- `bot-api` — `node dist/index.js`, with `DATABASE_URL`, `SKIP_DISCORD=1`, and
-  `ADMIN_PORT` set to the configured API port (8420 by default); `/healthz` is
-  the health check. Set `DISCORD_GUILD_ID` for guild-scoped event creation; a
-  fake snowflake is sufficient for isolated local checks without Discord.
+- `bot-api` — `node dist/index.js`, with separate `DATABASE_URL` (restricted
+  `chashack_app` role), `MIGRATION_DATABASE_URL` (DDL `chashack_migrate` role),
+  an Aspire-persisted `ADMIN_SESSION_SECRET`, `SKIP_DISCORD=1`, and `ADMIN_PORT`
+  set to the configured API port (8420 by default); `/healthz` is the health
+  check. Set `DISCORD_GUILD_ID` for guild-scoped event creation; a fake snowflake
+  is sufficient for isolated local checks without Discord.
 - `admin-ui` — Vite console, connected to the bot API.
 
-Aspire injects the PostgreSQL reference as an ADO.NET-style connection string,
-not a `postgresql://` URL. PostgreSQL is the sole application database; a
-missing/invalid `DATABASE_URL` fails startup without exposing credentials.
+The bot does not consume Aspire's administrator database reference. AppHost
+constructs role-specific `postgresql://` URLs for the same database and creates
+both roles with `postgres-init/10-roles.sh` only when the PostgreSQL data volume
+is empty. It persists three independent generated secrets (app role, migration
+role, admin session) in Aspire's local secret store across restarts. The app role
+has DML grants but no ownership, DDL, elevated membership, or BYPASSRLS.
+
+Existing data volumes **do not rerun init scripts**. If a volume predates role
+provisioning, stop the stack and arrange explicit, reviewed role/grant setup per
+[POSTGRES-RLS.md](POSTGRES-RLS.md); do not delete or reset data to make startup
+pass. Production role provisioning remains an operator responsibility.
 
 The AppHost uses named data volumes. `pnpm dev:stop` stops resources but preserves
 data. Never remove volumes unless you have positively identified them as your
