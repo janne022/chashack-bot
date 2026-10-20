@@ -76,4 +76,9 @@ test('appearance normalization accepts only supported preset, colors, and HTTPS 
   });
   assert.equal(normalizeAppearance({ themePreset: 'halloween', css: 'body{}' }), null);
   assert.equal(normalizeAppearance({ backgroundUrl: 'http://example.test/bg' }), null);
+  assert.deepEqual(normalizeAppearance({ themePreset: 'christmas', mode: 'dark', backgroundColor: '#121a20', surfaceColor: '#242b30', textColor: '#ffffff', backgroundUrl: 'https://cdn.example.test/bg.webp' }), {
+    themePreset: 'christmas', accentColor: '#347b57', bannerUrl: null, mode: 'dark', backgroundColor: '#121a20', surfaceColor: '#242b30', textColor: '#ffffff', backgroundUrl: 'https://cdn.example.test/bg.webp',
+  });
+  assert.equal(normalizeAppearance({ mode: 'light', backgroundColor: '#ffffff', surfaceColor: '#ffffff', textColor: '#ffffff' }), null);
+  assert.equal(normalizeAppearance({ backgroundUrl: 'https://user:pass@example.test/bg' }), null);
 });

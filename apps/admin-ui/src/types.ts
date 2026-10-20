@@ -58,6 +58,18 @@ export interface FormConfig {
   bannerUrl?: string | null
   themePreset?: 'default' | 'halloween' | 'christmas'
   accentColor?: string
+  appearance?: FormAppearance
+}
+
+export interface FormAppearance {
+  themePreset: 'default' | 'halloween' | 'christmas'
+  accentColor: string
+  bannerUrl: string | null
+  mode?: 'light' | 'dark'
+  backgroundColor?: string
+  surfaceColor?: string
+  textColor?: string
+  backgroundUrl?: string | null
 }
 
 export interface CustomQuestion {

@@ -190,7 +190,7 @@ try {
   form=JSON.parse(templates.find(t=>t.id===formTemplate.id).json);
   check('custom question labels edited in served form editor preserve stable ID',form.customQuestions[0].id==='interests'&&form.customQuestions[0].label.sv==='Vad vill du bygga?');
   check('incompatible role mapping clears when switching to multiple choice',form.customQuestions[1].kind==='multi_choice'&&!form.customQuestions[1].mapping);
-  check('theme preset edited through the served form control persists',form.themePreset==='christmas');
+  check('theme preset edited through the served form control persists',form.appearance?.themePreset==='christmas');
 
   await nav(base+'/templates'); await wait(`document.body.innerText.includes('Form templates')`);
   await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Themes'))`);
@@ -205,7 +205,8 @@ try {
   check('theme editor dialog fits the mobile viewport',await evaluate(`(()=>{const d=document.querySelector('[role=dialog]')?.getBoundingClientRect();return !!d&&document.documentElement.scrollWidth<=innerWidth&&d.left>=0&&d.right<=innerWidth})()`));
   await screenshot('theme-editor-mobile-en.png');
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
-  await click(button('Save theme')); await wait(`document.body.innerText.includes('Autumn guild theme')`);
+  await click(button('Save theme')); await wait(`document.body.innerText.includes('Autumn guild theme') || !!document.querySelector('[data-sonner-toast]')`);
+  check('theme save persisted rather than only showing an error', (await api('/api/state',undefined,'GET')).templates.some(item=>item.kind==='theme'), await evaluate(`document.body.innerText`));
   let theme=(await api('/api/state',undefined,'GET')).templates.find(item=>item.kind==='theme');
   check('theme created through UI stores only the normalized appearance snapshot',theme?.name==='Autumn guild theme'&&Object.keys(JSON.parse(theme.json)).sort().join(',')==='accentColor,bannerUrl,themePreset'&&JSON.parse(theme.json).themePreset==='halloween'&&JSON.parse(theme.json).accentColor==='#ef793e');
 
@@ -215,11 +216,11 @@ try {
   await click(`document.querySelector('[aria-label="Saved theme"]')`);
   await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Autumn guild theme'))`);
   await fill('[role=dialog] input[aria-label="Banner image URL (HTTPS)"]','https://example.com/missing-banner.png');
-  await wait(`!!document.querySelector('[role=dialog] img[alt="Signup banner preview"]')`);
-  await evaluate(`document.querySelector('[role=dialog] img[alt="Signup banner preview"]')?.dispatchEvent(new Event('error'))`);
-  check('broken theme banner preview falls back without broken-image chrome',await evaluate(`document.querySelector('[role=dialog] img[alt="Signup banner preview"]')?.hidden===true`));
+  await wait(`!!document.querySelector('[role=dialog] img[referrerpolicy="no-referrer"]')`);
+  await evaluate(`document.querySelector('[role=dialog] img[referrerpolicy="no-referrer"]')?.dispatchEvent(new Event('error'))`);
+  check('broken theme banner preview falls back without broken-image chrome',await evaluate(`document.querySelector('[role=dialog] img[referrerpolicy="no-referrer"]')?.hidden===true`));
   await click(button('Clear banner'));
-  check('clear banner removes the URL and preview',await evaluate(`document.querySelector('[role=dialog] input[aria-label="Banner image URL (HTTPS)"]').value===''&&!document.querySelector('[role=dialog] img[alt="Signup banner preview"]')`));
+  check('clear banner removes the URL and preview',await evaluate(`document.querySelector('[role=dialog] input[aria-label="Banner image URL (HTTPS)"]').value===''&&!document.querySelector('[role=dialog] img[referrerpolicy="no-referrer"]')`));
   await click(button('Reset appearance'));
   check('reset restores the default preset and accent',await evaluate(`document.querySelector('[role=dialog] [aria-label="Theme preset"]').innerText.includes('Default')&&document.querySelector('[role=dialog] input[aria-label="Accent color"]').value==='#55bbda'`));
   await click(`document.querySelector('[role=dialog] [aria-label="Saved theme"]')`);
@@ -227,7 +228,7 @@ try {
   await click(button('Save changes')); await wait(`!document.querySelector('fieldset')`);
   templates=(await api('/api/state',undefined,'GET')).templates;
   form=JSON.parse(templates.find(item=>item.id===formTemplate.id).json);
-  check('applying a saved theme to a form copies appearance fields only',form.themePreset==='halloween'&&form.accentColor==='#ef793e'&&form.customQuestions[0].id==='interests');
+  check('applying a saved theme to a form copies appearance fields only',form.appearance?.themePreset==='halloween'&&form.appearance?.accentColor==='#ef793e'&&form.customQuestions[0].id==='interests');
 
   await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Themes'))`);
   await click(`[...document.querySelectorAll('[data-slot=card]')].find(e=>e.innerText.includes('Autumn guild theme')).querySelector('button:last-of-type')`);
@@ -237,13 +238,14 @@ try {
   await wait(`!document.body.innerText.includes('Autumn guild theme')`);
   templates=(await api('/api/state',undefined,'GET')).templates;
   form=JSON.parse(templates.find(item=>item.id===formTemplate.id).json);
-  check('deleting a theme leaves forms that already copied its appearance intact',!templates.some(item=>item.kind==='theme')&&form.themePreset==='halloween'&&form.accentColor==='#ef793e');
+  check('deleting a theme leaves forms that already copied its appearance intact',!templates.some(item=>item.kind==='theme')&&form.appearance?.themePreset==='halloween'&&form.appearance?.accentColor==='#ef793e');
 
   const collection=(await api('/api/templates',{name:'Svenska uppdrag',kind:'assignments',json:JSON.stringify({assignments:[{id:'brief',title:'Bygg tillsammans',instructions:'Bygg något för {team}'}]})})).template;
   const template=(await api('/api/templates',{name:'Svensk verkstad',kind:'event',json:JSON.stringify({name:'Svensk verkstad',description:'En gemensam helg',form,assignmentCollectionId:collection.id,assignmentStrategy:'same',schedule:[{id:'workshop',title:'Verkstad',kind:'other',time:0,anchor:'hackathon_start',offsetMinutes:600}]})})).template;
   await nav(base+'/events'); await wait(`document.body.innerText.includes('New event')`);
   await click(button('New event'));
   await click(`document.querySelector('button[role=combobox]')`);
+  await wait(`!![...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Svensk verkstad'))`);
   await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Svensk verkstad'))`);
   await click(button('Continue with template'));
   await wait(`!!document.querySelector('input[maxlength="100"]')`);
@@ -266,7 +268,7 @@ try {
   const ax=await send('Accessibility.getFullAXTree',{},sid);
   check('published preview is a named AX link',ax.nodes.some(n=>n.role?.value==='link'&&/preview/i.test(n.name?.value??'')));
   const pub=await api('/api/public/events/'+event.id,undefined,'GET');
-  check('public definition agrees with persisted form',pub.event.name===event.name&&pub.form.title===form.title&&pub.form.themePreset===form.themePreset);
+  check('public definition agrees with persisted form',pub.event.name===event.name&&pub.form.title===form.title&&pub.form.appearance.themePreset===form.themePreset);
   const html=await (await fetch(base+'/events/'+event.id)).text();
   check('initial public HTML agrees with persisted title and description',html.includes(event.name)&&html.includes(event.description)&&html.includes('og:title'));
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);

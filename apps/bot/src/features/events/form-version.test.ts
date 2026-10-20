@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { activateEvent, createEvent, updateEventForm } from './data.js';
+import { activateEvent, createEvent, getEvent, getEventForm, updateEventForm } from './data.js';
 import { DEFAULT_FORM } from '../form/domain.js';
 import { openTestDb } from '../../shared/test-db.js';
 
@@ -18,6 +18,27 @@ test('structural form changes conflict on populated published events', async () 
     });
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.code, 'form_version_conflict');
+  } finally { await db.close(); }
+});
+
+test('appearance edit on a populated published event preserves version and answers', async () => {
+  const db = await openTestDb();
+  try {
+    const created = await createEvent(db, 'test', 'guild-appearance', { name: 'Appearance version' });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const id = created.value.id;
+    await activateEvent(db, 'test', id);
+    await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'active',1,1)", id, 'member', 'guild-appearance', 'A', '', '', '[]', 'random_team', '[]');
+    const version = getEventForm(db, await getEvent(db, id), DEFAULT_FORM).version;
+    await db.run('INSERT INTO registration_answers (event_id,user_id,form_version,answers_json,updated_at) VALUES (?,?,?,?,1)', id, 'member', version, '{"goal":"build"}');
+    const updated = await updateEventForm(db, 'test', id, { appearance: { themePreset: 'christmas', accentColor: '#347b57', bannerUrl: null, mode: 'dark', backgroundUrl: 'https://example.test/scene.webp' } });
+    assert.equal(updated.ok, true);
+    if (!updated.ok) return;
+    assert.equal(updated.value.version, version);
+    assert.equal(updated.value.appearance?.backgroundUrl, 'https://example.test/scene.webp');
+    assert.deepEqual(await db.get('SELECT form_version,answers_json FROM registration_answers WHERE event_id = ? AND user_id = ?', id, 'member'), { form_version: version, answers_json: '{"goal":"build"}' });
+    assert.equal((await db.get<{ team_pref: string }>('SELECT team_pref FROM participants WHERE event_id = ? AND user_id = ?', id, 'member'))?.team_pref, 'random_team');
   } finally { await db.close(); }
 });
 

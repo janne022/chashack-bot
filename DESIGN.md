@@ -448,3 +448,16 @@ can read the hexagons before the content, the opacity is wrong.
   token.
 - **Don't** let colour alone carry meaning: coral/lilac/pink are identity, the
   trio is state, and every chip says what it means.
+
+## Participant event surfaces
+
+Public event and signup pages share one scoped frame, separate from organizer chrome.
+Keep the event description and dates visible beside the one-page form on desktop;
+stack them above the form on mobile. A default event needs no uploaded artwork.
+Event-local appearance may override preset, mode, accent, page background, form
+surface, text and HTTPS banner/background images, but must retain readable opaque
+form surfaces and a contrast-resolved action foreground. A failed image disappears
+without covering content; it never blocks registration. Theme templates copy their
+appearance into the event snapshot rather than binding future theme edits to it.
+Participant primary actions and navigation links use a minimum 44px touch target;
+compact organizer controls above are not the participant sizing rule.
