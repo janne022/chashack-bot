@@ -164,9 +164,10 @@ try {
   await nav(`/events/${eventId}/signup`); await wait(`!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Continue'))`);
   check('anonymous signup offers Discord continuation without a participant form',await evaluate(`!document.querySelector('form')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Continue'))`));
   await db.run('INSERT INTO events (id,guild_id,name,description,status,form_json,created_at,updated_at) VALUES (?,?,?,?,?,?,1,1)','default-public-event',guildId,'Default event','No custom media required','active',JSON.stringify(DEFAULT_FORM));
-  await nav('/events/default-public-event'); await wait(`!!document.querySelector('a[href$="/signup"]')`);
+  const defaultEventPath = '/events/default-public-event'; // g0:allow:secrets t_04535032 — synthetic public fixture path, not a credential.
+  await nav(defaultEventPath); await wait(`!!document.querySelector('a[href$="/signup"]')`);
   check('fresh default event has a styled public action and no empty detail panel',await evaluate(`getComputedStyle(document.querySelector('main')).backgroundColor==='rgb(247, 245, 240)'&&!document.querySelector('aside')&&!!document.querySelector('a[href$="/signup"]')`));
-  await nav('/events/default-public-event/signup'); await wait(`!!document.querySelector('main')`);
+  await nav(`${defaultEventPath}/signup`); await wait(`!!document.querySelector('main')`);
   check('default signup has no broken media and uses the same light frame',await evaluate(`getComputedStyle(document.querySelector('main')).backgroundColor==='rgb(247, 245, 240)'&&!document.querySelector('main img')`));
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
   await send('Network.setCookie',{name:'hacksess',value:decodeURIComponent(cookies.organizer.split('=')[1]),url:base,httpOnly:true},sid);
