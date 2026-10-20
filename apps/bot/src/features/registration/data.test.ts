@@ -13,8 +13,10 @@ test('registration answers persist one event/user/version record and reject stal
     assert.equal(saved.ok, true);
     const stale = await saveRegistrationAnswers(db, 'form-event', 'user-a', 1, { q: 'overwrite' });
     assert.equal(stale.ok, false);
+    const upgraded = await saveRegistrationAnswers(db, 'form-event', 'user-a', 3, { q: 'reconciled' });
+    assert.equal(upgraded.ok, true, 'a validated new form version must let an existing registration migrate');
     await migratePostgres(db);
     await migratePostgres(db);
-    assert.deepEqual(await getRegistrationAnswers(db, 'form-event', 'user-a'), { formVersion: 2, answers: { q: 'first' } });
+    assert.deepEqual(await getRegistrationAnswers(db, 'form-event', 'user-a'), { formVersion: 3, answers: { q: 'reconciled' } });
   } finally { await db.close(); }
 });

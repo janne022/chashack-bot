@@ -29,7 +29,7 @@ export async function saveRegistrationAnswers(
     const existing = await db.get<{ form_version: number }>(
       'SELECT form_version FROM registration_answers WHERE event_id = ? AND user_id = ?', eventId, userId,
     );
-    if (existing !== undefined && existing.form_version !== formVersion) return err('stale_form_version', 'The signup form changed. Reload it before saving.');
+    if (existing !== undefined && existing.form_version > formVersion) return err('stale_form_version', 'The signup form changed. Reload it before saving.');
     await db.run(
       `INSERT INTO registration_answers (event_id, user_id, form_version, answers_json, updated_at)
        VALUES (?, ?, ?, ?, ?) ON CONFLICT (event_id, user_id) DO UPDATE

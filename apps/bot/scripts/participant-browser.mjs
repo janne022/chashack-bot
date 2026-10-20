@@ -65,6 +65,7 @@ try {
   await nav(`/events/${eventId}/signup`);
   await wait(`!!document.querySelector('textarea#idea')`);
   check('served Swedish signup uses event locale label',await evaluate(`document.documentElement.lang==='sv'&&document.querySelector('label[for=idea]')?.innerText.includes('Din idé')`));
+  check('required signup answer is exposed as required in Chromium AX', (await ax()).nodes.some(n=>n.role?.value==='textbox'&&n.properties?.some(p=>p.name==='required'&&p.value?.value===true)));
   check('seasonal accent is resolved on the served participant page',await evaluate(`getComputedStyle(document.querySelector('main')).getPropertyValue('--participant-accent').trim()==='#ef793e'`));
   check('primary submit uses the seasonal accent with a readable foreground',await evaluate(`(()=>{const s=getComputedStyle(document.querySelector('form button[type=submit]'));return s.backgroundColor==='rgb(239, 121, 62)'&&s.color==='rgb(17, 24, 39)'})()`));
   await evaluate(`document.querySelectorAll('img[referrerpolicy="no-referrer"]').forEach(img=>img.dispatchEvent(new Event('error')))`);
@@ -72,6 +73,7 @@ try {
   await screenshot('signup-mobile-sv.png');
   await click(`document.querySelector('form button[type=submit]')`);
   check('required answer validation names field, associates error and focuses it',await evaluate(`(()=>{const e=document.querySelector('#idea');return e.getAttribute('aria-invalid')==='true'&&!!document.getElementById(e.getAttribute('aria-describedby'))&&document.activeElement===e})()`));
+  check('required field stays exposed as required after error focus', (await ax()).nodes.some(n=>n.role?.value==='textbox'&&n.properties?.some(p=>p.name==='required'&&p.value?.value===true)));
   check('required field error is localized in Swedish',await evaluate(`document.getElementById(document.querySelector('#idea').getAttribute('aria-describedby'))?.innerText==='Din idé måste fyllas i.'`));
   await evaluate(`(()=>{const e=document.querySelector('#idea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'Jag bygger en robot');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   const before=await ax();check('signup field is exposed by the browser accessibility tree with its localized name',before.nodes.some(n=>n.role?.value==='textbox'&&n.name?.value.startsWith('Din idé')));
@@ -154,12 +156,20 @@ try {
   check('English locale also renders the participant signup labels',await evaluate(`document.documentElement.lang==='en'&&document.querySelector('label[for=idea]')?.innerText.includes('Your idea')`));
   check('desktop signup fits the viewport with no horizontal overflow',await evaluate(`document.documentElement.scrollWidth<=innerWidth`));
   await screenshot('signup-desktop-en.png');
-  await evaluate(`window.staleFetch=window.fetch;window.fetch=async(...args)=>String(args[0]).includes('/registration')&&args[1]?.method==='PUT'?new Response(JSON.stringify({error:'stale_form_version'}),{status:409,headers:{'content-type':'application/json'}}):window.staleFetch(...args)`);
+  await db.run('UPDATE events SET form_json=? WHERE id=?',JSON.stringify({...form,version:2}),eventId);
   await evaluate(`(()=>{const e=document.querySelector('#idea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'Keep this answer');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   await click(`document.querySelector('form button[type=submit]')`);
   await wait(`!!document.querySelector('[role=alert]')`);
   check('stale form version retains the typed answer for recovery',await evaluate(`document.querySelector('#idea')?.value==='Keep this answer'&&!!document.querySelector('form [role=alert]')`));
-  await evaluate('window.fetch=window.staleFetch');
+  check('stale form offers a working reload action instead of repeating old version',await evaluate(`[...document.querySelectorAll('form button[type=button]')].some(b=>b.innerText.includes('Reload form'))`));
+  await click(`[...document.querySelectorAll('form button')].find(b=>b.innerText.includes('Reload form'))`);
+  await wait(`document.querySelector('#idea')?.value==='Keep this answer'&&!document.querySelector('form [role=alert]')`);
+  await click(`document.querySelector('form button[type=submit]')`);
+  await wait(`document.querySelector('form [role=status]')?.innerText.includes('saved')`);
+  check('stale form recovers and persists the draft under the new published version', (await db.get('SELECT form_version, answers_json FROM registration_answers WHERE event_id=? AND user_id=?',eventId,'participant-a')).form_version===2 && JSON.parse((await db.get('SELECT answers_json FROM registration_answers WHERE event_id=? AND user_id=?',eventId,'participant-a')).answers_json).idea==='Keep this answer');
+  await db.run('UPDATE events SET form_json=? WHERE id=?',JSON.stringify({...form,version:3,customQuestions:[...form.customQuestions,{id:'track',kind:'single_choice',label:{en:'Track'},required:true,choices:[{id:'one',label:{en:'One'}}],presentation:'web',visibility:'self_and_organizer'},{id:'tools',kind:'multi_choice',label:{en:'Tools'},required:true,choices:[{id:'two',label:{en:'Two'}}],presentation:'web',visibility:'self_and_organizer'}]}),eventId);
+  await nav(`/events/${eventId}/signup`); await wait(`!!document.querySelector('#track')`);
+  check('required choice control and checkbox group announce obligation in AX', (await ax('#track')).nodes.some(n=>n.role?.value==='combobox'&&n.properties?.some(p=>p.name==='required'&&p.value?.value===true)) && (await ax('fieldset#tools')).nodes.some(n=>n.role?.value==='group'&&n.name?.value.includes('Required')));
   await send('Network.deleteCookies',{name:'hackpartsess',url:base},sid);
   await nav(`/events/${eventId}/signup`); await wait(`!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Continue'))`);
   check('anonymous signup offers Discord continuation without a participant form',await evaluate(`!document.querySelector('form')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Continue'))`));

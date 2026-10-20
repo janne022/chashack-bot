@@ -19,11 +19,11 @@ export function SignupQuestion({ question, answer, invalid, label, onChange, t }
   const errorId = `${question.id}-error`
   const help = question.help ? label(question.help) : ''
   return <fieldset id={question.kind === 'multi_choice' ? question.id : undefined} tabIndex={question.kind === 'multi_choice' ? -1 : undefined} className="space-y-3 rounded-lg border bg-card p-5" aria-describedby={invalid ? errorId : undefined}>
-    {question.kind === 'multi_choice' ? <legend className="px-1 text-base font-semibold">{title}{question.required ? ' *' : ''}</legend> : <Label htmlFor={question.id} className="text-base font-semibold">{title}{question.required ? ' *' : ''}</Label>}
+    {question.kind === 'multi_choice' ? <legend className="px-1 text-base font-semibold">{title}{question.required ? ` (${t('form.required')})` : ''}</legend> : <Label htmlFor={question.id} className="text-base font-semibold">{title}{question.required ? ' *' : ''}</Label>}
     {help && <p className="text-sm opacity-80">{help}</p>}
     {question.kind === 'single_choice' ? (
       <Select value={typeof answer === 'string' && answer ? answer : '__none__'} onValueChange={value => onChange(value === '__none__' ? '' : value)}>
-        <SelectTrigger id={question.id} aria-label={title} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}><SelectValue placeholder={t('participant.signup_choose')} /></SelectTrigger>
+        <SelectTrigger id={question.id} aria-label={title} aria-required={question.required} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}><SelectValue placeholder={t('participant.signup_choose')} /></SelectTrigger>
         <SelectContent>
           <SelectItem value="__none__">{t('participant.signup_choose')}</SelectItem>
           {question.choices?.map(option => <SelectItem key={option.id} value={option.id}>{label(option.label)}</SelectItem>)}
@@ -40,9 +40,9 @@ export function SignupQuestion({ question, answer, invalid, label, onChange, t }
         })}
       </div>
     ) : question.kind === 'text' ? (
-      <Textarea id={question.id} value={typeof answer === 'string' ? answer : ''} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined} onChange={event => onChange(event.target.value)} />
+      <Textarea id={question.id} value={typeof answer === 'string' ? answer : ''} aria-required={question.required} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined} onChange={event => onChange(event.target.value)} />
     ) : (
-      <Input id={question.id} value={typeof answer === 'string' ? answer : ''} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined} onChange={event => onChange(event.target.value)} />
+      <Input id={question.id} value={typeof answer === 'string' ? answer : ''} aria-required={question.required} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined} onChange={event => onChange(event.target.value)} />
     )}
     {invalid && <p id={errorId} className="text-sm text-destructive">{t('participant.signup_field_required', { field: title })}</p>}
   </fieldset>

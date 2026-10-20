@@ -19,6 +19,7 @@ function Signup() {
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
   const [state, setState] = useState<'loading' | 'idle' | 'waiting' | 'failed'>('loading')
   const [message, setMessage] = useState('')
+  const [stale, setStale] = useState(false)
   const [access, setAccess] = useState<'anonymous' | 'member' | 'nonmember'>('anonymous')
 
   const language = localStorage.getItem('chas-locale') === 'sv' ? 'sv' : 'en'
@@ -28,6 +29,7 @@ function Signup() {
   const load = async () => {
     setState('loading')
     setMessage('')
+    setStale(false)
     try {
       const res = await fetch(`/api/public/events/${encodeURIComponent(eventId)}`)
       if (!res.ok) throw new Error(t('participant.signup_unavailable'))
@@ -44,6 +46,26 @@ function Signup() {
   }
   useEffect(() => { void load() }, [eventId])
 
+  const refreshForm = async () => {
+    setState('waiting')
+    try {
+      const res = await fetch(`/api/public/events/${encodeURIComponent(eventId)}`)
+      if (!res.ok) throw new Error(t('participant.signup_unavailable'))
+      const next = await res.json() as EventForm
+      const previous = new Map(event?.form.questions.map(q => [q.id, q.kind]))
+      setAnswers(current => Object.fromEntries(next.form.questions.flatMap((q): [string, string | string[]][] => {
+        const answer = current[q.id]
+        if (previous.get(q.id) !== q.kind || answer === undefined) return []
+        if (q.kind === 'multi_choice' && Array.isArray(answer)) return [[q.id, answer.filter(id => q.choices?.some(choice => choice.id === id))]]
+        if (q.kind === 'single_choice' && typeof answer === 'string') return [[q.id, q.choices?.some(choice => choice.id === answer) ? answer : '']]
+        return typeof answer === 'string' && !['multi_choice', 'single_choice'].includes(q.kind) ? [[q.id, answer]] : []
+      })))
+      setEvent(next)
+      setRegistration(current => current ? { ...current, complete: false, missingRequiredQuestionIds: [] } : current)
+      setStale(false); setMessage(t('participant.signup_review')); setState('idle')
+    } catch (error) { setMessage(error instanceof Error ? error.message : t('participant.signup_load_error')); setState('failed') }
+  }
+
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (!event) return
@@ -54,13 +76,13 @@ function Signup() {
       document.getElementById(missing[0]!)?.focus()
       return
     }
-    setState('waiting'); setMessage('')
+    setState('waiting'); setMessage(''); setStale(false)
     try {
       const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ formVersion: event.form.version, answers }) })
       const value = await res.json() as Registration & { error?: string }
       if (res.status === 401) { location.assign('/auth/participant'); return }
       if (res.status === 404) throw new Error(t('participant.signup_member'))
-      if (!res.ok) { setRegistration({ ...registration!, ...value, answers, missingRequiredQuestionIds: value.missingRequiredQuestionIds ?? registration?.missingRequiredQuestionIds ?? [] }); setMessage(value.error === 'stale_form_version' ? t('participant.signup_stale') : t('participant.signup_save_error')); setState('failed'); return }
+      if (!res.ok) { setRegistration({ ...registration!, ...value, answers, missingRequiredQuestionIds: value.missingRequiredQuestionIds ?? registration?.missingRequiredQuestionIds ?? [] }); setStale(value.error === 'stale_form_version'); setMessage(value.error === 'stale_form_version' ? t('participant.signup_stale') : t('participant.signup_save_error')); setState('failed'); return }
       setRegistration(value); setMessage(t('participant.signup_saved')); setState('idle')
     } catch (error) { setMessage(error instanceof Error ? error.message : t('participant.signup_failed')); setState('failed') }
   }
@@ -85,7 +107,7 @@ function Signup() {
         {registration && <form className="space-y-5" onSubmit={e => void submit(e)}>
           {visibleQuestions.map(q => <SignupQuestion key={q.id} question={q} answer={answers[q.id]} invalid={registration.missingRequiredQuestionIds.includes(q.id)} label={label} onChange={answer => setAnswers({ ...answers, [q.id]: answer })} t={t} />)}
           {message && <p role={state === 'failed' ? 'alert' : 'status'} tabIndex={-1}>{message}</p>}
-          <div className="flex flex-wrap gap-3"><Button type="submit" className="min-h-11" disabled={state === 'waiting'} aria-busy={state === 'waiting'}>{state === 'waiting' ? t('participant.team_save') : registration.complete ? t('participant.signup_update') : t('participant.signup_submit')}</Button>{state === 'failed' && <Button type="submit" className="min-h-11" variant="outline">{t('participant.retry')}</Button>}</div>
+          <div className="flex flex-wrap gap-3"><Button type="submit" className="min-h-11" disabled={state === 'waiting' || stale} aria-busy={state === 'waiting'}>{state === 'waiting' ? t('participant.team_save') : registration.complete ? t('participant.signup_update') : t('participant.signup_submit')}</Button>{stale ? <Button type="button" className="min-h-11" variant="outline" onClick={() => void refreshForm()}>{t('participant.signup_reload')}</Button> : state === 'failed' && <Button type="submit" className="min-h-11" variant="outline">{t('participant.retry')}</Button>}</div>
           {registration.complete && <p>{t('participant.signup_success')} <a className="underline" href={`/team?eventId=${encodeURIComponent(eventId)}`}>{t('participant.view_team')}</a></p>}
         </form>}
         {message && !registration && <p role={state === 'failed' ? 'alert' : 'status'}>{message} {state === 'failed' && <Button onClick={() => void load()}>{t('participant.retry')}</Button>}</p>}
