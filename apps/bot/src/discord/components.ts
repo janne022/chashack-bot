@@ -52,7 +52,9 @@ async function panelTeam(ctx: Ctx, eventId: string, teamId: string, channelId: s
 async function explicitEventContext(ctx: Ctx & Announcer, eventId: string): Promise<(Ctx & Announcer) | null> {
   const event = await getEvent(ctx.db, eventId);
   if (event === null || event.guildId !== ctx.guildId || event.status !== 'active') return null;
-  return { ...ctx, eventId, eventName: event.name, hasActiveEvent: true, config: getEventForm(ctx.db, event, await getForm(ctx.db, event.guildId)) };
+  return { ...ctx, eventId, eventName: event.name, hasActiveEvent: true,
+    ...(ctx.webCompletionUrl ? { webCompletionUrl: ctx.webCompletionUrl.replace(/\/events\/[^/]+\/signup$/, `/events/${encodeURIComponent(eventId)}/signup`) } : {}),
+    config: getEventForm(ctx.db, event, await getForm(ctx.db, event.guildId)) };
 }
 
 async function handleTeamPanelModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<boolean> {
@@ -612,6 +614,10 @@ export async function onComponent(
     const value = (i as StringSelectMenuInteraction).values[0] ?? '';
     const res = await adminAssign(ctx.db, ctx.actor, ctx.eventId, userId, value === '__none__' ? null : value, ctx.config.teamSize);
     if (res.ok && res.value !== null) await applyTeamLeave({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value, userId);
+    if (res.ok && value !== '__none__') {
+      const destination = await getTeam(ctx.db, value);
+      if (destination !== null) await refreshTeamPanel({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, destination, locale);
+    }
     await i.update({
       content: res.ok ? t(locale, 'discord.admin.moved_done', { user: userId }) : '',
       embeds: res.ok ? [] : [displayErr(locale, res.code, res.message)],
