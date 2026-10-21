@@ -49,13 +49,14 @@ test('RLS hides tenant rows without context and rejects cross-tenant writes as a
         teams: { id: 'team-a', event_id: 'a', guild_id: 'guild-a', name: 'A', kind: 'public', created_at: 1 },
         participants: { event_id: 'a', user_id: 'user', guild_id: 'guild-a', display_name: 'A', experience: '', role_track: '', skills: '[]', team_pref: '', teammates: '[]', created_at: 1, updated_at: 1 },
         registration_answers: { event_id: 'a', user_id: 'user', form_version: 1, answers_json: '{}', updated_at: 1 },
+        imported_signups: { id: 'import-a', event_id: 'a', guild_id: 'guild-a', source_row: 2, source_timestamp: 'unknown', form_version: 1, values_json: '{}', answers_json: '{}', created_at: 1, updated_at: 1 },
         team_requests: { event_id: 'a', guild_id: 'guild-a', team_id: 'team-a', requester_id: 'user', target_id: 'other', kind: 'invite', created_at: 1 },
         member_deletions: { guild_id: 'guild-a', user_id: 'deleted', deleted_at: 1 },
         private_answer_deletions: { guild_id: 'guild-a', event_id: 'a', user_id: 'deleted', deleted_at: 1 },
       };
       const insert = (target: typeof db, table: string, row: Record<string, unknown>) => target.run(`INSERT INTO ${table} (${Object.keys(row).join(',')}) VALUES (${Object.keys(row).map(() => '?').join(',')})`, ...Object.values(row));
       for (const [table, own] of Object.entries(fixtures)) {
-        const foreign = Object.fromEntries(Object.entries(own).map(([key, value]) => [key, value === 'guild-a' ? 'guild-b' : value === 'team-a' ? 'team-b' : key === 'event_id' ? 'b' : value]));
+        const foreign = Object.fromEntries(Object.entries(own).map(([key, value]) => [key, key === 'id' && value === 'import-a' ? 'import-b' : value === 'guild-a' ? 'guild-b' : value === 'team-a' ? 'team-b' : key === 'event_id' ? 'b' : value]));
         await insert(db, table, foreign);
         assert.deepEqual(await appDb.all(`SELECT * FROM ${table}`), [], `${table}: no context`);
         await withGuildContext(appDb, 'guild-a', async () => {

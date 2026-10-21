@@ -31,6 +31,7 @@ import { destroyTeamSpace, botLocale } from './provision.js';
 import { postOrUpdatePanel } from './signup-panel.js';
 import { t } from '../shared/i18n.js';
 import { purgeEventPrivateAnswers, purgeExpiredPrivateAnswers } from '../features/registration/retention.js';
+import { purgeImportedSignups } from '../features/signup-import/data.js';
 
 export interface NotifyDeps {
   db: Db;
@@ -353,6 +354,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
         }
         case 'cleanup': {
           await purgeEventPrivateAnswers(db, event.id, now);
+          await purgeImportedSignups(db, event.id);
           const teams = await listTeams(db, event.id);
           const provisionDeps = { db, client, categoryIdFor: () => event.categoryId ?? undefined };
           for (const team of teams) {
