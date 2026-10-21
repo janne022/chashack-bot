@@ -16,7 +16,10 @@ test('organizer preview is read-only; confirmed rows persist and only a verified
   const session = await createSession(db, { userId: '99999999999999999', username: 'Organizer', avatar: null, guilds: [{ id: guildId, name: 'Guild', icon: null }] });
   const guild = {
     id: guildId, name: 'Guild', ownerId: session.userId,
-    members: { fetch: async (id: string | { user: string }) => ({ id: typeof id === 'string' ? id : id.user, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }) },
+    members: { fetch: async (id: string | { user: string }) => {
+      if (typeof id === 'string' && id === '22345678901234567') throw new Error('Unknown Member');
+      return { id: typeof id === 'string' ? id : id.user, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } };
+    } },
   };
   const client = { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild } } as never;
   const app = Fastify({ logger: false });
@@ -44,6 +47,10 @@ test('organizer preview is read-only; confirmed rows persist and only a verified
     assert.equal(linked.statusCode, 200, linked.body);
     assert.equal(linked.json().activated, true);
     assert.equal((await db.get<{ user_id: string }>('SELECT user_id FROM participants WHERE event_id=?', eventId))?.user_id, '12345678901234567');
+    const beforeFailedLink = await db.get<{ values_json: string; answers_json: string; discord_username: string | null }>('SELECT values_json,answers_json,discord_username FROM imported_signups WHERE id=?', id);
+    const failedLink = await app.inject({ method: 'PATCH', url: `/api/events/${eventId}/imported-signups/${id}`, headers, payload: { values: { name: 'Must roll back' }, answers: { diet: 'changed' }, linkDiscordUserId: '22345678901234567' } });
+    assert.equal(failedLink.statusCode, 400, failedLink.body);
+    assert.deepEqual(await db.get('SELECT values_json,answers_json,discord_username FROM imported_signups WHERE id=?', id), beforeFailedLink);
     const foreignUrl = ['/api/events/', 'missing', '/imported-signups'].join('');
     const foreign = await app.inject({ method: 'GET', url: foreignUrl, headers });
     assert.equal(foreign.statusCode, 200);
