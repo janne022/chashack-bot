@@ -167,6 +167,32 @@ test('completed signup offers button-first create, browse and invitations action
   await db.close();
 });
 
+test('leave confirmation works on its ephemeral message once and rejects copied controls', async () => {
+  const db = await signedUpDb();
+  const team = await createTeam(db, 'test', 'event-1', 'guild-1', 'Alpha', 'public', 'user-1');
+  assert.ok(team.ok);
+  await db.run('UPDATE teams SET text_channel_id = ? WHERE id = ?', 'channel-1', team.value.id);
+  const { setMessageRef } = await import('../features/events/data.js');
+  const { getTeamForUser } = await import('../features/teams/data.js');
+  await setMessageRef(db, `team_panel:${team.value.id}`, { channelId: 'channel-1', messageId: 'panel-1' });
+  const replies: unknown[] = [];
+  const base = {
+    isButton: () => true, user: { id: 'user-1', username: 'tester' }, channelId: 'channel-1',
+    reply: async (payload: unknown) => { replies.push(payload); }, update: async (payload: unknown) => { replies.push(payload); },
+    fetchReply: async () => ({ id: 'ephemeral-1' }),
+  };
+  const ctx = { ...context(db), client: { guilds: { fetch: async () => null } } as never, announce: async () => undefined };
+  await onComponent({ ...base, customId: `hack:team-panel:event-1:${team.value.id}:leave`, message: { id: 'panel-1' } } as never, ctx);
+  const customId = (replies[0] as { components: { components: { toJSON: () => { custom_id: string } }[] }[] }).components[0]!.components[0]!.toJSON().custom_id;
+  await onComponent({ ...base, customId, message: { id: 'copied-elsewhere' } } as never, ctx);
+  assert.ok(await getTeamForUser(db, 'event-1', 'user-1'));
+  await onComponent({ ...base, customId, message: { id: 'ephemeral-1' } } as never, ctx);
+  assert.equal(await getTeamForUser(db, 'event-1', 'user-1'), null);
+  await onComponent({ ...base, customId, message: { id: 'ephemeral-1' } } as never, ctx);
+  assert.equal(await getTeamForUser(db, 'event-1', 'user-1'), null);
+  await db.close();
+});
+
 test('button-first invitations opens the current user request view without a slash command', async () => {
   const db = await signedUpDb();
   const interaction = componentInteraction();
