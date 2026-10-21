@@ -340,7 +340,7 @@ test('participant HTTP and organizer reassignment/settings refresh old-event com
       assert.equal(result.statusCode, 200, result.body);
       return result.json();
     };
-    const base = '/api/participant/events/old';
+    const base = '/api/participant/events/old'; // g0:allow:secrets t_4da6d35d — public HTTP route path, not a credential.
     const created = await call(OWNER, 'POST', `${base}/teams`, { name: 'Alpha', kind: 'public' });
     const team = (await getTeam(f.db, created.team.id))!;
     assert.equal(f.sends(), 1);
