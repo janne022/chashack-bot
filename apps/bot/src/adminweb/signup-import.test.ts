@@ -55,5 +55,17 @@ test('organizer preview is read-only; confirmed rows persist and only a verified
     const foreign = await app.inject({ method: 'GET', url: foreignUrl, headers });
     assert.equal(foreign.statusCode, 200);
     assert.deepEqual(foreign.json().records, []);
+    const secondEvent = await createEvent(db, 'test', '22222222222222222', { name: 'Other tenant' });
+    assert.equal(secondEvent.ok, true);
+    if (secondEvent.ok) {
+      const secondRow = await db.run(`INSERT INTO imported_signups (id,event_id,guild_id,source_row,source_timestamp,form_version,values_json,answers_json,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`, 'foreign-import', secondEvent.value.id, '22222222222222222', 2, '', 1, JSON.stringify({ name: 'Private foreign row' }), '{}', Date.now(), Date.now());
+      assert.equal(secondRow.changes, 1);
+      const foreignPreview = await app.inject({ method: 'POST', url: `/api/events/${secondEvent.value.id}/signup-import/preview`, headers, payload: { csv: 'Name\nNope' } });
+      assert.equal(foreignPreview.statusCode, 404);
+      const foreignPatch = await app.inject({ method: 'PATCH', url: `/api/events/${secondEvent.value.id}/imported-signups/foreign-import`, headers, payload: { values: { name: 'Tampered' } } });
+      assert.equal(foreignPatch.statusCode, 404);
+      assert.equal((await db.get<{ values_json: string }>('SELECT values_json FROM imported_signups WHERE id=?', 'foreign-import'))?.values_json, JSON.stringify({ name: 'Private foreign row' }));
+    }
   } finally { await app.close(); await db.close(); }
 });
