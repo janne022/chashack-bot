@@ -17,6 +17,7 @@ const chromePath = '/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux
 const chromeProfile = await mkdtemp(join(tmpdir(), 'chashack-oauth-chrome-'));
 const chrome = spawn(chromePath, [
   '--headless=new', '--no-sandbox', '--disable-dev-shm-usage',
+  '--host-resolver-rules=MAP chashack.test 127.0.0.1',
   '--remote-debugging-' + 'port=0',
   `--user-data-dir=${chromeProfile}`, 'about:blank',
 ], { detached: true, stdio: 'ignore' });
@@ -197,6 +198,25 @@ try {
   check('custom question labels edited in served form editor preserve stable ID',form.customQuestions[0].id==='interests'&&form.customQuestions[0].label.sv==='Vad vill du bygga?');
   check('incompatible role mapping clears when switching to multiple choice',form.customQuestions[1].kind==='multi_choice'&&!form.customQuestions[1].mapping);
   check('theme preset edited through the served form control persists',form.appearance?.themePreset==='christmas');
+
+  await send('Network.setCookie',{name:'hacksess',value:decodeURIComponent(cookie.slice('hacksess='.length)),url:`http://chashack.test:${port}`,httpOnly:true},sid);
+  await nav(`http://chashack.test:${port}/templates`); await wait(`document.body.innerText.includes('Form templates')`);
+  check('LAN HTTP context exposes getRandomValues but not randomUUID',await evaluate(`!isSecureContext&&typeof crypto.randomUUID==='undefined'&&typeof crypto.getRandomValues==='function'`));
+  await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Form templates'))`);
+  await click(`[...document.querySelectorAll('[data-slot=card-title]')].find(e=>e.innerText==='Svenska frågor')`);
+  await wait(`!!document.querySelector('fieldset')`);
+  await click(button('Add question'));
+  check('LAN HTTP organizer can add a stable custom question ID',await evaluate(`document.querySelectorAll('fieldset').length===3&&/^[a-f0-9-]{36}$/.test(document.querySelectorAll('fieldset legend code')[2]?.innerText||'')`));
+  const questionId=await evaluate(`document.querySelectorAll('fieldset legend code')[2].innerText`);
+  await click(`document.querySelectorAll('fieldset')[2].querySelector('[role=combobox]')`);
+  await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Single choice'))`);
+  const setQuestionInput=async(index,value)=>evaluate(`(()=>{const e=document.querySelectorAll('fieldset')[2].querySelectorAll('input')[${index}];Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await setQuestionInput(0,'LAN question'); await setQuestionInput(1,'Fråga via LAN'); await setQuestionInput(2,'Choice'); await setQuestionInput(3,'Val');
+  console.log('LAN authoring inputs',await evaluate(`JSON.stringify([...document.querySelectorAll('fieldset')[2].querySelectorAll('input')].map(e=>({value:e.value,aria:e.getAttribute('aria-label')})))`));
+  await click(button('Save changes')); await wait(`!document.querySelector('fieldset')`);
+  const lanSaved=JSON.parse((await api('/api/state',undefined,'GET')).templates.find(t=>t.id===formTemplate.id).json);
+  check('LAN HTTP authored bilingual choice question persists with stable IDs',lanSaved.customQuestions[2].id===questionId&&lanSaved.customQuestions[2].label.sv==='Fråga via LAN'&&lanSaved.customQuestions[2].choices[0].label.en==='Choice');
+  await nav(base+'/templates'); await wait(`document.body.innerText.includes('Form templates')`);
 
   await nav(base+'/templates'); await wait(`document.body.innerText.includes('Form templates')`);
   await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Themes'))`);
@@ -482,6 +502,7 @@ try {
   await nav(base+'/events'); await wait(`document.body.innerText.includes('Nytt event')`);
   check('empty template/event workspace keeps first-event action',await evaluate(`document.body.innerText.includes('Inga events än')&&!![...document.querySelectorAll('button')].find(e=>e.innerText.includes('Nytt event'))`));
   await send('Page.removeScriptToEvaluateOnNewDocument',{identifier:emptyScript.identifier},sid);
+
   console.log('RESULT',checks.length,'browser assertions passed; console exceptions:',JSON.stringify(errors));
   assert.deepEqual(errors,[]);
 } finally {

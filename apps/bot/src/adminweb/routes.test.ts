@@ -252,8 +252,15 @@ test('public event DTO and initial HTML expose only published escaped content', 
   const dto = await app.inject({ url: route('api', 'public', 'events', 'public-event') });
   assert.equal(dto.statusCode, 200);
   assert.equal(dto.body.includes('SENTINEL_PRIVATE'), false);
+  const profileFields = dto.json().form.profileFields;
+  assert.deepEqual(Object.keys(profileFields), ['experiences', 'roleTracks', 'skills', 'teamPrefs']);
+  for (const values of Object.values(profileFields) as { id: string; label: string }[][]) {
+    assert.ok(values.length > 0);
+    assert.ok(values.every((value) => value.id && value.label));
+  }
   const html = await app.inject({ url: route('events', 'public-event') });
   assert.equal(html.statusCode, 200);
+  assert.match(html.body, /<link rel="icon" type="image\/svg\+xml" href="\/favicon\.svg">/);
   assert.match(html.body, /<title>&lt;Hack &amp; Win&gt;<\/title>/);
   assert.match(html.body, /og:description/);
   assert.match(html.body, /og:image" content="https:\/\/cdn\.example\.test\/banner\.webp/);
@@ -275,7 +282,11 @@ test('participant registration saves validated answers and stale form versions p
   registerRoutes(app, { db, config, announce: async () => undefined, client });
   const cookie = `hackpartsess=${encodeURIComponent(makeDiscordToken(signingKey, session.id, Date.now(), 'participant'))}`;
   const headers = { cookie };
-  const put = (formVersion: number, answers: Record<string, string>) => app.inject({ method: 'PUT', url: route('api', 'participant', 'events', 'signup-event', 'registration'), headers, payload: { formVersion, answers, teamPref: 'random_team' } });
+  const profile = { experience: 'some_experience', roleTrack: 'fullstack', skills: ['backend_node'], teamPref: 'random_team' };
+  const put = (formVersion: number, answers: Record<string, string>, profileValue = profile) => app.inject({ method: 'PUT', url: route('api', 'participant', 'events', 'signup-event', 'registration'), headers, payload: { formVersion, answers, profile: profileValue } });
+  assert.equal((await put(2, {}, { ...profile, experience: 'invented' })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'PUT', url: route('api', 'participant', 'events', 'signup-event', 'registration'), headers, payload: { formVersion: 2, answers: {} } })).statusCode, 400);
+  assert.equal((await put(2, {}, { ...profile, skills: ['backend_node', 'backend_python'] })).statusCode, 400);
   const incomplete = await put(2, {});
   assert.equal(incomplete.statusCode, 200);
   assert.deepEqual(incomplete.json().missingRequiredQuestionIds, ['goal']);
@@ -283,9 +294,14 @@ test('participant registration saves validated answers and stale form versions p
   const complete = await put(2, { goal: 'A private answer sentinel' });
   assert.equal(complete.statusCode, 200);
   assert.equal(complete.json().complete, true);
+  assert.deepEqual(complete.json().profile, profile);
+  assert.deepEqual((await db.get<{ experience: string; role_track: string; skills: string; team_pref: string }>('SELECT experience, role_track, skills, team_pref FROM participants WHERE event_id=? AND user_id=?', 'signup-event', 'participant-user')), {
+    experience: 'some_experience', role_track: 'fullstack', skills: '["backend_node"]', team_pref: 'random_team',
+  });
   assert.equal((await put(1, { goal: 'overwrite' })).statusCode, 409);
   const get = await app.inject({ url: `${route('api', 'participant', 'events', 'signup-event', 'registration')}?userId=other`, headers });
   assert.equal(get.json().answers.goal, 'A private answer sentinel');
+  assert.deepEqual(get.json().profile, profile);
   await app.close();
   await db.close();
 });
