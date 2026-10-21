@@ -14,6 +14,7 @@ import {
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
 } from 'discord.js';
+import { randomBytes } from 'node:crypto';
 import { MODAL_IDS, validateSignupInput, validateCustomAnswers } from '../features/form/domain.js';
 import { upsertParticipant, getParticipant, listTeamRoster } from '../features/signup/data.js';
 import {
@@ -93,7 +94,7 @@ async function handleTeamPanelButton(i: ButtonInteraction, ctx: Ctx & Announcer)
   if (bits[0] !== 'hack' || (!confirm && bits[1] !== 'team-panel')) return false;
   const eventId = bits[2];
   const teamId = bits[3];
-  const action = bits[4];
+  const action = confirm ? bits[5] : bits[4];
   if (!eventId || !teamId || !action) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
   const team = i.channelId === null ? null : await panelTeam(ctx, eventId, teamId, i.channelId);
   const roster = team === null ? [] : await listTeamRoster(ctx.db, team.id);
@@ -103,8 +104,20 @@ async function handleTeamPanelButton(i: ButtonInteraction, ctx: Ctx & Announcer)
     return true;
   }
   if (confirm) {
-    const ref = await getMessageRef(ctx.db, `team_panel:${team.id}`);
-    if (!isCurrentTeamPanel(ref, i.channelId, i.message.id)) {
+    const [, , confirmEventId, confirmTeamId, nonce, decision] = bits;
+    const key = `team_panel_confirm:${team.id}:${i.user.id}:${nonce}`;
+    const current = await ctx.db.transaction(async () => {
+      const row = await ctx.db.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', key);
+      const ref = await getMessageRef(ctx.db, `team_panel:${team.id}`);
+      let binding: { channelId?: string; messageId?: string; actorId?: string; panelMessageId?: string } = {};
+      try { binding = row ? JSON.parse(row.value) as typeof binding : {}; } catch { /* stale */ }
+      if (confirmEventId !== eventId || confirmTeamId !== teamId || decision !== action
+          || binding.messageId !== i.message.id || binding.actorId !== i.user.id
+          || !isCurrentTeamPanel(ref, i.channelId, binding.panelMessageId ?? '')) return false;
+      await ctx.db.run('DELETE FROM meta WHERE key = ?', key);
+      return true;
+    });
+    if (!current) {
       await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale')));
       return true;
     }
@@ -140,11 +153,18 @@ async function handleTeamPanelButton(i: ButtonInteraction, ctx: Ctx & Announcer)
     const rows = requests.slice(0, 5).map((request) => decideRowFor(request.id, ctx.botLocale));
     await i.reply({ content: requests.length ? requests.map((request) => `<@${request.requesterId}>`).join('\n') : t(ctx.botLocale, 'discord.teams.nothing_pending'), components: rows, flags: MessageFlags.Ephemeral });
   } else if (action === 'leave') {
+    const nonce = randomBytes(6).toString('base64url');
+    const panelRef = await getMessageRef(ctx.db, `team_panel:${team.id}`);
+    if (!panelRef || panelRef.messageId !== i.message.id) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`hack:team-panel-confirm:${eventId}:${teamId}:leave`).setLabel(t(ctx.botLocale, 'discord.team_panel.confirm')).setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId(`hack:team-panel-confirm:${eventId}:${teamId}:cancel`).setLabel(t(ctx.botLocale, 'discord.team_panel.cancel')).setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`hack:team-panel-confirm:${eventId}:${teamId}:${nonce}:leave`).setLabel(t(ctx.botLocale, 'discord.team_panel.confirm')).setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`hack:team-panel-confirm:${eventId}:${teamId}:${nonce}:cancel`).setLabel(t(ctx.botLocale, 'discord.team_panel.cancel')).setStyle(ButtonStyle.Secondary),
     );
     await i.reply({ content: t(ctx.botLocale, 'discord.team_panel.confirm_leave'), components: [row], flags: MessageFlags.Ephemeral });
+    const confirmation = await i.fetchReply();
+    await ctx.db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      `team_panel_confirm:${team.id}:${i.user.id}:${nonce}`,
+      JSON.stringify({ channelId: i.channelId, messageId: confirmation.id, actorId: i.user.id, panelMessageId: panelRef.messageId }));
   } else {
     await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale')));
   }
