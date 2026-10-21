@@ -1839,20 +1839,28 @@ app.post('/api/event/reset', async (req) => {
     }
     if (typeof body?.discordUsername === 'string' && body.discordUsername.length > 256) return reply.code(400).send({ error: 'invalid_edit' });
     const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
-    const edited = await editImportedSignup(db, params.eventId, params.id, {
-      ...(body?.values ? { values: body.values as Record<string, string> } : {}),
-      ...(body?.answers ? { answers: body.answers as Record<string, string | string[]> } : {}),
-      ...(body?.discordUsername !== undefined ? { discordUsername: body.discordUsername as string | null } : {}),
-      ...(body?.answers !== undefined ? { formVersion: form.version } : {}),
-    });
-    if (!edited) return reply.code(404).send({ error: 'not_found' });
-    const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
-    if (typeof body?.linkDiscordUserId === 'string') {
-      if (!(await currentMember(event.guildId, body.linkDiscordUserId))) return reply.code(400).send({ error: 'not_guild_member', record });
-      const linked = await linkImportedSignup(db, event.id, event.guildId, params.id, body.linkDiscordUserId, form);
-      if (linked.error) return reply.code(linked.error === 'event_not_active' ? 409 : 400).send({ ...linked, record });
-      return { record: (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? record, ...linked };
+    if (typeof body?.linkDiscordUserId === 'string' && !(await currentMember(event.guildId, body.linkDiscordUserId))) return reply.code(400).send({ error: 'not_guild_member' });
+    try {
+      return await db.transaction(async () => {
+        const edited = await editImportedSignup(db, params.eventId, params.id, {
+          ...(body?.values ? { values: body.values as Record<string, string> } : {}),
+          ...(body?.answers ? { answers: body.answers as Record<string, string | string[]> } : {}),
+          ...(body?.discordUsername !== undefined ? { discordUsername: body.discordUsername as string | null } : {}),
+          ...(body?.answers !== undefined ? { formVersion: form.version } : {}),
+        });
+        if (!edited) throw new Error('not_found');
+        if (typeof body?.linkDiscordUserId === 'string') {
+          const linked = await linkImportedSignup(db, event.id, event.guildId, params.id, body.linkDiscordUserId, form);
+          if (linked.error) throw new Error(linked.error);
+          const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
+          return { record, ...linked };
+        }
+        const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
+        return { record, linked: record.discordUserId !== null, missingFields: record.missingFields };
+      });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'edit_failed';
+      return reply.code(code === 'event_not_active' ? 409 : code === 'not_found' || code === 'import_not_found' ? 404 : 400).send({ error: code });
     }
-    return { record, linked: record.discordUserId !== null, missingFields: record.missingFields };
   });
 }
