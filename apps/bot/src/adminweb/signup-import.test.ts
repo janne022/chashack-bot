@@ -8,7 +8,7 @@ import { openTestDb } from '../shared/test-db.js';
 import type { Env } from '../shared/env.js';
 import { registerRoutes } from './routes.js';
 
-const secret = 'signup-import-test-signing-key-at-least-32-chars';
+const secret = 'x'.repeat(48);
 const guildId = '11111111111111111';
 
 test('organizer preview is read-only; confirmed rows persist and only a verified member can activate them', async () => {
@@ -44,7 +44,8 @@ test('organizer preview is read-only; confirmed rows persist and only a verified
     assert.equal(linked.statusCode, 200, linked.body);
     assert.equal(linked.json().activated, true);
     assert.equal((await db.get<{ user_id: string }>('SELECT user_id FROM participants WHERE event_id=?', eventId))?.user_id, '12345678901234567');
-    const foreign = await app.inject({ method: 'GET', url: '/api/events/missing/imported-signups', headers });
+    const foreignUrl = '/api/events/missing/imported-signups';
+    const foreign = await app.inject({ method: 'GET', url: foreignUrl, headers });
     assert.equal(foreign.statusCode, 200);
     assert.deepEqual(foreign.json().records, []);
   } finally { await app.close(); await db.close(); }
