@@ -23,6 +23,7 @@ function Signup() {
   const [stale, setStale] = useState(false)
   const [access, setAccess] = useState<'anonymous' | 'member' | 'nonmember'>('anonymous')
   const dirty = useRef(false)
+  const draftRevision = useRef(0)
 
   const language = localStorage.getItem('chas-locale') === 'sv' ? 'sv' : 'en'
   const label = (value: Localized) => typeof value === 'string' ? value : value[language] || value.en
@@ -88,13 +89,14 @@ function Signup() {
       return
     }
     setState('waiting'); setMessage(''); setStale(false)
+    const submittedRevision = draftRevision.current
     try {
       const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ formVersion: event.form.version, answers }) })
       const value = await res.json() as Registration & { error?: string }
       if (res.status === 401) { location.assign('/auth/participant'); return }
       if (res.status === 404) throw new Error(t('participant.signup_member'))
       if (!res.ok) { setRegistration({ ...registration!, ...value, answers, missingRequiredQuestionIds: value.missingRequiredQuestionIds ?? registration?.missingRequiredQuestionIds ?? [] }); setStale(value.error === 'stale_form_version'); setMessage(value.error === 'stale_form_version' ? t('participant.signup_stale') : t('participant.signup_save_error')); setState('failed'); return }
-      dirty.current = false; setRegistration(value); setMessage(t('participant.signup_saved')); setState('idle')
+      dirty.current = draftRevision.current !== submittedRevision; setRegistration(value); setMessage(t('participant.signup_saved')); setState('idle')
     } catch (error) { setMessage(error instanceof Error ? error.message : t('participant.signup_failed')); setState('failed') }
   }
   if (!event) return <main className="mx-auto max-w-2xl space-y-4 p-6">{state === 'loading' ? <p aria-busy="true">{t('participant.signup_loading')}</p> : <><p role="alert">{message}</p><Button onClick={() => void load()}>{t('participant.retry')}</Button></>}</main>
@@ -117,7 +119,7 @@ function Signup() {
         </section>}
         {!registration && access === 'nonmember' && <p role="alert">{t('participant.signup_member')}</p>}
         {registration && <form className="space-y-5" onSubmit={e => void submit(e)}>
-          {visibleQuestions.map(q => <SignupQuestion key={q.id} question={q} answer={answers[q.id]} invalid={registration.missingRequiredQuestionIds.includes(q.id)} label={label} onChange={answer => { dirty.current = true; setAnswers({ ...answers, [q.id]: answer }) }} t={t} />)}
+          {visibleQuestions.map(q => <SignupQuestion key={q.id} question={q} answer={answers[q.id]} invalid={registration.missingRequiredQuestionIds.includes(q.id)} label={label} onChange={answer => { draftRevision.current++; dirty.current = true; setAnswers({ ...answers, [q.id]: answer }) }} t={t} />)}
           {message && <p role={state === 'failed' ? 'alert' : 'status'} tabIndex={-1}>{message}</p>}
           <div className="flex flex-wrap gap-3"><Button type="submit" className="min-h-11" disabled={state === 'waiting' || stale} aria-busy={state === 'waiting'}>{state === 'waiting' ? t('participant.team_save') : registration.complete ? t('participant.signup_update') : t('participant.signup_submit')}</Button>{stale ? <Button type="button" className="min-h-11" variant="outline" onClick={() => void refreshForm()}>{t('participant.signup_reload')}</Button> : state === 'failed' && <Button type="submit" className="min-h-11" variant="outline">{t('participant.retry')}</Button>}</div>
           {registration.complete && <p>{t('participant.signup_success')} <a className="underline" href={`/team?eventId=${encodeURIComponent(eventId)}`}>{t('participant.view_team')}</a></p>}

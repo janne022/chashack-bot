@@ -8,6 +8,7 @@ import { openTestDb } from '../shared/test-db.js';
 import { openPostgres, withGuildContext } from '../shared/postgres.js';
 import { createSession, deleteSession } from '../features/auth/data.js';
 import { makeDiscordToken } from '../features/auth/domain.js';
+import { setMembershipLookup } from '../features/signup/eligibility.js';
 import { registerRoutes } from './routes.js';
 
 
@@ -62,6 +63,7 @@ test('actual audience streams enforce fresh authority and app-role RLS across tw
     await until(() => stream.text.includes('event: ready'));
     return stream;
   };
+  let releaseLookup: ((member: boolean) => void) | undefined;
   try {
     assert.deepEqual(await db.all('SELECT * FROM events'), [], 'unscoped app role is empty');
     assert.equal((await fetch(base + '/api/live?eventId=b&probe=1', { headers: { cookie: orgCookie } })).status, 403);
@@ -98,14 +100,23 @@ test('actual audience streams enforce fresh authority and app-role RLS across tw
     assert.equal((await fetch(base + '/api/state', { headers: { cookie: orgCookie } })).status, 403);
     members.add(`${guildA}:subject`); admin = true;
     const logout = await open('/api/participant/events/a/live', partCookie);
+    let lookupEntered = false;
+    const heldLookup = new Promise<boolean>(resolve => { releaseLookup = resolve; });
+    setMembershipLookup(db, async () => { lookupEntered = true; return heldLookup; });
+    await owner.run("UPDATE teams SET name='Stalled membership' WHERE id='open'");
+    await until(() => lookupEntered);
     await deleteSession(db, subject.id);
     await until(() => logout.done, 25_000);
     assert.match(logout.text, /event: denied/);
+    releaseLookup!(true);
+    await delay(100);
+    assert.equal(logout.dirty(), 0, 'late membership result cannot forward a hint after logout');
     const expired = await open('/api/live?eventId=a', orgCookie);
     await db.run('UPDATE web_sessions SET expires_at=1 WHERE id=?', org.id);
     await until(() => expired.done, 25_000);
     assert.match(expired.text, /event: denied/);
   } finally {
+    releaseLookup?.(false);
     controllers.forEach(controller => controller.abort());
     await app.close(); await db.close();
     await owner.run(`DROP OWNED BY ${role}`); await owner.run(`DROP ROLE ${role}`); await owner.close();
