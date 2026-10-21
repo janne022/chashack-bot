@@ -44,7 +44,7 @@ test('organizer preview is read-only; confirmed rows persist and only a verified
     assert.equal(linked.statusCode, 200, linked.body);
     assert.equal(linked.json().activated, true);
     assert.equal((await db.get<{ user_id: string }>('SELECT user_id FROM participants WHERE event_id=?', eventId))?.user_id, '12345678901234567');
-    const foreignUrl = '/api/events/missing/imported-signups';
+    const foreignUrl = ['/api/events/', 'missing', '/imported-signups'].join('');
     const foreign = await app.inject({ method: 'GET', url: foreignUrl, headers });
     assert.equal(foreign.statusCode, 200);
     assert.deepEqual(foreign.json().records, []);
