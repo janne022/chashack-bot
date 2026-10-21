@@ -33,7 +33,7 @@ import { getMessageRef } from '../features/events/data.js';
 import { getRegistrationAnswers } from '../features/registration/data.js';
 import { applyTeamJoin, applyTeamLeave } from './provision.js';
 import { buildSignupModal, buildCreateTeamModal, buildTeamSettingsModal, buildTeamInviteModal, CREATE_TEAM_IDS, TEAM_SETTINGS_IDS, TEAM_INVITE_TARGET_ID } from './modal.js';
-import { refreshTeamPanel } from './team-panel.js';
+import { isCurrentTeamPanel, refreshTeamPanel } from './team-panel.js';
 import { IDS, buildParticipantEmbed, displayErr, embedErr, embedOk, eph, type Ctx } from './shared.js';
 import { commitMatchAndAnnounce, resetEventConfirmed } from './admin-commands.js';
 import { t } from '../shared/i18n.js';
@@ -103,6 +103,11 @@ async function handleTeamPanelButton(i: ButtonInteraction, ctx: Ctx & Announcer)
     return true;
   }
   if (confirm) {
+    const ref = await getMessageRef(ctx.db, `team_panel:${team.id}`);
+    if (!isCurrentTeamPanel(ref, i.channelId, i.message.id)) {
+      await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale')));
+      return true;
+    }
     if (action === 'cancel') { await i.update({ content: t(ctx.botLocale, 'discord.team_panel.cancel'), embeds: [], components: [] }); return true; }
     if (action !== 'leave') { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
     const result = await leaveTeam(ctx.db, `discord:${i.user.id}`, eventId, i.user.id);
@@ -529,6 +534,7 @@ export async function onComponent(
       await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
       return;
     }
+    await refreshTeamPanel({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, team, locale);
     const ownerDm =
       team.ownerId !== null
         ? await ctx.dm(team.ownerId, {

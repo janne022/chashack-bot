@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildTeamPanel } from './team-panel.js';
+import { isCurrentTeamPanel } from './team-panel.js';
 import type { Team } from '../features/teams/data.js';
 
 test('team panel is event-bound and excludes private join codes', () => {
@@ -15,4 +16,10 @@ test('team panel is event-bound and excludes private join codes', () => {
   assert.match(JSON.stringify(json), /hack:team-panel:event-1:team-1:/);
   assert.doesNotMatch(JSON.stringify(json), /secret-code/);
   assert.match(JSON.stringify(json), /Owner/);
+});
+
+test('leave confirmation is bound to the stored current panel message', () => {
+  assert.equal(isCurrentTeamPanel({ channelId: 'c', messageId: 'm' }, 'c', 'm'), true);
+  assert.equal(isCurrentTeamPanel({ channelId: 'c', messageId: 'm' }, 'c', 'copied'), false);
+  assert.equal(isCurrentTeamPanel(null, 'c', 'm'), false);
 });

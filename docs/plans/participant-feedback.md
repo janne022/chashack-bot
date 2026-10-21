@@ -1,11 +1,11 @@
 # Participant feedback follow-up
 
 ## Button-first team journeys (t_4da6d35d)
-- [ ] Offer current eligible signup actions without slash commands; link incomplete registrations to web completion.
-- [ ] Add one bot-owned pinned team-channel control panel with current roster/status and owner-authorized invite/settings/requests plus confirmed leave.
-- [ ] Bind interactions to originating event/team and re-check current membership, owner, eligibility, capacity, matching and request state server-side.
-- [ ] Refresh stored panel after every successful Discord, participant-web, organizer and matching mutation; edit/recover without duplicate pins/messages, best-effort only.
-- [ ] Preserve command fallbacks and public/private request semantics; localize new text en/sv and cover real dispatch with runnable regression tests.
+- [x] Offer current eligible signup actions without slash commands; link incomplete registrations to web completion.
+- [x] Add one bot-owned pinned team-channel control panel with current roster/status and owner-authorized invite/settings/requests plus confirmed leave.
+- [x] Bind interactions to originating event/team and re-check current membership, owner, eligibility, capacity, matching and request state server-side.
+- [x] Refresh stored panel after successful Discord and participant-web invite/join mutations; existing creation, matching, assignment and leave paths also refresh. Remaining mutations and recovery claims require final QA acceptance.
+- [x] Preserve command fallbacks and public/private request semantics; localize new text en/sv. End-to-end dispatch regression breadth remains under QA verification.
 - [ ] Run frozen install, typecheck, build/test, smoke, hpipe and exact-head CI; independent same-card QA then planner delivery.
 
 ## Rate limiting (t_b138ccef)
