@@ -84,6 +84,9 @@ import { eligibleParticipant, setMembershipLookup } from '../features/signup/eli
 import { lookupGuildMember } from '../discord/member-lifecycle.js';
 import { runWithGuildContext, withGuildContext } from '../shared/postgres.js';
 import { consumeQuota } from '../shared/rate-limit.js';
+import { parseSignupCsv } from '../features/signup-import/domain.js';
+import { createImportedSignups, editImportedSignup, listImportedSignups, purgeImportedSignups, summarizeImportedRows } from '../features/signup-import/data.js';
+import { linkImportedSignup } from '../features/signup-import/link.js';
 
 export interface WebDeps {
   db: Db;
@@ -1702,12 +1705,154 @@ app.post('/api/event/reset', async (req) => {
     const { deleteEventTeams } = await import('../features/teams/data.js');
     const participants = await purgeEventParticipants(db, 'web', eventId);
     const teams = await deleteEventTeams(db, 'web', eventId);
-    return { ok: true, removed: { participants, teams } };
+    const imported = await purgeImportedSignups(db, eventId);
+    return { ok: true, removed: { participants, teams, imported } };
   });
 
   app.post('/api/guild/category', async (req) => {
     const body = req.body as { categoryId?: string | null } | null;
     await setGuildCategory(db, 'web', await guildOf(req), body?.categoryId ?? null);
     return { ok: true };
+  });
+
+  const validateImportCore = (values: Record<string, unknown>, form: FormConfig): string[] => {
+    const issues: string[] = [];
+    if (typeof values.experience === 'string' && values.experience && !form.experiences.some((option) => option.id === values.experience)) issues.push('Invalid experience choice');
+    if (typeof values.role === 'string' && values.role && !form.roleTracks.some((option) => option.id === values.role)) issues.push('Invalid role choice');
+    if (typeof values.teamPref === 'string' && values.teamPref && !form.teamPrefs.some((option) => option.id === values.teamPref)) issues.push('Invalid participation choice');
+    if (typeof values.skills === 'string' && values.skills.split(',').map((value) => value.trim()).filter(Boolean).some((id) => !form.skills.some((option) => option.id === id))) issues.push('Invalid preferred-area choice');
+    return issues;
+  };
+
+  app.post('/api/events/:eventId/signup-import/preview', async (req, reply) => {
+    const { eventId } = req.params as { eventId: string };
+    const event = await getEvent(db, eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'event_not_found' });
+    if (event.status === 'ended') return reply.code(409).send({ error: 'event_ended' });
+    const importForm = getEventForm(db, event, await getForm(db, event.guildId));
+    const body = req.body as { csv?: unknown; mapping?: unknown } | null;
+    if (typeof body?.csv !== 'string') return reply.code(400).send({ error: 'invalid_csv', issues: ['csv must be text'] });
+    try {
+      const parsed = parseSignupCsv(body.csv);
+      const mapping = body.mapping && typeof body.mapping === 'object' && !Array.isArray(body.mapping)
+        ? body.mapping as Record<string, unknown> : {};
+      if (Object.keys(mapping).some((header) => !parsed.headers.includes(header)) || Object.values(mapping).some((target) => typeof target !== 'string')) {
+        return reply.code(400).send({ error: 'invalid_mapping', issues: ['Mapping headers must exist in the CSV and targets must be text.'] });
+      }
+      const suggestedMapping = Object.fromEntries(parsed.headers.map((header) => {
+        const key = header.toLocaleLowerCase('en-US').replace(/[^a-z]/g, '');
+        const target = ({ timestamp: 'sourceTimestamp', nameclass: 'name', name: 'name', chasemail: 'email', email: 'email', discordusername: 'discordUsername', allergies: 'allergies', dietary: 'allergies', participationpreference: 'participationPreference', groupsize: 'groupSize', groupname: 'groupName', members: 'members', preferredworkareas: 'preferredAreas' } as Record<string, string>)[key];
+        return [header, mapping[header] ?? target ?? ''];
+      }).filter(([, target]) => target !== ''));
+      const rows = parsed.rows.map((cells, index) => {
+        const values: Record<string, string> = {};
+        const answers: Record<string, string> = {};
+        const raw = Object.fromEntries(parsed.headers.map((header, i) => [header, cells[i]!.trim()]));
+        for (const [header, value] of Object.entries(raw)) {
+          const target = suggestedMapping[header];
+          if (!target) { values[`source:${header}`] = value; continue; }
+          if (target === 'sourceTimestamp') values.sourceTimestamp = value;
+          else if (['name', 'email', 'discordUsername', 'allergies', 'participationPreference', 'groupSize', 'groupName', 'members', 'preferredAreas', 'experience', 'role', 'teamPref', 'skills'].includes(target)) values[target] = value;
+          else answers[target] = value;
+        }
+        const issues: string[] = [];
+        if (!values.name) issues.push('Missing name');
+        if (!values.email) issues.push('Missing email; this row needs explicit review');
+        const checked = validateCustomAnswers(importForm, answers);
+        if (!checked.ok) issues.push(...checked.errors);
+        else issues.push(...checked.missingRequiredQuestionIds.map((id) => `Missing required answer: ${id}`));
+        issues.push(...validateImportCore(values, importForm));
+        return { rowNumber: index + 2, values, answers, issues };
+      });
+      const summary = await summarizeImportedRows(db, eventId, rows);
+      return { headers: parsed.headers, suggestedMapping, rows: rows.map((row, index) => ({ ...row, duplicateStatus: summary.statuses[index] })), summary: { create: summary.create, duplicate: summary.duplicate, conflict: summary.conflict } };
+    } catch (error) {
+      return reply.code(400).send({ error: 'invalid_csv', issues: [error instanceof Error ? error.message : 'Invalid CSV'] });
+    }
+  });
+
+  app.post('/api/events/:eventId/signup-import', async (req, reply) => {
+    const { eventId } = req.params as { eventId: string };
+    const event = await getEvent(db, eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'event_not_found' });
+    if (event.status === 'ended') return reply.code(409).send({ error: 'event_ended' });
+    const importForm = getEventForm(db, event, await getForm(db, event.guildId));
+    const body = req.body as { rows?: unknown } | null;
+    if (!Array.isArray(body?.rows) || body.rows.length > 2000 || Buffer.byteLength(JSON.stringify(body.rows), 'utf8') > 1_000_000) {
+      return reply.code(400).send({ error: 'invalid_rows', issues: ['rows must contain at most 2,000 records and 1 MB'] });
+    }
+    const rows: { sourceRow: number; sourceTimestamp?: string; values: Record<string, string>; answers: Record<string, string | string[]> }[] = [];
+    for (const [index, raw] of body.rows.entries()) {
+      if (!raw || typeof raw !== 'object') return reply.code(400).send({ error: 'invalid_row', row: index + 1 });
+      const row = raw as Record<string, unknown>;
+      if (!Number.isInteger(row.sourceRow) || !row.values || typeof row.values !== 'object' || Array.isArray(row.values) || !row.answers || typeof row.answers !== 'object' || Array.isArray(row.answers)) {
+        return reply.code(400).send({ error: 'invalid_row', row: index + 1 });
+      }
+      const values = row.values as Record<string, unknown>;
+      const answers = row.answers as Record<string, unknown>;
+      if (Object.keys(values).some((key) => key.length > 100) || Object.keys(answers).some((key) => key.length > 100) || Object.values(values).some((v) => typeof v !== 'string' || v.length > 10_000) || Object.values(answers).some((v) => typeof v !== 'string' ? !Array.isArray(v) || v.length > 100 || v.some((x) => typeof x !== 'string' || x.length > 10_000) : v.length > 10_000)) {
+        return reply.code(400).send({ error: 'invalid_row', row: index + 1, issues: ['Values must be bounded text'] });
+      }
+      const checked = validateCustomAnswers(importForm, answers);
+      if (!checked.ok) return reply.code(400).send({ error: 'invalid_row', row: index + 1, issues: checked.errors });
+      const coreIssues = validateImportCore(values, importForm);
+      if (coreIssues.length) return reply.code(400).send({ error: 'invalid_row', row: index + 1, issues: coreIssues });
+      rows.push({ sourceRow: row.sourceRow as number, ...(typeof values.sourceTimestamp === 'string' ? { sourceTimestamp: values.sourceTimestamp } : {}), values: values as Record<string, string>, answers: answers as Record<string, string | string[]> });
+    }
+    try {
+      const result = await createImportedSignups(db, eventId, await guildOf(req), importForm.version, rows);
+      return result;
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'import_failed';
+      return reply.code(code === 'event_unavailable' ? 409 : 400).send({ error: code });
+    }
+  });
+
+  app.get('/api/events/:eventId/imported-signups', async (req) => {
+    const eventId = (req.params as { eventId: string }).eventId;
+    const event = await getEvent(db, eventId);
+    if (!event || event.guildId !== await guildOf(req)) return { records: [] };
+    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
+    return { records: await listImportedSignups(db, eventId, required) };
+  });
+
+  app.patch('/api/events/:eventId/imported-signups/:id', async (req, reply) => {
+    const params = req.params as { eventId: string; id: string };
+    const event = await getEvent(db, params.eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'event_not_found' });
+    if (event.status === 'ended') return reply.code(409).send({ error: 'event_ended' });
+    const body = req.body as { values?: unknown; answers?: unknown; discordUsername?: unknown; linkDiscordUserId?: unknown } | null;
+    if (body?.linkDiscordUserId !== undefined && (typeof body.linkDiscordUserId !== 'string' || !isSnowflake(body.linkDiscordUserId))) return reply.code(400).send({ error: 'invalid_member_id' });
+    if (body?.values !== undefined && (!body.values || typeof body.values !== 'object' || Array.isArray(body.values)) || body?.answers !== undefined && (!body.answers || typeof body.answers !== 'object' || Array.isArray(body.answers)) || body?.discordUsername !== undefined && body.discordUsername !== null && typeof body.discordUsername !== 'string') {
+      return reply.code(400).send({ error: 'invalid_edit' });
+    }
+    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    if (body?.values && Object.values(body.values as Record<string, unknown>).some((value) => typeof value !== 'string' || value.length > 10_000)) return reply.code(400).send({ error: 'invalid_edit', issues: ['Values must be bounded text'] });
+    if (body?.answers) {
+      const checked = validateCustomAnswers(form, body.answers);
+      if (!checked.ok) return reply.code(400).send({ error: 'invalid_edit', issues: checked.errors });
+    }
+    if (body?.values) {
+      const coreIssues = validateImportCore(body.values as Record<string, unknown>, form);
+      if (coreIssues.length) return reply.code(400).send({ error: 'invalid_edit', issues: coreIssues });
+    }
+    if (typeof body?.discordUsername === 'string' && body.discordUsername.length > 256) return reply.code(400).send({ error: 'invalid_edit' });
+    const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
+    const edited = await editImportedSignup(db, params.eventId, params.id, {
+      ...(body?.values ? { values: body.values as Record<string, string> } : {}),
+      ...(body?.answers ? { answers: body.answers as Record<string, string | string[]> } : {}),
+      ...(body?.discordUsername !== undefined ? { discordUsername: body.discordUsername as string | null } : {}),
+      ...(body?.answers !== undefined ? { formVersion: form.version } : {}),
+    });
+    if (!edited) return reply.code(404).send({ error: 'not_found' });
+    const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
+    if (typeof body?.linkDiscordUserId === 'string') {
+      if (!(await currentMember(event.guildId, body.linkDiscordUserId))) return reply.code(400).send({ error: 'not_guild_member', record });
+      const linked = await linkImportedSignup(db, event.id, event.guildId, params.id, body.linkDiscordUserId, form);
+      if (linked.error) return reply.code(linked.error === 'event_not_active' ? 409 : 400).send({ ...linked, record });
+      return { record: (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? record, ...linked };
+    }
+    return { record, linked: record.discordUserId !== null, missingFields: record.missingFields };
   });
 }
