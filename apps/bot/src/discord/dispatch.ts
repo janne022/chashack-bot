@@ -2,7 +2,6 @@
  * Central interaction router: builds Ctx, checks admin, dispatches.
  */
 import {
-  PermissionFlagsBits,
   type AutocompleteInteraction,
   type Client,
   type Interaction,
@@ -21,6 +20,7 @@ import { onComponent, onModalSubmit } from './components.js';
 import { eph, type Ctx } from './shared.js';
 import { t } from '../shared/i18n.js';
 import { consumeQuota } from '../shared/rate-limit.js';
+import { hasGuildManageAuthority } from '../features/auth/domain.js';
 
 export interface RouterDeps {
   db: Db;
@@ -34,43 +34,21 @@ export interface RouterDeps {
   announce: (guildId: string, content: string) => Promise<void>;
 }
 
-export function isAdminMember(interaction: Interaction, adminIds: string[]): boolean {
-  if (adminIds.includes(interaction.user.id)) return true;
-  if (interaction.inGuild() && interaction.memberPermissions !== null) {
-    return (
-      interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild) ||
-      interaction.memberPermissions.has(PermissionFlagsBits.Administrator)
-    );
-  }
-  return false;
-}
-
-export async function isAdminMemberWithRoles(interaction: Interaction, adminIds: string[], db: Db): Promise<boolean> {
-  if (isAdminMember(interaction, adminIds)) return true;
+export async function isAdminMemberWithRoles(interaction: Interaction, db: Db, client: Client): Promise<boolean> {
   if (!interaction.inGuild()) return false;
   try {
     const guildId = interaction.guildId!;
+    const guild = await client.guilds.fetch(guildId);
+    if (guild.id !== guildId) return false;
+    const member = await guild.members.fetch(interaction.user.id);
     const settings = await getGuildSettings(db, guildId);
-    const modIds = settings.modRoleIds ?? [];
-    if (modIds.length === 0) return false;
-    const member: unknown = (interaction as unknown as { member: unknown }).member;
-    if (!member || typeof member !== 'object') return false;
-    // GuildMember (discord.js cache) has roles.cache
-    const rolesCache = (member as { roles?: { cache?: Map<string, unknown> } }).roles?.cache;
-    if (rolesCache && typeof rolesCache.has === 'function') {
-      for (const modId of modIds) if (rolesCache.has(modId)) return true;
-      return false;
-    }
-    // APIInteractionGuildMember has roles: string[]
-    const rolesArray = (member as { roles?: string[] }).roles;
-    if (Array.isArray(rolesArray)) {
-      for (const modId of modIds) if (rolesArray.includes(modId)) return true;
-    }
-    // GuildMember with roles as Collection (has .has)
-    const rolesHas = (member as { roles?: { has?: (id:string)=>boolean } }).roles;
-    if (rolesHas && typeof rolesHas.has === 'function') {
-      for (const modId of modIds) if (rolesHas.has(modId)) return true;
-    }
+    return hasGuildManageAuthority(
+      interaction.user.id,
+      guild.ownerId,
+      member.permissions.bitfield,
+      [...member.roles.cache.keys()],
+      settings.modRoleIds,
+    );
   } catch { /* ignore */ }
   return false;
 }
@@ -156,6 +134,16 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         return;
       }
 
+      // Reject stale/foreign guild interactions before opening tenant context or reading data.
+      try {
+        const guild = await client.guilds.fetch(guildId);
+        if (guild.id !== guildId) throw new Error('guild mismatch');
+        await guild.members.fetch(interaction.user.id);
+      } catch {
+        await interaction.reply(eph(t(deps.botLanguage, 'discord.admin.stale_control')));
+        return;
+      }
+
       const activeEvent = await getActiveEvent(deps.db, guildId);
       const guildDefault = await getForm(deps.db, guildId);
       const locale = deps.botLanguage;
@@ -169,7 +157,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
         ...(deps.publicUrl ? { webCompletionUrl: `${deps.publicUrl.replace(/\/$/, '')}/events/${encodeURIComponent(activeEvent?.id ?? guildId)}/signup` } : {}),
         guildId,
         actor: `discord:${interaction.user.id}`,
-        isAdmin: await isAdminMemberWithRoles(interaction, deps.adminIds, deps.db),
+        isAdmin: await isAdminMemberWithRoles(interaction, deps.db, client),
         client,
         categoryIdFor,
         dm,
