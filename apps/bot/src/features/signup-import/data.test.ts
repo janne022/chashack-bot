@@ -54,3 +54,24 @@ test('explicit member linking creates only the selected identity and never trust
     assert.equal((await db.all('SELECT * FROM participants WHERE event_id=?', eventId)).length, 1);
   } finally { await db.close(); }
 });
+
+test('a failed member link does not persist accompanying edits', async () => {
+  const db = await openTestDb();
+  try {
+    const created = await createEvent(db, 'test', 'link-atomic-guild', { name: 'Atomic link test' });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const eventId = created.value.id;
+    await activateEvent(db, 'test', eventId);
+    const imported = await createImportedSignups(db, eventId, 'link-atomic-guild', 1, [{ sourceRow: 2, values: { name: 'Before', email: 'before@example.test' }, answers: {} }]);
+    const id = imported.rows[0]!.id!;
+    const event = await getEvent(db, eventId);
+    assert.ok(event);
+    const form = getEventForm(db, event!, await getForm(db, 'link-atomic-guild'));
+    const before = await listImportedSignups(db, eventId);
+    const failedLink = await linkImportedSignup(db, eventId, 'foreign-guild', id, '12345678901234567', form);
+    assert.equal(failedLink.error, 'event_not_found');
+    assert.deepEqual(await listImportedSignups(db, eventId), before);
+    assert.equal((await db.get('SELECT user_id FROM participants WHERE event_id=?', eventId)), undefined);
+  } finally { await db.close(); }
+});
