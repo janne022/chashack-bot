@@ -32,6 +32,7 @@ export function registerLiveRoute(app: FastifyInstance, db: Db, path: string,
     let stopped = false;
     let unsubscribe: (() => void) | undefined;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     let busy = false;
     let ready = false;
     const pending: ChangeHint[] = [];
@@ -39,6 +40,7 @@ export function registerLiveRoute(app: FastifyInstance, db: Db, path: string,
       if (stopped) return;
       stopped = true;
       clearInterval(heartbeat);
+      clearTimeout(deadline);
       unsubscribe?.();
       req.raw.socket.removeListener('close', close);
       closing.delete(close);
@@ -60,6 +62,8 @@ export function registerLiveRoute(app: FastifyInstance, db: Db, path: string,
       }
       if (busy || !ready) return;
       busy = true;
+      // Include audience filtering: a stalled membership lookup must not block revocation.
+      deadline = setTimeout(() => close(true), 8000);
       try {
         do {
           const batch = pending.splice(0);
@@ -69,11 +73,16 @@ export function registerLiveRoute(app: FastifyInstance, db: Db, path: string,
           let relevant = false;
           for (const value of batch) if (await access.accepts(value)) { relevant = true; break; }
           if (stopped) return;
-          if (relevant) write('dirty');
+          if (relevant) {
+            const current = await boundedAccess();
+            if (stopped) return;
+            if (!current || current.sessionId !== key || current.scope !== initial.scope) { close(true); return; }
+            write('dirty');
+          }
           else if (batch.length === 0) write('heartbeat');
         } while (pending.length && !stopped);
       } catch { close(); }
-      finally { busy = false; }
+      finally { clearTimeout(deadline); busy = false; }
     };
     req.raw.socket.once('close', close);
     reply.raw.once('close', close);
