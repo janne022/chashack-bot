@@ -626,6 +626,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       event: { id: event.id, name: event.name, description: event.description, startsAt: event.startsAt, endsAt: event.endsAt },
       form: { version: form.version, title: form.title, description: form.description,
         appearance: resolveAppearance(form),
+        profileFields: { experiences: form.experiences, roleTracks: form.roleTracks, skills: form.skills, teamPrefs: form.teamPrefs },
         questions: (form.customQuestions ?? []).filter((q) => q.visibility === 'self_and_organizer' && (q.presentation === 'web' || q.presentation === 'both')) },
     };
   });
@@ -639,7 +640,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const description = escape(event.description);
     const appearance = resolveAppearance(form);
     const image = appearance.bannerUrl ? `<meta property="og:image" content="${escape(appearance.bannerUrl)}">` : '';
-    const metadata = `<title>${name}</title><meta name="description" content="${description}"><meta property="og:title" content="${name}"><meta property="og:description" content="${description}">${image}`;
+    const metadata = `<title>${name}</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta name="description" content="${description}"><meta property="og:title" content="${name}"><meta property="og:description" content="${description}">${image}`;
     const date = (value: number | null): string => value === null ? '' : escape(new Intl.DateTimeFormat('en', { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' }).format(value));
     const dates = event.startsAt === null && event.endsAt === null ? '' : `<dl class="event-details">${event.startsAt === null ? '' : `<div><dt>Starts</dt><dd><time datetime="${new Date(event.startsAt).toISOString()}">${date(event.startsAt)} UTC</time></dd></div>`}${event.endsAt === null ? '' : `<div><dt>Ends</dt><dd><time datetime="${new Date(event.endsAt).toISOString()}">${date(event.endsAt)} UTC</time></dd></div>`}</dl>`;
     const fallback = `<main><h1>${name}</h1><p>${description}</p>${dates}<a href="/events/${encodeURIComponent(event.id)}/signup">Sign up</a></main>`;
@@ -725,8 +726,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const participant = await getParticipant(db, event.id, session!.userId);
     const checked = validateCustomAnswers(form, stored?.answers ?? {});
     return { eventId: event.id, formVersion: form.version, answers: stored?.answers ?? {},
+      profile: participant === null ? null : { experience: participant.experience, roleTrack: participant.roleTrack, skills: participant.skills, teamPref: participant.teamPref },
       missingRequiredQuestionIds: checked.ok ? checked.missingRequiredQuestionIds : [],
-      complete: checked.ok && checked.missingRequiredQuestionIds.length === 0,
+      complete: checked.ok && checked.missingRequiredQuestionIds.length === 0 && !!participant?.experience && !!participant.roleTrack && participant.skills.length > 0 && !!participant.teamPref,
       teamPref: participant?.teamPref ?? null, status: participant?.status ?? 'not_registered' };
   });
 
@@ -734,30 +736,38 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const session = await participantSessionFrom(req);
     const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
-    const body = req.body as { formVersion?: unknown; answers?: unknown; teamPref?: unknown } | null;
+    const body = req.body as { formVersion?: unknown; answers?: unknown; profile?: { experience?: unknown; roleTrack?: unknown; skills?: unknown; teamPref?: unknown }; teamPref?: unknown } | null;
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     if (!Number.isInteger(body?.formVersion) || body?.formVersion !== form.version) return reply.code(409).send({ error: 'stale_form_version' });
     const checked = validateCustomAnswers(form, body?.answers);
     if (!checked.ok) return reply.code(400).send({ error: 'invalid_answers', details: checked.errors });
     const teamPref = body?.teamPref;
     if (teamPref !== undefined && teamPref !== null && (typeof teamPref !== 'string' || !['create_team', 'join_team', 'random_team'].includes(teamPref))) return reply.code(400).send({ error: 'invalid_team_pref' });
+    const profile = body?.profile;
+    if (profile !== undefined && (!profile || typeof profile.experience !== 'string' || !form.experiences.some((item) => item.id === profile.experience) || typeof profile.roleTrack !== 'string' || !form.roleTracks.some((item) => item.id === profile.roleTrack) || !Array.isArray(profile.skills) || profile.skills.length === 0 || profile.skills.some((id) => typeof id !== 'string' || !form.skills.some((item) => item.id === id)) || new Set(profile.skills).size !== profile.skills.length || [...new Set(profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean))].length !== profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean).length || typeof profile.teamPref !== 'string' || !form.teamPrefs.some((item) => item.id === profile.teamPref))) return reply.code(400).send({ error: 'invalid_profile' });
     return db.transaction(async () => {
       const existing = await getParticipant(db, event.id, session!.userId);
       if (existing?.status === 'blocked') return reply.code(403).send({ error: 'registration_blocked' });
+      const effectiveProfile = profile ?? (existing && existing.experience && existing.roleTrack && existing.skills.length && existing.teamPref ? { experience: existing.experience, roleTrack: existing.roleTrack, skills: existing.skills, teamPref: existing.teamPref } : null);
+      if (effectiveProfile === null) return reply.code(400).send({ error: 'invalid_profile' });
       const saved = await saveRegistrationAnswers(db, event.id, session!.userId, form.version, checked.answers);
       if (!saved.ok) return reply.code(409).send({ error: saved.code });
       if (existing === null) {
         await db.run(`INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at)
           VALUES (?,?,?,?,?,?,?,?,?,'active',?,?) ON CONFLICT (event_id,user_id) DO UPDATE SET team_pref = EXCLUDED.team_pref, status = 'active', updated_at = EXCLUDED.updated_at WHERE participants.status = 'withdrawn'`,
-          event.id, session!.userId, event.guildId, session!.username, '', '', '[]', typeof teamPref === 'string' ? teamPref : '', '[]', Date.now(), Date.now());
+          event.id, session!.userId, event.guildId, session!.username, '', '', '[]', typeof profile?.teamPref === 'string' ? profile.teamPref : typeof teamPref === 'string' ? teamPref : '', '[]', Date.now(), Date.now());
+      }
+      if (profile !== undefined) {
+        await db.run('UPDATE participants SET experience = ?, role_track = ?, skills = ?, team_pref = ?, status = CASE WHEN status = \'withdrawn\' THEN \'active\' ELSE status END, updated_at = ? WHERE event_id = ? AND user_id = ?', profile.experience, profile.roleTrack, JSON.stringify(profile.skills), profile.teamPref, Date.now(), event.id, session!.userId);
       } else if (typeof teamPref === 'string') {
         await db.run('UPDATE participants SET team_pref = ?, status = CASE WHEN status = \'withdrawn\' THEN \'active\' ELSE status END, updated_at = ? WHERE event_id = ? AND user_id = ?', teamPref, Date.now(), event.id, session!.userId);
-      } else if (existing.status === 'withdrawn') {
+      } else if (existing?.status === 'withdrawn') {
         await db.run("UPDATE participants SET status = 'active', updated_at = ? WHERE event_id = ? AND user_id = ?", Date.now(), event.id, session!.userId);
       }
       return { eventId: event.id, formVersion: form.version, answers: saved.value.answers,
-        missingRequiredQuestionIds: checked.missingRequiredQuestionIds, complete: checked.missingRequiredQuestionIds.length === 0,
-        teamPref: typeof teamPref === 'string' ? teamPref : existing?.teamPref ?? null, status: existing?.status === 'withdrawn' ? 'active' : existing?.status ?? 'active' };
+        missingRequiredQuestionIds: checked.missingRequiredQuestionIds, complete: checked.missingRequiredQuestionIds.length === 0 && !!(profile?.experience ?? existing?.experience) && !!(profile?.roleTrack ?? existing?.roleTrack) && (Array.isArray(profile?.skills) ? profile.skills.length > 0 : !!existing?.skills.length) && !!(profile?.teamPref ?? teamPref ?? existing?.teamPref),
+        profile: effectiveProfile,
+        teamPref: typeof profile?.teamPref === 'string' ? profile.teamPref : typeof teamPref === 'string' ? teamPref : existing?.teamPref ?? null, status: existing?.status === 'withdrawn' ? 'active' : existing?.status ?? 'active' };
     });
   });
 

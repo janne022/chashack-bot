@@ -1,6 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ParticipantFrame } from '@/components/participant-appearance'
 import { SignupQuestion, type Localized, type Question } from '@/components/signup-question'
 import type { FormAppearance } from '@/types'
@@ -8,8 +10,9 @@ import { useT } from '@/lib/i18n'
 import { LiveStatus, useLiveUpdates } from '@/lib/live-updates'
 
 
-type EventForm = { event: { id: string; name: string; description: string; startsAt: number | null; endsAt: number | null }; form: { version: number; title: string; description: string; appearance: FormAppearance; questions: Question[] } }
-type Registration = { answers: Record<string, string | string[]>; complete: boolean; missingRequiredQuestionIds: string[]; status: string }
+type Profile = { experience: string; roleTrack: string; skills: string[]; teamPref: string }
+type EventForm = { event: { id: string; name: string; description: string; startsAt: number | null; endsAt: number | null }; form: { version: number; title: string; description: string; appearance: FormAppearance; questions: Question[]; profileFields: { experiences: { id: string; label: string; label_sv?: string }[]; roleTracks: { id: string; label: string; label_sv?: string }[]; skills: { id: string; label: string; label_sv?: string; group: string }[]; teamPrefs: { id: string; label: string; label_sv?: string }[] } } }
+type Registration = { answers: Record<string, string | string[]>; profile: Profile | null; complete: boolean; missingRequiredQuestionIds: string[]; status: string }
 export const Route = createFileRoute('/events/$eventId/signup')({ component: Signup })
 
 function Signup() {
@@ -18,6 +21,7 @@ function Signup() {
   const [event, setEvent] = useState<EventForm | null>(null)
   const [registration, setRegistration] = useState<Registration | null>(null)
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
+  const [profile, setProfile] = useState<Profile>({ experience: '', roleTrack: '', skills: [], teamPref: '' })
   const [state, setState] = useState<'loading' | 'idle' | 'waiting' | 'failed'>('loading')
   const [message, setMessage] = useState('')
   const [stale, setStale] = useState(false)
@@ -43,7 +47,7 @@ function Signup() {
         setEvent({ ...next, form: event.form })
       } else setEvent(next)
       if (saved.ok) {
-        setRegistration(value); if (!dirty.current) setAnswers(value!.answers); setAccess('member')
+        setRegistration(value); if (!dirty.current) { setAnswers(value!.answers); setProfile(value!.profile ?? { experience: '', roleTrack: '', skills: [], teamPref: '' }) } setAccess('member')
       } else if (saved.status === 404) { setAccess('nonmember'); setRegistration(null) }
       else if (saved.status === 401) { setAccess('anonymous'); setRegistration(null) }
       else throw new Error(t('participant.signup_load_error'))
@@ -81,9 +85,11 @@ function Signup() {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (!event) return
+    const missingProfile = !profile.experience || !profile.roleTrack || profile.skills.length === 0 || !profile.teamPref
+    if (missingProfile) { setMessage(t('participant.signup_profile_required')); document.getElementById('profile-experience')?.focus(); return }
     const missing = event.form.questions.filter((q) => { const answer = answers[q.id]; return q.required && !(Array.isArray(answer) ? answer.length : typeof answer === 'string' && answer.trim()) }).map((q) => q.id)
     if (missing.length) {
-      setRegistration({ answers, complete: false, missingRequiredQuestionIds: missing, status: registration?.status ?? 'not_registered' })
+      setRegistration({ answers, profile, complete: false, missingRequiredQuestionIds: missing, status: registration?.status ?? 'not_registered' })
       setMessage(t('participant.signup_required'))
       document.getElementById(missing[0]!)?.focus()
       return
@@ -91,7 +97,7 @@ function Signup() {
     setState('waiting'); setMessage(''); setStale(false)
     const submittedRevision = draftRevision.current
     try {
-      const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ formVersion: event.form.version, answers }) })
+      const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ formVersion: event.form.version, answers, profile }) })
       const value = await res.json() as Registration & { error?: string }
       if (res.status === 401) { location.assign('/auth/participant'); return }
       if (res.status === 404) throw new Error(t('participant.signup_member'))
@@ -119,6 +125,14 @@ function Signup() {
         </section>}
         {!registration && access === 'nonmember' && <p role="alert">{t('participant.signup_member')}</p>}
         {registration && <form className="space-y-5" onSubmit={e => void submit(e)}>
+          <fieldset className="space-y-4 rounded-xl border bg-card p-5"><legend className="px-2 text-lg font-semibold">{t('participant.signup_profile')}</legend>
+            {(['experience', 'roleTrack', 'teamPref'] as const).map((field) => {
+              const options = field === 'experience' ? event.form.profileFields.experiences : field === 'roleTrack' ? event.form.profileFields.roleTracks : event.form.profileFields.teamPrefs
+              const id = field === 'roleTrack' ? 'role' : field === 'teamPref' ? 'team-pref' : 'experience'
+              return <label key={field} className="block space-y-2 text-sm font-medium" htmlFor={`profile-${id}`}>{t(`participant.signup_${id === 'team-pref' ? 'team_pref' : id}`)}<Select value={profile[field] || '__choose__'} onValueChange={value => setProfile(current => ({ ...current, [field]: value === '__choose__' ? '' : value }))}><SelectTrigger id={`profile-${id}`} aria-required="true"><SelectValue placeholder={t('participant.signup_choose')} /></SelectTrigger><SelectContent><SelectItem value="__choose__">{t('participant.signup_choose')}</SelectItem>{options.map(option => <SelectItem key={option.id} value={option.id}>{label({ en: option.label, sv: option.label_sv })}</SelectItem>)}</SelectContent></Select></label>
+            })}
+            <fieldset className="space-y-2"><legend className="text-sm font-medium">{t('participant.signup_skills')} *</legend><div className="grid gap-2 sm:grid-cols-2">{event.form.profileFields.skills.map(skill => <label key={skill.id} className="flex min-h-11 items-center gap-3 rounded-md border px-3"><Checkbox checked={profile.skills.includes(skill.id)} aria-required="true" onCheckedChange={checked => setProfile(current => ({ ...current, skills: checked ? [...current.skills, skill.id] : current.skills.filter(id => id !== skill.id) }))} /><span>{label({ en: skill.label, sv: skill.label_sv })}</span></label>)}</div></fieldset>
+          </fieldset>
           {visibleQuestions.map(q => <SignupQuestion key={q.id} question={q} answer={answers[q.id]} invalid={registration.missingRequiredQuestionIds.includes(q.id)} label={label} onChange={answer => { draftRevision.current++; dirty.current = true; setAnswers({ ...answers, [q.id]: answer }) }} t={t} />)}
           {message && <p role={state === 'failed' ? 'alert' : 'status'} tabIndex={-1}>{message}</p>}
           <div className="flex flex-wrap gap-3"><Button type="submit" className="min-h-11" disabled={state === 'waiting' || stale} aria-busy={state === 'waiting'}>{state === 'waiting' ? t('participant.team_save') : registration.complete ? t('participant.signup_update') : t('participant.signup_submit')}</Button>{stale ? <Button type="button" className="min-h-11" variant="outline" onClick={() => void refreshForm()}>{t('participant.signup_reload')}</Button> : state === 'failed' && <Button type="submit" className="min-h-11" variant="outline">{t('participant.retry')}</Button>}</div>

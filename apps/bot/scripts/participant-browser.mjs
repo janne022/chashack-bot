@@ -30,6 +30,8 @@ try {
   const form={...DEFAULT_FORM,title:'Svensk anmälan',description:'Välkommen',teamSize:2,themePreset:'default',accentColor:'#55bbda',bannerUrl:'https://example.com/legacy-banner.png',appearance:{themePreset:'halloween',accentColor:'#ef793e',bannerUrl:'https://example.com/missing-banner.png',mode:'dark',backgroundColor:'#101820',surfaceColor:'#19232d',textColor:'#f4f7fa',backgroundUrl:'https://example.com/missing-background.png'},customQuestions:[{id:'idea',kind:'text',label:{en:'Your idea',sv:'Din idé'},help:{en:'',sv:''},required:true,presentation:'web',visibility:'self_and_organizer'},{id:'private',kind:'text',label:{en:'Private answer',sv:'Privat svar'},help:{en:'',sv:''},required:false,presentation:'web',visibility:'organizer_only'}]};
   const eventId='participant-browser-event';
   await db.run('INSERT INTO events (id,guild_id,name,description,status,form_json,created_at,updated_at) VALUES (?,?,?,?,?,?,1,1)',eventId,guildId,'Svensk hackathon','Bygg tillsammans','active',JSON.stringify(form));
+  const defaultEventId='participant-default-event';
+  await db.run('INSERT INTO events (id,guild_id,name,description,status,form_json,created_at,updated_at) VALUES (?,?,?,?,?,?,1,1)',defaultEventId,guildId,'Default event','Legacy signup','active',JSON.stringify(DEFAULT_FORM));
   const cookies={};
   for(const userId of members){
     const session=await createSession(db,{userId,username:userId,avatar:null,guilds:[],audience:'participant'});
@@ -43,11 +45,13 @@ try {
   let seq=0;const pending=new Map(),exceptions=[];browser.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){pending.get(m.id)(m);pending.delete(m.id)}if(m.method==='Runtime.exceptionThrown')exceptions.push(m.params.exceptionDetails.text)});
   const send=(method,params={},sessionId)=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,m=>m.error?reject(Error(`${method}: ${JSON.stringify(m.error)}`)):resolve(m.result));browser.send(JSON.stringify({id,method,params,...sessionId?{sessionId}:{}}))});
   const target=await send('Target.createTarget',{url:'about:blank'}), sid=(await send('Target.attachToTarget',{targetId:target.targetId,flatten:true})).sessionId;
-  const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true},sid);if(r.exceptionDetails)throw Error(r.exceptionDetails.text);return r.result.value};
+  const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true},sid);if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
   const nav=async path=>{await send('Page.navigate',{url:base+path},sid);for(let i=0;i<100;i++){if(await evaluate(`document.readyState==='complete'&&document.querySelector('#root')?.innerText.trim().length>0`))return;await delay(100)}throw Error(`navigation timeout ${path}: ${await evaluate('document.body.innerText')}`)};
   const wait=async expr=>{for(let i=0;i<100;i++){if(await evaluate(expr))return;await delay(100)}throw Error(`wait timeout ${expr}; URL=${await evaluate('location.href')}; DOM=${await evaluate('document.body.innerText')}`)};
   const screenshot=async name=>{await mkdir(evidenceDir,{recursive:true});const data=(await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false},sid)).data;const path=join(evidenceDir,name);await writeFile(path,Buffer.from(data,'base64'));console.log(`SCREENSHOT ${path} sha256=${createHash('sha256').update(Buffer.from(data,'base64')).digest('hex')}`)};
-  const click=async expr=>{const r=await evaluate(`(()=>{const e=${expr};if(!e)throw Error('missing click target');e.scrollIntoView({block:'center'});return e.getBoundingClientRect().toJSON()})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);await delay(150)};
+  const click=async expr=>{const r=await evaluate(`(()=>{const e=${expr};if(!e)throw Error('missing click target: '+${JSON.stringify(expr)}+'; options='+[...document.querySelectorAll('[role=option]')].map(x=>x.innerText).join('|'));e.scrollIntoView({block:'center'});return e.getBoundingClientRect().toJSON()})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);await delay(150)};
+  const choose=async(selector,text)=>{await click(`document.querySelector(${JSON.stringify(selector)})`);await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes(${JSON.stringify(text)}))`)};
+  const fillProfile=async()=>{await choose('#profile-experience','Första hackathonet');await choose('#profile-role','Frontend');await choose('#profile-team-pref','Skapa mitt eget team');await click(`[...document.querySelectorAll('label')].find(e=>e.innerText.includes('Frontend — React'))`)};
   const ax=async(selector='textarea#idea')=>{const doc=await send('DOM.getDocument',{depth:0,pierce:true},sid);const node=await send('DOM.querySelector',{nodeId:doc.root.nodeId,selector},sid);return send('Accessibility.getPartialAXTree',{nodeId:node.nodeId,fetchRelatives:true},sid)};
   await send('Page.enable',{},sid);await send('Runtime.enable',{},sid);await send('Network.enable',{},sid);await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);
   check('participant route is served on the actual required browser origin',new URL(base).port==='8491');
@@ -56,6 +60,7 @@ try {
   await nav(`/events/${eventId}`);
   await wait(`!!document.querySelector('a[href$="/signup"]')`);
   check('public route loads the served React event page and signup action',await evaluate(`document.querySelector('h1')?.innerText==='Svensk hackathon'&&!!document.querySelector('a[href$="/signup"]')`));
+  check('public event shell references a served SVG favicon with the correct MIME',await evaluate(`document.querySelector('link[rel=icon]')?.getAttribute('href')==='/favicon.svg'&&fetch('/favicon.svg').then(async r=>r.ok&&r.headers.get('content-type')?.includes('image/svg+xml')&&(await r.text()).includes('<svg'))`));
   check('public route uses the event-local palette instead of legacy flat fields',await evaluate(`(()=>{const m=document.querySelector('main');return getComputedStyle(m).backgroundColor==='rgb(16, 24, 32)'&&getComputedStyle(m).getPropertyValue('--participant-accent').trim()==='#ef793e'})()`));
   await screenshot('public-mobile-sv.png');
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
@@ -68,6 +73,7 @@ try {
   check('required signup answer is exposed as required in Chromium AX', (await ax()).nodes.some(n=>n.role?.value==='textbox'&&n.properties?.some(p=>p.name==='required'&&p.value?.value===true)));
   check('seasonal accent is resolved on the served participant page',await evaluate(`getComputedStyle(document.querySelector('main')).getPropertyValue('--participant-accent').trim()==='#ef793e'`));
   check('primary submit uses the seasonal accent with a readable foreground',await evaluate(`(()=>{const s=getComputedStyle(document.querySelector('form button[type=submit]'));return s.backgroundColor==='rgb(239, 121, 62)'&&s.color==='rgb(17, 24, 39)'})()`));
+  await fillProfile();
   await evaluate(`document.querySelectorAll('img[referrerpolicy="no-referrer"]').forEach(img=>img.dispatchEvent(new Event('error')))`);
   check('broken optional images fall back without broken image surfaces',await evaluate(`[...document.querySelectorAll('img[referrerpolicy="no-referrer"]')].every(img=>img.hidden)`));
   await screenshot('signup-mobile-sv.png');
@@ -88,6 +94,17 @@ try {
   check('successful registration persists answers to the same session',JSON.parse((await db.get('SELECT answers_json FROM registration_answers WHERE event_id=? AND user_id=?',eventId,'participant-a')).answers_json).idea==='Jag bygger en robot');
   check('post-signup team action remains accessible',await evaluate(`!!document.querySelector('a[href^="/team?eventId"]')`));
   const reg=await fetch(`${base}/api/participant/events/${eventId}/registration`,{headers:{cookie:cookies['participant-a']}});check('registration completion response is true',reg.ok&&(await reg.json()).complete===true);
+  await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-c'].split('=')[1]),url:base,httpOnly:true},sid);
+  await nav(`/events/${defaultEventId}/signup`); await wait(`!!document.querySelector('#profile-experience')`);
+  check('legacy default form renders real core signup fields without fabricated questions',await evaluate(`document.querySelectorAll('textarea').length===0&&!!document.querySelector('#profile-experience')&&!!document.querySelector('#profile-role')&&!!document.querySelector('#profile-team-pref')`));
+  const preDefault=await fetch(`${base}/api/participant/events/${defaultEventId}/registration`,{headers:{cookie:cookies['participant-c']}});
+  check('default form cannot report an empty profile as complete',preDefault.ok&&(await preDefault.json()).complete===false);
+  await fillProfile(); await click(`document.querySelector('form button[type=submit]')`); await wait(`document.body.innerText.includes('Registration complete')||document.body.innerText.includes('Anmälan är klar')`);
+  const defaultStored=await db.get('SELECT experience,role_track,skills,team_pref FROM participants WHERE event_id=? AND user_id=?',defaultEventId,'participant-c');
+  check('default form profile persists to matching participant fields',defaultStored.experience==='first_timer'&&defaultStored.role_track==='frontend'&&JSON.parse(defaultStored.skills).includes('frontend_react')&&defaultStored.team_pref==='create_team');
+  await nav(`/events/${defaultEventId}/signup`); await wait(`document.querySelector('#profile-experience')?.innerText.includes('Första hackathonet')`);
+  check('default form profile survives refresh',await evaluate(`document.querySelector('#profile-experience').innerText.includes('Första hackathonet')&&document.querySelector('#profile-role').innerText.includes('Frontend')`));
+  await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
   await nav('/my-hackathons');await wait(`document.body.innerText.includes('Svensk hackathon')`);
   check('My hackathons shows only the signed-in participant registration',await evaluate(`document.body.innerText.includes('Svensk hackathon')&&!document.body.innerText.includes('participant-b')`));
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-b'].split('=')[1]),url:base,httpOnly:true},sid);

@@ -13,6 +13,7 @@ function TeamPage() {
   const t = useT()
   const eventId = new URLSearchParams(location.search).get('eventId') ?? ''
   const [data, setData] = useState<TeamList | null>(null)
+  const [eventName, setEventName] = useState('')
   const [name, setName] = useState('')
   const [targetId, setTargetId] = useState('')
   const [error, setError] = useState('')
@@ -31,7 +32,7 @@ function TeamPage() {
       if (!signal?.aborted) setData(value)
     } catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : t('participant.my_error')) }
   }
-  useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort() }, [eventId])
+  useEffect(() => { const controller = new AbortController(); void load(controller.signal); if (eventId) void fetch(`/api/public/events/${encodeURIComponent(eventId)}`, { signal: controller.signal }).then(r => r.ok ? r.json() : null).then(value => { if (!controller.signal.aborted && value) setEventName(value.event.name) }).catch(() => undefined); return () => controller.abort() }, [eventId])
   const live = useLiveUpdates(eventId ? `${base}/live` : null, load)
   const mutate = async (path: string, method: string, body?: object) => {
     setWaiting(true); setError('')
@@ -44,7 +45,7 @@ function TeamPage() {
     finally { setWaiting(false) }
   }
   const create = async (e: FormEvent) => { e.preventDefault(); if (name.trim()) await mutate('/teams', 'POST', { name: name.trim(), kind: 'public' }) }
-  return <main className="mx-auto max-w-3xl space-y-6 p-4 sm:p-8"><header><a href="/my-hackathons" className="text-sm text-accent underline">{t('participant.my_title')}</a><h1 className="mt-3 text-3xl font-bold">{t('participant.team_title')}</h1><p className="mt-2 text-muted-foreground">{t('participant.team_desc')}</p></header>
+  return <main className="mx-auto max-w-3xl space-y-6 p-4 sm:p-8"><header className="space-y-3"><nav className="flex flex-wrap gap-2" aria-label={t('participant.signup_details')}><Button asChild variant="outline" className="min-h-11"><a href="/my-hackathons">{t('participant.my_title')}</a></Button>{eventName && <><Button asChild variant="outline" className="min-h-11"><a href={'/events/' + encodeURIComponent(eventId)}>{eventName}</a></Button><Button asChild variant="outline" className="min-h-11"><a href={`/events/${encodeURIComponent(eventId)}/signup`}>{t('participant.view_signup')}</a></Button></>}</nav><h1 className="text-3xl font-bold">{t('participant.team_title')}</h1><p className="text-muted-foreground">{t('participant.team_desc')}</p></header>
     <LiveStatus {...live} />
     {error && <section role="alert" className="space-y-3"><p>{error}</p><Button variant="outline" onClick={() => void load()}>{t('participant.team_refresh')}</Button></section>}
     {!data ? !error && <p aria-busy="true">{t('participant.team_loading')}</p> : data.ownTeam ? <section className="rounded-xl border p-5"><h2 className="text-lg font-semibold">{data.ownTeam.name}</h2><p className="mt-2 text-sm">{t('participant.team_members', { count: data.ownTeam.memberCount, kind: data.ownTeam.kind })}</p><Button className="mt-4" variant="outline" disabled={waiting} onClick={() => setConfirmLeave(true)}>{t('participant.team_leave')}</Button><form className="mt-4 flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); if (targetId.trim()) void mutate(`/teams/${encodeURIComponent(data.ownTeam!.id)}/invites`, 'POST', { targetId: targetId.trim() }) }}><label htmlFor="invite-id" className="sr-only">{t('participant.invite_id')}</label><Input id="invite-id" value={targetId} onChange={(e) => setTargetId(e.target.value)} placeholder={t('participant.invite_id')} required/><Button disabled={waiting}>{t('participant.invite_send')}</Button></form></section> : <><form className="flex flex-wrap gap-2" onSubmit={(e) => void create(e)}><label className="sr-only" htmlFor="team-name">{t('participant.team_name')}</label><Input id="team-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder={t('participant.team_name')} required/><Button disabled={waiting}>{waiting ? t('participant.team_save') : t('participant.team_create')}</Button></form>{data.teams.length === 0 ? <section className="rounded-xl border border-dashed p-6"><h2 className="font-semibold">{t('participant.team_empty')}</h2><p className="mt-2 text-muted-foreground">{t('participant.team_empty_desc')}</p><Button className="mt-3" variant="outline" disabled={waiting} onClick={() => void load()}>{t('participant.team_refresh')}</Button></section> : <ul className="space-y-3">{data.teams.map((team) => <li key={team.id} className="flex items-center justify-between gap-3 rounded-xl border p-4"><div><h2 className="font-semibold">{team.name}</h2><p className="text-sm text-muted-foreground">{t('participant.team_member_count', { count: team.memberCount })}</p></div><Button disabled={waiting} onClick={() => void mutate(`/teams/${encodeURIComponent(team.id)}/join`, 'POST')}>{t('participant.team_join')}</Button></li>)}</ul>}</>}
