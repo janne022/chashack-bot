@@ -1,5 +1,7 @@
 {
   "common.app_name": "ChasHack",
+  "live.disconnected": "Live updates disconnected. Showing the last loaded data.",
+  "live.reconnecting": "Reconnecting live updates… You can keep working.",
   "form.label_required": "Enter an English label (required for fallback).",
   "form.choice_required": "Add at least one answer choice.",
   "form.mapping_required": "Choose a matching target for this answer, or turn off matching for the whole question.",

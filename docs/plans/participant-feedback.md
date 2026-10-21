@@ -15,3 +15,10 @@
 - [x] Denials occur before domain/outbound effects; authorization failures do not consume another actor's quota; HTTP returns structured 429 + Retry-After and Discord returns localized retry feedback.
 - [x] Cover HTTP and Discord mutation paths, including safe DM context; keep health/static traffic separate.
 - [x] Add deterministic unit and disposable PostgreSQL tests for window boundaries, retry, concurrency and independent identities; run frozen install, typecheck, build, test, smoke and hpipe checks.
+
+## SSE invalidation (t_c2833b53)
+- [x] PostgreSQL row triggers cover Discord/service, participant HTTP, organizer, matching and maintenance writers; NOTIFY is commit-only and carries scope identifiers, not values. One lazy shared LISTEN connection per app handle, released on final disconnect/shutdown; listener loss disconnects streams for authoritative reconnect.
+- [x] Same-origin, separate cookie audiences, current membership/admin/session checks before hints and every 10 seconds (8-second authorization deadline). Initial limits: 2 streams/session, 1000/process. Browser events contain only `{}`; no replay history, snapshots, credentials or client polling.
+- [x] Reuse existing audience loaders, coalesce refreshes, abort previous selection reads, refresh on reconnect/refocus, preserve dirty signup/config inputs and organizer dialog nodes. Localized en/sv reconnect/disconnected feedback and explicit retry after bounded denial/failure.
+- [x] App-role/RLS fixtures cover two tenants and two active events, private/foreign/rollback hint exclusion, own public teams/invitations, role/member revocation, logout and expiry. Served Chromium journey checks two audience clients, committed service/HTTP changes within 5 seconds, listener-loss/refocus recovery, dirty input/focus, English desktop and Swedish mobile. OAuth sessions, membership and Discord service actor are synthetic, not live OAuth/Discord evidence.
+- [ ] Final committed-diff advisory gates and exact-head CI, genuine same-card QA, planner acceptance and native rebase delivery. No implementer merge or self-approval.

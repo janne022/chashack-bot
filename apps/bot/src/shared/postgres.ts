@@ -3,6 +3,7 @@ import { Pool, types, type PoolClient } from 'pg';
 import type { Db } from './db.js';
 import { schemaSql } from './postgres-schema.js';
 import { parseDatabaseUrl } from './db-config.js';
+import { registerChangeSource, closeChangeSource, migrateLiveChanges } from './live-changes.js';
 
 /** Convert only positional bindings, never question marks inside SQL tokens. */
 export function postgresSql(sql: string): string {
@@ -165,6 +166,7 @@ export async function openPostgres(value: string, schema?: string, poolSize = 10
       if (context.getStore()) throw new Error('Cannot close database inside transaction');
       if (closed) return;
       closed = true;
+      await closeChangeSource(db);
       await queue;
       await pool.end();
     },
@@ -173,6 +175,8 @@ export async function openPostgres(value: string, schema?: string, poolSize = 10
     await db.close();
     throw new Error('DATABASE_URL: PostgreSQL connection failed');
   }
+  const currentSchema = (await db.get<{ name: string }>('SELECT current_schema() AS name'))!.name;
+  registerChangeSource(db, { ...parseDatabaseUrl(value), connectionTimeoutMillis: 5000, application_name: `chashack-live:${currentSchema}` }, currentSchema);
   return db;
 }
 
@@ -195,5 +199,6 @@ export async function migratePostgres(db: Db): Promise<void> {
     for (const sql of statements.filter((sql) => !sql.startsWith('CREATE TABLE'))) await db.run(sql);
     await db.run('CREATE INDEX IF NOT EXISTS idx_participants_team ON participants(team_id)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_participants_event ON participants(event_id, status)');
+    await migrateLiveChanges(db);
   });
 }

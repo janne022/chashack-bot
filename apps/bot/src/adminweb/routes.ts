@@ -76,9 +76,11 @@ import type { FormConfig } from '../features/form/domain.js';
 import { validateCustomAnswers, validateCustomQuestions, validBannerUrl, normalizeAppearance, resolveAppearance } from '../features/form/domain.js';
 import { getRegistrationAnswers, listRegistrationAnswers, saveRegistrationAnswers } from '../features/registration/data.js';
 import { registerParticipantTeamRoutes } from './participant-teams.js';
+import { registerLiveRoute } from './live.js';
+import type { ChangeHint } from '../shared/live-changes.js';
 import { applyTeamLeave } from '../discord/provision.js';
 import { refreshTeamPanel } from '../discord/team-panel.js';
-import { setMembershipLookup } from '../features/signup/eligibility.js';
+import { eligibleParticipant, setMembershipLookup } from '../features/signup/eligibility.js';
 import { lookupGuildMember } from '../discord/member-lifecycle.js';
 import { runWithGuildContext, withGuildContext } from '../shared/postgres.js';
 import { consumeQuota } from '../shared/rate-limit.js';
@@ -234,7 +236,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (deps.client === null || !isSnowflake(guildId)) return { allowed: false, ownerOrAdmin: false };
     try {
       const guild = await deps.client.guilds.fetch(guildId);
-      const member = await guild.members.fetch(userId);
+      const member = await guild.members.fetch({ user: userId, force: true });
       const setting = await withGuildContext(db, guildId, () => db.get<{ mod_role_ids: string }>('SELECT mod_role_ids FROM guild_settings WHERE guild_id = ?', guildId));
       const decoded: unknown = setting === undefined ? [] : JSON.parse(setting.mod_role_ids);
       const delegated = Array.isArray(decoded) ? decoded.filter((id): id is string => typeof id === 'string') : [];
@@ -663,6 +665,53 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return lookupGuildMember(deps.client, guildId, userId);
   });
   registerParticipantTeamRoutes(app, deps, participantSessionFrom, participantEvent);
+
+  registerLiveRoute(app, db, '/api/live', async (req) => {
+    const live = await sessionFrom(req);
+    const guildId = live?.session.selectedGuildId;
+    if (!live || !guildId || !(await freshGuildAccess(live.session.userId, guildId)).allowed) return null;
+    return withGuildContext(db, guildId, async () => {
+      const eventId = await resolveEventId(req, guildId);
+      const event = await getEvent(db, eventId);
+      if (eventId !== guildId && event?.guildId !== guildId) return null;
+      return { sessionId: live.session.id, scope: `${guildId}/${eventId}`, accepts: async (hint: ChangeHint) =>
+        hint.guildId === guildId && (hint.eventId === null || hint.eventId === eventId) };
+    });
+  });
+
+  const ownHint = async (hint: ChangeHint, userId: string): Promise<boolean> => {
+    if (!hint.guildId || !hint.eventId) return false;
+    return withGuildContext(db, hint.guildId, async () => {
+      const event = await getEvent(db, hint.eventId!);
+      if (!event || event.status === 'draft') return false;
+      if (hint.userId === userId || hint.targetId === userId || hint.requesterId === userId) return true;
+      if (hint.table === 'team_requests' || hint.table === 'registration_answers') return false;
+      const own = await getParticipant(db, hint.eventId!, userId);
+      if (!own || own.status !== 'active') return false;
+      if (hint.table === 'events') return true;
+      if (hint.teamId && (hint.publicTeam || (await getTeam(db, hint.teamId))?.kind === 'public')) {
+        return await eligibleParticipant(db, hint.eventId!, userId) !== null;
+      }
+      return hint.teamId !== null && hint.teamId === own.teamId;
+    });
+  };
+  registerLiveRoute(app, db, '/api/participant/events/:eventId/live', async (req) => {
+    const session = await participantSessionFrom(req);
+    if (!session) return null;
+    const eventId = (req.params as { eventId: string }).eventId;
+    const event = await participantEvent(eventId, session.userId);
+    if (!event || !installedGuildIds().includes(event.guildId)) return null;
+    return { sessionId: session.id, scope: `${event.guildId}/${eventId}`, accepts: async (hint) =>
+      hint.guildId === event.guildId && hint.eventId === eventId && (hint.table === 'events' || await ownHint(hint, session.userId)) };
+  });
+  registerLiveRoute(app, db, '/api/participant/live', async (req) => {
+    const session = await participantSessionFrom(req);
+    if (!session) return null;
+    const guilds: string[] = [];
+    for (const guildId of installedGuildIds()) if (await currentMember(guildId, session.userId)) guilds.push(guildId);
+    return { sessionId: session.id, scope: guilds.sort().join('/'), accepts: async (hint) =>
+      hint.guildId !== null && guilds.includes(hint.guildId) && await ownHint(hint, session.userId) };
+  });
 
   app.get('/api/participant/events/:eventId/registration', async (req, reply) => {
     const session = await participantSessionFrom(req);

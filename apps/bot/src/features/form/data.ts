@@ -9,7 +9,7 @@ import { DEFAULT_FORM, normalizeFormUpdate, type FormConfig } from './domain.js'
 export async function getForm(db: Db, guildId: string): Promise<FormConfig> {
   const row = await db.get<{ json: string }>('SELECT json FROM form_config WHERE guild_id = ?', guildId);
   if (row === undefined) {
-    await db.run('INSERT INTO form_config (guild_id, json, updated_at) VALUES (?, ?, ?)', guildId, JSON.stringify(DEFAULT_FORM), Date.now());
+    await db.run('INSERT INTO form_config (guild_id, json, updated_at) VALUES (?, ?, ?) ON CONFLICT(guild_id) DO NOTHING', guildId, JSON.stringify(DEFAULT_FORM), Date.now());
     return DEFAULT_FORM;
   }
   try {
