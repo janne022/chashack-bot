@@ -1,5 +1,7 @@
 {
   "common.app_name": "ChasHack",
+  "live.disconnected": "Liveuppdateringar är frånkopplade. Senast inlästa data visas.",
+  "live.reconnecting": "Återansluter liveuppdateringar… Du kan fortsätta arbeta.",
   "form.label_required": "Ange en engelsk etikett (krävs som reservspråk).",
   "form.choice_required": "Lägg till minst ett svarsalternativ.",
   "form.mapping_required": "Välj ett matchningsvärde för svaret eller stäng av matchning för hela frågan.",

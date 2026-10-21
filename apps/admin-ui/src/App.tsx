@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, ApiError } from './api'
 import type { AppState } from './types'
 import { LoginView } from './views/LoginView'
 import { AppShell } from './components/AppShell'
 import { AppContextProvider } from './lib/app-context'
+import { LiveStatus, useLiveUpdates } from './lib/live-updates'
 
 /**
  * App is now the auth + data provider; routing is TanStack Router's job
@@ -28,13 +29,19 @@ function OrganizerApp({ children }: { children: ReactNode }) {
     () => localStorage.getItem('chas-event') || null,
   )
 
-  const refresh = useCallback(async () => {
+  const selection = useRef(selectedEventId)
+  selection.current = selectedEventId
+  const sequence = useRef(0)
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    const request = ++sequence.current
     try {
-      const s = await api.state(selectedEventId)
+      const s = await api.state(selectedEventId, signal)
+      if (signal?.aborted || selection.current !== selectedEventId || request !== sequence.current) return
       setState(s)
       setAuthed(true)
       setError(null)
     } catch (e) {
+      if (signal?.aborted || selection.current !== selectedEventId || request !== sequence.current) return
       if (e instanceof ApiError && e.unauthorized) {
         setAuthed(false)
       } else if (e instanceof ApiError && e.code === 'access_refused') {
@@ -45,6 +52,7 @@ function OrganizerApp({ children }: { children: ReactNode }) {
       }
     }
   }, [selectedEventId])
+  const live = useLiveUpdates(authed ? `/api/live${selectedEventId ? `?eventId=${encodeURIComponent(selectedEventId)}` : ''}` : null, refresh)
 
   useEffect(() => {
     void refresh()
@@ -83,6 +91,7 @@ function OrganizerApp({ children }: { children: ReactNode }) {
   return (
     <AppContextProvider value={{ state, refresh, selectEvent }}>
       <AppShell state={state} refresh={refresh}>
+        <LiveStatus {...live} />
         {children}
       </AppShell>
     </AppContextProvider>

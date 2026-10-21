@@ -45,9 +45,9 @@ export const api = {
    * Load app state. Pass an eventId to scope participants/teams/matching to a
    * specific event — required when more than one event is active at once.
    */
-  async state(eventId?: string | null): Promise<AppState> {
+  async state(eventId?: string | null, signal?: AbortSignal): Promise<AppState> {
     const qs = eventId ? `?eventId=${encodeURIComponent(eventId)}` : ''
-    return request<AppState>(`/api/state${qs}`)
+    return request<AppState>(`/api/state${qs}`, signal ? { signal } : undefined)
   },
 
   /** All event-scoped calls accept an explicit eventId; omit it to let the server pick the default event. */

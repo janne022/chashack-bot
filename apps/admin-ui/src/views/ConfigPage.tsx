@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Save, Settings, Search, X, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
@@ -27,6 +27,7 @@ export function ConfigPage() {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
   const [roles, setRoles] = useState<{ id: string; name: string; color: string }[]>([])
   const [roleQuery, setRoleQuery] = useState('')
+  const previousSettings = useRef(gs)
 
   useEffect(() => {
     fetch('/api/guild/channels')
@@ -40,13 +41,15 @@ export function ConfigPage() {
   }, [])
 
   useEffect(() => {
-    setPanel(gs.defaultPanelChannelId ?? '')
-    setAnnounce(gs.defaultAnnouncementChannelId ?? '')
-    setScheduleChannel((gs as unknown as { defaultScheduleChannelId?: string | null }).defaultScheduleChannelId ?? '')
-    setCategory(gs.defaultCategoryId ?? gs.teamCategoryId ?? '')
-    setCleanup(gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '')
-    setDefaultForm(gs.defaultFormTemplateId ?? '')
-    setModRoles(gs.modRoleIds ?? [])
+    const previous = previousSettings.current
+    setPanel(value => value === (previous.defaultPanelChannelId ?? '') ? gs.defaultPanelChannelId ?? '' : value)
+    setAnnounce(value => value === (previous.defaultAnnouncementChannelId ?? '') ? gs.defaultAnnouncementChannelId ?? '' : value)
+    setScheduleChannel(value => value === (previous.defaultScheduleChannelId ?? '') ? gs.defaultScheduleChannelId ?? '' : value)
+    setCategory(value => value === (previous.defaultCategoryId ?? previous.teamCategoryId ?? '') ? gs.defaultCategoryId ?? gs.teamCategoryId ?? '' : value)
+    setCleanup(value => value === (previous.defaultCleanupDelayHours != null ? String(previous.defaultCleanupDelayHours) : '') ? gs.defaultCleanupDelayHours != null ? String(gs.defaultCleanupDelayHours) : '' : value)
+    setDefaultForm(value => value === (previous.defaultFormTemplateId ?? '') ? gs.defaultFormTemplateId ?? '' : value)
+    setModRoles(value => JSON.stringify([...value].sort()) === JSON.stringify([...(previous.modRoleIds ?? [])].sort()) ? gs.modRoleIds ?? [] : value)
+    previousSettings.current = gs
   }, [gs.defaultPanelChannelId, gs.defaultAnnouncementChannelId, (gs as unknown as { defaultScheduleChannelId?: string | null }).defaultScheduleChannelId, gs.defaultCategoryId, gs.teamCategoryId, gs.defaultCleanupDelayHours, gs.defaultFormTemplateId, gs.modRoleIds])
 
   const dirty =

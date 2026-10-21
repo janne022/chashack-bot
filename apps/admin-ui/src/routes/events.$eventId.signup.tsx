@@ -1,10 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { ParticipantFrame } from '@/components/participant-appearance'
 import { SignupQuestion, type Localized, type Question } from '@/components/signup-question'
 import type { FormAppearance } from '@/types'
 import { useT } from '@/lib/i18n'
+import { LiveStatus, useLiveUpdates } from '@/lib/live-updates'
 
 
 type EventForm = { event: { id: string; name: string; description: string; startsAt: number | null; endsAt: number | null }; form: { version: number; title: string; description: string; appearance: FormAppearance; questions: Question[] } }
@@ -21,30 +22,40 @@ function Signup() {
   const [message, setMessage] = useState('')
   const [stale, setStale] = useState(false)
   const [access, setAccess] = useState<'anonymous' | 'member' | 'nonmember'>('anonymous')
+  const dirty = useRef(false)
 
   const language = localStorage.getItem('chas-locale') === 'sv' ? 'sv' : 'en'
   const label = (value: Localized) => typeof value === 'string' ? value : value[language] || value.en
   const visibleQuestions = event?.form.questions ?? []
 
-  const load = async () => {
-    setState('loading')
-    setMessage('')
-    setStale(false)
+  const load = async (signal?: AbortSignal, background = false) => {
+    if (!background) { setState('loading'); setMessage(''); setStale(false) }
     try {
-      const res = await fetch(`/api/public/events/${encodeURIComponent(eventId)}`)
+      const res = await fetch(`/api/public/events/${encodeURIComponent(eventId)}`, signal ? { signal } : undefined)
       if (!res.ok) throw new Error(t('participant.signup_unavailable'))
-      setEvent(await res.json() as EventForm)
-      const saved = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`)
+      const next = await res.json() as EventForm
+      const saved = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`, signal ? { signal } : undefined)
+      const value = saved.ok ? await saved.json() as Registration : null
+      if (signal?.aborted) return
+      if (dirty.current && event && next.form.version !== event.form.version) {
+        setStale(true); setMessage(t('participant.signup_stale'))
+        setEvent({ ...next, form: event.form })
+      } else setEvent(next)
       if (saved.ok) {
-        const value = await saved.json() as Registration
-        setRegistration(value); setAnswers(value.answers); setAccess('member')
-      } else if (saved.status === 404) setAccess('nonmember')
-      else if (saved.status === 401) setAccess('anonymous')
+        setRegistration(value); if (!dirty.current) setAnswers(value!.answers); setAccess('member')
+      } else if (saved.status === 404) { setAccess('nonmember'); setRegistration(null) }
+      else if (saved.status === 401) { setAccess('anonymous'); setRegistration(null) }
       else throw new Error(t('participant.signup_load_error'))
-      setState('idle')
-    } catch (error) { setMessage(error instanceof Error ? error.message : t('participant.signup_load_error')); setState('failed') }
+      if (!background) setState('idle')
+    } catch (error) { if (!signal?.aborted) { setMessage(error instanceof Error ? error.message : t('participant.signup_load_error')); if (!background) setState('failed') } }
   }
-  useEffect(() => { void load() }, [eventId])
+  useEffect(() => {
+    const controller = new AbortController(); dirty.current = false
+    setEvent(null); setRegistration(null); setAnswers({})
+    void load(controller.signal)
+    return () => controller.abort()
+  }, [eventId])
+  const live = useLiveUpdates(access === 'member' ? `/api/participant/events/${encodeURIComponent(eventId)}/live` : null, signal => load(signal, true))
 
   const refreshForm = async () => {
     setState('waiting')
@@ -83,11 +94,12 @@ function Signup() {
       if (res.status === 401) { location.assign('/auth/participant'); return }
       if (res.status === 404) throw new Error(t('participant.signup_member'))
       if (!res.ok) { setRegistration({ ...registration!, ...value, answers, missingRequiredQuestionIds: value.missingRequiredQuestionIds ?? registration?.missingRequiredQuestionIds ?? [] }); setStale(value.error === 'stale_form_version'); setMessage(value.error === 'stale_form_version' ? t('participant.signup_stale') : t('participant.signup_save_error')); setState('failed'); return }
-      setRegistration(value); setMessage(t('participant.signup_saved')); setState('idle')
+      dirty.current = false; setRegistration(value); setMessage(t('participant.signup_saved')); setState('idle')
     } catch (error) { setMessage(error instanceof Error ? error.message : t('participant.signup_failed')); setState('failed') }
   }
   if (!event) return <main className="mx-auto max-w-2xl space-y-4 p-6">{state === 'loading' ? <p aria-busy="true">{t('participant.signup_loading')}</p> : <><p role="alert">{message}</p><Button onClick={() => void load()}>{t('participant.retry')}</Button></>}</main>
   return <ParticipantFrame appearance={event.form.appearance}>
+    <LiveStatus {...live} />
     <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
       <section className="order-2 space-y-6 lg:order-1">
         <header className="space-y-3">
@@ -105,7 +117,7 @@ function Signup() {
         </section>}
         {!registration && access === 'nonmember' && <p role="alert">{t('participant.signup_member')}</p>}
         {registration && <form className="space-y-5" onSubmit={e => void submit(e)}>
-          {visibleQuestions.map(q => <SignupQuestion key={q.id} question={q} answer={answers[q.id]} invalid={registration.missingRequiredQuestionIds.includes(q.id)} label={label} onChange={answer => setAnswers({ ...answers, [q.id]: answer })} t={t} />)}
+          {visibleQuestions.map(q => <SignupQuestion key={q.id} question={q} answer={answers[q.id]} invalid={registration.missingRequiredQuestionIds.includes(q.id)} label={label} onChange={answer => { dirty.current = true; setAnswers({ ...answers, [q.id]: answer }) }} t={t} />)}
           {message && <p role={state === 'failed' ? 'alert' : 'status'} tabIndex={-1}>{message}</p>}
           <div className="flex flex-wrap gap-3"><Button type="submit" className="min-h-11" disabled={state === 'waiting' || stale} aria-busy={state === 'waiting'}>{state === 'waiting' ? t('participant.team_save') : registration.complete ? t('participant.signup_update') : t('participant.signup_submit')}</Button>{stale ? <Button type="button" className="min-h-11" variant="outline" onClick={() => void refreshForm()}>{t('participant.signup_reload')}</Button> : state === 'failed' && <Button type="submit" className="min-h-11" variant="outline">{t('participant.retry')}</Button>}</div>
           {registration.complete && <p>{t('participant.signup_success')} <a className="underline" href={`/team?eventId=${encodeURIComponent(eventId)}`}>{t('participant.view_team')}</a></p>}
