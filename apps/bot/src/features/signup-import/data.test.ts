@@ -75,3 +75,30 @@ test('a failed member link does not persist accompanying edits', async () => {
     assert.equal((await db.get('SELECT user_id FROM participants WHERE event_id=?', eventId)), undefined);
   } finally { await db.close(); }
 });
+
+test('concurrent identical email commits save once and verified identity conflicts do not link twice', async () => {
+  const db = await openTestDb();
+  try {
+    const created = await createEvent(db, 'test', 'signup-race-guild', { name: 'Race test' });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const eventId = created.value.id;
+    const row = { sourceRow: 2, values: { name: 'Synthetic', email: 'race@example.test' }, answers: {} };
+    const results = await Promise.all([
+      createImportedSignups(db, eventId, 'signup-race-guild', 1, [row]),
+      createImportedSignups(db, eventId, 'signup-race-guild', 1, [row]),
+    ]);
+    assert.deepEqual(results.map((result) => [result.saved, result.skipped, result.conflicts]).sort(), [[0, 1, 0], [1, 0, 0]]);
+    const records = await listImportedSignups(db, eventId);
+    assert.equal(records.length, 1);
+    await activateEvent(db, 'test', eventId);
+    await db.run('UPDATE imported_signups SET discord_user_id=? WHERE id=?', '12345678901234567', records[0]!.id);
+    const other = await createImportedSignups(db, eventId, 'signup-race-guild', 1, [{ sourceRow: 3, values: { name: 'Other', email: 'other@example.test' }, answers: {} }]);
+    const event = await getEvent(db, eventId);
+    assert.ok(event);
+    const form = getEventForm(db, event!, await getForm(db, 'signup-race-guild'));
+    const conflict = await linkImportedSignup(db, eventId, 'signup-race-guild', other.rows[0]!.id!, '12345678901234567', form);
+    assert.equal(conflict.error, 'identity_conflict');
+    assert.equal((await listImportedSignups(db, eventId))[1]!.discordUserId, null);
+  } finally { await db.close(); }
+});
