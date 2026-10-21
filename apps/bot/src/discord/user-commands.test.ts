@@ -7,7 +7,7 @@ import { createTeam } from '../features/teams/data.js';
 import { openTestDb } from '../shared/test-db.js';
 import { t } from '../shared/i18n.js';
 import { handleUserCommand } from './user-commands.js';
-import { onComponent } from './components.js';
+import { onComponent, onModalSubmit } from './components.js';
 import { IDS } from './shared.js';
 import type { Ctx } from './shared.js';
 
@@ -112,7 +112,8 @@ function componentInteraction() {
   const replies: unknown[] = [];
   let modalShown = false;
   const value = {
-    customId: IDS.followCreateTeam,
+    customId: `${IDS.followCreateTeam}:event-1`,
+    isButton: () => true,
     user: { id: 'user-1', username: 'tester' },
     reply: async (payload: unknown) => { replies.push(payload); },
     showModal: async () => { modalShown = true; },
@@ -122,6 +123,7 @@ function componentInteraction() {
 
 test('create-team follow-up waits for signup and membership checks', async () => {
   const missingDb = await delayedMissingParticipantDb();
+  await missingDb.run("INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES ('event-1', 'guild-1', 'Test', 'active', 1, 1)");
   const missing = componentInteraction();
   await onComponent(missing.value as never, { ...context(missingDb), announce: async () => undefined });
   assert.equal(missing.modalShown(), false);
@@ -144,5 +146,56 @@ test('create-team refuses a signed-up user who already has team membership', asy
   await handleUserCommand(i.value, context(db), 'create-team');
   assert.equal(i.modalShown(), false);
   assert.equal((i.replies[0] as { content?: string }).content, t('en', 'errors.already_in_team'));
+  await db.close();
+});
+
+test('completed signup offers button-first create, browse and invitations actions', async () => {
+  const db = await signedUpDb();
+  const replies: unknown[] = [];
+  const modal = {
+    customId: 'hack:signup:event:event-1',
+    user: { id: 'user-1', username: 'tester' },
+    fields: {
+      getTextInputValue: () => 'Tester',
+      getStringSelectValues: (id: string) => id.endsWith('experience') ? ['veteran'] : id.endsWith('role') ? ['backend'] : id.endsWith('skills') ? ['backend_node'] : ['random_team'],
+    },
+    reply: async (payload: unknown) => { replies.push(payload); },
+  };
+  await onModalSubmit(modal as never, { ...context(db), announce: async () => undefined });
+  const payload = replies[0] as { components?: { components?: { data?: { custom_id?: string } }[] }[] };
+  assert.deepEqual(payload.components?.[0]?.components?.map((button) => button.data?.custom_id), [`${IDS.followCreateTeam}:event-1`, `${IDS.followBrowseTeams}:event-1`, `${IDS.followInvitations}:event-1`]);
+  await db.close();
+});
+
+test('button-first invitations opens the current user request view without a slash command', async () => {
+  const db = await signedUpDb();
+  const interaction = componentInteraction();
+  Object.defineProperty(interaction.value, 'customId', { value: `${IDS.followInvitations}:event-1` });
+  await onComponent(interaction.value as never, { ...context(db), announce: async () => undefined });
+  assert.equal(interaction.replies.length, 1);
+  const reply = interaction.replies[0] as { embeds?: { data?: { title?: string; description?: string } }[] };
+  assert.equal(reply.embeds?.[0]?.data?.title, t('en', 'discord.teams.pending_title'));
+  assert.equal(reply.embeds?.[0]?.data?.description, t('en', 'discord.teams.nothing_pending'));
+  await db.close();
+});
+
+test('incomplete custom-question signup links to the event web form instead of team actions', async () => {
+  const db = await signedUpDb();
+  const replies: unknown[] = [];
+  const modal = {
+    customId: 'hack:signup:event:event-1', user: { id: 'user-1', username: 'tester' },
+    fields: {
+      getTextInputValue: () => 'Tester',
+      getStringSelectValues: (id: string) => id.endsWith('experience') ? ['veteran'] : id.endsWith('role') ? ['backend'] : id.endsWith('skills') ? ['backend_node'] : ['random_team'],
+    },
+    reply: async (payload: unknown) => { replies.push(payload); },
+  };
+  const config = { ...DEFAULT_FORM, customQuestions: [{ id: 'required-web', kind: 'text' as const, label: { en: 'Goal' }, help: { en: '' }, required: true, presentation: 'web' as const, visibility: 'self_and_organizer' as const }] };
+  await db.run('UPDATE events SET form_json = ? WHERE id = ?', JSON.stringify(config), 'event-1');
+  await onModalSubmit(modal as never, { ...context(db), config, webCompletionUrl: 'https://example.test/events/event-1/signup', announce: async () => undefined });
+  const payload = replies[0] as { components?: { components?: { toJSON: () => { url?: string; custom_id?: string } }[] }[] };
+  const button = payload.components?.[0]?.components?.[0] as { data?: { url?: string; custom_id?: string } } | undefined;
+  assert.equal(button?.data?.url, 'https://example.test/events/event-1/signup');
+  assert.equal(button?.data?.custom_id, undefined);
   await db.close();
 });

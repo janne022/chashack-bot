@@ -35,6 +35,7 @@ export const IDS = {
   // post-signup follow-up actions (in-modal continuation)
   followCreateTeam: 'hack:follow:create-team',
   followBrowseTeams: 'hack:follow:browse-teams',
+  followInvitations: 'hack:follow:invitations',
 } as const;
 
 export interface Ctx {

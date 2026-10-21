@@ -27,8 +27,8 @@ export function optionLabel(
   return option.label;
 }
 
-export function buildSignupModal(config: FormConfig, locale: BotLocale): ModalBuilder {
-  const modal = new ModalBuilder().setCustomId(MODAL_IDS.signup).setTitle(config.title.slice(0, 45));
+export function buildSignupModal(config: FormConfig, locale: BotLocale, customId: string = MODAL_IDS.signup): ModalBuilder {
+  const modal = new ModalBuilder().setCustomId(customId).setTitle(config.title.slice(0, 45));
 
   modal.addLabelComponents(
     new LabelBuilder()
@@ -111,8 +111,8 @@ const SETTINGS_IDS = {
 } as const;
 
 /** Create-team modal: name + visibility + role color in one shot. */
-export function buildCreateTeamModal(locale: BotLocale): ModalBuilder {
-  const modal = new ModalBuilder().setCustomId(CREATE_IDS.modal).setTitle(t(locale, 'discord.teams.create_title'));
+export function buildCreateTeamModal(locale: BotLocale, customId: string = CREATE_IDS.modal): ModalBuilder {
+  const modal = new ModalBuilder().setCustomId(customId).setTitle(t(locale, 'discord.teams.create_title'));
 
   modal.addLabelComponents(
     new LabelBuilder()
@@ -160,8 +160,9 @@ export function buildTeamSettingsModal(
   kind: string,
   colorId: string | null,
   locale: BotLocale,
+  customId: string = SETTINGS_IDS.modal,
 ): ModalBuilder {
-  const modal = new ModalBuilder().setCustomId(SETTINGS_IDS.modal).setTitle(t(locale, 'discord.teams.settings_title'));
+  const modal = new ModalBuilder().setCustomId(customId).setTitle(t(locale, 'discord.teams.settings_title'));
 
   modal.addLabelComponents(
     new LabelBuilder()
@@ -202,6 +203,23 @@ export function buildTeamSettingsModal(
       ),
   );
 
+  return modal;
+}
+
+export const TEAM_INVITE_TARGET_ID = 'hack:team-invite:target';
+
+export function buildTeamInviteModal(eventId: string, teamId: string, locale: BotLocale): ModalBuilder {
+  const modal = new ModalBuilder()
+    .setCustomId(`hack:team-panel-modal:invite:${eventId}:${teamId}`)
+    .setTitle(t(locale, 'discord.team_panel.invite_title'));
+  modal.addLabelComponents(new LabelBuilder()
+    .setLabel(t(locale, 'discord.team_panel.invite_target'))
+    .setTextInputComponent(new TextInputBuilder()
+      .setCustomId(TEAM_INVITE_TARGET_ID)
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('123456789012345678')
+      .setMaxLength(25)
+      .setRequired(true)));
   return modal;
 }
 

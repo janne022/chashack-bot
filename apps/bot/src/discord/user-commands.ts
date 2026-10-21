@@ -3,6 +3,8 @@
  */
 import {
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
   MessageFlags,
   StringSelectMenuBuilder,
@@ -35,7 +37,7 @@ export async function teamsBrowser(
   const open = await listOpenPublicTeams(ctx.db, ctx.eventId, ctx.config.teamSize);
   if (open.length === 0) return null;
   const select = new SelectBuilder()
-    .setCustomId(IDS.teamsSelect)
+    .setCustomId(`${IDS.teamsSelect}:${ctx.eventId}`)
     .setPlaceholder(t(locale, 'discord.teams.browser_placeholder'))
     .addOptions(
       open.slice(0, 25).map((team) =>
@@ -57,6 +59,36 @@ export async function teamsBrowser(
   };
 }
 
+export async function teamRequestsView(ctx: Ctx, userId: string): Promise<{
+  embeds: EmbedBuilder[];
+  components: ActionRowBuilder<ButtonBuilder>[];
+}> {
+  const { incoming, outgoing } = await listRequestsForUser(ctx.db, ctx.eventId, userId, 'pending');
+  const lines = await Promise.all([...incoming, ...outgoing].map(async (request) => {
+    const team = await getTeam(ctx.db, request.teamId);
+    const other = request.kind === 'invite' ? request.requesterId : request.targetId;
+    const action = incoming.includes(request) ? t(ctx.botLocale, 'discord.teams.waiting_on_you') : t(ctx.botLocale, 'discord.teams.you_sent');
+    return `${action}: **${team?.name ?? t(ctx.botLocale, 'discord.teams.unknown_team')}**${incoming.includes(request) ? ` (<@${other}>)` : ''}`;
+  }));
+  const embed = new EmbedBuilder()
+    .setTitle(t(ctx.botLocale, 'discord.teams.pending_title'))
+    .setDescription(lines.join('\n') || t(ctx.botLocale, 'discord.teams.nothing_pending'))
+    .setColor(0x5865f2);
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+  for (const request of incoming.slice(0, 2)) {
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`${IDS.reqAccept}:${request.id}`).setLabel(t(ctx.botLocale, 'discord.teams.accept_btn')).setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`${IDS.reqDecline}:${request.id}`).setLabel(t(ctx.botLocale, 'discord.teams.decline_btn')).setStyle(ButtonStyle.Secondary),
+    ));
+  }
+  for (const request of outgoing.slice(0, 3)) {
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`${IDS.reqCancel}:${request.id}`).setLabel(t(ctx.botLocale, 'discord.teams.cancel_btn_short')).setStyle(ButtonStyle.Secondary),
+    ));
+  }
+  return { embeds: [embed], components: rows };
+}
+
 export async function handleUserCommand(
   i: ChatInputCommandInteraction,
   ctx: Ctx,
@@ -75,7 +107,7 @@ export async function handleUserCommand(
         await i.reply(eph(t(locale, 'errors.blocked')));
         return;
       }
-      await i.showModal(buildSignupModal(config, locale));
+      await i.showModal(buildSignupModal(config, locale, `hack:signup:event:${ctx.eventId}`));
       return;
     }
 
@@ -92,7 +124,7 @@ export async function handleUserCommand(
         await i.reply(eph(t(locale, 'errors.already_in_team')));
         return;
       }
-      await i.showModal(buildCreateTeamModal(locale));
+      await i.showModal(buildCreateTeamModal(locale, `hack:create:modal:event:${ctx.eventId}`));
       return;
     }
 
@@ -106,7 +138,7 @@ export async function handleUserCommand(
         await i.reply(eph(t(locale, 'discord.teams.not_owner')));
         return;
       }
-      await i.showModal(buildTeamSettingsModal(team.name, team.kind, team.colorId, locale));
+      await i.showModal(buildTeamSettingsModal(team.name, team.kind, team.colorId, locale, `hack:team-settings:event:${ctx.eventId}:${team.id}`));
       return;
     }
 

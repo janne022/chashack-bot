@@ -8,6 +8,7 @@ import { eligibleParticipant } from '../features/signup/eligibility.js';
 import { createTeam, getTeam, getTeamForUser, getGuildSettings, joinTeam, leaveTeam, listTeams, type Team } from '../features/teams/data.js';
 import { createInvite, decideRequest, listRequestsForUser } from '../features/teams/requests-data.js';
 import { destroyTeamSpace, grantTeamRole, provisionTeamSpace, revokeTeamRole } from '../discord/provision.js';
+import { refreshTeamPanel } from '../discord/team-panel.js';
 
 export function registerParticipantTeamRoutes(app: FastifyInstance, deps: WebDeps,
   sessionFrom: (req: FastifyRequest) => Promise<WebSession | null>,
@@ -28,6 +29,7 @@ export function registerParticipantTeamRoutes(app: FastifyInstance, deps: WebDep
     const pd = { db, client: deps.client, categoryIdFor: () => category };
     const ready = create ? await provisionTeamSpace(pd, team) : team;
     await grantTeamRole(pd, ready, userId);
+    await refreshTeamPanel(pd, ready);
   };
   const base = '/api/participant/events/:eventId';
   app.get(`${base}/teams`, async (req, reply) => {
@@ -64,6 +66,8 @@ export function registerParticipantTeamRoutes(app: FastifyInstance, deps: WebDep
     if (typeof targetId !== 'string' || targetId.length > 25 || targetId.length === 0) return reply.code(400).send({ error: 'invalid_target' });
     const res = await createInvite(db, ctx.actor, ctx.event.id, ctx.event.guildId, (req.params as { teamId: string }).teamId, targetId, ctx.size);
     if (!res.ok) return reply.code(409).send({ error: res.code });
+    const team = await getTeam(db, (req.params as { teamId: string }).teamId);
+    if (team && deps.client && !deps.config.skipDiscord) await refreshTeamPanel({ db, client: deps.client, categoryIdFor: () => undefined }, team);
     return { request: res.value };
   });
   app.post(`${base}/invitations/:requestId/respond`, async (req, reply) => {
@@ -88,7 +92,9 @@ export function registerParticipantTeamRoutes(app: FastifyInstance, deps: WebDep
     if (team && deps.client && !deps.config.skipDiscord) {
       const pd = { db, client: deps.client, categoryIdFor: () => undefined };
       await revokeTeamRole(pd, team, session.userId);
-      if (await getTeam(db, team.id) === null) await destroyTeamSpace(pd, team);
+      const remaining = await getTeam(db, team.id);
+      if (remaining === null) await destroyTeamSpace(pd, team);
+      else await refreshTeamPanel(pd, remaining);
     }
     return { ok: true };
   });
