@@ -28,6 +28,7 @@ import { buildSignupModal, buildCreateTeamModal, buildTeamSettingsModal, optionL
 import { IDS, cancelRow, decideRow, displayErr, embedOk, eph, type Ctx } from './shared.js';
 import { t } from '../shared/i18n.js';
 import { applyTeamLeave } from './provision.js';
+import { refreshTeamPanel } from './team-panel.js';
 
 /** Browser: pick a public team with space → send join request. Shared with the panel button. */
 export async function teamsBrowser(
@@ -181,6 +182,7 @@ export async function handleUserCommand(
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
+      await refreshTeamPanel({ db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, team, locale);
       // DM the invitee with accept/decline.
       const inviter = `${i.user.username} (from **${team.name}**)`;
       const dmSent = await ctx.dm(target.id, {

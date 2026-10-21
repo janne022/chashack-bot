@@ -13,6 +13,9 @@ import { DEFAULT_FORM } from '../features/form/domain.js';
 import { getMessageRef, setMessageRef } from '../features/events/data.js';
 import { t, type BotLocale } from '../shared/i18n.js';
 
+export function isCurrentTeamPanel(ref: { channelId: string; messageId: string } | null, channelId: string | null, messageId: string): boolean {
+  return ref !== null && ref.channelId === channelId && ref.messageId === messageId;
+}
 
 export function buildTeamPanel(
   team: Team,
