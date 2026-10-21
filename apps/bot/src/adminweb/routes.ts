@@ -77,6 +77,7 @@ import { validateCustomAnswers, validateCustomQuestions, validBannerUrl, normali
 import { getRegistrationAnswers, listRegistrationAnswers, saveRegistrationAnswers } from '../features/registration/data.js';
 import { registerParticipantTeamRoutes } from './participant-teams.js';
 import { applyTeamLeave } from '../discord/provision.js';
+import { refreshTeamPanel } from '../discord/team-panel.js';
 import { setMembershipLookup } from '../features/signup/eligibility.js';
 import { lookupGuildMember } from '../discord/member-lifecycle.js';
 import { runWithGuildContext, withGuildContext } from '../shared/postgres.js';
@@ -1458,13 +1459,18 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const { userId } = req.params as { userId: string };
     const body = req.body as { teamId?: string | null } | null;
     const guildId = await guildOf(req);
-    const res = await adminAssign(db, 'web', await resolveEventId(req, guildId), userId, body?.teamId ?? null, (await getForm(db, guildId)).teamSize);
+    const eventId = await resolveEventId(req, guildId);
+    const res = await adminAssign(db, 'web', eventId, userId, body?.teamId ?? null, (await getForm(db, guildId)).teamSize);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
     }
     if (res.value !== null && deps.client !== null && !deps.config.skipDiscord) {
       await applyTeamLeave({ db, client: deps.client, categoryIdFor: () => undefined }, res.value, userId);
+    }
+    if (body?.teamId && deps.client !== null && !deps.config.skipDiscord) {
+      const team = await getTeam(db, body.teamId);
+      if (team?.eventId === eventId) await refreshTeamPanel({ db, client: deps.client, categoryIdFor: () => undefined }, team);
     }
     return { ok: true };
   });
@@ -1508,6 +1514,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
+    }
+    if (deps.client !== null && !deps.config.skipDiscord) {
+      await refreshTeamPanel({ db, client: deps.client, categoryIdFor: () => undefined }, res.value);
     }
     return { ok: true, team: res.value };
   });

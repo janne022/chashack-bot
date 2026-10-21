@@ -21,6 +21,7 @@ import type { Team } from '../features/teams/data.js';
 import { teamColor } from '../features/form/domain.js';
 import { t } from '../shared/i18n.js';
 import { env } from '../shared/env.js';
+import { refreshTeamPanel } from './team-panel.js';
 
 const MANAGE_FLAGS = [
   PermissionFlagsBits.ViewChannel,
@@ -151,12 +152,14 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
     await setProvisioning(deps.db, team.id, { roleId, textChannelId, voiceChannelId });
   }
 
-  return {
+  const provisioned = {
     ...team,
     roleId,
     textChannelId,
     voiceChannelId,
   };
+  await refreshTeamPanel(deps, provisioned, locale);
+  return provisioned;
 }
 
 /** Grant the team role to a member (join/accept). */
@@ -176,7 +179,9 @@ export async function grantTeamRole(deps: ProvisionDeps, team: Team, userId: str
 /** Revoke the team role (leave/kick/delete). */
 export async function applyTeamLeave(deps: ProvisionDeps, team: Team, userId: string): Promise<void> {
   await revokeTeamRole(deps, team, userId);
-  if (await getTeam(deps.db, team.id) === null) await destroyTeamSpace(deps, team);
+  const remaining = await getTeam(deps.db, team.id);
+  if (remaining === null) await destroyTeamSpace(deps, team);
+  else await refreshTeamPanel(deps, remaining, botLocale());
 }
 
 /** Revoke the team role (leave/kick/delete). */

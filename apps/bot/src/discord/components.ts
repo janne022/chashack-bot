@@ -14,8 +14,8 @@ import {
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
 } from 'discord.js';
-import { MODAL_IDS, validateSignupInput } from '../features/form/domain.js';
-import { upsertParticipant, getParticipant } from '../features/signup/data.js';
+import { MODAL_IDS, validateSignupInput, validateCustomAnswers } from '../features/form/domain.js';
+import { upsertParticipant, getParticipant, listTeamRoster } from '../features/signup/data.js';
 import {
   createTeam,
   getTeamForUser,
@@ -23,10 +23,17 @@ import {
   updateTeamSettings,
   adminAssign,
   joinPrivateTeam,
+  leaveTeam,
 } from '../features/teams/data.js';
-import { createJoinRequest, decideRequest, cancelRequest } from '../features/teams/requests-data.js';
+import { createJoinRequest, createInvite, decideRequest, cancelRequest, listRequestsForUser } from '../features/teams/requests-data.js';
+import { eligibleParticipant } from '../features/signup/eligibility.js';
+import { getEvent, getEventForm } from '../features/events/data.js';
+import { getForm } from '../features/form/data.js';
+import { getMessageRef } from '../features/events/data.js';
+import { getRegistrationAnswers } from '../features/registration/data.js';
 import { applyTeamJoin, applyTeamLeave } from './provision.js';
-import { buildSignupModal, buildCreateTeamModal, CREATE_TEAM_IDS, TEAM_SETTINGS_IDS } from './modal.js';
+import { buildSignupModal, buildCreateTeamModal, buildTeamSettingsModal, buildTeamInviteModal, CREATE_TEAM_IDS, TEAM_SETTINGS_IDS, TEAM_INVITE_TARGET_ID } from './modal.js';
+import { refreshTeamPanel } from './team-panel.js';
 import { IDS, buildParticipantEmbed, displayErr, embedErr, embedOk, eph, type Ctx } from './shared.js';
 import { commitMatchAndAnnounce, resetEventConfirmed } from './admin-commands.js';
 import { t } from '../shared/i18n.js';
@@ -35,21 +42,142 @@ interface Announcer {
   announce: (guildId: string, content: string) => Promise<void>;
 }
 
+async function panelTeam(ctx: Ctx, eventId: string, teamId: string, channelId: string) {
+  const team = await getTeam(ctx.db, teamId);
+  if (team === null || team.eventId !== eventId || team.guildId !== ctx.guildId || team.textChannelId !== channelId) return null;
+  return team;
+}
+
+async function explicitEventContext(ctx: Ctx & Announcer, eventId: string): Promise<(Ctx & Announcer) | null> {
+  const event = await getEvent(ctx.db, eventId);
+  if (event === null || event.guildId !== ctx.guildId || event.status !== 'active') return null;
+  return { ...ctx, eventId, eventName: event.name, hasActiveEvent: true, config: getEventForm(ctx.db, event, await getForm(ctx.db, event.guildId)) };
+}
+
+async function handleTeamPanelModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<boolean> {
+  const parts = i.customId.split(':');
+  if (parts[0] !== 'hack' || parts[1] !== 'team-panel-modal') return false;
+  const [, , action, eventId, teamId] = parts;
+  if (!eventId || !teamId) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
+  const team = i.channelId === null ? null : await panelTeam(ctx, eventId, teamId, i.channelId);
+  const eligibleOwner = team !== null && team.ownerId === i.user.id
+    && await eligibleParticipant(ctx.db, eventId, i.user.id, true) !== null;
+  if (!eligibleOwner) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.owner_only'))); return true; }
+  if (team.kind === 'matched') { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.matched_restricted'))); return true; }
+  const pinnedCtx = { ...ctx, eventId };
+  if (action === 'settings') {
+    await handleTeamSettingsModal(i, pinnedCtx);
+  } else if (action === 'invite') {
+    const raw = i.fields.getTextInputValue(TEAM_INVITE_TARGET_ID).trim();
+    const targetId = raw.match(/^<@!?([0-9]{17,20})>$/)?.[1] ?? raw;
+    if (!/^[0-9]{17,20}$/.test(targetId)) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
+    const result = await createInvite(ctx.db, `discord:${i.user.id}`, eventId, team.guildId, team.id, targetId, ctx.config.teamSize);
+    if (!result.ok) { await i.reply({ embeds: [displayErr(ctx.botLocale, result.code, result.message)], flags: MessageFlags.Ephemeral }); return true; }
+    const { inviteEmbed } = await import('./user-commands.js');
+    const dmSent = await ctx.dm(targetId, {
+      content: t(ctx.botLocale, 'discord.teams.invite_dm', { inviter: `${i.user.username} (from **${team.name}**)` }),
+      embeds: [await inviteEmbed(pinnedCtx, team.name, team.id)],
+      components: [decideRowFor(result.value.id, ctx.botLocale)],
+    });
+    await refreshTeamPanel({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, team, ctx.botLocale);
+    await i.reply(eph(t(ctx.botLocale, dmSent ? 'discord.teams.invite_sent_body' : 'discord.teams.invite_saved_body', { name: targetId })));
+  } else {
+    await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale')));
+  }
+  return true;
+}
+
+async function handleTeamPanelButton(i: ButtonInteraction, ctx: Ctx & Announcer): Promise<boolean> {
+  const bits = i.customId.split(':');
+  const confirm = bits[1] === 'team-panel-confirm';
+  if (bits[0] !== 'hack' || (!confirm && bits[1] !== 'team-panel')) return false;
+  const eventId = bits[2];
+  const teamId = bits[3];
+  const action = bits[4];
+  if (!eventId || !teamId || !action) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
+  const team = i.channelId === null ? null : await panelTeam(ctx, eventId, teamId, i.channelId);
+  const roster = team === null ? [] : await listTeamRoster(ctx.db, team.id);
+  if (team === null || !roster.some((member) => member.userId === i.user.id)
+      || await eligibleParticipant(ctx.db, eventId, i.user.id, true) === null) {
+    await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale')));
+    return true;
+  }
+  if (confirm) {
+    if (action === 'cancel') { await i.update({ content: t(ctx.botLocale, 'discord.team_panel.cancel'), embeds: [], components: [] }); return true; }
+    if (action !== 'leave') { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
+    const result = await leaveTeam(ctx.db, `discord:${i.user.id}`, eventId, i.user.id);
+    if (!result.ok) { await i.update({ content: '', embeds: [displayErr(ctx.botLocale, result.code, result.message)], components: [] }); return true; }
+    await applyTeamLeave({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, result.value, i.user.id);
+    await i.update({ content: t(ctx.botLocale, 'discord.team_panel.left'), embeds: [], components: [] });
+    return true;
+  }
+  const ref = await getMessageRef(ctx.db, `team_panel:${team.id}`);
+  if (ref?.channelId !== i.channelId || ref.messageId !== i.message.id) {
+    await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale')));
+    return true;
+  }
+  const owner = team.ownerId === i.user.id && await eligibleParticipant(ctx.db, eventId, i.user.id, true) !== null;
+  if (['invite', 'settings', 'requests'].includes(action) && !owner) {
+    await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.owner_only')));
+    return true;
+  }
+  if (['invite', 'settings'].includes(action) && team.kind === 'matched') {
+    await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.matched_restricted')));
+    return true;
+  }
+  if (action === 'settings') {
+    await i.showModal(buildTeamSettingsModal(team.name, team.kind, team.colorId, ctx.botLocale, `hack:team-panel-modal:settings:${eventId}:${teamId}`));
+  } else if (action === 'invite') {
+    await i.showModal(buildTeamInviteModal(eventId, teamId, ctx.botLocale));
+  } else if (action === 'requests') {
+    const requests = (await listRequestsForUser(ctx.db, eventId, i.user.id, 'pending')).incoming
+      .filter((request) => request.teamId === team.id && request.kind === 'join_request');
+    const rows = requests.slice(0, 5).map((request) => decideRowFor(request.id, ctx.botLocale));
+    await i.reply({ content: requests.length ? requests.map((request) => `<@${request.requesterId}>`).join('\n') : t(ctx.botLocale, 'discord.teams.nothing_pending'), components: rows, flags: MessageFlags.Ephemeral });
+  } else if (action === 'leave') {
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`hack:team-panel-confirm:${eventId}:${teamId}:leave`).setLabel(t(ctx.botLocale, 'discord.team_panel.confirm')).setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`hack:team-panel-confirm:${eventId}:${teamId}:cancel`).setLabel(t(ctx.botLocale, 'discord.team_panel.cancel')).setStyle(ButtonStyle.Secondary),
+    );
+    await i.reply({ content: t(ctx.botLocale, 'discord.team_panel.confirm_leave'), components: [row], flags: MessageFlags.Ephemeral });
+  } else {
+    await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale')));
+  }
+  return true;
+}
+
 // ─── modals ──────────────────────────────────────────────────────────────────
 
 export async function onModalSubmit(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<void> {
-  if (i.customId === MODAL_IDS.signup) {
-    await handleSignupModal(i, ctx);
+  if (await handleTeamPanelModal(i, ctx)) return;
+  if (i.customId.startsWith('hack:signup:event:')) {
+    const eventId = i.customId.slice('hack:signup:event:'.length);
+    const pinned = await explicitEventContext(ctx, eventId);
+    if (pinned === null) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return; }
+    await handleSignupModal(i, pinned);
     return;
   }
-  if (i.customId === CREATE_TEAM_IDS.modal) {
-    await handleCreateTeamModal(i, ctx);
+  if (i.customId.startsWith('hack:create:modal:event:')) {
+    const eventId = i.customId.slice('hack:create:modal:event:'.length);
+    const pinned = await explicitEventContext(ctx, eventId);
+    if (pinned === null) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return; }
+    await handleCreateTeamModal(i, pinned);
     return;
   }
-  if (i.customId === TEAM_SETTINGS_IDS.modal) {
-    await handleTeamSettingsModal(i, ctx);
+  if (i.customId.startsWith('hack:team-settings:event:')) {
+    const [, , , eventId, teamId] = i.customId.split(':');
+    const team = teamId ? await getTeam(ctx.db, teamId) : null;
+    const pinned = eventId ? await explicitEventContext(ctx, eventId) : null;
+    if (team === null || pinned === null || team.eventId !== eventId || team.guildId !== ctx.guildId
+        || team.ownerId !== i.user.id || team.kind === 'matched'
+        || await eligibleParticipant(ctx.db, eventId, i.user.id, true) === null) {
+      await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.owner_only')));
+      return;
+    }
+    await handleTeamSettingsModal(i, pinned);
     return;
   }
+  await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale')));
 }
 
 async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<void> {
@@ -98,30 +226,31 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
 
   // Continuation: act on the team preference right from the reply —
   // create-team opens its modal, join/browse opens the team picker.
-  const actions = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    ...(result.value.teamPref === 'create_team'
-      ? [
-          new ButtonBuilder()
-            .setCustomId(IDS.followCreateTeam)
-            .setLabel(t(locale, 'discord.join.actions_create'))
-            .setStyle(ButtonStyle.Primary),
-        ]
-      : result.value.teamPref === 'join_team'
-        ? [
-            new ButtonBuilder()
-              .setCustomId(IDS.followBrowseTeams)
-              .setLabel(t(locale, 'discord.join.actions_browse'))
-              .setStyle(ButtonStyle.Primary),
-          ]
-        : []), // random_team: matching is organizer-driven, nothing to do now
-  );
+  const registration = await getRegistrationAnswers(ctx.db, ctx.eventId, i.user.id);
+  const customAnswers = registration?.formVersion === ctx.config.version ? registration.answers : {};
+  const customValidation = validateCustomAnswers(ctx.config, customAnswers);
+  const incomplete = !customValidation.ok || customValidation.missingRequiredQuestionIds.length > 0;
+  const actions = incomplete
+    ? ctx.webCompletionUrl
+      ? new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder()
+        .setLabel(t(locale, 'discord.join.web_complete_btn'))
+        .setURL(ctx.webCompletionUrl)
+        .setStyle(ButtonStyle.Link))
+      : null
+    : new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`${IDS.followCreateTeam}:${ctx.eventId}`).setLabel(t(locale, 'discord.join.actions_create')).setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`${IDS.followBrowseTeams}:${ctx.eventId}`).setLabel(t(locale, 'discord.join.actions_browse')).setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`${IDS.followInvitations}:${ctx.eventId}`).setLabel(t(locale, 'discord.join.actions_invitations')).setStyle(ButtonStyle.Secondary),
+    );
 
   await i.reply({
     embeds: [
-      embedOk(t(locale, 'discord.join.saved_title'), `${t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })}${ctx.webCompletionUrl ? `\n\n${t(locale, 'discord.join.web_completion', { url: `<${ctx.webCompletionUrl}>` })}` : ''}`),
+      embedOk(t(locale, 'discord.join.saved_title'), incomplete
+        ? `${t(locale, 'discord.join.incomplete_web')}${ctx.webCompletionUrl ? `\n\n${t(locale, 'discord.join.web_completion', { url: `<${ctx.webCompletionUrl}>` })}` : ''}`
+        : `${t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })}${ctx.webCompletionUrl ? `\n\n${t(locale, 'discord.join.web_completion', { url: `<${ctx.webCompletionUrl}>` })}` : ''}`),
       await buildParticipantEmbed(ctx.db, ctx.config, saved.value, locale),
     ],
-    components: actions.components.length > 0 ? [actions] : [],
+    components: actions === null ? [] : [actions],
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -202,6 +331,7 @@ async function handleTeamSettingsModal(i: ModalSubmitInteraction, ctx: Ctx & Ann
   // Sync the Discord role (name + color).
   const { syncRoleColor } = await import('./provision.js');
   await syncRoleColor({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value);
+  await refreshTeamPanel({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value, locale);
 
   const changed: string[] = [];
   if (res.value.name !== team.name) changed.push(t(locale, 'discord.teams.changed_renamed'));
@@ -220,8 +350,31 @@ export async function onComponent(
   i: ButtonInteraction | StringSelectMenuInteraction,
   ctx: Ctx & Announcer,
 ): Promise<void> {
-  const id = i.customId;
+  let id = i.customId;
+  let routedEventId: string | null = null;
+  if (id.startsWith('hack:panel:')) {
+    const [, , eventId, action] = id.split(':');
+    routedEventId = eventId ?? null;
+    id = action === 'signup' ? IDS.signupButton : action === 'teams' ? IDS.teamsButton : id;
+  } else if (id.startsWith(`${IDS.followCreateTeam}:`)) {
+    routedEventId = id.slice(IDS.followCreateTeam.length + 1); id = IDS.followCreateTeam;
+  } else if (id.startsWith(`${IDS.followBrowseTeams}:`)) {
+    routedEventId = id.slice(IDS.followBrowseTeams.length + 1); id = IDS.followBrowseTeams;
+  } else if (id.startsWith(`${IDS.followInvitations}:`)) {
+    routedEventId = id.slice(IDS.followInvitations.length + 1); id = IDS.followInvitations;
+  } else if (id.startsWith(`${IDS.teamsSelect}:`)) {
+    routedEventId = id.slice(IDS.teamsSelect.length + 1); id = IDS.teamsSelect;
+  }
+  if (routedEventId !== null) {
+    const pinned = await explicitEventContext(ctx, routedEventId);
+    if (pinned === null) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return; }
+    ctx = pinned;
+  } else if ([IDS.signupButton, IDS.teamsButton, IDS.followCreateTeam, IDS.followBrowseTeams, IDS.followInvitations, IDS.teamsSelect].some((legacyId) => legacyId === id)) {
+    await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale')));
+    return;
+  }
   const locale = ctx.botLocale;
+  if (typeof i.isButton === 'function' && i.isButton() && await handleTeamPanelButton(i, ctx)) return;
 
   // ── signup panel buttons ─────────────────────────────────────────────────
   if (id === IDS.signupButton) {
@@ -234,7 +387,7 @@ export async function onComponent(
       await i.reply(eph(t(locale, 'errors.blocked')));
       return;
     }
-    await i.showModal(buildSignupModal(ctx.config, locale));
+    await i.showModal(buildSignupModal(ctx.config, locale, `hack:signup:event:${ctx.eventId}`));
     return;
   }
   if (id === IDS.teamsButton) {
@@ -266,7 +419,7 @@ export async function onComponent(
       await i.reply(eph(t(locale, 'errors.already_in_team')));
       return;
     }
-    await i.showModal(buildCreateTeamModal(locale));
+    await i.showModal(buildCreateTeamModal(locale, `hack:create:modal:event:${ctx.eventId}`));
     return;
   }
   if (id === IDS.followBrowseTeams) {
@@ -281,6 +434,15 @@ export async function onComponent(
       return;
     }
     await i.update({ ...browser });
+    return;
+  }
+  if (id === IDS.followInvitations) {
+    if (!ctx.hasActiveEvent || (await getParticipant(ctx.db, ctx.eventId, i.user.id))?.status !== 'active') {
+      await i.reply(eph(t(locale, 'discord.teams.signup_first')));
+      return;
+    }
+    const { teamRequestsView } = await import('./user-commands.js');
+    await i.reply({ ...await teamRequestsView(ctx, i.user.id), flags: MessageFlags.Ephemeral });
     return;
   }
 
