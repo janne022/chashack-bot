@@ -75,3 +75,39 @@ test('dispatch rejects a departed member before reading tenant data', async () =
   assert.equal(reads, 0);
   assert.deepEqual(response, { content: 'That control is stale — run the command again.', flags: 64 });
 });
+
+test('dispatch denies a current ManageGuild-only organizer before provisioning', async () => {
+  const handlers = new Map<string, (interaction: unknown) => void>();
+  let organizerWrites = 0;
+  let response: unknown;
+  let finish!: () => void;
+  const replied = new Promise<void>((resolve) => { finish = resolve; });
+  const db = {
+    get: async (sql: string) => sql.includes('mod_role_ids') ? { mod_role_ids: '[]' } : undefined,
+    run: async (sql: string) => { if (sql.includes('INSERT INTO events')) organizerWrites += 1; },
+    all: async () => [],
+  } as never;
+  const currentMember = guildMember(32n);
+  const guild = {
+    id: 'guild', ownerId: 'owner',
+    members: { fetch: async (id: string) => id === 'organizer' ? currentMember : (() => { throw new Error('unexpected member lookup'); })() },
+  };
+  const client = {
+    on: (name: string, callback: (interaction: unknown) => void) => handlers.set(name, callback),
+    guilds: { fetch: async () => guild, cache: new Map([['guild', guild]]) },
+  } as never;
+  registerInteractionHandlers(client, { db, adminIds: ['organizer'], client, teamCategoryId: undefined, botLanguage: 'en', announce: async () => undefined });
+  const submitted = {
+    user: { id: 'organizer' }, guildId: 'guild', inGuild: () => true,
+    isAutocomplete: () => false, isChatInputCommand: () => true, isModalSubmit: () => false,
+    isButton: () => false, isStringSelectMenu: () => false, isRepliable: () => true,
+    replied: false, deferred: false,
+    reply: async (value: unknown) => { response = value; finish(); },
+    options: { getSubcommandGroup: () => 'admin', getSubcommand: () => 'event-create' },
+    commandName: 'hackathon-admin',
+  };
+  handlers.get('interactionCreate')!(submitted);
+  await replied;
+  assert.equal(organizerWrites, 0);
+  assert.deepEqual(response, { content: 'Organizer only — you need **Manage Server** or be in ADMIN_IDS.', flags: 64 });
+});
