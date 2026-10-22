@@ -120,9 +120,36 @@ try {
   await send('Network.setCookie', { name: 'hacksess', value: decodeURIComponent(cookie.slice('hacksess='.length)), url: base, httpOnly: true }, sid);
   const wait = async (expression) => { for (let i=0;i<100;i++) { if(await evaluate(expression)) return; await delay(100); } throw new Error(`Timed out: ${expression}; DOM=${await evaluate('document.body.innerText')}`); };
   const click = async (expression) => {
-    const r = await evaluate(`(async () => {const e=${expression}; if(!e) throw Error('Missing click target'); e.scrollIntoView({block:'center',behavior:'instant'}); await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame); return e.getBoundingClientRect().toJSON()})()`);
-    await send('Input.dispatchMouseEvent', {type:'mousePressed', x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);
-    await send('Input.dispatchMouseEvent', {type:'mouseReleased', x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);
+    // DOM presence/two frames do not guarantee that a coordinate hits the target.
+    const point = await evaluate(`(async () => {
+      let previous, previousElement, detail;
+      const deadline = performance.now() + 10000;
+      while (performance.now() < deadline) {
+        const element = ${expression};
+        if (element) {
+          element.scrollIntoView({block:'center',behavior:'instant'});
+          await new Promise(requestAnimationFrame);
+          const rect = element.getBoundingClientRect();
+          const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+          const hit = document.elementFromPoint(x,y);
+          const box = JSON.stringify([rect.x,rect.y,rect.width,rect.height]);
+          const actionable = element.isConnected && rect.width > 0 && rect.height > 0
+            && !element.matches(':disabled') && !element.closest('[inert]')
+            && (hit === element || element.contains(hit));
+          detail = {url:location.href,target:element.outerHTML.slice(0,300),hit:hit?.outerHTML.slice(0,300),box,actionable};
+          if (actionable && element === previousElement && box === previous) return {x,y};
+          previous = actionable ? box : undefined;
+          previousElement = element;
+        } else {
+          detail = {url:location.href,target:'missing'};
+          previous = undefined;
+        }
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      throw Error('Click target not stable/actionable: ' + ${JSON.stringify(expression)} + '; ' + JSON.stringify(detail));
+    })()`);
+    await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1},sid);
+    await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1},sid);
     await delay(400);
   };
   const button = text => `[...document.querySelectorAll('button')].find(e=>e.innerText.trim()===${JSON.stringify(text)})`;
@@ -496,7 +523,18 @@ try {
   await api('/api/templates',{name:'Cosmetic label',kind:'form',json:JSON.stringify({...form,customQuestions:form.customQuestions.map(q=>({...q,label:{en:'Updated interests',sv:'Uppdaterade intressen'}}))})});
   await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')&&!!(${button('Edit event')})`);
   const chooseForm=async name=>{await wait(`[...document.querySelectorAll('label')].some(e=>e.innerText.includes('Change form'))`);await click(`[...document.querySelectorAll('label')].find(e=>e.innerText.includes('Change form')).querySelector('[role=combobox]')`);await wait(`!!document.querySelector('[role=option]')`);await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))`);};
-  await click(button('Edit event')); await chooseForm('Structural conflict');
+  // Reproduce a navigation-time hit-test race without retrying the interaction.
+  await evaluate(`(() => {
+    const cover=document.createElement('div'); cover.id='click-race-cover';
+    cover.style.cssText='position:fixed;inset:0;z-index:2147483647';
+    document.body.append(cover); window.editRaceClicks=0;
+    (${button('Edit event')}).addEventListener('click',()=>window.editRaceClicks++);
+    setTimeout(()=>cover.remove(),900);
+  })()`);
+  await click(button('Edit event'));
+  await wait(`!!document.querySelector('[role=dialog]')`);
+  check('edit event waits for an unobstructed target and opens with exactly one real click',await evaluate(`window.editRaceClicks===1&&!document.querySelector('#click-race-cover')`));
+  await chooseForm('Structural conflict');
   await fill('textarea[maxlength="1000"]','Retained conflict description');
   await click(button('Save')); await wait(`!!document.querySelector('[role=alert]')`);
   const failureAX=await send('Accessibility.getFullAXTree',{},sid);
