@@ -16,6 +16,19 @@ from prchecklist import check_pr_body
 
 
 class PipelineAdoptionTest(unittest.TestCase):
+    def test_ci_database_urls_match_the_disposable_service(self):
+        from urllib.parse import urlsplit
+
+        job = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]["verify"]
+        service = job["services"]["postgres"]["env"]
+        for step in job["steps"]:
+            url = step.get("env", {}).get("DATABASE_URL")
+            if url:
+                parsed = urlsplit(url)
+                self.assertEqual(parsed.username, service["POSTGRES_USER"], step["name"])
+                self.assertEqual(parsed.password, service["POSTGRES_PASSWORD"], step["name"])
+                self.assertEqual(parsed.path, "/" + service["POSTGRES_DB"], step["name"])
+
     def test_manifest_and_existing_ci_are_wired_without_duplicate_commands(self):
         manifest = yaml.safe_load((ROOT / ".hermes/pipeline.yaml").read_text())
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
