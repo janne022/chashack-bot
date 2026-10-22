@@ -120,7 +120,7 @@ try {
   await send('Network.setCookie', { name: 'hacksess', value: decodeURIComponent(cookie.slice('hacksess='.length)), url: base, httpOnly: true }, sid);
   const wait = async (expression) => { for (let i=0;i<100;i++) { if(await evaluate(expression)) return; await delay(100); } throw new Error(`Timed out: ${expression}; DOM=${await evaluate('document.body.innerText')}`); };
   const click = async (expression) => {
-    const r = await evaluate(`(() => {const e=${expression}; if(!e) throw Error('Missing click target'); e.scrollIntoView({block:'center'}); return e.getBoundingClientRect().toJSON()})()`);
+    const r = await evaluate(`(async () => {const e=${expression}; if(!e) throw Error('Missing click target'); e.scrollIntoView({block:'center',behavior:'instant'}); await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame); return e.getBoundingClientRect().toJSON()})()`);
     await send('Input.dispatchMouseEvent', {type:'mousePressed', x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);
     await send('Input.dispatchMouseEvent', {type:'mouseReleased', x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);
     await delay(400);
@@ -306,6 +306,7 @@ try {
   await screenshot('theme-editor-mobile-picker-en.png');
   await key('Escape'); await wait(`!document.querySelector('${picker}')`);
   await screenshot('theme-editor-mobile-en.png');
+
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);await delay(300);
   await db.run('DELETE FROM rate_limit_buckets'); // Isolated browser journey: keep unrelated fixture actions from exhausting its shared quota.
   const versionBefore=JSON.parse((await api('/api/state',undefined,'GET')).templates.find(item=>item.id===formTemplate.id).json).version;
@@ -316,6 +317,7 @@ try {
   check('saving a named theme does not bump the form version it was copied from',JSON.parse((await api('/api/state',undefined,'GET')).templates.find(item=>item.id===formTemplate.id).json).version===versionBefore);
   console.log('TOAST:', await evaluate(`document.querySelector('[data-sonner-toast]')?.innerText`));
   console.log('ERRORS:', errors);
+
   check('theme save persisted rather than only showing an error', (await api('/api/state',undefined,'GET')).templates.some(item=>item.kind==='theme'), await evaluate(`document.body.innerText`));
   let theme=(await api('/api/state',undefined,'GET')).templates.find(item=>item.kind==='theme');
   check('theme created through UI stores only the normalized appearance snapshot',theme?.name==='Autumn guild theme'&&Object.keys(JSON.parse(theme.json)).sort().join(',')==='accentColor,bannerUrl,themePreset'&&JSON.parse(theme.json).themePreset==='halloween'&&JSON.parse(theme.json).accentColor==='#ef793e');

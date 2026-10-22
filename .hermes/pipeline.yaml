@@ -15,4 +15,4 @@ ci:
 gates:
   typecheck: {cmd: 'pnpm typecheck'}
   # Bot tests consume dist; one command builds first and includes API smoke.
-  unit: {cmd: 'pnpm build && pnpm test && node apps/bot/scripts/smoke-admin.mjs'}
+  unit: {cmd: 'pnpm build && pnpm test && node apps/bot/scripts/smoke-admin.mjs && pnpm ui:verify'}

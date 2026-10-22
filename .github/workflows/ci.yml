@@ -69,15 +69,19 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:***@127.0.0.1:5432/chashack_ci
         run: |
-          base="${{ github.event.pull_request.base.sha }}"
-          if [ -z "$base" ]; then
-            echo "SKIPPED: no PR base; the journey gate runs on pull requests"
-            exit 0
-          fi
-          if git diff --quiet "$base"...HEAD -- apps/admin-ui apps/bot/src; then
-            echo "SKIPPED: no rendered surface touched by this PR"
-          else
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            echo "No usable event base; running browser journeys conservatively"
             pnpm ui:verify
+          elif node scripts/should-run-ui-verify.mjs "$base"; then
+            pnpm ui:verify
+          else
+            status=$?
+            if [ "$status" -eq 1 ]; then
+              echo "SKIPPED: no rendered surface or browser gate definition changed"
+            else
+              exit "$status"
+            fi
           fi
 
       - name: Install vendored runner dependency

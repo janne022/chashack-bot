@@ -214,6 +214,7 @@ try {
   check('organizer sees the named keyboard-accessible team reassignment control',typeof reassignment==='string'&&reassignment.length>0);
   const selector=`document.querySelector('[role=combobox][aria-label*="participant-a"]')`;
   const key=async(name,code)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key:name,code:name,windowsVirtualKeyCode:code},sid);await send('Input.dispatchKeyEvent',{type:'keyUp',key:name,code:name,windowsVirtualKeyCode:code},sid);await delay(100)};
+
   const popupOpen=()=>evaluate(`!!document.querySelector('[role=option]')`);
   const highlighted=()=>evaluate(`document.querySelector('[role=option][data-highlighted]')?.innerText.trim()`);
   // Headless Chromium can drop the first synthetic Enter after a navigation, so the open is retried; each retry
@@ -223,6 +224,10 @@ try {
   await delay(300);
   const options=await evaluate(`[...document.querySelectorAll('[role=option]')].map(e=>e.innerText.trim())`);
   check('keyboard opens the team selector and labels every option',options.length>1&&/^(No team|Inget team)$/.test(options[0])&&options.every(Boolean));
+  await evaluate(`window.teamControl=document.querySelector('[role=combobox][aria-label*="participant-a"]');window.stateReads=0;window.stateFetch=window.fetch;window.fetch=async(...args)=>{const r=await window.stateFetch(...args);if(String(args[0]).startsWith('/api/state'))window.stateReads++;return r};window.dispatchEvent(new Event('focus'))`);
+  await wait(`window.stateReads>0`);await delay(150);
+  check('live refresh preserves the open team control and keyboard focus',await evaluate(`window.teamControl===document.querySelector('[role=combobox][aria-label*="participant-a"]')&&document.activeElement.getAttribute('role')==='option'&&!!document.querySelector('[role=option]')`));
+  await evaluate(`window.fetch=window.stateFetch`);
   await key('Home',36);
   check('Home focuses the first team option with the selector still open',await popupOpen()&&(await highlighted())===options[0]);
   await key('ArrowDown',40);
@@ -236,6 +241,12 @@ try {
   const chosen=await db.get('SELECT id FROM teams WHERE event_id=? AND name=?',eventId,options[1]);
   for(let i=0;i<40;i++){const row=await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a');if(chosen&&row?.team_id===chosen.id)break;await delay(100)}
   check('arrow keys plus Enter reassign the participant to the highlighted team',!!chosen&&(await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a')).team_id===chosen.id);
+  await evaluate(`${selector}.focus()`);
+  await key('Enter',13);await wait(`!!document.querySelector('[role=option]')`);
+  await key('Home',36);await key('Enter',13);
+  for(let i=0;i<40;i++){const row=await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a');if(row?.team_id===null)break;await delay(100)}
+  check('keyboard can reassign a participant to no team', (await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a')).team_id===null);
+
   assert.deepEqual(exceptions,[]);
   console.log(`RESULT ${checks.length} participant browser assertions passed; uncaught exceptions: 0`);
 } finally {
