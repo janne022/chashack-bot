@@ -31,15 +31,19 @@ function check(name, condition, detail = '') {
 }
 
 try {
-  const [{ startAdminServer }, { openTestDb }, { createSession }, { makeDiscordToken }] = await Promise.all([
+  const [{ startAdminServer }, { openTestDb }, { createSession }, { makeDiscordToken }, { withGuildContext }] = await Promise.all([
     import('../dist/adminweb/server.js'), import('../dist/shared/test-db.js'),
-    import('../dist/features/auth/data.js'), import('../dist/features/auth/domain.js'),
+    import('../dist/features/auth/data.js'), import('../dist/features/auth/domain.js'), import('../dist/shared/postgres.js'),
   ]);
   db = await openTestDb();
+  const syntheticUserId = `synthetic-${Date.now()}`;
   const guildIds = ['11111111111111111', '22222222222222222'];
   const botGuilds = new Map(guildIds.map((id, index) => [id, {
-    id, name: `Synthetic test guild ${index + 1}`, ownerId: 'synthetic-user',
-    members: { fetch: async (userId) => ({ id: userId, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }) },
+    id, name: `Synthetic test guild ${index + 1}`, ownerId: syntheticUserId,
+    members: {
+      fetch: async (userId) => ({ id: userId, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }),
+      search: async ({ query }) => query.toLowerCase().includes('synthetic') ? new Map([['33333333333333333', { id: '33333333333333333', displayName: 'Synthetic Member', user: { username: 'synthetic.member' } }]]) : new Map(),
+    },
   }]));
   const client = { guilds: { cache: botGuilds, fetch: async (id) => botGuilds.get(id) } };
   const config = {
@@ -54,7 +58,7 @@ try {
     db, config, announce: async () => undefined, client,
   });
   const session = await createSession(db, {
-    userId: 'synthetic-user', username: 'Synthetic browser user', avatar: null,
+    userId: syntheticUserId, username: 'Synthetic browser user', avatar: null,
     guilds: guildIds.map((id, index) => ({ id, name: `Synthetic test guild ${index + 1}`, icon: null })),
   });
   const cookie = `hacksess=${encodeURIComponent(makeDiscordToken(config.adminSessionSecret, session.id))}`;
@@ -122,7 +126,9 @@ try {
   const fill = async (selector,value) => evaluate(`(() => {const e=document.querySelector(${JSON.stringify(selector)}); if(!e) throw Error('Missing field'); Object.getOwnPropertyDescriptor(e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)}); e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   const api = async (path,body,method='POST') => {
     const res=await fetch(base+path,{method,headers:{cookie,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
-    const json=await res.json(); assert.ok(res.ok,JSON.stringify(json)); return json;
+    const json=await res.json();
+    if (res.status===429 && Number.isFinite(json.retryAfterSeconds)) { await delay(json.retryAfterSeconds*1000); return api(path,body,method); }
+    assert.ok(res.ok,JSON.stringify(json)); return json;
   };
   const errors=[];
   browser.addEventListener('message', e=>{const m=JSON.parse(e.data); if(m.method==='Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.text);});
@@ -205,7 +211,17 @@ try {
   check('theme editor dialog fits the mobile viewport',await evaluate(`(()=>{const d=document.querySelector('[role=dialog]')?.getBoundingClientRect();return !!d&&document.documentElement.scrollWidth<=innerWidth&&d.left>=0&&d.right<=innerWidth})()`));
   await screenshot('theme-editor-mobile-en.png');
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
+  await delay(300);
+  console.log('SAVE BUTTON:', await evaluate(`(() => {
+    const b = ${button('Save theme')};
+    if (!b) return 'NOT FOUND';
+    const rect = b.getBoundingClientRect();
+    return { disabled: b.disabled, rect, visible: rect.width > 0 && rect.height > 0 };
+  })()`));
+  await db.run('DELETE FROM rate_limit_buckets'); // Isolated browser journey: keep unrelated fixture actions from exhausting its shared quota.
   await click(button('Save theme')); await wait(`document.body.innerText.includes('Autumn guild theme') || !!document.querySelector('[data-sonner-toast]')`);
+  console.log('TOAST:', await evaluate(`document.querySelector('[data-sonner-toast]')?.innerText`));
+  console.log('ERRORS:', errors);
   check('theme save persisted rather than only showing an error', (await api('/api/state',undefined,'GET')).templates.some(item=>item.kind==='theme'), await evaluate(`document.body.innerText`));
   let theme=(await api('/api/state',undefined,'GET')).templates.find(item=>item.kind==='theme');
   check('theme created through UI stores only the normalized appearance snapshot',theme?.name==='Autumn guild theme'&&Object.keys(JSON.parse(theme.json)).sort().join(',')==='accentColor,bannerUrl,themePreset'&&JSON.parse(theme.json).themePreset==='halloween'&&JSON.parse(theme.json).accentColor==='#ef793e');
@@ -264,6 +280,68 @@ try {
   check('picked local start date resolves schedule anchors and signup window',event.startsAt!==null&&event.schedule.find(s=>s.id==='workshop').time===expectedWorkshop.getTime()&&event.signupStartsAt<event.signupEndsAt&&event.signupEndsAt===event.startsAt);
   check('collection strategy propagates into start-time distribution',event.schedule.find(s=>s.id==='__start__').actions.some(a=>a.type==='distribute_assignments'&&a.mode==='same'));
   await nav(base+'/events?event='+event.id);
+  await wait(`!!(${button('Import signups')})`);
+  await click(button('Import signups'));
+  await wait(`document.body.innerText.includes('No imported signups')`);
+  await click(button('Import signups'));
+  await wait(`!!document.querySelector('[role=dialog] input[type=file]')`);
+  await evaluate(`(() => {const input=document.querySelector('[role=dialog] input[type=file]'),transfer=new DataTransfer();transfer.items.add(new File([new Uint8Array(1000001)],'too-large.csv',{type:'text/csv'}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+  check('oversized CSV is rejected accessibly before upload',await evaluate(`document.querySelector('[role=dialog] [role=alert]')?.innerText.includes('1 MB')`));
+  await screenshot('signup-import-oversized-desktop.png');
+  const importHeaders=['Tidstämpel','Ditt namn och klass','Din Chas-mail','Har du några allergier vi ska ta hänsyn till när vi köper fika?','Hur vill du delta i Hackoween?','Hur många är ni i er grupp?','Gruppnamn (För dig som anmäler i en färdig grupp)','Namn på medlemmarna i gruppen','Vilket område vill du helst jobba med under Hackatonet?'];
+  const csvCell=value=>/[",\r\n]/.test(value)?`"${value.replaceAll('"','""')}"`:value;
+  const importCsv=[importHeaders.map(csvCell).join(','),...Array.from({length:7},(_,i)=>['2026-10-16',`Synthetic import ${i+1}`,`import${i+1}@example.test`,'Nej','random_team','2',`Group ${i+1}`,'Member A, Member B','frontend_react, ui_design'].map(csvCell).join(','))].join(String.fromCharCode(13,10));
+  await evaluate(`(() => {const input=document.querySelector('[role=dialog] input[type=file]'),transfer=new DataTransfer();transfer.items.add(new File([${JSON.stringify(importCsv)}],'synthetic-swedish.csv',{type:'text/csv'}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+  await click(button('Preview CSV'));
+  await wait(`document.querySelector('[role=dialog]')?.innerText.includes('7 new')`);
+  check('real CSV preview maps Swedish columns and shows seven editable rows without a Discord column',await evaluate(`document.querySelector('[role=dialog]').innerText.includes('Synthetic import 1')&&document.querySelector('[role=dialog]').innerText.includes('Name and class')&&document.querySelector('[role=dialog]').innerText.includes('Preferred areas / skills')`));
+  await screenshot('signup-import-review-desktop.png');
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);
+  check('CSV review dialog fits mobile viewport with a usable scroll region',await evaluate(`(()=>{const d=document.querySelector('[role=dialog]')?.getBoundingClientRect();return !!d&&d.left>=0&&d.right<=innerWidth&&document.documentElement.scrollWidth<=innerWidth&&document.querySelector('[role=dialog]').scrollHeight>document.querySelector('[role=dialog]').clientHeight})()`));
+  await screenshot('signup-import-review-mobile.png');
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
+  check('parsed supported answers arrive pre-selected and keep the imported source text visible',await evaluate(`(()=>{const field=document.querySelector('[role=dialog] fieldset');if(!field)return false;const checked=[...field.querySelectorAll('[data-slot=checkbox][data-state=checked]')].map(e=>e.innerText.trim());return field.innerText.includes('Choose supported options explicitly')&&field.innerText.includes('Imported source text')&&checked.includes('Frontend — React')&&checked.includes('UI/UX Design')})()`));
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1400,deviceScaleFactor:1,mobile:false},sid);
+  const reactOption=`[...document.querySelectorAll('[role=dialog] fieldset [data-slot=checkbox]')].find(e=>e.innerText.includes('Frontend — React'))`;
+  const optionState=name=>evaluate(`[...document.querySelectorAll('[role=dialog] fieldset [data-slot=checkbox]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))?.dataset.state`);
+  await click(reactOption);
+  check('clicking an option label text toggles its checkbox',await optionState('Frontend — React')==='unchecked');
+  await click(reactOption);
+  check('re-clicking restores the mapped option without losing the other choice',await optionState('Frontend — React')==='checked'&&await optionState('UI/UX Design')==='checked');
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
+  await click(button('Save selected rows'));
+  await wait(`!document.querySelector('[role=dialog]')||!!document.querySelector('[role=dialog] [role=alert]')`);
+  check('import confirmation succeeds with explicit choice mapping or exposes the real error',await evaluate(`!document.querySelector('[role=dialog]')&&document.body.innerText.includes('Not linked to Discord')`),await evaluate(`document.querySelector('[role=dialog] [role=alert]')?.innerText??''`));
+  let imported=await api(`/api/events/${event.id}/imported-signups`,undefined,'GET');
+  check('explicit confirmation persists all seven incomplete/unlinked records',imported.records.length===7&&imported.records.every(r=>r.state==='unlinked'&&!r.discordUserId));
+  check('imported group/member metadata survives save and reload',imported.records[0].values.groupName==='Group 1'&&imported.records[0].values.members==='Member A, Member B'&&imported.records[0].values.skills.split(',').map(v=>v.trim()).sort().join(',')==='frontend_react,ui_design');
+  check('unlinked imported signup creates no participant row',await withGuildContext(db,event.guildId,()=>db.get('SELECT user_id FROM participants WHERE event_id=? AND user_id=?',event.id,'33333333333333333'))===undefined);
+  await click(button('Review and edit'));
+  await wait(`!!document.querySelector('[role=dialog] input#saved-discordUsername')`);
+  await fill('[role=dialog] input#saved-discordUsername','typed-but-unverified');
+  await evaluate(`window.importFetch=window.fetch;window.failImportSave=true;window.fetch=async(...args)=>{if(window.failImportSave&&String(args[0]).includes('/imported-signups/')&&args[1]?.method==='PATCH'){window.failImportSave=false;throw Error('synthetic network failure')}return window.importFetch(...args)}`);
+  await click(button('Save changes'));
+  await wait(`!!document.querySelector('[role=dialog] [role=alert]')`);
+  check('failed edit preserves typed Discord username and offers recovery',await evaluate(`document.querySelector('[role=dialog] input#saved-discordUsername').value==='typed-but-unverified'&&document.querySelector('[role=dialog] [role=alert]').innerText.includes('synthetic network failure')`));
+  await screenshot('signup-import-edit-failure-desktop.png');
+  await evaluate(`window.fetch=window.importFetch`);
+  await click(button('Save changes'));
+  await wait(`!document.querySelector('[role=dialog]')`);
+  imported=await api(`/api/events/${event.id}/imported-signups`,undefined,'GET');
+  check('retry saves edit while keeping username unverified and separate from member ID',imported.records[0].discordUsername==='typed-but-unverified'&&imported.records[0].discordUserId===null);
+  await click(button('Review and edit'));
+  await wait(`!!document.querySelector('[role=dialog] input[aria-label="Search server members"]')`);
+  await fill('[role=dialog] input[aria-label="Search server members"]','synthetic');
+  await click(`[...document.querySelectorAll('[role=dialog] button')].find(e=>e.innerText.trim()==='Search')`);
+  await wait(`document.querySelector('[role=dialog]').innerText.includes('Synthetic Member')`);
+  await click(`[...document.querySelectorAll('[role=dialog] button')].find(e=>e.innerText.includes('Synthetic Member'))`);
+  await click(button('Save and link selected member'));
+  await wait(`!document.querySelector('[role=dialog]')`);
+  imported=await api(`/api/events/${event.id}/imported-signups`,undefined,'GET');
+  check('explicit server-member selection uses the real endpoint and persists the verified link',imported.records[0].discordUserId==='33333333333333333'&&imported.records[0].state==='linked');
+  check('verified explicit link activates exactly the selected participant identity',await withGuildContext(db,event.guildId,()=>db.get('SELECT user_id FROM participants WHERE event_id=? AND user_id=?',event.id,'33333333333333333'))!==undefined);
+
+  await nav(base+'/events?event='+event.id);
   await wait(`!!document.querySelector('a[target="_blank"]')`);
   const ax=await send('Accessibility.getFullAXTree',{},sid);
   check('published preview is a named AX link',ax.nodes.some(n=>n.role?.value==='link'&&/preview/i.test(n.name?.value??'')));
@@ -304,8 +382,8 @@ try {
   const structural={...form,customQuestions:form.customQuestions.map(q=>({...q,required:true}))};
   await api('/api/templates',{name:'Structural conflict',kind:'form',json:JSON.stringify(structural)});
   await api('/api/templates',{name:'Cosmetic label',kind:'form',json:JSON.stringify({...form,customQuestions:form.customQuestions.map(q=>({...q,label:{en:'Updated interests',sv:'Uppdaterade intressen'}}))})});
-  await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')`);
-  const chooseForm=async name=>{await click(`[...document.querySelectorAll('label')].find(e=>e.innerText.includes('Change form')).querySelector('[role=combobox]')`);await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))`);};
+  await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')&&!!(${button('Edit event')})`);
+  const chooseForm=async name=>{await wait(`[...document.querySelectorAll('label')].some(e=>e.innerText.includes('Change form'))`);await click(`[...document.querySelectorAll('label')].find(e=>e.innerText.includes('Change form')).querySelector('[role=combobox]')`);await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))`);};
   await click(button('Edit event')); await chooseForm('Structural conflict');
   await fill('textarea[maxlength="1000"]','Retained conflict description');
   await click(button('Save')); await wait(`!!document.querySelector('[role=alert]')`);

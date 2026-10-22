@@ -1,4 +1,4 @@
-import type { AppState, AuthMe, FormConfig, HackathonEvent, MatchResult, Team, TeamSuggestion } from './types'
+import type { AppState, AuthMe, FormConfig, HackathonEvent, ImportedSignup, MatchResult, Team, TeamSuggestion } from './types'
 
 class ApiError extends Error {
   constructor(
@@ -272,6 +272,26 @@ export const api = {
 
   async getGuildChannels(): Promise<{ channels: { id: string; name: string }[]; categories: { id: string; name: string }[]; roles: { id: string; name: string; color: string }[] }> {
     return request('/api/guild/channels')
+  },
+
+  async previewSignupImport(eventId: string, csv: string, mapping?: Record<string, string>): Promise<{ headers: string[]; suggestedMapping: Record<string, string>; rows: { rowNumber: number; values: Record<string, string>; answers: Record<string, string | string[]>; issues: string[]; duplicateStatus: 'create' | 'duplicate' | 'conflict' }[]; summary: { create: number; duplicate: number; conflict: number } }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/signup-import/preview`, { method: 'POST', body: JSON.stringify({ csv, ...(mapping ? { mapping } : {}) }) })
+  },
+
+  async importSignups(eventId: string, rows: { sourceRow: number; values: Record<string, string>; answers: Record<string, string | string[]> }[]): Promise<{ saved: number; skipped: number; conflicts: number }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/signup-import`, { method: 'POST', body: JSON.stringify({ rows }) })
+  },
+
+  async importedSignups(eventId: string): Promise<{ records: ImportedSignup[] }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/imported-signups`)
+  },
+
+  async updateImportedSignup(eventId: string, id: string, update: { values?: Record<string, string>; answers?: Record<string, string | string[]>; discordUsername?: string | null; linkDiscordUserId?: string }): Promise<{ record: ImportedSignup; activated?: boolean; missingFields: string[] }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/imported-signups/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(update) })
+  },
+
+  async searchGuildMembers(query: string): Promise<{ members: { id: string; username: string; displayName: string }[] }> {
+    return request(`/api/guild/members?query=${encodeURIComponent(query)}`)
   },
 
   async createDiscordEvents(eventId: string, days: number, durationHours: number): Promise<void> {

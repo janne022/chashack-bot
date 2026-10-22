@@ -6,6 +6,8 @@ function Checkbox({
   className,
   checked,
   onCheckedChange,
+  id,
+  children,
   ...props
 }: React.ComponentProps<"input"> & {
   checked?: boolean
@@ -13,6 +15,8 @@ function Checkbox({
 }) {
   return (
     <label
+      data-slot="checkbox"
+      data-state={checked ? "checked" : "unchecked"}
       className={cn(
         "inline-flex items-center gap-2 cursor-pointer select-none",
         className,
@@ -20,9 +24,12 @@ function Checkbox({
     >
       <input
         type="checkbox"
+        id={id}
         checked={checked}
         onChange={(e) => onCheckedChange?.(e.target.checked)}
         className="peer sr-only"
+        data-slot="checkbox-input"
+        data-state={checked ? "checked" : "unchecked"}
         {...props}
       />
       <span
@@ -35,6 +42,7 @@ function Checkbox({
       >
         {checked && <Check className="size-3 text-accent-foreground" />}
       </span>
+      {children}
     </label>
   )
 }
