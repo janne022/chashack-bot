@@ -213,16 +213,30 @@ try {
   await nav('/operations?tab=participants');await wait(`document.body.innerText.includes('Participants')`);
   const reassignment=await evaluate(`document.querySelector('[role=combobox][aria-label*="participant-a"]')?.getAttribute('aria-label')`);
   check('organizer sees the named keyboard-accessible team reassignment control',typeof reassignment==='string'&&reassignment.length>0);
-  await evaluate(`document.querySelector('[role=combobox][aria-label*="participant-a"]').focus()`);
+  const selector=`document.querySelector('[role=combobox][aria-label*="participant-a"]')`;
   const key=async(name,code)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key:name,code:name,windowsVirtualKeyCode:code},sid);await send('Input.dispatchKeyEvent',{type:'keyUp',key:name,code:name,windowsVirtualKeyCode:code},sid);await delay(100)};
-  await key('Enter',13);await wait(`!!document.querySelector('[role=option][data-highlighted]')`);
+  const popupOpen=()=>evaluate(`!!document.querySelector('[role=option]')`);
+  const highlighted=()=>evaluate(`document.querySelector('[role=option][data-highlighted]')?.innerText.trim()`);
+  // Headless Chromium can drop the first synthetic Enter after a navigation, so the open is retried; each retry
+  // waits for the open animation to settle first, which keeps a second Enter from committing and closing.
+  for(let i=0;i<5&&!(await popupOpen());i++){await delay(250);if(await popupOpen())break;await evaluate(`${selector}.focus()`);await key('Enter',13)}
+  await wait(`document.querySelector('[role=listbox]')?.getAttribute('data-state')==='open'&&!!document.querySelector('[role=option][data-highlighted]')`);
+  await delay(300);
   const options=await evaluate(`[...document.querySelectorAll('[role=option]')].map(e=>e.innerText.trim())`);
   check('keyboard opens the team selector and labels every option',options.length>1&&/^(No team|Inget team)$/.test(options[0])&&options.every(Boolean));
-  // Known limitation: an arrow/Home key inside this Radix Select popup dismisses it, so Enter cannot walk the list.
-  // The reassignment is therefore driven through the option's own activation path, which is what Enter commits.
-  await click(`[...document.querySelectorAll('[role=option]')][0]`);
-  for(let i=0;i<40;i++){const row=await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a');if(row?.team_id===null)break;await delay(100)}
-  check('team selector reassigns a participant to no team', (await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a')).team_id===null);
+  await key('Home',36);
+  check('Home focuses the first team option with the selector still open',await popupOpen()&&(await highlighted())===options[0]);
+  await key('ArrowDown',40);
+  check('ArrowDown moves the team highlight and keeps the selector open',await popupOpen()&&(await highlighted())===options[1]);
+  await key('ArrowUp',38);
+  check('ArrowUp returns the team highlight and keeps the selector open',await popupOpen()&&(await highlighted())===options[0]);
+  await key('End',35);
+  check('End focuses the last team option with the selector still open',await popupOpen()&&(await highlighted())===options.at(-1));
+  await key('Home',36);await key('ArrowDown',40);
+  await key('Enter',13);
+  const chosen=await db.get('SELECT id FROM teams WHERE event_id=? AND name=?',eventId,options[1]);
+  for(let i=0;i<40;i++){const row=await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a');if(chosen&&row?.team_id===chosen.id)break;await delay(100)}
+  check('arrow keys plus Enter reassign the participant to the highlighted team',!!chosen&&(await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a')).team_id===chosen.id);
   assert.deepEqual(exceptions,[]);
   console.log(`RESULT ${checks.length} participant browser assertions passed; uncaught exceptions: 0`);
 } finally {
