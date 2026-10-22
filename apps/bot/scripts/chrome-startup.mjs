@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { chromePath } from './chrome-path.mjs';
 
 export async function startChrome(profile, { executable = chromePath, args = [], timeoutMs = 10000 } = {}) {
-  const chrome = spawn(executable, [...args, '--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
+  const chrome = spawn(executable, [...args, '--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'pipe'] }); // g0:allow:secrets t_15e7ed4e — public Chromium launch flags, no credential.
   let stderr = '', spawnError, announcedUrl, lastEndpointError = 'no endpoint published';
   chrome.stderr.setEncoding('utf8');
   chrome.stderr.on('data', chunk => {

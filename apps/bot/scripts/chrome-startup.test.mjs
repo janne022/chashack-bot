@@ -19,7 +19,7 @@ test('startup uses the announced endpoint, diagnoses failure and cleans up its c
       else {
         const server = createServer((req, res) => {
           if (mode === 'hang') return;
-          res.end(JSON.stringify({webSocketDebuggerUrl:'ws://127.0.0.1:'+server.address().port+'/devtools/browser/fixture'}));
+          res.end(JSON.stringify({webSocketDebuggerUrl:'ws://127.0.0.1:'+server.address().port+'/devtools/browser/fixture'})); // g0:allow:secrets t_15e7ed4e — synthetic loopback CDP fixture URL only.
         }).listen(0, '127.0.0.1', () => {
           const port = server.address().port;
           if (mode === 'file' || mode === 'hang') writeFileSync(${JSON.stringify(join(profile, 'DevToolsActivePort'))}, port+'\\n/devtools/browser/fixture');
