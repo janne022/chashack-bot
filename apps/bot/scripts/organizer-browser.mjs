@@ -302,6 +302,7 @@ try {
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
   check('parsed supported answers arrive pre-selected and keep the imported source text visible',await evaluate(`(()=>{const field=document.querySelector('[role=dialog] fieldset');if(!field)return false;const checked=[...field.querySelectorAll('[data-slot=checkbox][data-state=checked]')].map(e=>e.innerText.trim());return field.innerText.includes('Choose supported options explicitly')&&field.innerText.includes('Imported source text')&&checked.includes('Frontend — React')&&checked.includes('UI/UX Design')})()`));
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1400,deviceScaleFactor:1,mobile:false},sid);
+  await delay(300);
   const reactOption=`[...document.querySelectorAll('[role=dialog] fieldset [data-slot=checkbox]')].find(e=>e.innerText.includes('Frontend — React'))`;
   const optionState=name=>evaluate(`[...document.querySelectorAll('[role=dialog] fieldset [data-slot=checkbox]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))?.dataset.state`);
   await click(reactOption);
@@ -318,6 +319,13 @@ try {
   check('unlinked imported signup creates no participant row',await withGuildContext(db,event.guildId,()=>db.get('SELECT user_id FROM participants WHERE event_id=? AND user_id=?',event.id,'33333333333333333'))===undefined);
   await click(button('Review and edit'));
   await wait(`!!document.querySelector('[role=dialog] input#saved-discordUsername')`);
+  const savedSkills=`[...document.querySelectorAll('[role=dialog] fieldset')].find(f=>f.innerText.includes('Frontend — React'))`;
+  const savedAreaState=`(()=>{const f=${savedSkills};if(!f)return {};const s=n=>[...f.querySelectorAll('[data-slot=checkbox]')].find(e=>e.innerText.includes(n))?.dataset.state;return {react:s('Frontend — React'),design:s('UI/UX Design')}})()`;
+  const savedAreaToggle=`(()=>{const f=${savedSkills};return [...f.querySelectorAll('[data-slot=checkbox]')].find(e=>e.innerText.includes('Frontend — React'))})()`;
+  check('saved-record editor shows every imported preferred area as a checked choice',await evaluate(`(()=>{const s=${savedAreaState};return s.react==='checked'&&s.design==='checked'})()`));
+  await click(savedAreaToggle);
+  check('changing one preferred area in the saved editor keeps the other',await evaluate(`(()=>{const s=${savedAreaState};return s.react==='unchecked'&&s.design==='checked'})()`));
+  await click(savedAreaToggle);
   await fill('[role=dialog] input#saved-discordUsername','typed-but-unverified');
   await evaluate(`window.importFetch=window.fetch;window.failImportSave=true;window.fetch=async(...args)=>{if(window.failImportSave&&String(args[0]).includes('/imported-signups/')&&args[1]?.method==='PATCH'){window.failImportSave=false;throw Error('synthetic network failure')}return window.importFetch(...args)}`);
   await click(button('Save changes'));
