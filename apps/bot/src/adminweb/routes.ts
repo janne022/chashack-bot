@@ -852,6 +852,21 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return { ok: true };
   });
 
+  app.get('/api/guild/members', async (req, reply) => {
+    const query = (req.query as { query?: unknown } | undefined)?.query;
+    const term = typeof query === 'string' ? query.trim() : '';
+    if (term.length < 2 || term.length > 100) return reply.code(400).send({ error: 'invalid_query' });
+    if (deps.client === null) return reply.code(503).send({ error: 'member_search_unavailable' });
+    try {
+      const guild = await deps.client.guilds.fetch(await guildOf(req));
+      const members = await guild.members.search({ query: term, limit: 10 });
+      return { members: [...members.values()].map((member) => ({ id: member.id, username: member.user.username, displayName: member.displayName })) };
+    } catch (error) {
+      const status = typeof error === 'object' && error !== null && 'status' in error ? error.status : undefined;
+      return reply.code(status === 429 ? 429 : 503).send({ error: status === 429 ? 'member_search_rate_limited' : 'member_search_unavailable' });
+    }
+  });
+
   app.get('/api/guild/channels', async (req) => {
     if (deps.client === null) return { channels: [], categories: [], roles: [] };
     if (!isSnowflake(await guildOf(req))) {
@@ -1740,8 +1755,8 @@ app.post('/api/event/reset', async (req) => {
         return reply.code(400).send({ error: 'invalid_mapping', issues: ['Mapping headers must exist in the CSV and targets must be text.'] });
       }
       const suggestedMapping = Object.fromEntries(parsed.headers.map((header) => {
-        const key = header.toLocaleLowerCase('en-US').replace(/[^a-z]/g, '');
-        const target = ({ timestamp: 'sourceTimestamp', nameclass: 'name', name: 'name', chasemail: 'email', email: 'email', discordusername: 'discordUsername', allergies: 'allergies', dietary: 'allergies', participationpreference: 'participationPreference', groupsize: 'groupSize', groupname: 'groupName', members: 'members', preferredworkareas: 'preferredAreas' } as Record<string, string>)[key];
+        const key = header.toLocaleLowerCase('sv-SE').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^a-z]/g, '');
+        const target = ({ timestamp: 'sourceTimestamp', tidstampel: 'sourceTimestamp', nameclass: 'name', dittnamnochklass: 'name', name: 'name', chasemail: 'email', dinchasmail: 'email', email: 'email', discordusername: 'discordUsername', allergies: 'allergies', dietary: 'allergies', hardunagrallergierviskatahansyntillnarkoperfika: 'allergies', hardunagraallergierviskatahansyntillnarvikoperfika: 'allergies', participationpreference: 'teamPref', hurvildeltaihackoween: 'teamPref', hurvilldudeltaihackoween: 'teamPref', groupsize: 'groupSize', hurmangaarnierergrupp: 'groupSize', hurmangaarniiergrupp: 'groupSize', groupname: 'groupName', gruppnamnfordiganmalerienfardiggrupp: 'groupName', gruppnamnfordigsomanmalerienfardiggrupp: 'groupName', gruppnamnfordigsomanmalerenfardiggrupp: 'groupName', members: 'members', namnpamedlemmarnaigruppen: 'members', preferredworkareas: 'skills', vilketomradevillduhelstjobbameddurhackatonet: 'skills', vilketomradevillduhelstjobbamedunderhackatonet: 'skills' } as Record<string, string>)[key];
         return [header, mapping[header] ?? target ?? ''];
       }).filter(([, target]) => target !== ''));
       const rows = parsed.rows.map((cells, index) => {
@@ -1751,6 +1766,7 @@ app.post('/api/event/reset', async (req) => {
         for (const [header, value] of Object.entries(raw)) {
           const target = suggestedMapping[header];
           if (!target) { values[`source:${header}`] = value; continue; }
+          if (['experience', 'role', 'teamPref', 'skills'].includes(target)) values[`source:${header}`] = value;
           if (target === 'sourceTimestamp') values.sourceTimestamp = value;
           else if (['name', 'email', 'discordUsername', 'allergies', 'participationPreference', 'groupSize', 'groupName', 'members', 'preferredAreas', 'experience', 'role', 'teamPref', 'skills'].includes(target)) values[target] = value;
           else answers[target] = value;

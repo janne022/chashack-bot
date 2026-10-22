@@ -150,6 +150,20 @@ export interface HackathonEvent {
   updatedAt: number
 }
 
+export interface ImportedSignup {
+  id: string
+  eventId: string
+  sourceRow: number
+  sourceTimestamp: string
+  formVersion: number
+  values: Record<string, string>
+  answers: Record<string, string | string[]>
+  discordUsername: string | null
+  discordUserId: string | null
+  state: 'incomplete' | 'unlinked' | 'linked'
+  missingFields: string[]
+}
+
 export interface Assignment {
   id: string
   title: string

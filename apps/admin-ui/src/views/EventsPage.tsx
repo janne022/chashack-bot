@@ -26,6 +26,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ScheduleEditor } from '@/components/ui/schedule-editor'
 import { AssignmentsEditor } from '@/components/AssignmentsEditor'
+import { ImportedSignups } from '@/components/ImportedSignups'
 import { EmptyState } from '@/components/ui/empty-state'
 import { OtterIllustration } from '@/components/OtterIllustration'
 import { TagAutocompleteInput, TagAutocompleteTextarea } from '@/components/TagAutocomplete'
@@ -875,11 +876,14 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
   const { state } = useAppContext()
   const t = useT()
   const [editOpen, setEditOpen] = useState(false)
+  const [showImports, setShowImports] = useState(false)
   const [busy, setBusy] = useState<'match' | 'lock' | null>(null)
   const sorted = [...(event.schedule ?? [])]
     .filter((s) => !SYNTHETIC_BLOCK_IDS.includes(s.id))
     .sort((a, b) => a.time - b.time)
   const ended = event.status === 'ended'
+  let importForm = state.config
+  try { if (event.formJson) importForm = JSON.parse(event.formJson) as FormConfig } catch { /* keep the current guild form */ }
 
   async function matchNow() {
     setBusy('match')
@@ -960,6 +964,10 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
             </Button>
           )}
           {!ended && <NotificationButtons event={event} refresh={refresh} />}
+          <Button variant={showImports ? 'secondary' : 'outline'} size="sm" className="!h-11 sm:!h-7" onClick={() => setShowImports(value => !value)}>
+            <FileCheck />
+            {showImports ? t('imports.back_to_event') : t('imports.action')}
+          </Button>
           {!ended && (
             <>
               <Button variant="outline" size="sm" className="!h-11 sm:!h-7" disabled={busy !== null} onClick={() => void matchNow()}>
@@ -988,6 +996,8 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
             )}
           </div>
         </div>
+
+        {showImports && <ImportedSignups eventId={event.id} eventName={event.name} form={importForm} />}
 
         {sorted.length > 0 && (
           <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
