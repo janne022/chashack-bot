@@ -44,6 +44,11 @@ test('normalizeFormUpdate clamps team size', () => {
   assert.equal(normalizeFormUpdate(DEFAULT_FORM, { teamSize: 1 }).teamSize, 2);
 });
 
+test('explicit empty profile option lists preserve custom-only forms', () => {
+  const form = normalizeFormUpdate(DEFAULT_FORM, { experiences: [], roleTracks: [], skills: [], teamPrefs: [], customQuestions: [{ id: 'project', kind: 'text', label: { en: 'Project idea' }, help: { en: '' }, required: true, presentation: 'web', visibility: 'self_and_organizer' }] });
+  assert.deepEqual([form.experiences, form.roleTracks, form.skills, form.teamPrefs], [[], [], [], []]);
+});
+
 test('normalizeFormUpdate keeps ids slug-safe and dedupes', () => {
   const next = normalizeFormUpdate(DEFAULT_FORM, { roleTracks: [{ id: 'Frontend!!', label: 'Frontend' }, { id: 'frontend', label: 'Dup' }, { id: '', label: 'No id' }] });
   const ids = next.roleTracks.map((r) => r.id);

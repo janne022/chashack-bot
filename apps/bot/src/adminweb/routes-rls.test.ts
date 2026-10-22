@@ -72,7 +72,7 @@ test('real app-role handlers bind fresh participant authority, public projection
     const response = await get('a');
     assert.equal(response.statusCode, 200, response.body);
     assert.deepEqual(response.json().answers, { private: 'PRIVATE_a' });
-    const saved = await app.inject({ method: 'PUT', url: '/api/participant/events/a/registration', headers, payload: { formVersion: 1, answers: { private: 'UPDATED' }, teamPref: 'random_team', guildId: guildB, userId: 'forged' } });
+    const saved = await app.inject({ method: 'PUT', url: '/api/participant/events/a/registration', headers, payload: { formVersion: 1, answers: { private: 'UPDATED' }, profile: { experience: 'veteran', roleTrack: 'backend', skills: ['ui_design'], teamPref: 'random_team' }, guildId: guildB, userId: 'forged' } });
     assert.equal(saved.statusCode, 200, saved.body);
     assert.equal((await get('a')).json().answers.private, 'UPDATED');
     const teams = await app.inject({ url: '/api/participant/events/a/teams', headers });

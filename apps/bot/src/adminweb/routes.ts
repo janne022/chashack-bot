@@ -725,10 +725,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const stored = await getRegistrationAnswers(db, event.id, session!.userId);
     const participant = await getParticipant(db, event.id, session!.userId);
     const checked = validateCustomAnswers(form, stored?.answers ?? {});
+    const profileRequired = form.experiences.length + form.roleTracks.length + form.skills.length + form.teamPrefs.length > 0;
+    const hasQuestions = (form.customQuestions ?? []).some((question) => question.visibility !== 'organizer_only' && (question.presentation === 'web' || question.presentation === 'both'));
     return { eventId: event.id, formVersion: form.version, answers: stored?.answers ?? {},
       profile: participant === null ? null : { experience: participant.experience, roleTrack: participant.roleTrack, skills: participant.skills, teamPref: participant.teamPref },
       missingRequiredQuestionIds: checked.ok ? checked.missingRequiredQuestionIds : [],
-      complete: checked.ok && checked.missingRequiredQuestionIds.length === 0 && !!participant?.experience && !!participant.roleTrack && participant.skills.length > 0 && !!participant.teamPref,
+      complete: participant !== null && (profileRequired || hasQuestions) && checked.ok && checked.missingRequiredQuestionIds.length === 0 && (!profileRequired || ((form.experiences.length === 0 || !!participant.experience) && (form.roleTracks.length === 0 || !!participant.roleTrack) && (form.skills.length === 0 || !!participant.skills.length) && (form.teamPrefs.length === 0 || !!participant.teamPref))),
       teamPref: participant?.teamPref ?? null, status: participant?.status ?? 'not_registered' };
   });
 
@@ -744,12 +746,15 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const teamPref = body?.teamPref;
     if (teamPref !== undefined && teamPref !== null && (typeof teamPref !== 'string' || !['create_team', 'join_team', 'random_team'].includes(teamPref))) return reply.code(400).send({ error: 'invalid_team_pref' });
     const profile = body?.profile;
-    if (profile !== undefined && (!profile || typeof profile.experience !== 'string' || !form.experiences.some((item) => item.id === profile.experience) || typeof profile.roleTrack !== 'string' || !form.roleTracks.some((item) => item.id === profile.roleTrack) || !Array.isArray(profile.skills) || profile.skills.length === 0 || profile.skills.some((id) => typeof id !== 'string' || !form.skills.some((item) => item.id === id)) || new Set(profile.skills).size !== profile.skills.length || [...new Set(profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean))].length !== profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean).length || typeof profile.teamPref !== 'string' || !form.teamPrefs.some((item) => item.id === profile.teamPref))) return reply.code(400).send({ error: 'invalid_profile' });
+    const profileRequired = form.experiences.length + form.roleTracks.length + form.skills.length + form.teamPrefs.length > 0;
+    const hasQuestions = (form.customQuestions ?? []).some((question) => question.visibility !== 'organizer_only' && (question.presentation === 'web' || question.presentation === 'both'));
+    if (!profileRequired && !hasQuestions) return reply.code(400).send({ error: 'empty_signup_form' });
+    if (profile !== undefined && (!profile || (form.experiences.length > 0 ? typeof profile.experience !== 'string' || !form.experiences.some((item) => item.id === profile.experience) : !!profile.experience) || (form.roleTracks.length > 0 ? typeof profile.roleTrack !== 'string' || !form.roleTracks.some((item) => item.id === profile.roleTrack) : !!profile.roleTrack) || !Array.isArray(profile.skills) || (form.skills.length > 0 && profile.skills.length === 0) || profile.skills.some((id) => typeof id !== 'string' || !form.skills.some((item) => item.id === id)) || new Set(profile.skills).size !== profile.skills.length || [...new Set(profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean))].length !== profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean).length || (form.teamPrefs.length > 0 ? typeof profile.teamPref !== 'string' || !form.teamPrefs.some((item) => item.id === profile.teamPref) : !!profile.teamPref))) return reply.code(400).send({ error: 'invalid_profile' });
     return db.transaction(async () => {
       const existing = await getParticipant(db, event.id, session!.userId);
       if (existing?.status === 'blocked') return reply.code(403).send({ error: 'registration_blocked' });
       const effectiveProfile = profile ?? (existing && existing.experience && existing.roleTrack && existing.skills.length && existing.teamPref ? { experience: existing.experience, roleTrack: existing.roleTrack, skills: existing.skills, teamPref: existing.teamPref } : null);
-      if (effectiveProfile === null) return reply.code(400).send({ error: 'invalid_profile' });
+      if (profileRequired && effectiveProfile === null) return reply.code(400).send({ error: 'invalid_profile' });
       const saved = await saveRegistrationAnswers(db, event.id, session!.userId, form.version, checked.answers);
       if (!saved.ok) return reply.code(409).send({ error: saved.code });
       if (existing === null) {
@@ -765,7 +770,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         await db.run("UPDATE participants SET status = 'active', updated_at = ? WHERE event_id = ? AND user_id = ?", Date.now(), event.id, session!.userId);
       }
       return { eventId: event.id, formVersion: form.version, answers: saved.value.answers,
-        missingRequiredQuestionIds: checked.missingRequiredQuestionIds, complete: checked.missingRequiredQuestionIds.length === 0 && !!(profile?.experience ?? existing?.experience) && !!(profile?.roleTrack ?? existing?.roleTrack) && (Array.isArray(profile?.skills) ? profile.skills.length > 0 : !!existing?.skills.length) && !!(profile?.teamPref ?? teamPref ?? existing?.teamPref),
+        missingRequiredQuestionIds: checked.missingRequiredQuestionIds, complete: checked.missingRequiredQuestionIds.length === 0 && (!profileRequired || ((form.experiences.length === 0 || !!(profile?.experience ?? existing?.experience)) && (form.roleTracks.length === 0 || !!(profile?.roleTrack ?? existing?.roleTrack)) && (form.skills.length === 0 || (Array.isArray(profile?.skills) ? profile.skills.length > 0 : !!existing?.skills.length)) && (form.teamPrefs.length === 0 || !!(profile?.teamPref ?? teamPref ?? existing?.teamPref)))),
         profile: effectiveProfile,
         teamPref: typeof profile?.teamPref === 'string' ? profile.teamPref : typeof teamPref === 'string' ? teamPref : existing?.teamPref ?? null, status: existing?.status === 'withdrawn' ? 'active' : existing?.status ?? 'active' };
     });
