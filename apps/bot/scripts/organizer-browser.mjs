@@ -13,7 +13,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const port = 8491;
 const base = `http://127.0.0.1:${port}`;
-const chromePath = '/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome';
+const {chromePath} = await import('./chrome-path.mjs');
 const chromeProfile = await mkdtemp(join(tmpdir(), 'chashack-oauth-chrome-'));
 const chrome = spawn(chromePath, [
   '--headless=new', '--no-sandbox', '--disable-dev-shm-usage',

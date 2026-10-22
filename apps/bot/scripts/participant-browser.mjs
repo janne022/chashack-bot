@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const port = 8491, base = `http://127.0.0.1:${port}`;
-const chromePath = '/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome';
+const {chromePath} = await import('./chrome-path.mjs');
 const profile = await mkdtemp(join(tmpdir(), 'chashack-participant-'));
 const evidenceDir = join(process.env.TMPDIR ?? tmpdir(), 'participant-appearance-evidence');
 const chrome = spawn(chromePath, ['--headless=new','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], {detached:true,stdio:'ignore'}); // g0:allow:secrets t_583f310e — synthetic local browser flags only.

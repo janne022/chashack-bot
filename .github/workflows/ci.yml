@@ -65,6 +65,21 @@ jobs:
           pnpm test
           node apps/bot/scripts/smoke-admin.mjs
 
+      - name: Browser journey gates
+        env:
+          DATABASE_URL: postgresql://postgres:***@127.0.0.1:5432/chashack_ci
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            echo "SKIPPED: no PR base; the journey gate runs on pull requests"
+            exit 0
+          fi
+          if git diff --quiet "$base"...HEAD -- apps/admin-ui apps/bot/src; then
+            echo "SKIPPED: no rendered surface touched by this PR"
+          else
+            pnpm ui:verify
+          fi
+
       - name: Install vendored runner dependency
         run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
 

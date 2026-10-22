@@ -19,7 +19,8 @@ import { createInvite } from '../dist/features/teams/requests-data.js';
 
 const profile = await mkdtemp(join(tmpdir(), 'live-browser-'));
 const evidence = join(tmpdir(), 'sse-evidence');
-const chrome = spawn('/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome', ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' }); // g0:allow:secrets t_c2833b53 — public Chromium executable path and launch flags, no credential.
+const {chromePath} = await import('./chrome-path.mjs');
+const chrome = spawn(chromePath, ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' }); // g0:allow:secrets t_c2833b53 — public Chromium executable path and launch flags, no credential.
 let owner, db, server, browser, role;
 const checks = [];
 const check = (name, condition) => { assert.ok(condition, name); checks.push(name); console.log(`PASS ${name}`); };
