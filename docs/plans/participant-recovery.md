@@ -1,11 +1,11 @@
 # Participant recovery checklist
 
 - [x] Trace legacy/default form projection, answer persistence, eligibility and team/matching gates; add core-profile save/refresh coverage.
-- [ ] Reproduce custom-question and choice creation on non-secure HTTP; fix secure ID generation; verify template/event authoring persists.
-- [ ] Improve participant signup, event, My hackathons and team navigation/state using existing participant design system; verify English/Swedish and mobile/keyboard.
+- [x] Reproduce custom-question and choice creation on non-secure HTTP; fix secure ID generation; verify template/event authoring persists.
+- [x] Improve participant signup, event, My hackathons and team navigation/state using existing participant design system; verify English/Swedish and mobile/keyboard.
 - [x] Add a branded favicon and verify actual static MIME/route references.
-- [ ] Run focused and repository checks, browser journey and negative control; capture desktop/mobile evidence.
-- [ ] Publish exact-head PR with verified gate evidence; request same-card independent review.
+- [x] Run focused and repository checks, browser journey and negative control; capture desktop/mobile evidence.
+- [x] Publish exact-head PR with verified gate evidence; request same-card independent review.
 
 ## Root-cause evidence to retain
 

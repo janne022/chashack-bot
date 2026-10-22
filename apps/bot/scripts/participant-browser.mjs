@@ -171,8 +171,8 @@ try {
   members.delete('participant-c');
   await nav(`/events/${eventId}/signup`);await wait(`document.body.innerText.includes('aktuell medlem')`);
   check('nonmember sees the membership explanation and no team allocation action',await evaluate(`document.body.innerText.includes('aktuell medlem')&&!document.querySelector('form')&&!document.body.innerText.includes('Visa lag')`));
-  await nav('/team?eventId=missing-event');await wait(`!!document.querySelector('[role=alert]')`);
-  check('team view provides a recovery action on unavailable event',await evaluate(`!!document.querySelector('[role=alert]')&&[...document.querySelectorAll('button')].some(b=>b.innerText.trim())`));
+  await nav('/team?eventId=missing-event');await wait(`[...document.querySelectorAll('[role=alert]')].some(a=>a.innerText.includes('Uppdatera lag'))`);
+  check('team view provides an in-alert recovery action with an explanation on unavailable event',await evaluate(`(()=>{const a=[...document.querySelectorAll('[role=alert]')].find(a=>a.innerText.includes('Uppdatera lag'));if(!a)return false;const explanation=a.querySelector('p')?.innerText.trim()??'';return explanation.length>0&&[...a.querySelectorAll('button')].some(b=>b.innerText.trim()==='Uppdatera lag')})()`));
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
   const desktop=await evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth})`);
   check('desktop viewport is confirmed before layout assertions',desktop.width===1440&&desktop.scroll<=1440);
@@ -205,7 +205,6 @@ try {
   await nav(`${defaultEventPath}/signup`); await wait(`!!document.querySelector('main')`);
   const mainBg = await evaluate(`getComputedStyle(document.querySelector('main')).backgroundColor`);
   const mainImg = await evaluate(`!!document.querySelector('main img')`);
-  console.log('DEFAULT SIGNUP CHECK: mainBg =', mainBg, 'mainImg =', mainImg);
   check('default signup has no broken media and uses the same light frame', mainBg==='rgb(247, 245, 240)' && !mainImg);
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
   await send('Network.setCookie',{name:'hacksess',value:decodeURIComponent(cookies.organizer.split('=')[1]),url:base,httpOnly:true},sid);

@@ -214,9 +214,8 @@ try {
   await click(`document.querySelector('fieldset [role=combobox]')`);
   await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Single choice'))`);
   await click(button('Add choice'));
-  const setAuthored=async(selector,value)=>fill(selector,value);
-  await setAuthored('fieldset input[aria-invalid]','LAN question');
-  await setAuthored('fieldset input:not([aria-invalid])','Fråga via LAN');
+  await fill('fieldset input[aria-invalid]','LAN question');
+  await fill('fieldset input:not([aria-invalid])','Fråga via LAN');
   const choiceCount=await evaluate(`document.querySelectorAll('fieldset input[aria-label^="English label "]').length`);
   await evaluate(`(()=>{for(const [selector,prefix] of [['input[aria-label^="English label "]','Choice '],['input[aria-label^="Swedish label "]','Val ']])[...document.querySelectorAll('fieldset '+selector)].forEach((e,i)=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,prefix+(i+1));e.dispatchEvent(new Event('input',{bubbles:true}))})})()`);
   check('LAN editor adds bilingual single-choice options',choiceCount>=2);
@@ -465,7 +464,6 @@ try {
     const saved=JSON.parse((await api('/api/state',undefined,'GET')).templates.find(t=>t.id===tpl.id).json);
     check(`${kind} replacement identity persists`,(kind==='text'?saved.customQuestions[0].id:saved.customQuestions[0].choices[0].id)===replacement);
     await nav(base+'/events?event='+published.id); await wait(`!!(${button('Edit event')})`);
-    console.log('DEBUG-EDIT',await evaluate(`(()=>{const b=${button('Edit event')};const r=b.getBoundingClientRect();const t=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return JSON.stringify({rect:r.toJSON(),vp:[innerWidth,innerHeight],scrollY,html:b.outerHTML.slice(0,140),hit:t?t.outerHTML.slice(0,140):null,hitIsSelf:t===b||b.contains(t)})})()`));
     await click(button('Edit event')); await wait(`!!document.querySelector('[role=dialog]')`,15000); await chooseForm(name); await click(button('Save'));
     await wait(`!!document.querySelector('[role=alert]')`);
     check(`${kind} replacement reports structural conflict in served editor`,await evaluate(`document.querySelector('[role=alert]').innerText.includes('version migration')&&!!(${button('Retry save')})`));
@@ -527,8 +525,7 @@ try {
   await choose(`document.getElementById(${JSON.stringify(questionId)})`,choiceNames);
   await click(`document.querySelector('form button[type=submit]')`);
   let firstSave=null;for(let i=0;i<60&&!firstSave;i++){firstSave=await db.get('SELECT form_version,answers_json FROM registration_answers WHERE event_id=? AND user_id=?',event.id,'authored-participant');if(!firstSave)await delay(250);}
-  if(!firstSave)console.log('DEBUG-STATUS',await evaluate(`JSON.stringify([...document.querySelectorAll('[role=status],p[class*=destructive],form')].map(e=>e.innerText.trim()).filter(Boolean).map(t=>t.slice(0,300)))`));
-  check('participant browser saves the author-created answer at the published version',firstSave?.form_version===publishedForm.version&&JSON.parse(firstSave.answers_json)[questionId]===choice.id);
+  check('participant browser saves the author-created answer at the published version',firstSave?.form_version===publishedForm.version&&JSON.parse(firstSave.answers_json)[questionId]===choice.id,firstSave?'':await evaluate(`JSON.stringify([...document.querySelectorAll('[role=status],p[class*=destructive],form')].map(e=>e.innerText.trim()).filter(Boolean).map(t=>t.slice(0,300)))`));
   await nav(base+'/events/'+event.id+'/signup'); await wait(`document.getElementById(${JSON.stringify(questionId)})?.innerText.trim().length>0`);
   check('author-created answer survives reload in the served participant form',await evaluate(`${JSON.stringify(choiceNames)}.includes(document.getElementById(${JSON.stringify(questionId)}).innerText.trim())&&document.querySelector('#profile-experience').innerText.includes('First hackathon')`));
   console.log('RESULT',checks.length,'browser assertions passed; console exceptions:',JSON.stringify(errors));
