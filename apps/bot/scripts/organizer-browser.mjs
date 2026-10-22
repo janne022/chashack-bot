@@ -7,20 +7,14 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawn } from 'node:child_process';
+import { startChrome } from './chrome-startup.mjs';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const port = 8491;
 const base = `http://127.0.0.1:${port}`;
-const {chromePath} = await import('./chrome-path.mjs');
 const chromeProfile = await mkdtemp(join(tmpdir(), 'chashack-oauth-chrome-'));
-const chrome = spawn(chromePath, [
-  '--headless=new', '--no-sandbox', '--disable-dev-shm-usage',
-  '--host-resolver-rules=MAP chashack.test 127.0.0.1',
-  '--remote-debugging-' + 'port=0',
-  `--user-data-dir=${chromeProfile}`, 'about:blank',
-], { detached: true, stdio: 'ignore' });
+let chrome;
 let server;
 let db;
 let browser;
@@ -32,6 +26,7 @@ function check(name, condition, detail = '') {
 }
 
 try {
+  chrome = await startChrome(chromeProfile, { args: ['--host-resolver-rules=MAP chashack.test 127.0.0.1'] });
   const [{ startAdminServer }, { openTestDb }, { createSession }, { makeDiscordToken }, { withGuildContext }] = await Promise.all([
     import('../dist/adminweb/server.js'), import('../dist/shared/test-db.js'),
     import('../dist/features/auth/data.js'), import('../dist/features/auth/domain.js'), import('../dist/shared/postgres.js'),
@@ -63,22 +58,7 @@ try {
     guilds: guildIds.map((id, index) => ({ id, name: `Synthetic test guild ${index + 1}`, icon: null })),
   });
   const cookie = `hacksess=${encodeURIComponent(makeDiscordToken(config.adminSessionSecret, session.id))}`;
-  const cdpPort = await (async () => {
-    const activePort = join(chromeProfile, 'DevToolsActivePort');
-    for (let i = 0; i < 100; i++) {
-      try {
-        const [portText] = (await readFile(activePort, 'utf8')).split('\n');
-        const candidate = Number(portText);
-        const proc = await fetch(`http://127.0.0.1:${candidate}/json/version`);
-        const version = await proc.json();
-        return version.webSocketDebuggerUrl;
-      } catch {}
-      if (chrome.exitCode !== null) throw new Error(`Chromium exited with ${chrome.exitCode}`);
-      await delay(100);
-    }
-    throw new Error('Chromium DevTools endpoint did not start');
-  })();
-  browser = new WebSocket(cdpPort);
+  browser = new WebSocket(chrome.wsUrl);
   await new Promise((resolve, reject) => { browser.addEventListener('open', resolve, { once: true }); browser.addEventListener('error', reject, { once: true }); });
   let sequence = 0;
   const pending = new Map();
@@ -646,10 +626,7 @@ try {
 } catch (error) { console.error(error); throw error;
 } finally {
   browser?.close();
-  if (chrome.exitCode === null) {
-    try { process.kill(-chrome.pid, 'SIGTERM'); } catch {}
-    await Promise.race([new Promise(resolve => chrome.once('exit', resolve)), delay(3000)]);
-  }
+  await chrome?.stop();
   if (server) await server.stop();
   if (db) await db.close();
   await rm(chromeProfile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

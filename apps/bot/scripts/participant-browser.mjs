@@ -4,19 +4,19 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawn } from 'node:child_process';
+import { startChrome } from './chrome-startup.mjs';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const port = 8491, base = `http://127.0.0.1:${port}`;
-const {chromePath} = await import('./chrome-path.mjs');
 const profile = await mkdtemp(join(tmpdir(), 'chashack-participant-'));
 const evidenceDir = join(process.env.TMPDIR ?? tmpdir(), 'participant-appearance-evidence');
-const chrome = spawn(chromePath, ['--headless=new','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], {detached:true,stdio:'ignore'}); // g0:allow:secrets t_583f310e — synthetic local browser flags only.
+let chrome;
 let server, db, browser;
 const checks=[];
 const check=(name,ok)=>{assert.ok(ok,name);checks.push(name);console.log(`PASS ${name}`)};
 try {
+  chrome = await startChrome(profile);
   const [{startAdminServer},{openTestDb},{createSession},{makeDiscordToken},{DEFAULT_FORM}]=await Promise.all([
     import('../dist/adminweb/server.js'),import('../dist/shared/test-db.js'),import('../dist/features/auth/data.js'),import('../dist/features/auth/domain.js'),import('../dist/features/form/domain.js')
   ]);
@@ -39,9 +39,7 @@ try {
   }
   const organizerSession=await createSession(db,{userId:'organizer',username:'Synthetic organizer',avatar:null,guilds:[{id:guildId,name:'Synthetic guild',icon:null}]});
   cookies.organizer=`hacksess=${encodeURIComponent(makeDiscordToken(config.adminSessionSecret,organizerSession.id))}`;
-  const endpoint=join(profile,'DevToolsActivePort'); let ws;
-  for(let i=0;i<100;i++){try{const [p]= (await readFile(endpoint,'utf8')).split('\n');ws=(await (await fetch(`http://127.0.0.1:${p}/json/version`)).json()).webSocketDebuggerUrl;break}catch{} await delay(100)}
-  assert.ok(ws,'Chromium DevTools starts'); browser=new WebSocket(ws); await new Promise((r,j)=>{browser.addEventListener('open',r,{once:true});browser.addEventListener('error',j,{once:true})});
+  assert.ok(chrome.wsUrl,'Chromium DevTools starts'); browser=new WebSocket(chrome.wsUrl); await new Promise((r,j)=>{browser.addEventListener('open',r,{once:true});browser.addEventListener('error',j,{once:true})});
   let seq=0;const pending=new Map(),exceptions=[];browser.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){pending.get(m.id)(m);pending.delete(m.id)}if(m.method==='Runtime.exceptionThrown')exceptions.push(m.params.exceptionDetails.text)});
   browser.addEventListener('close',()=>{for(const settle of pending.values())settle({error:{message:'CDP socket closed'}});pending.clear()});
   const send=(method,params={},sessionId)=>new Promise((resolve,reject)=>{
@@ -250,5 +248,5 @@ try {
   assert.deepEqual(exceptions,[]);
   console.log(`RESULT ${checks.length} participant browser assertions passed; uncaught exceptions: 0`);
 } finally {
-  browser?.close();if(chrome.exitCode===null){try{process.kill(-chrome.pid,'SIGTERM')}catch{}await Promise.race([new Promise(r=>chrome.once('exit',r)),delay(3000)])}if(server)await server.stop();if(db)await db.close();await rm(profile,{recursive:true,force:true,maxRetries:10,retryDelay:200});
+  browser?.close();await chrome?.stop();if(server)await server.stop();if(db)await db.close();await rm(profile,{recursive:true,force:true,maxRetries:10,retryDelay:200});
 }

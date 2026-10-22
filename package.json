@@ -11,7 +11,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "ui:verify": "node apps/bot/scripts/organizer-browser.mjs && node apps/bot/scripts/participant-browser.mjs",
+    "ui:verify": "node --test apps/bot/scripts/chrome-startup.test.mjs && node apps/bot/scripts/organizer-browser.mjs && node apps/bot/scripts/participant-browser.mjs",
     "dev:admin": "pnpm --filter admin-ui dev",
     "build:admin": "pnpm --filter admin-ui build",
     "register:commands": "pnpm --filter bot register:commands",

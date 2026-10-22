@@ -5,7 +5,7 @@ const base = process.argv[2];
 if (!base) throw new Error('base revision is required');
 const paths = [
   'apps/admin-ui', 'apps/bot/src', 'apps/bot/scripts/*browser*.mjs',
-  'apps/bot/scripts/chrome-path.mjs', 'package.json', '.hermes/pipeline.yaml',
+  'apps/bot/scripts/chrome-*.mjs', 'package.json', '.hermes/pipeline.yaml',
   '.github/workflows/ci.yml', 'scripts/should-run-ui-verify.mjs', '.hermes/pipeline',
 ];
 const diff = spawnSync('git', ['diff', '--quiet', `${base}...HEAD`, '--', ...paths], { stdio: 'inherit' });

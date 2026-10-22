@@ -63,7 +63,7 @@ class PipelineAdoptionTest(unittest.TestCase):
             for key, value in (("user.name", "janne022"), ("user.email", "jannis020609@gmail.com")):
                 subprocess.run(["git", "-C", str(repo), "config", key, value], check=True)
             subprocess.run(["git", "-C", str(repo), "config", "commit.gpgsign", "false"], check=True)
-            paths = ("apps/bot/scripts/organizer-browser.mjs", "apps/bot/scripts/participant-browser.mjs", "apps/admin-ui/src/App.tsx", "apps/bot/src/index.ts", "apps/bot/scripts/chrome-path.mjs", "package.json", ".github/workflows/ci.yml", ".hermes/pipeline.yaml", ".hermes/pipeline/test_adoption.py", "scripts/should-run-ui-verify.mjs", "unrelated.txt")
+            paths = ("apps/bot/scripts/organizer-browser.mjs", "apps/bot/scripts/participant-browser.mjs", "apps/admin-ui/src/App.tsx", "apps/bot/src/index.ts", "apps/bot/scripts/chrome-path.mjs", "apps/bot/scripts/chrome-startup.mjs", "apps/bot/scripts/chrome-startup.test.mjs", "package.json", ".github/workflows/ci.yml", ".hermes/pipeline.yaml", ".hermes/pipeline/test_adoption.py", "scripts/should-run-ui-verify.mjs", "unrelated.txt")
             for path in paths:
                 target = repo / path
                 target.parent.mkdir(parents=True, exist_ok=True)
