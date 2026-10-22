@@ -2,37 +2,36 @@ import type { CSSProperties, ReactNode } from 'react'
 import type { FormConfig } from '@/types'
 import { Hexagon, CalendarDays } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PRESET_ACCENTS, readableInk } from '@/lib/color'
 import { useT } from '@/lib/i18n'
 
 export type Appearance = NonNullable<FormConfig['appearance']>
-const accents = { default: '#55bbda', halloween: '#ef793e', christmas: '#347b57' }
 
 export function resolveAppearance(form: Pick<FormConfig, 'appearance' | 'themePreset' | 'accentColor' | 'bannerUrl'>): Appearance {
   // An event-local appearance is a complete snapshot; null intentionally clears legacy images.
   if (form.appearance) return form.appearance
   const preset = form.themePreset ?? 'default'
-  return { themePreset: preset, accentColor: form.accentColor ?? accents[preset], bannerUrl: form.bannerUrl ?? null }
+  return { themePreset: preset, accentColor: form.accentColor ?? PRESET_ACCENTS[preset], bannerUrl: form.bannerUrl ?? null }
 }
 
-function foreground(hex: string) {
-  const channels = hex.slice(1).match(/.{2}/g)?.map(part => {
-    const n = parseInt(part, 16) / 255
-    return n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4
-  }) ?? [0, 0, 0]
-  return channels[0]! * .2126 + channels[1]! * .7152 + channels[2]! * .0722 > .179 ? '#111827' : '#ffffff'
+/** Colours the frame actually paints — the inherited defaults the pickers must show. */
+export function frameColors(appearance: Appearance) {
+  const dark = appearance.mode === 'dark' || (appearance.mode === undefined && appearance.themePreset !== 'default')
+  return {
+    accent: appearance.accentColor || PRESET_ACCENTS[appearance.themePreset],
+    background: appearance.backgroundColor ?? (dark ? '#0a0c10' : '#f7f5f0'),
+    surface: appearance.surfaceColor ?? (dark ? '#11141b' : '#fffdf9'),
+    text: appearance.textColor ?? (dark ? '#eef2f7' : '#1a1d24'),
+  }
 }
 
 export function ParticipantFrame({ appearance, children }: { appearance: Appearance; children: ReactNode }) {
   const t = useT()
-  const dark = appearance.mode === 'dark' || (appearance.mode === undefined && appearance.themePreset !== 'default')
-  const background = appearance.backgroundColor ?? (dark ? '#0a0c10' : '#f7f5f0')
-  const surface = appearance.surfaceColor ?? (dark ? '#11141b' : '#fffdf9')
-  const text = appearance.textColor ?? (dark ? '#eef2f7' : '#1a1d24')
-  const accent = appearance.accentColor || accents[appearance.themePreset]
+  const { accent, background, surface, text } = frameColors(appearance)
   const style = {
     '--participant-accent': accent,
     '--primary': accent,
-    '--primary-foreground': foreground(accent), // g0:allow:secrets t_04535032 — CSS property names, not credentials.
+    '--primary-foreground': readableInk(accent), // g0:allow:secrets t_04535032 — CSS property names, not credentials.
     '--background': background,
     '--card': surface,
     '--foreground': text,
