@@ -28,10 +28,14 @@ function Signup() {
   const [access, setAccess] = useState<'anonymous' | 'member' | 'nonmember'>('anonymous')
   const dirty = useRef(false)
   const draftRevision = useRef(0)
+  const changeProfile = (next: Profile) => { draftRevision.current++; dirty.current = true; setProfile(next) }
 
   const language = localStorage.getItem('chas-locale') === 'sv' ? 'sv' : 'en'
   const label = (value: Localized) => typeof value === 'string' ? value : value[language] || value.en
   const visibleQuestions = event?.form.questions ?? []
+  const profileFields = event?.form.profileFields
+  const profileRequired = !!profileFields && profileFields.experiences.length + profileFields.roleTracks.length + profileFields.skills.length + profileFields.teamPrefs.length > 0
+  const canSubmit = profileRequired || visibleQuestions.length > 0
 
   const load = async (signal?: AbortSignal, background = false) => {
     if (!background) { setState('loading'); setMessage(''); setStale(false) }
@@ -85,7 +89,8 @@ function Signup() {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (!event) return
-    const missingProfile = !profile.experience || !profile.roleTrack || profile.skills.length === 0 || !profile.teamPref
+    if (!canSubmit) { setMessage(t('participant.signup_empty')); return }
+    const missingProfile = !!profileFields && ((profileFields.experiences.length > 0 && !profile.experience) || (profileFields.roleTracks.length > 0 && !profile.roleTrack) || (profileFields.skills.length > 0 && profile.skills.length === 0) || (profileFields.teamPrefs.length > 0 && !profile.teamPref))
     if (missingProfile) { setMessage(t('participant.signup_profile_required')); document.getElementById('profile-experience')?.focus(); return }
     const missing = event.form.questions.filter((q) => { const answer = answers[q.id]; return q.required && !(Array.isArray(answer) ? answer.length : typeof answer === 'string' && answer.trim()) }).map((q) => q.id)
     if (missing.length) {
@@ -97,7 +102,7 @@ function Signup() {
     setState('waiting'); setMessage(''); setStale(false)
     const submittedRevision = draftRevision.current
     try {
-      const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ formVersion: event.form.version, answers, profile }) })
+      const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ formVersion: event.form.version, answers, ...(profileRequired ? { profile } : {}) }) })
       const value = await res.json() as Registration & { error?: string }
       if (res.status === 401) { location.assign('/auth/participant'); return }
       if (res.status === 404) throw new Error(t('participant.signup_member'))
@@ -111,9 +116,9 @@ function Signup() {
     <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
       <section className="order-2 space-y-6 lg:order-1">
         <header className="space-y-3">
-          <nav className="flex flex-wrap gap-x-5 gap-y-1 text-sm" aria-label={t('participant.signup_details')}>
-            <a href="/my-hackathons" className="inline-flex min-h-11 items-center underline">{t('participant.my_title')}</a>
-            <a href={`/events/${encodeURIComponent(eventId)}`} className="inline-flex min-h-11 items-center underline">{t('participant.signup_details')}</a>
+          <nav className="flex flex-wrap gap-2" aria-label={t('participant.signup_navigation')}>
+            <Button asChild variant="outline" className="min-h-11"><a href="/my-hackathons">{t('participant.my_title')}</a></Button>
+            <Button asChild variant="outline" className="min-h-11"><a href={`/events/${encodeURIComponent(eventId)}`}>{event.event.name}</a></Button>
           </nav>
           <h1 className="text-3xl font-bold">{event.form.title || event.event.name}</h1>
           <p className="max-w-prose opacity-80">{event.form.description || event.event.description}</p>
@@ -124,23 +129,25 @@ function Signup() {
           <Button onClick={() => location.assign('/auth/participant')}>{t('participant.signup_continue')}</Button>
         </section>}
         {!registration && access === 'nonmember' && <p role="alert">{t('participant.signup_member')}</p>}
+        {registration && !canSubmit && <p role="alert">{t('participant.signup_empty')}</p>}
         {registration && <form className="space-y-5" onSubmit={e => void submit(e)}>
-          <fieldset className="space-y-4 rounded-xl border bg-card p-5"><legend className="px-2 text-lg font-semibold">{t('participant.signup_profile')}</legend>
-            {(['experience', 'roleTrack', 'teamPref'] as const).map((field) => {
+          {profileRequired && <fieldset className="space-y-4 rounded-xl border bg-card p-5"><legend className="px-2 text-lg font-semibold">{t('participant.signup_profile')}</legend>
+            {(['experience', 'roleTrack', 'teamPref'] as const).filter(field => (field === 'experience' ? event.form.profileFields.experiences : field === 'roleTrack' ? event.form.profileFields.roleTracks : event.form.profileFields.teamPrefs).length > 0).map((field) => {
               const options = field === 'experience' ? event.form.profileFields.experiences : field === 'roleTrack' ? event.form.profileFields.roleTracks : event.form.profileFields.teamPrefs
               const id = field === 'roleTrack' ? 'role' : field === 'teamPref' ? 'team-pref' : 'experience'
-              return <label key={field} className="block space-y-2 text-sm font-medium" htmlFor={`profile-${id}`}>{t(`participant.signup_${id === 'team-pref' ? 'team_pref' : id}`)}<Select value={profile[field] || '__choose__'} onValueChange={value => setProfile(current => ({ ...current, [field]: value === '__choose__' ? '' : value }))}><SelectTrigger id={`profile-${id}`} aria-required="true"><SelectValue placeholder={t('participant.signup_choose')} /></SelectTrigger><SelectContent><SelectItem value="__choose__">{t('participant.signup_choose')}</SelectItem>{options.map(option => <SelectItem key={option.id} value={option.id}>{label({ en: option.label, sv: option.label_sv })}</SelectItem>)}</SelectContent></Select></label>
+              return <label key={field} className="block space-y-2 text-sm font-medium" htmlFor={`profile-${id}`}>{t(`participant.signup_${id === 'team-pref' ? 'team_pref' : id}`)}<Select value={profile[field] || '__choose__'} onValueChange={value => changeProfile({ ...profile, [field]: value === '__choose__' ? '' : value })}><SelectTrigger id={`profile-${id}`} className="min-h-11" aria-required="true"><SelectValue placeholder={t('participant.signup_choose')} /></SelectTrigger><SelectContent><SelectItem value="__choose__">{t('participant.signup_choose')}</SelectItem>{options.map(option => <SelectItem key={option.id} value={option.id}>{label({ en: option.label, sv: option.label_sv })}</SelectItem>)}</SelectContent></Select></label>
             })}
-            <fieldset className="space-y-2"><legend className="text-sm font-medium">{t('participant.signup_skills')} *</legend><div className="grid gap-2 sm:grid-cols-2">{event.form.profileFields.skills.map(skill => <label key={skill.id} className="flex min-h-11 items-center gap-3 rounded-md border px-3"><Checkbox checked={profile.skills.includes(skill.id)} aria-required="true" onCheckedChange={checked => setProfile(current => ({ ...current, skills: checked ? [...current.skills, skill.id] : current.skills.filter(id => id !== skill.id) }))} /><span>{label({ en: skill.label, sv: skill.label_sv })}</span></label>)}</div></fieldset>
-          </fieldset>
+            {event.form.profileFields.skills.length > 0 && <fieldset className="space-y-2"><legend className="text-sm font-medium">{t('participant.signup_skills')}</legend><p className="text-sm opacity-80">{t('participant.signup_skill_groups')}</p><div className="grid gap-2 sm:grid-cols-2">{event.form.profileFields.skills.map(skill => <label key={skill.id} className="flex min-h-11 items-center gap-3 rounded-md border border-current/20 px-3"><Checkbox checked={profile.skills.includes(skill.id)} aria-required="true" onCheckedChange={checked => changeProfile({ ...profile, skills: checked ? [...profile.skills.filter(id => !skill.group || event.form.profileFields.skills.find(option => option.id === id)?.group !== skill.group), skill.id] : profile.skills.filter(id => id !== skill.id) })} /><span>{label({ en: skill.label, sv: skill.label_sv })}</span></label>)}</div></fieldset>}
+          </fieldset>}
           {visibleQuestions.map(q => <SignupQuestion key={q.id} question={q} answer={answers[q.id]} invalid={registration.missingRequiredQuestionIds.includes(q.id)} label={label} onChange={answer => { draftRevision.current++; dirty.current = true; setAnswers({ ...answers, [q.id]: answer }) }} t={t} />)}
           {message && <p role={state === 'failed' ? 'alert' : 'status'} tabIndex={-1}>{message}</p>}
-          <div className="flex flex-wrap gap-3"><Button type="submit" className="min-h-11" disabled={state === 'waiting' || stale} aria-busy={state === 'waiting'}>{state === 'waiting' ? t('participant.team_save') : registration.complete ? t('participant.signup_update') : t('participant.signup_submit')}</Button>{stale ? <Button type="button" className="min-h-11" variant="outline" onClick={() => void refreshForm()}>{t('participant.signup_reload')}</Button> : state === 'failed' && <Button type="submit" className="min-h-11" variant="outline">{t('participant.retry')}</Button>}</div>
-          {registration.complete && <p>{t('participant.signup_success')} <a className="underline" href={`/team?eventId=${encodeURIComponent(eventId)}`}>{t('participant.view_team')}</a></p>}
+          <div className="flex flex-wrap gap-3"><Button type="submit" className="min-h-11" disabled={state === 'waiting' || stale || !canSubmit} aria-busy={state === 'waiting'}>{state === 'waiting' ? t('participant.team_save') : registration.complete ? t('participant.signup_update') : t('participant.signup_submit')}</Button>{stale ? <Button type="button" className="min-h-11" variant="outline" onClick={() => void refreshForm()}>{t('participant.signup_reload')}</Button> : state === 'failed' && <Button type="submit" className="min-h-11" variant="outline">{t('participant.retry')}</Button>}</div>
+          {registration.complete && <section className="space-y-3 border-t border-current/15 pt-4"><p role="status">{t('participant.signup_success')}</p><Button asChild variant="outline" className="min-h-11"><a href={`/team?eventId=${encodeURIComponent(eventId)}`}>{t('participant.team_title')}</a></Button></section>}
         </form>}
         {message && !registration && <p role={state === 'failed' ? 'alert' : 'status'}>{message} {state === 'failed' && <Button onClick={() => void load()}>{t('participant.retry')}</Button>}</p>}
       </section>
       <aside className="order-1 h-fit rounded-xl border bg-card p-5 lg:sticky lg:top-6 lg:order-2">
+        {registration && <p className="mb-4 border-b border-current/15 pb-3 text-sm font-semibold" role="status">{registration.complete && !dirty.current ? t('participant.signup_success') : t('participant.action_needed')}</p>}
         <h2 className="text-lg font-semibold">{event.event.name}</h2>
         <p className="mt-2 whitespace-pre-wrap text-sm opacity-80">{event.event.description}</p>
         {event.event.startsAt && <p className="mt-4 text-sm"><strong>{t('participant.event_starts')}</strong><br /><time>{new Date(event.event.startsAt).toLocaleString(language === 'sv' ? 'sv-SE' : 'en-US')}</time></p>}

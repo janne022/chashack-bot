@@ -354,7 +354,7 @@ export function normalizeFormUpdate(current: FormConfig, update: Partial<FormCon
       seen.add(id);
       out.push({ ...item, id, label });
     }
-    return out.length >= 1 ? out : fallback;
+    return out.length > 0 || list.length === 0 ? out : fallback;
   };
 
   next.experiences = cleanList(next.experiences, DEFAULT_FORM.experiences) as FormConfig['experiences'];
@@ -374,7 +374,7 @@ export function normalizeFormUpdate(current: FormConfig, update: Partial<FormCon
       seen.add(id);
       out.push({ id, label, group });
     }
-    if (out.length >= 1) next.skills = out;
+    if (out.length > 0 || next.skills.length === 0) next.skills = out;
     else next.skills = current.skills;
   }
 

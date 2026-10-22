@@ -302,6 +302,13 @@ test('participant registration saves validated answers and stale form versions p
   const get = await app.inject({ url: `${route('api', 'participant', 'events', 'signup-event', 'registration')}?userId=other`, headers });
   assert.equal(get.json().answers.goal, 'A private answer sentinel');
   assert.deepEqual(get.json().profile, profile);
+  const customOnly = { ...DEFAULT_FORM, version: 3, experiences: [], roleTracks: [], skills: [], teamPrefs: [], customQuestions: [{ id: 'only', kind: 'text', label: { en: 'Project idea' }, help: { en: '' }, required: true, presentation: 'web', visibility: 'self_and_organizer' }] };
+  await db.run('UPDATE events SET form_json = ? WHERE id = ?', JSON.stringify(customOnly), 'signup-event');
+  const customSession = await createSession(db, { userId: 'custom-only-user', username: 'Custom only', avatar: null, guilds: [], audience: 'participant' });
+  const customOnlySave = await app.inject({ method: 'PUT', url: route('api', 'participant', 'events', 'signup-event', 'registration'), headers: { cookie: `hackpartsess=${encodeURIComponent(makeDiscordToken(signingKey, customSession.id, Date.now(), 'participant'))}` }, payload: { formVersion: 3, answers: { only: 'A useful answer' } } });
+  assert.equal(customOnlySave.statusCode, 200, customOnlySave.body);
+  assert.equal(customOnlySave.json().complete, true);
+  assert.deepEqual(customOnlySave.json().profile, null);
   await app.close();
   await db.close();
 });

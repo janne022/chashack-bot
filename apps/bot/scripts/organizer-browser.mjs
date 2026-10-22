@@ -51,7 +51,7 @@ try {
     adminSessionSecret: 'x'.repeat(32), adminPort: port, clientId: 'synthetic-client',
     discordClientSecret: 'synthetic-client-secret', // g0:allow:secrets t_ce43eb96 — synthetic OAuth test value only.
     oauthRedirectUri: `${base}/auth/discord/callback`,
-    publicUrl: base, skipDiscord: true, adminIds: [], guildId: undefined,
+    skipDiscord: true, adminIds: [], guildId: undefined,
     discordToken: '', announceChannelId: undefined, auditChannelId: undefined,
     teamCategoryId: undefined, botLanguage: 'en', databaseUrl: process.env.DATABASE_URL,
   };
@@ -82,13 +82,16 @@ try {
   await new Promise((resolve, reject) => { browser.addEventListener('open', resolve, { once: true }); browser.addEventListener('error', reject, { once: true }); });
   let sequence = 0;
   const pending = new Map();
+  browser.addEventListener('close', () => { for (const settle of pending.values()) settle({ error: { message: 'CDP socket closed' } }); pending.clear(); });
   browser.addEventListener('message', (event) => {
     const msg = JSON.parse(event.data);
     if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
   });
   const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
     const id = ++sequence;
-    pending.set(id, (msg) => msg.error ? reject(new Error(JSON.stringify(msg.error))) : resolve(msg.result));
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method} ${JSON.stringify(params).slice(0, 240)}`)); }, 15000);
+    pending.set(id, (msg) => { clearTimeout(timer); msg.error ? reject(new Error(`${method}: ${JSON.stringify(msg.error)}`)) : resolve(msg.result); });
+
     browser.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
   });
   const target = await send('Target.createTarget', { url: 'about:blank' });
@@ -96,14 +99,14 @@ try {
   const sid = attached.sessionId;
   const evaluate = async (expression) => {
     const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sid);
-    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? 'browser evaluation failed');
+    if (result.exceptionDetails) { const d = result.exceptionDetails; throw new Error(d.exception?.description ?? d.exception?.value ?? d.text ?? 'browser evaluation failed'); }
     return result.result.value;
   };
   const nav = async (url) => {
     await send('Page.navigate', { url }, sid);
     for (let i = 0; i < 100; i++) {
       const ready = await evaluate(`document.readyState === 'complete' && (document.querySelector('#root')?.innerText.trim().length ?? 0) > 0`);
-      if (ready) return;
+      if (ready) { await delay(600); return; }
       await delay(100);
     }
     throw new Error(`Navigation did not finish: ${url}; current=${await evaluate('location.href')}; state=${await evaluate('document.readyState')}; root=${await evaluate(`document.querySelector('#root')?.innerText ?? 'missing'`)}`);
@@ -120,13 +123,13 @@ try {
     const r = await evaluate(`(() => {const e=${expression}; if(!e) throw Error('Missing click target'); e.scrollIntoView({block:'center'}); return e.getBoundingClientRect().toJSON()})()`);
     await send('Input.dispatchMouseEvent', {type:'mousePressed', x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);
     await send('Input.dispatchMouseEvent', {type:'mouseReleased', x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);
-    await delay(150);
+    await delay(400);
   };
   const button = text => `[...document.querySelectorAll('button')].find(e=>e.innerText.trim()===${JSON.stringify(text)})`;
   const screenshot = async name => {const dir=join(process.env.TMPDIR??tmpdir(),'participant-appearance-evidence');await mkdir(dir,{recursive:true});const bytes=Buffer.from((await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false},sid)).data,'base64');const path=join(dir,name);await writeFile(path,bytes);console.log(`SCREENSHOT ${path} sha256=${createHash('sha256').update(bytes).digest('hex')}`)};
   const fill = async (selector,value) => evaluate(`(() => {const e=document.querySelector(${JSON.stringify(selector)}); if(!e) throw Error('Missing field'); Object.getOwnPropertyDescriptor(e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)}); e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   const api = async (path,body,method='POST') => {
-    const res=await fetch(base+path,{method,headers:{cookie,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const res=await fetch(base+path,{method,signal:AbortSignal.timeout(15000),headers:{cookie,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
     const json=await res.json();
     if (res.status===429 && Number.isFinite(json.retryAfterSeconds)) { await delay(json.retryAfterSeconds*1000); return api(path,body,method); }
     assert.ok(res.ok,JSON.stringify(json)); return json;
@@ -203,20 +206,33 @@ try {
   await nav(`http://chashack.test:${port}/templates`); await wait(`document.body.innerText.includes('Form templates')`);
   check('LAN HTTP context exposes getRandomValues but not randomUUID',await evaluate(`!isSecureContext&&typeof crypto.randomUUID==='undefined'&&typeof crypto.getRandomValues==='function'`));
   await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Form templates'))`);
-  await click(`[...document.querySelectorAll('[data-slot=card-title]')].find(e=>e.innerText==='Svenska frågor')`);
-  await wait(`!!document.querySelector('fieldset')`);
+  await click(button('New form template')); await wait(`!!document.querySelector('#form-template-name')`);
+  await fill('#form-template-name','LAN authored questions');
   await click(button('Add question'));
-  check('LAN HTTP organizer can add a stable custom question ID',await evaluate(`document.querySelectorAll('fieldset').length===3&&/^[a-f0-9-]{36}$/.test(document.querySelectorAll('fieldset legend code')[2]?.innerText||'')`));
-  const questionId=await evaluate(`document.querySelectorAll('fieldset legend code')[2].innerText`);
-  await click(`document.querySelectorAll('fieldset')[2].querySelector('[role=combobox]')`);
+  check('LAN HTTP organizer can add a stable custom question ID',await evaluate(`document.querySelectorAll('fieldset').length===1&&/^[a-f0-9-]{36}$/.test(document.querySelector('fieldset legend code')?.innerText||'')`));
+  const questionId=await evaluate(`document.querySelector('fieldset legend code').innerText`);
+  await click(`document.querySelector('fieldset [role=combobox]')`);
   await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Single choice'))`);
-  const setQuestionInput=async(index,value)=>evaluate(`(()=>{const e=document.querySelectorAll('fieldset')[2].querySelectorAll('input')[${index}];Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
-  await setQuestionInput(0,'LAN question'); await setQuestionInput(1,'Fråga via LAN'); await setQuestionInput(2,'Choice'); await setQuestionInput(3,'Val');
-  console.log('LAN authoring inputs',await evaluate(`JSON.stringify([...document.querySelectorAll('fieldset')[2].querySelectorAll('input')].map(e=>({value:e.value,aria:e.getAttribute('aria-label')})))`));
-  await click(button('Save changes')); await wait(`!document.querySelector('fieldset')`);
-  const lanSaved=JSON.parse((await api('/api/state',undefined,'GET')).templates.find(t=>t.id===formTemplate.id).json);
-  check('LAN HTTP authored bilingual choice question persists with stable IDs',lanSaved.customQuestions[2].id===questionId&&lanSaved.customQuestions[2].label.sv==='Fråga via LAN'&&lanSaved.customQuestions[2].choices[0].label.en==='Choice');
-  await nav(base+'/templates'); await wait(`document.body.innerText.includes('Form templates')`);
+  await click(button('Add choice'));
+  const setAuthored=async(selector,value)=>fill(selector,value);
+  await setAuthored('fieldset input[aria-invalid]','LAN question');
+  await setAuthored('fieldset input:not([aria-invalid])','Fråga via LAN');
+  const choiceCount=await evaluate(`document.querySelectorAll('fieldset input[aria-label^="English label "]').length`);
+  await evaluate(`(()=>{for(const [selector,prefix] of [['input[aria-label^="English label "]','Choice '],['input[aria-label^="Swedish label "]','Val ']])[...document.querySelectorAll('fieldset '+selector)].forEach((e,i)=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,prefix+(i+1));e.dispatchEvent(new Event('input',{bubbles:true}))})})()`);
+  check('LAN editor adds bilingual single-choice options',choiceCount>=2);
+  await click(button('Create template')); await wait(`!document.querySelector('fieldset')`);
+  let authoredState=await api('/api/state',undefined,'GET');
+  const authoredTemplate=authoredState.templates.find(t=>t.name==='LAN authored questions'); assert.ok(authoredTemplate);
+  const authoredForm=JSON.parse(authoredTemplate.json);
+  check('LAN authored form persists question and stable choice IDs',authoredForm.customQuestions[0].id===questionId&&authoredForm.customQuestions[0].choices.length===choiceCount&&authoredForm.customQuestions[0].label.sv==='Fråga via LAN');
+  await nav(base+'/templates'); await wait(`document.body.innerText.includes('Event templates')`);
+  await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Form templates'))`);
+  await wait(`document.body.innerText.includes('LAN authored questions')`);
+  await click(`[...document.querySelectorAll('[data-slot=card-title]')].find(e=>e.innerText==='LAN authored questions')`);
+  await wait(`document.querySelector('fieldset legend code')?.innerText===${JSON.stringify(questionId)}`);
+  check('LAN authored question reloads through the real template editor',await evaluate(`document.querySelector('fieldset input[aria-invalid]').value==='LAN question'`));
+  await click(button('Cancel'));
+  form=authoredForm;
 
   await nav(base+'/templates'); await wait(`document.body.innerText.includes('Form templates')`);
   await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Themes'))`);
@@ -230,14 +246,7 @@ try {
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);
   check('theme editor dialog fits the mobile viewport',await evaluate(`(()=>{const d=document.querySelector('[role=dialog]')?.getBoundingClientRect();return !!d&&document.documentElement.scrollWidth<=innerWidth&&d.left>=0&&d.right<=innerWidth})()`));
   await screenshot('theme-editor-mobile-en.png');
-  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
-  await delay(300);
-  console.log('SAVE BUTTON:', await evaluate(`(() => {
-    const b = ${button('Save theme')};
-    if (!b) return 'NOT FOUND';
-    const rect = b.getBoundingClientRect();
-    return { disabled: b.disabled, rect, visible: rect.width > 0 && rect.height > 0 };
-  })()`));
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);await delay(300);
   await db.run('DELETE FROM rate_limit_buckets'); // Isolated browser journey: keep unrelated fixture actions from exhausting its shared quota.
   await click(button('Save theme')); await wait(`document.body.innerText.includes('Autumn guild theme') || !!document.querySelector('[data-sonner-toast]')`);
   console.log('TOAST:', await evaluate(`document.querySelector('[data-sonner-toast]')?.innerText`));
@@ -275,6 +284,7 @@ try {
   templates=(await api('/api/state',undefined,'GET')).templates;
   form=JSON.parse(templates.find(item=>item.id===formTemplate.id).json);
   check('deleting a theme leaves forms that already copied its appearance intact',!templates.some(item=>item.kind==='theme')&&form.appearance?.themePreset==='halloween'&&form.appearance?.accentColor==='#ef793e');
+  form=authoredForm;
 
   const collection=(await api('/api/templates',{name:'Svenska uppdrag',kind:'assignments',json:JSON.stringify({assignments:[{id:'brief',title:'Bygg tillsammans',instructions:'Bygg något för {team}'}]})})).template;
   const template=(await api('/api/templates',{name:'Svensk verkstad',kind:'event',json:JSON.stringify({name:'Svensk verkstad',description:'En gemensam helg',form,assignmentCollectionId:collection.id,assignmentStrategy:'same',schedule:[{id:'workshop',title:'Verkstad',kind:'other',time:0,anchor:'hackathon_start',offsetMinutes:600}]})})).template;
@@ -295,7 +305,7 @@ try {
   await wait(`!document.querySelector('textarea[maxlength="1000"]')`);
   let state=await api('/api/state',undefined,'GET');
   let event=state.events.find(e=>e.name==='Svensk verkstad'); assert.ok(event);
-  check('publication persisted template questions, collection and schedule',event.status==='active'&&JSON.parse(event.formJson).customQuestions[0].id==='interests'&&event.assignments[0].id==='brief'&&event.schedule.some(s=>s.id==='workshop'));
+  check('publication persisted author-created form questions, collection and schedule',event.status==='active'&&JSON.parse(event.formJson).customQuestions[0].id===questionId&&event.assignments[0].id==='brief'&&event.schedule.some(s=>s.id==='workshop'));
   const expectedWorkshop=new Date(event.startsAt); expectedWorkshop.setHours(10,0,0,0);
   check('picked local start date resolves schedule anchors and signup window',event.startsAt!==null&&event.schedule.find(s=>s.id==='workshop').time===expectedWorkshop.getTime()&&event.signupStartsAt<event.signupEndsAt&&event.signupEndsAt===event.startsAt);
   check('collection strategy propagates into start-time distribution',event.schedule.find(s=>s.id==='__start__').actions.some(a=>a.type==='distribute_assignments'&&a.mode==='same'));
@@ -374,8 +384,8 @@ try {
   const ax=await send('Accessibility.getFullAXTree',{},sid);
   check('published preview is a named AX link',ax.nodes.some(n=>n.role?.value==='link'&&/preview/i.test(n.name?.value??'')));
   const pub=await api('/api/public/events/'+event.id,undefined,'GET');
-  check('public definition agrees with persisted form',pub.event.name===event.name&&pub.form.title===form.title&&pub.form.appearance.themePreset===form.themePreset);
-  const html=await (await fetch(base+'/events/'+event.id)).text();
+  check('public definition agrees with persisted form',pub.event.name===event.name&&pub.form.title===form.title&&pub.form.appearance.themePreset===(form.appearance?.themePreset??form.themePreset??'default'));
+  const html=await (await fetch(base+'/events/'+event.id,{signal:AbortSignal.timeout(15000)})).text();
   check('initial public HTML agrees with persisted title and description',html.includes(event.name)&&html.includes(event.description)&&html.includes('og:title'));
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);
   await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]},sid);
@@ -411,7 +421,7 @@ try {
   await api('/api/templates',{name:'Structural conflict',kind:'form',json:JSON.stringify(structural)});
   await api('/api/templates',{name:'Cosmetic label',kind:'form',json:JSON.stringify({...form,customQuestions:form.customQuestions.map(q=>({...q,label:{en:'Updated interests',sv:'Uppdaterade intressen'}}))})});
   await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')&&!!(${button('Edit event')})`);
-  const chooseForm=async name=>{await wait(`[...document.querySelectorAll('label')].some(e=>e.innerText.includes('Change form'))`);await click(`[...document.querySelectorAll('label')].find(e=>e.innerText.includes('Change form')).querySelector('[role=combobox]')`);await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))`);};
+  const chooseForm=async name=>{await wait(`[...document.querySelectorAll('label')].some(e=>e.innerText.includes('Change form'))`);await click(`[...document.querySelectorAll('label')].find(e=>e.innerText.includes('Change form')).querySelector('[role=combobox]')`);await wait(`!!document.querySelector('[role=option]')`);await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))`);};
   await click(button('Edit event')); await chooseForm('Structural conflict');
   await fill('textarea[maxlength="1000"]','Retained conflict description');
   await click(button('Save')); await wait(`!!document.querySelector('[role=alert]')`);
@@ -455,7 +465,8 @@ try {
     const saved=JSON.parse((await api('/api/state',undefined,'GET')).templates.find(t=>t.id===tpl.id).json);
     check(`${kind} replacement identity persists`,(kind==='text'?saved.customQuestions[0].id:saved.customQuestions[0].choices[0].id)===replacement);
     await nav(base+'/events?event='+published.id); await wait(`!!(${button('Edit event')})`);
-    await click(button('Edit event')); await chooseForm(name); await click(button('Save'));
+    console.log('DEBUG-EDIT',await evaluate(`(()=>{const b=${button('Edit event')};const r=b.getBoundingClientRect();const t=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return JSON.stringify({rect:r.toJSON(),vp:[innerWidth,innerHeight],scrollY,html:b.outerHTML.slice(0,140),hit:t?t.outerHTML.slice(0,140):null,hitIsSelf:t===b||b.contains(t)})})()`));
+    await click(button('Edit event')); await wait(`!!document.querySelector('[role=dialog]')`,15000); await chooseForm(name); await click(button('Save'));
     await wait(`!!document.querySelector('[role=alert]')`);
     check(`${kind} replacement reports structural conflict in served editor`,await evaluate(`document.querySelector('[role=alert]').innerText.includes('version migration')&&!!(${button('Retry save')})`));
     const unchanged=(await api('/api/state',undefined,'GET')).events.find(e=>e.id===published.id);
@@ -503,15 +514,33 @@ try {
   check('empty template/event workspace keeps first-event action',await evaluate(`document.body.innerText.includes('Inga events än')&&!![...document.querySelectorAll('button')].find(e=>e.innerText.includes('Nytt event'))`));
   await send('Page.removeScriptToEvaluateOnNewDocument',{identifier:emptyScript.identifier},sid);
 
+  // The authored question answered by a real participant browser, then reloaded from the server.
+  const participantSession=await createSession(db,{userId:'authored-participant',username:'Authored participant',avatar:null,guilds:[],audience:'participant'});
+  await send('Network.setCookie',{name:'hackpartsess',value:makeDiscordToken(config.adminSessionSecret,participantSession.id,Date.now(),'participant'),url:base,httpOnly:true},sid);
+  const choose=async(el,text)=>{const names=[].concat(text);await click(el);await click(`[...document.querySelectorAll('[role=option]')].find(e=>${JSON.stringify(names)}.includes(e.innerText.trim()))`);};
+  await nav(base+'/events/'+event.id+'/signup'); await wait(`!!document.querySelector('#profile-experience')`);
+  await choose(`document.querySelector('#profile-experience')`,'First hackathon'); await choose(`document.querySelector('#profile-role')`,'Frontend'); await choose(`document.querySelector('#profile-team-pref')`,'Create my own team and invite people');
+  await evaluate(`(()=>{const e=document.querySelectorAll('fieldset input[type=checkbox]')[0];if(e)e.click();return 1})()`);
+  const publishedForm=JSON.parse(event.formJson);
+  const authoredQ=publishedForm.customQuestions.find(q=>q.id===questionId);
+  const choice=authoredQ.choices[0];const choiceNames=[choice.label.sv,choice.label.en].filter(Boolean);
+  await choose(`document.getElementById(${JSON.stringify(questionId)})`,choiceNames);
+  await click(`document.querySelector('form button[type=submit]')`);
+  let firstSave=null;for(let i=0;i<60&&!firstSave;i++){firstSave=await db.get('SELECT form_version,answers_json FROM registration_answers WHERE event_id=? AND user_id=?',event.id,'authored-participant');if(!firstSave)await delay(250);}
+  if(!firstSave)console.log('DEBUG-STATUS',await evaluate(`JSON.stringify([...document.querySelectorAll('[role=status],p[class*=destructive],form')].map(e=>e.innerText.trim()).filter(Boolean).map(t=>t.slice(0,300)))`));
+  check('participant browser saves the author-created answer at the published version',firstSave?.form_version===publishedForm.version&&JSON.parse(firstSave.answers_json)[questionId]===choice.id);
+  await nav(base+'/events/'+event.id+'/signup'); await wait(`document.getElementById(${JSON.stringify(questionId)})?.innerText.trim().length>0`);
+  check('author-created answer survives reload in the served participant form',await evaluate(`${JSON.stringify(choiceNames)}.includes(document.getElementById(${JSON.stringify(questionId)}).innerText.trim())&&document.querySelector('#profile-experience').innerText.includes('First hackathon')`));
   console.log('RESULT',checks.length,'browser assertions passed; console exceptions:',JSON.stringify(errors));
   assert.deepEqual(errors,[]);
+} catch (error) { console.error(error); throw error;
 } finally {
   browser?.close();
-  if (server) await server.stop();
-  if (db) await db.close();
   if (chrome.exitCode === null) {
     try { process.kill(-chrome.pid, 'SIGTERM'); } catch {}
     await Promise.race([new Promise(resolve => chrome.once('exit', resolve)), delay(3000)]);
   }
+  if (server) await server.stop();
+  if (db) await db.close();
   await rm(chromeProfile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
