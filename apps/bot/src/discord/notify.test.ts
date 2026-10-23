@@ -8,6 +8,7 @@ import { DEFAULT_FORM } from '../features/form/domain.js';
 import { runMaintenance } from './notify.js';
 import { getSignupPanelRef, postOrUpdatePanel, refreshSignupPanel } from './signup-panel.js';
 import { withGuildContext } from '../shared/postgres.js';
+import { handleEventAdminCommand } from './event-commands.js';
 
 test('maintenance waits for the schedule marker read before returning', async () => {
   const db = await openTestDb();
@@ -101,8 +102,9 @@ test('two active event panels remain independent in shared and different channel
   const forms = [ { ...DEFAULT_FORM, title: 'Event A form' }, { ...DEFAULT_FORM, title: 'Event B form' } ];
   const messages = new Map<string, { id: string; author: { id: string }; payload: unknown; edit: (payload: unknown) => Promise<void> }>();
   let sends = 0;
+  const edits: string[] = [];
   const makeMessage = (id: string, payload: unknown) => {
-    const message = { id, author: { id: 'bot' }, payload, edit: async (next: unknown) => { message.payload = next; } };
+    const message = { id, author: { id: 'bot' }, payload, edit: async (next: unknown) => { edits.push(id); message.payload = next; } };
     messages.set(id, message);
     return message;
   };
@@ -131,6 +133,14 @@ test('two active event panels remain independent in shared and different channel
     await postOrUpdatePanel(db, client, guildId, secondChannelId, 'en', forms[0], 'panel-event-0');
     assert.equal((await getSignupPanelRef(db, guildId, 'panel-event-0'))?.channelId, secondChannelId);
     assert.deepEqual(await getSignupPanelRef(db, guildId, 'panel-event-1'), b);
+    const context = { db, config: forms[1]!, botLocale: 'en' as const, guildId, actor: 'test', eventId: 'panel-event-1', eventName: 'Event B', hasActiveEvent: true, isAdmin: true, client, categoryIdFor: () => undefined, dm: async () => false };
+    const command = { options: { getString: () => 'panel-event-0' }, reply: async () => undefined };
+    await handleEventAdminCommand(command as never, context, 'event-activate');
+    assert.equal(edits.at(-1), (await getSignupPanelRef(db, guildId, 'panel-event-0'))?.messageId, 'activating older event refreshes its own message');
+    await db.run('UPDATE events SET panel_channel_id = ? WHERE id = ?', channelId, 'panel-event-0');
+    await handleEventAdminCommand(command as never, context, 'event-activate');
+    assert.equal((await getSignupPanelRef(db, guildId, 'panel-event-0'))?.channelId, channelId);
+    assert.deepEqual(await getSignupPanelRef(db, guildId, 'panel-event-1'), b, 'explicit activation channel never takes over the newer event ref');
     assert.deepEqual(messages.get('legacy-message')!.payload, { content: 'Preserve the legacy panel' });
   } finally { await db.close(); }
 });

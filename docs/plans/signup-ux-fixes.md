@@ -46,3 +46,8 @@ guild and event, uses legacy references only as channel fallbacks, and makes
 notification fallback readers prefer the event's panel. Targeted verification
 passed 31 posting, interaction and RLS checks, including two active events sharing
 a channel, independent refresh/movement and preservation of a legacy message.
+Targeted verification also exposed the Discord activation caller omitting the
+selected event ID. Both its explicit-channel and refresh branches now pass the
+activated event's form and ID. The same two-event regression invokes the real
+activation handler for an older event and verifies both branches preserve the
+newer event's reference; all three notification tests pass after this completion.
