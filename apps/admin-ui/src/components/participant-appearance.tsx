@@ -37,7 +37,7 @@ export function ParticipantFrame({ appearance, children, portalTheme = false }: 
     const tokens: Record<string, string> = {
       '--background': background, '--foreground': text, '--card': surface, '--card-foreground': text,
       '--popover': surface, '--popover-foreground': text, '--primary': accent,
-      '--primary-foreground': readableInk(accent), '--secondary': surface, '--secondary-foreground': text,
+      '--primary-foreground': readableInk(accent), '--secondary': surface, '--secondary-foreground': text, // g0:allow:secrets t_24129f79 — CSS palette tokens, not credentials.
       '--muted': surface, '--muted-foreground': text, '--accent': surface,
       '--accent-foreground': text, '--border': `${text}40`, '--input': `${text}40`, '--ring': accent,
     }
