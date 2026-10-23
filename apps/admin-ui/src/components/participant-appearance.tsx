@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react'
+import { useEffect, type CSSProperties, type ReactNode } from 'react'
 import type { FormConfig } from '@/types'
 import { Hexagon, CalendarDays } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -25,9 +25,36 @@ export function frameColors(appearance: Appearance) {
   }
 }
 
-export function ParticipantFrame({ appearance, children }: { appearance: Appearance; children: ReactNode }) {
+export function ParticipantFrame({ appearance, children, portalTheme = false }: { appearance: Appearance; children: ReactNode; portalTheme?: boolean }) {
   const t = useT()
   const { accent, background, surface, text } = frameColors(appearance)
+  const mode = appearance.mode ?? (appearance.themePreset === 'default' ? 'light' : 'dark')
+  useEffect(() => {
+    if (!portalTheme) return
+    const root = document.documentElement
+    const previousTheme = root.dataset.theme
+    const hadDarkClass = root.classList.contains('dark')
+    const tokens: Record<string, string> = {
+      '--background': background, '--foreground': text, '--card': surface, '--card-foreground': text,
+      '--popover': surface, '--popover-foreground': text, '--primary': accent,
+      '--primary-foreground': readableInk(accent), '--secondary': surface, '--secondary-foreground': text, // g0:allow:secrets t_24129f79 — CSS palette tokens, not credentials.
+      '--muted': surface, '--muted-foreground': text, '--accent': surface,
+      '--accent-foreground': text, '--border': `${text}40`, '--input': `${text}40`, '--ring': accent,
+    }
+    const previous = Object.fromEntries(Object.keys(tokens).map(key => [key, root.style.getPropertyValue(key)])) as Record<string, string>
+    root.dataset.theme = mode
+    root.classList.toggle('dark', mode === 'dark')
+    for (const [key, value] of Object.entries(tokens)) root.style.setProperty(key, value)
+    return () => {
+      if (previousTheme === undefined) delete root.dataset.theme
+      else root.dataset.theme = previousTheme
+      root.classList.toggle('dark', hadDarkClass)
+      for (const [key, value] of Object.entries(previous)) {
+        if (value) root.style.setProperty(key, value)
+        else root.style.removeProperty(key)
+      }
+    }
+  }, [portalTheme, mode, accent, background, surface, text])
   const style = {
     '--participant-accent': accent,
     '--primary': accent,
@@ -42,7 +69,7 @@ export function ParticipantFrame({ appearance, children }: { appearance: Appeara
     color: text,
     backgroundColor: background,
   } as CSSProperties
-  return <main className="relative min-h-screen p-4 sm:p-8" style={style}>
+  return <main data-participant-mode={mode} className="relative min-h-screen p-4 sm:p-8" style={style}>
     {appearance.backgroundUrl && /^https:\/\//i.test(appearance.backgroundUrl) && <img src={appearance.backgroundUrl} alt="" referrerPolicy="no-referrer" className="pointer-events-none absolute inset-0 h-full w-full object-cover" onError={event => { event.currentTarget.hidden = true }} />}
     <div className="relative mx-auto max-w-6xl rounded-2xl p-3 sm:p-6" style={{ backgroundColor: surface }}>
       <header className="mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-current/15 pb-4">

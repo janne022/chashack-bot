@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getForm, updateForm, resetForm } from './data.js';
-import { createEvent, getEventForm } from '../events/data.js';
+import { createEvent, getEventForm, listTemplates, saveTemplate } from '../events/data.js';
 import { openTestDb } from '../../shared/test-db.js';
 
 test('default forms are isolated by guild for reads, updates, and resets', async () => {
@@ -36,5 +36,24 @@ test('event creation rejects mappings to options outside the pinned form', async
     }] } });
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.code, 'invalid_questions');
+  } finally { await db.close(); }
+});
+
+test('built-in themes seed once per guild and intentional deletion stays deleted', async () => {
+  const db = await openTestDb();
+  try {
+    const parallel = await Promise.all([listTemplates(db, 'theme-guild-a', 'theme'), listTemplates(db, 'theme-guild-a', 'theme')]);
+    const first = parallel[0]!;
+    assert.deepEqual(first.map(template => template.name).sort(), ['Christmas', 'Default', 'Halloween']);
+    assert.deepEqual(parallel[1]!.map(template => template.name).sort(), ['Christmas', 'Default', 'Halloween']);
+    assert.ok(first.every(template => template.guildId === 'theme-guild-a'));
+    const custom = await saveTemplate(db, 'test', 'theme-guild-a', 'My theme', 'theme', JSON.stringify({ themePreset: 'halloween', accentColor: '#123456', bannerUrl: null }));
+    assert.equal(custom.ok, true);
+    await db.run("DELETE FROM event_templates WHERE guild_id = ? AND kind = 'theme' AND name = ?", 'theme-guild-a', 'Halloween');
+    const afterDelete = await listTemplates(db, 'theme-guild-a', 'theme');
+    assert.deepEqual(afterDelete.map(template => template.name).sort(), ['Christmas', 'Default', 'My theme']);
+    await db.run("DELETE FROM event_templates WHERE guild_id = ? AND kind = 'theme'", 'theme-guild-a');
+    assert.deepEqual(await listTemplates(db, 'theme-guild-a', 'theme'), []);
+    assert.deepEqual((await listTemplates(db, 'theme-guild-b', 'theme')).map(template => template.name).sort(), ['Christmas', 'Default', 'Halloween']);
   } finally { await db.close(); }
 });

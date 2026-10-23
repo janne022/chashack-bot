@@ -3,8 +3,8 @@
  * admins. The primary entry point for signups (modals can only open from
  * interactions, so a button click is the trigger — never a proactive DM).
  *
- * The panel message id is stored in `meta` so re-posting EDITS the existing
- * panel instead of spamming duplicates, and form edits refresh it.
+ * Each event's panel message id is stored in `meta` so re-posting edits only
+ * that event's panel. Legacy guild refs supply fallback channels, not messages.
  */
 import {
   ActionRowBuilder,
@@ -17,7 +17,7 @@ import {
 } from 'discord.js';
 import type { Db } from '../shared/db.js';
 import { getForm } from '../features/form/data.js';
-import { getMessageRef, setMessageRef } from '../features/events/data.js';
+import { getActiveEvent, getEventForm, getMessageRef, setMessageRef } from '../features/events/data.js';
 import type { FormConfig } from '../features/form/domain.js';
 import { IDS } from './shared.js';
 import { t, type BotLocale } from '../shared/i18n.js';
@@ -27,17 +27,17 @@ interface PanelRef {
   messageId: string;
 }
 
-const key = (guildId: string) => `signup_panel:${guildId}`;
+const key = (guildId: string, eventId?: string) => eventId ? `signup_panel:${guildId}:${eventId}` : `signup_panel:${guildId}`;
 
-function getPanelRef(db: Db, guildId: string): Promise<PanelRef | null> {
-  return getMessageRef(db, key(guildId));
+export function getSignupPanelRef(db: Db, guildId: string, eventId?: string): Promise<PanelRef | null> {
+  return getMessageRef(db, key(guildId, eventId));
 }
 
-function setPanelRef(db: Db, guildId: string, ref: PanelRef): Promise<void> {
-  return setMessageRef(db, key(guildId), ref);
+function setPanelRef(db: Db, guildId: string, ref: PanelRef, eventId?: string): Promise<void> {
+  return setMessageRef(db, key(guildId, eventId), ref);
 }
 
-export function buildPanelPayload(config: FormConfig, locale: BotLocale = 'en'): {
+export function buildPanelPayload(config: FormConfig, locale: BotLocale = 'en', eventId?: string): {
   embeds: EmbedBuilder[];
   components: ActionRowBuilder<ButtonBuilder>[];
 } {
@@ -63,9 +63,9 @@ export function buildPanelPayload(config: FormConfig, locale: BotLocale = 'en'):
     .setFooter({ text: t(locale, 'discord.panel.footer', { version: config.version }) });
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(IDS.signupButton).setLabel(t(locale, 'discord.panel.signup_btn')).setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(eventId ? `hack:panel:${eventId}:signup` : IDS.signupButton).setLabel(t(locale, 'discord.panel.signup_btn')).setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
-      .setCustomId(IDS.teamsButton)
+      .setCustomId(eventId ? `hack:panel:${eventId}:teams` : IDS.teamsButton)
       .setLabel(t(locale, 'discord.panel.browse_btn'))
       .setStyle(ButtonStyle.Secondary),
   );
@@ -82,9 +82,15 @@ export async function postOrUpdatePanel(
   guildId: string,
   channelId: string,
   locale: BotLocale = 'en',
+  config?: FormConfig,
+  eventId?: string,
 ): Promise<{ channelId: string; messageId: string; edited: boolean } | { error: string }> {
+  const activeEvent = eventId === undefined ? await getActiveEvent(db, guildId) : null;
+  const panelEventId = eventId ?? activeEvent?.id;
+  const existing = await getSignupPanelRef(db, guildId, panelEventId);
   if (channelId === '') {
-    const ref = await getPanelRef(db, guildId);
+    // A legacy guild panel can supply a channel, but never an event's message to edit.
+    const ref = existing ?? await getSignupPanelRef(db, guildId);
     if (ref === null) return { error: t(locale, 'discord.events.no_panel_yet') };
     channelId = ref.channelId;
   }
@@ -96,8 +102,8 @@ export async function postOrUpdatePanel(
     return { error: t(locale, 'discord.events.not_text_channel') };
   }
 
-  const payload = buildPanelPayload(await getForm(db, guildId), locale);
-  const existing = await getPanelRef(db, guildId);
+  const fallback = config ?? await getForm(db, guildId);
+  const payload = buildPanelPayload(activeEvent ? getEventForm(db, activeEvent, fallback) : fallback, locale, panelEventId);
 
   try {
     if (existing !== null && existing.channelId === channelId) {
@@ -108,7 +114,7 @@ export async function postOrUpdatePanel(
       }
     }
     const sent = await (channel as TextChannel).send(payload);
-    await setPanelRef(db, guildId, { channelId, messageId: sent.id });
+    await setPanelRef(db, guildId, { channelId, messageId: sent.id }, panelEventId);
     return { channelId, messageId: sent.id, edited: false };
   } catch (error) {
     console.error('signup panel post failed:', error);
@@ -118,9 +124,11 @@ export async function postOrUpdatePanel(
 
 /** Refresh after form edits (fire-and-forget friendly; silent when no panel exists). */
 export async function refreshSignupPanel(db: Db, client: Client, guildId: string, locale: BotLocale = 'en'): Promise<void> {
-  const ref = await getPanelRef(db, guildId);
+  const active = await getActiveEvent(db, guildId);
+  const ref = await getSignupPanelRef(db, guildId, active?.id);
   if (ref === null) return;
-  await postOrUpdatePanel(db, client, guildId, ref.channelId, locale);
+  const config = active ? getEventForm(db, active, await getForm(db, guildId)) : undefined;
+  await postOrUpdatePanel(db, client, guildId, ref.channelId, locale, config, active?.id);
 }
 
 /** Ephemeral status reply content for the panel's status button, if used later. */

@@ -1259,7 +1259,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' });
       return;
     }
-    const res = await postOrUpdatePanel(db, deps.client, await guildOf(req), channelId).catch((e: unknown) => ({
+    const res = await postOrUpdatePanel(db, deps.client, await guildOf(req), channelId, config.botLanguage, getEventForm(db, event, await getForm(db, await guildOf(req))), event.id).catch((e: unknown) => ({
       error: e instanceof Error ? e.message : 'Unknown error',
     }));
     if ('error' in res) {
@@ -1719,7 +1719,7 @@ app.post('/api/match/lock', async (req) => {
     // Keep the Discord signup panel in sync with the new form config.
     const formGuild = await guildOf(req);
     if (deps.client !== null && isSnowflake(formGuild)) {
-      void refreshSignupPanel(db, deps.client, formGuild).catch(() => undefined);
+      void refreshSignupPanel(db, deps.client, formGuild, config.botLanguage).catch(() => undefined);
     }
     return { ok: true, config: res.value };
   });

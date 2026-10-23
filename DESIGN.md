@@ -465,3 +465,17 @@ without covering content; it never blocks registration. Theme templates copy the
 appearance into the event snapshot rather than binding future theme edits to it.
 Participant primary actions and navigation links use a minimum 44px touch target;
 compact organizer controls above are not the participant sizing rule.
+
+Participant routes set the resolved appearance on the document root while they
+are mounted so Radix portals (selects and popovers rendered outside the frame)
+use the same light or dark palette as the event. The frame restores the console's
+root theme when it unmounts. Organizer previews stay scoped to their own frame.
+
+Selected and hovered tag suggestions invert the foreground/background pair,
+including their descriptions and context, rather than pairing pale text with
+the brand accent. The tag code keeps its own readable background/foreground pair.
+
+Import dialogs use nearly the full viewport width on phones. Column mappings
+stack label above control at narrow widths, while desktop keeps the two-column
+layout; mobile review content scrolls with the dialog instead of creating a
+small nested scroll panel.

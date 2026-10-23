@@ -74,14 +74,14 @@ function FilteredTagsPortal({
           key={d.tag}
           type="button"
           onMouseDown={e=>{ e.preventDefault(); onPick(d.tag) }}
-          className={`flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent ${idx===selectedIdx ? "bg-accent" : ""}`}
+          className={`group flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-foreground hover:text-background hover:[&_code]:bg-background hover:[&_code]:text-foreground hover:[&_.tag-detail]:text-background ${idx===selectedIdx ? "bg-foreground text-background [&_code]:bg-background [&_code]:text-foreground [&_.tag-detail]:text-background" : ""}`}
         >
           <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{d.tag}</code>
           <div className="min-w-0 flex-1">
             <div className="text-xs font-medium leading-tight">{d.label}</div>
-            <div className="line-clamp-2 text-[11px] leading-snug text-muted-foreground">{d.desc}</div>
+            <div className="tag-detail line-clamp-2 text-[11px] leading-snug text-muted-foreground group-hover:text-background">{d.desc}</div>
           </div>
-          <span className="shrink-0 text-[10px] text-muted-foreground">{d.context}</span>
+          <span className="tag-detail shrink-0 text-[10px] text-muted-foreground group-hover:text-background">{d.context}</span>
         </button>
       ))}
       <div className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground">↑↓ navigate · Enter Tab to pick · Esc to close</div>

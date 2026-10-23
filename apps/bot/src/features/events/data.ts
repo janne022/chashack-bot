@@ -631,6 +631,25 @@ export async function listTemplates(db: Db, guildId: string, kind?: Template['ki
         }
       }
     };
+    if (kind === undefined || kind === 'theme') {
+      // Theme defaults are seeded once per guild. An empty library after this
+      // marker means the organizer intentionally removed the built-in themes.
+      const marker = `template-seeds:theme:${guildId}`;
+      await db.get('SELECT pg_advisory_xact_lock(hashtext(?)) AS locked', marker);
+      const seeded = await db.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', marker);
+      if (!seeded) {
+        const themes = [
+          { name: 'Default', json: { themePreset: 'default', accentColor: '#55bbda', bannerUrl: null } },
+          { name: 'Halloween', json: { themePreset: 'halloween', accentColor: '#ef793e', bannerUrl: null } },
+          { name: 'Christmas', json: { themePreset: 'christmas', accentColor: '#347b57', bannerUrl: null } },
+        ];
+        for (const theme of themes) {
+          const exists = await db.get<{ id: string }>("SELECT id FROM event_templates WHERE guild_id = ? AND kind = 'theme' AND name = ? LIMIT 1", guildId, theme.name);
+          if (!exists) await db.run('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, ?, ?, ?, ?, ?)', newId('tpl'), guildId, theme.name, 'theme', JSON.stringify(theme.json), Date.now());
+        }
+        await db.run('INSERT INTO meta (key, value) VALUES (?, ?)', marker, 'done');
+      }
+    }
     if (kind === undefined || kind === 'announcement') {
       await seedIfEmpty('announcement', [
         { name: "Initial — signups open", json: JSON.stringify({ title: "{event} — signups open!", message: "Listen up {everyone} **{event}** is live! {event_description} Starts {start_date} {timer} — sign up in {panel}\n\nFull schedule:\n{schedule}", trigger: "manual", channelId: null }) },
