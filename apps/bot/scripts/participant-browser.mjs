@@ -4,19 +4,19 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawn } from 'node:child_process';
+import { startChrome } from './chrome-startup.mjs';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const port = 8491, base = `http://127.0.0.1:${port}`;
-const chromePath = '/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome';
 const profile = await mkdtemp(join(tmpdir(), 'chashack-participant-'));
 const evidenceDir = join(process.env.TMPDIR ?? tmpdir(), 'participant-appearance-evidence');
-const chrome = spawn(chromePath, ['--headless=new','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], {detached:true,stdio:'ignore'}); // g0:allow:secrets t_583f310e — synthetic local browser flags only.
+let chrome;
 let server, db, browser;
 const checks=[];
 const check=(name,ok)=>{assert.ok(ok,name);checks.push(name);console.log(`PASS ${name}`)};
 try {
+  chrome = await startChrome(profile);
   const [{startAdminServer},{openTestDb},{createSession},{makeDiscordToken},{DEFAULT_FORM}]=await Promise.all([
     import('../dist/adminweb/server.js'),import('../dist/shared/test-db.js'),import('../dist/features/auth/data.js'),import('../dist/features/auth/domain.js'),import('../dist/features/form/domain.js')
   ]);
@@ -39,9 +39,7 @@ try {
   }
   const organizerSession=await createSession(db,{userId:'organizer',username:'Synthetic organizer',avatar:null,guilds:[{id:guildId,name:'Synthetic guild',icon:null}]});
   cookies.organizer=`hacksess=${encodeURIComponent(makeDiscordToken(config.adminSessionSecret,organizerSession.id))}`;
-  const endpoint=join(profile,'DevToolsActivePort'); let ws;
-  for(let i=0;i<100;i++){try{const [p]= (await readFile(endpoint,'utf8')).split('\n');ws=(await (await fetch(`http://127.0.0.1:${p}/json/version`)).json()).webSocketDebuggerUrl;break}catch{} await delay(100)}
-  assert.ok(ws,'Chromium DevTools starts'); browser=new WebSocket(ws); await new Promise((r,j)=>{browser.addEventListener('open',r,{once:true});browser.addEventListener('error',j,{once:true})});
+  assert.ok(chrome.wsUrl,'Chromium DevTools starts'); browser=new WebSocket(chrome.wsUrl); await new Promise((r,j)=>{browser.addEventListener('open',r,{once:true});browser.addEventListener('error',j,{once:true})});
   let seq=0;const pending=new Map(),exceptions=[];browser.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){pending.get(m.id)(m);pending.delete(m.id)}if(m.method==='Runtime.exceptionThrown')exceptions.push(m.params.exceptionDetails.text)});
   browser.addEventListener('close',()=>{for(const settle of pending.values())settle({error:{message:'CDP socket closed'}});pending.clear()});
   const send=(method,params={},sessionId)=>new Promise((resolve,reject)=>{
@@ -214,6 +212,7 @@ try {
   check('organizer sees the named keyboard-accessible team reassignment control',typeof reassignment==='string'&&reassignment.length>0);
   const selector=`document.querySelector('[role=combobox][aria-label*="participant-a"]')`;
   const key=async(name,code)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key:name,code:name,windowsVirtualKeyCode:code},sid);await send('Input.dispatchKeyEvent',{type:'keyUp',key:name,code:name,windowsVirtualKeyCode:code},sid);await delay(100)};
+
   const popupOpen=()=>evaluate(`!!document.querySelector('[role=option]')`);
   const highlighted=()=>evaluate(`document.querySelector('[role=option][data-highlighted]')?.innerText.trim()`);
   // Headless Chromium can drop the first synthetic Enter after a navigation, so the open is retried; each retry
@@ -223,6 +222,10 @@ try {
   await delay(300);
   const options=await evaluate(`[...document.querySelectorAll('[role=option]')].map(e=>e.innerText.trim())`);
   check('keyboard opens the team selector and labels every option',options.length>1&&/^(No team|Inget team)$/.test(options[0])&&options.every(Boolean));
+  await evaluate(`window.teamControl=document.querySelector('[role=combobox][aria-label*="participant-a"]');window.stateReads=0;window.stateFetch=window.fetch;window.fetch=async(...args)=>{const r=await window.stateFetch(...args);if(String(args[0]).startsWith('/api/state'))window.stateReads++;return r};window.dispatchEvent(new Event('focus'))`);
+  await wait(`window.stateReads>0`);await delay(150);
+  check('live refresh preserves the open team control and keyboard focus',await evaluate(`window.teamControl===document.querySelector('[role=combobox][aria-label*="participant-a"]')&&document.activeElement.getAttribute('role')==='option'&&!!document.querySelector('[role=option]')`));
+  await evaluate(`window.fetch=window.stateFetch`);
   await key('Home',36);
   check('Home focuses the first team option with the selector still open',await popupOpen()&&(await highlighted())===options[0]);
   await key('ArrowDown',40);
@@ -236,8 +239,14 @@ try {
   const chosen=await db.get('SELECT id FROM teams WHERE event_id=? AND name=?',eventId,options[1]);
   for(let i=0;i<40;i++){const row=await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a');if(chosen&&row?.team_id===chosen.id)break;await delay(100)}
   check('arrow keys plus Enter reassign the participant to the highlighted team',!!chosen&&(await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a')).team_id===chosen.id);
+  await evaluate(`${selector}.focus()`);
+  await key('Enter',13);await wait(`!!document.querySelector('[role=option]')`);
+  await key('Home',36);await key('Enter',13);
+  for(let i=0;i<40;i++){const row=await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a');if(row?.team_id===null)break;await delay(100)}
+  check('keyboard can reassign a participant to no team', (await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a')).team_id===null);
+
   assert.deepEqual(exceptions,[]);
   console.log(`RESULT ${checks.length} participant browser assertions passed; uncaught exceptions: 0`);
 } finally {
-  browser?.close();if(chrome.exitCode===null){try{process.kill(-chrome.pid,'SIGTERM')}catch{}await Promise.race([new Promise(r=>chrome.once('exit',r)),delay(3000)])}if(server)await server.stop();if(db)await db.close();await rm(profile,{recursive:true,force:true,maxRetries:10,retryDelay:200});
+  browser?.close();await chrome?.stop();if(server)await server.stop();if(db)await db.close();await rm(profile,{recursive:true,force:true,maxRetries:10,retryDelay:200});
 }

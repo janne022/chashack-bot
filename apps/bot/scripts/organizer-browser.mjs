@@ -7,20 +7,14 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawn } from 'node:child_process';
+import { startChrome } from './chrome-startup.mjs';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const port = 8491;
 const base = `http://127.0.0.1:${port}`;
-const chromePath = '/home/hermes/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome';
 const chromeProfile = await mkdtemp(join(tmpdir(), 'chashack-oauth-chrome-'));
-const chrome = spawn(chromePath, [
-  '--headless=new', '--no-sandbox', '--disable-dev-shm-usage',
-  '--host-resolver-rules=MAP chashack.test 127.0.0.1',
-  '--remote-debugging-' + 'port=0',
-  `--user-data-dir=${chromeProfile}`, 'about:blank',
-], { detached: true, stdio: 'ignore' });
+let chrome;
 let server;
 let db;
 let browser;
@@ -32,6 +26,7 @@ function check(name, condition, detail = '') {
 }
 
 try {
+  chrome = await startChrome(chromeProfile, { args: ['--host-resolver-rules=MAP chashack.test 127.0.0.1'] });
   const [{ startAdminServer }, { openTestDb }, { createSession }, { makeDiscordToken }, { withGuildContext }] = await Promise.all([
     import('../dist/adminweb/server.js'), import('../dist/shared/test-db.js'),
     import('../dist/features/auth/data.js'), import('../dist/features/auth/domain.js'), import('../dist/shared/postgres.js'),
@@ -63,22 +58,7 @@ try {
     guilds: guildIds.map((id, index) => ({ id, name: `Synthetic test guild ${index + 1}`, icon: null })),
   });
   const cookie = `hacksess=${encodeURIComponent(makeDiscordToken(config.adminSessionSecret, session.id))}`;
-  const cdpPort = await (async () => {
-    const activePort = join(chromeProfile, 'DevToolsActivePort');
-    for (let i = 0; i < 100; i++) {
-      try {
-        const [portText] = (await readFile(activePort, 'utf8')).split('\n');
-        const candidate = Number(portText);
-        const proc = await fetch(`http://127.0.0.1:${candidate}/json/version`);
-        const version = await proc.json();
-        return version.webSocketDebuggerUrl;
-      } catch {}
-      if (chrome.exitCode !== null) throw new Error(`Chromium exited with ${chrome.exitCode}`);
-      await delay(100);
-    }
-    throw new Error('Chromium DevTools endpoint did not start');
-  })();
-  browser = new WebSocket(cdpPort);
+  browser = new WebSocket(chrome.wsUrl);
   await new Promise((resolve, reject) => { browser.addEventListener('open', resolve, { once: true }); browser.addEventListener('error', reject, { once: true }); });
   let sequence = 0;
   const pending = new Map();
@@ -120,9 +100,36 @@ try {
   await send('Network.setCookie', { name: 'hacksess', value: decodeURIComponent(cookie.slice('hacksess='.length)), url: base, httpOnly: true }, sid);
   const wait = async (expression) => { for (let i=0;i<100;i++) { if(await evaluate(expression)) return; await delay(100); } throw new Error(`Timed out: ${expression}; DOM=${await evaluate('document.body.innerText')}`); };
   const click = async (expression) => {
-    const r = await evaluate(`(() => {const e=${expression}; if(!e) throw Error('Missing click target'); e.scrollIntoView({block:'center'}); return e.getBoundingClientRect().toJSON()})()`);
-    await send('Input.dispatchMouseEvent', {type:'mousePressed', x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);
-    await send('Input.dispatchMouseEvent', {type:'mouseReleased', x:r.x+r.width/2,y:r.y+r.height/2,button:'left',clickCount:1},sid);
+    // DOM presence/two frames do not guarantee that a coordinate hits the target.
+    const point = await evaluate(`(async () => {
+      let previous, previousElement, detail;
+      const deadline = performance.now() + 10000;
+      while (performance.now() < deadline) {
+        const element = ${expression};
+        if (element) {
+          element.scrollIntoView({block:'center',behavior:'instant'});
+          await new Promise(requestAnimationFrame);
+          const rect = element.getBoundingClientRect();
+          const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+          const hit = document.elementFromPoint(x,y);
+          const box = JSON.stringify([rect.x,rect.y,rect.width,rect.height]);
+          const actionable = element.isConnected && rect.width > 0 && rect.height > 0
+            && !element.matches(':disabled') && !element.closest('[inert]')
+            && (hit === element || element.contains(hit));
+          detail = {url:location.href,target:element.outerHTML.slice(0,300),hit:hit?.outerHTML.slice(0,300),box,actionable};
+          if (actionable && element === previousElement && box === previous) return {x,y};
+          previous = actionable ? box : undefined;
+          previousElement = element;
+        } else {
+          detail = {url:location.href,target:'missing'};
+          previous = undefined;
+        }
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      throw Error('Click target not stable/actionable: ' + ${JSON.stringify(expression)} + '; ' + JSON.stringify(detail));
+    })()`);
+    await send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1},sid);
+    await send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1},sid);
     await delay(400);
   };
   const button = text => `[...document.querySelectorAll('button')].find(e=>e.innerText.trim()===${JSON.stringify(text)})`;
@@ -306,6 +313,7 @@ try {
   await screenshot('theme-editor-mobile-picker-en.png');
   await key('Escape'); await wait(`!document.querySelector('${picker}')`);
   await screenshot('theme-editor-mobile-en.png');
+
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);await delay(300);
   await db.run('DELETE FROM rate_limit_buckets'); // Isolated browser journey: keep unrelated fixture actions from exhausting its shared quota.
   const versionBefore=JSON.parse((await api('/api/state',undefined,'GET')).templates.find(item=>item.id===formTemplate.id).json).version;
@@ -316,6 +324,7 @@ try {
   check('saving a named theme does not bump the form version it was copied from',JSON.parse((await api('/api/state',undefined,'GET')).templates.find(item=>item.id===formTemplate.id).json).version===versionBefore);
   console.log('TOAST:', await evaluate(`document.querySelector('[data-sonner-toast]')?.innerText`));
   console.log('ERRORS:', errors);
+
   check('theme save persisted rather than only showing an error', (await api('/api/state',undefined,'GET')).templates.some(item=>item.kind==='theme'), await evaluate(`document.body.innerText`));
   let theme=(await api('/api/state',undefined,'GET')).templates.find(item=>item.kind==='theme');
   check('theme created through UI stores only the normalized appearance snapshot',theme?.name==='Autumn guild theme'&&Object.keys(JSON.parse(theme.json)).sort().join(',')==='accentColor,bannerUrl,themePreset'&&JSON.parse(theme.json).themePreset==='halloween'&&JSON.parse(theme.json).accentColor==='#ef793e');
@@ -494,7 +503,18 @@ try {
   await api('/api/templates',{name:'Cosmetic label',kind:'form',json:JSON.stringify({...form,customQuestions:form.customQuestions.map(q=>({...q,label:{en:'Updated interests',sv:'Uppdaterade intressen'}}))})});
   await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')&&!!(${button('Edit event')})`);
   const chooseForm=async name=>{await wait(`[...document.querySelectorAll('label')].some(e=>e.innerText.includes('Change form'))`);await click(`[...document.querySelectorAll('label')].find(e=>e.innerText.includes('Change form')).querySelector('[role=combobox]')`);await wait(`!!document.querySelector('[role=option]')`);await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))`);};
-  await click(button('Edit event')); await chooseForm('Structural conflict');
+  // Reproduce a navigation-time hit-test race without retrying the interaction.
+  await evaluate(`(() => {
+    const cover=document.createElement('div'); cover.id='click-race-cover';
+    cover.style.cssText='position:fixed;inset:0;z-index:2147483647';
+    document.body.append(cover); window.editRaceClicks=0;
+    (${button('Edit event')}).addEventListener('click',()=>window.editRaceClicks++);
+    setTimeout(()=>cover.remove(),900);
+  })()`);
+  await click(button('Edit event'));
+  await wait(`!!document.querySelector('[role=dialog]')`);
+  check('edit event waits for an unobstructed target and opens with exactly one real click',await evaluate(`window.editRaceClicks===1&&!document.querySelector('#click-race-cover')`));
+  await chooseForm('Structural conflict');
   await fill('textarea[maxlength="1000"]','Retained conflict description');
   await click(button('Save')); await wait(`!!document.querySelector('[role=alert]')`);
   const failureAX=await send('Accessibility.getFullAXTree',{},sid);
@@ -606,10 +626,7 @@ try {
 } catch (error) { console.error(error); throw error;
 } finally {
   browser?.close();
-  if (chrome.exitCode === null) {
-    try { process.kill(-chrome.pid, 'SIGTERM'); } catch {}
-    await Promise.race([new Promise(resolve => chrome.once('exit', resolve)), delay(3000)]);
-  }
+  await chrome?.stop();
   if (server) await server.stop();
   if (db) await db.close();
   await rm(chromeProfile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

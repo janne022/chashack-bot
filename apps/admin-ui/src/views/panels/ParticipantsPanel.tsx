@@ -196,31 +196,7 @@ export function ParticipantsPanel({
         id: PARTICIPANTS_TEAM_COLUMN_ID,
         enableSorting: false,
         header: t('participants.col_team'),
-        cell: (ctx) => {
-          const p = ctx.row.original
-          const m = ctx.table.options.meta
-          if (p.status !== 'active') {
-            return <span className="text-xs text-muted-foreground">—</span>
-          }
-          return (
-            <Select
-              value={p.teamId ?? '__none__'}
-              onValueChange={(teamId) => m?.assignTeam(p.userId, teamId === '__none__' ? null : teamId)}
-            >
-              <SelectTrigger className="h-8 w-40 text-xs" aria-label={t('participants.team_for_aria', { name: p.displayName })}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">{t('common.no_team')}</SelectItem>
-                {m?.teams.map((team) => (
-                  <SelectItem key={team.id} value={team.id}>
-                    {team.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )
-        },
+        cell: ParticipantTeamCell,
       },
       {
         id: PARTICIPANTS_ACTIONS_COLUMN_ID,
@@ -483,6 +459,25 @@ export function ParticipantsPanel({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+// Keep the component identity stable when a live refresh replaces state.config.
+function ParticipantTeamCell(ctx: ReturnType<Cell<ParticipantsFeatures, Participant>['getContext']>) {
+  const t = useT()
+  const p = ctx.row.original
+  const m = ctx.table.options.meta
+  if (p.status !== 'active') return <span className="text-xs text-muted-foreground">—</span>
+  return (
+    <Select value={p.teamId ?? '__none__'} onValueChange={teamId => m?.assignTeam(p.userId, teamId === '__none__' ? null : teamId)}>
+      <SelectTrigger className="h-8 w-40 text-xs" aria-label={t('participants.team_for_aria', { name: p.displayName })}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__none__">{t('common.no_team')}</SelectItem>
+        {m?.teams.map(team => <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>)}
+      </SelectContent>
+    </Select>
   )
 }
 
