@@ -175,9 +175,9 @@ export async function handleEventAdminCommand(
       }
       // Move the signup panel to the event if the event defines one, else refresh in place.
       if (res.value.panelChannelId !== null) {
-        await postOrUpdatePanel(db, ctx.client, guildId, res.value.panelChannelId);
+        await postOrUpdatePanel(db, ctx.client, guildId, res.value.panelChannelId, locale);
       } else {
-        await postOrUpdatePanel(db, ctx.client, guildId, '').catch(() => undefined);
+        await postOrUpdatePanel(db, ctx.client, guildId, '', locale).catch(() => undefined);
       }
       await i.reply({
         embeds: [embedOk(t(locale, 'discord.events.activated_title'), t(locale, 'discord.events.activated_body', { name: res.value.name }))],

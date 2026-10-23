@@ -169,7 +169,7 @@ export async function handleAdminCommand(
       const target = channel !== null ? channel.id : undefined;
       if (target === undefined) {
         // Refresh in the stored channel.
-        const res = await postOrUpdatePanel(db, ctx.client, guildId, '');
+        const res = await postOrUpdatePanel(db, ctx.client, guildId, '', locale);
         if ('error' in res) {
           await i.reply(eph(res.error === 'No panel exists yet.' ? t(locale, 'discord.admin.panel_no_panel_yet') : res.error));
           return;
@@ -180,7 +180,7 @@ export async function handleAdminCommand(
         });
         return;
       }
-      const res = await postOrUpdatePanel(db, ctx.client, guildId, target);
+      const res = await postOrUpdatePanel(db, ctx.client, guildId, target, locale);
       if ('error' in res) {
         await i.reply(eph(res.error));
         return;

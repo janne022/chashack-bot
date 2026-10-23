@@ -24,7 +24,7 @@ const OWNER = '33333333333333333';
 const JOINER = '44444444444444444';
 const INVITEE = '55555555555555555';
 const EXTRA = '66666666666666666';
-type Payload = { content?: string; embeds?: { title?: string; description?: string }[]; components?: { components: { custom_id?: string; label?: string; url?: string; options?: { value: string }[] }[] }[]; custom_id?: string };
+type Payload = { content?: string; embeds?: { title?: string; description?: string }[]; components?: { component?: { type: number }; components: { custom_id?: string; label?: string; url?: string; options?: { value: string }[] }[] }[]; custom_id?: string };
 const plain = (value: unknown): Payload => JSON.parse(JSON.stringify(value)) as Payload;
 const control = (payload: Payload, index = 0) => payload.components![0]!.components[index]!.custom_id!;
 
@@ -152,7 +152,8 @@ for (const locale of ['en', 'sv'] as const) test(`button journey ${locale}: sign
     await f.signup(INVITEE);
     const invite = await f.dispatch(OWNER, control(message.payload), 'button', { message: { id: ref.messageId } });
     assert.equal(invite.kind, 'modal');
-    const invited = await f.dispatch(OWNER, invite.data.custom_id!, 'modal', { fields: { getTextInputValue: () => INVITEE } });
+    assert.equal(invite.data.components![0]!.component!.type, 5);
+    const invited = await f.dispatch(OWNER, invite.data.custom_id!, 'modal', { fields: { getSelectedUsers: () => ({ first: () => ({ id: INVITEE }) }) } });
     assert.equal(invited.data.content, t(locale, 'discord.teams.invite_saved_body', { name: INVITEE }));
     const inbox = await f.dispatch(INVITEE, `${IDS.followInvitations}:old`);
     const beforeWrongUser = await f.db.all('SELECT * FROM audit_log ORDER BY id');

@@ -17,7 +17,7 @@ import {
 } from 'discord.js';
 import type { Db } from '../shared/db.js';
 import { getForm } from '../features/form/data.js';
-import { getMessageRef, setMessageRef } from '../features/events/data.js';
+import { getActiveEvent, getEventForm, getMessageRef, setMessageRef } from '../features/events/data.js';
 import type { FormConfig } from '../features/form/domain.js';
 import { IDS } from './shared.js';
 import { t, type BotLocale } from '../shared/i18n.js';
@@ -37,7 +37,7 @@ function setPanelRef(db: Db, guildId: string, ref: PanelRef): Promise<void> {
   return setMessageRef(db, key(guildId), ref);
 }
 
-export function buildPanelPayload(config: FormConfig, locale: BotLocale = 'en'): {
+export function buildPanelPayload(config: FormConfig, locale: BotLocale = 'en', eventId?: string): {
   embeds: EmbedBuilder[];
   components: ActionRowBuilder<ButtonBuilder>[];
 } {
@@ -63,9 +63,9 @@ export function buildPanelPayload(config: FormConfig, locale: BotLocale = 'en'):
     .setFooter({ text: t(locale, 'discord.panel.footer', { version: config.version }) });
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(IDS.signupButton).setLabel(t(locale, 'discord.panel.signup_btn')).setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(eventId ? `hack:panel:${eventId}:signup` : IDS.signupButton).setLabel(t(locale, 'discord.panel.signup_btn')).setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
-      .setCustomId(IDS.teamsButton)
+      .setCustomId(eventId ? `hack:panel:${eventId}:teams` : IDS.teamsButton)
       .setLabel(t(locale, 'discord.panel.browse_btn'))
       .setStyle(ButtonStyle.Secondary),
   );
@@ -82,6 +82,8 @@ export async function postOrUpdatePanel(
   guildId: string,
   channelId: string,
   locale: BotLocale = 'en',
+  config?: FormConfig,
+  eventId?: string,
 ): Promise<{ channelId: string; messageId: string; edited: boolean } | { error: string }> {
   if (channelId === '') {
     const ref = await getPanelRef(db, guildId);
@@ -96,7 +98,9 @@ export async function postOrUpdatePanel(
     return { error: t(locale, 'discord.events.not_text_channel') };
   }
 
-  const payload = buildPanelPayload(await getForm(db, guildId), locale);
+  const fallback = config ?? await getForm(db, guildId);
+  const activeEvent = eventId === undefined ? await getActiveEvent(db, guildId) : null;
+  const payload = buildPanelPayload(activeEvent ? getEventForm(db, activeEvent, fallback) : fallback, locale, eventId ?? activeEvent?.id);
   const existing = await getPanelRef(db, guildId);
 
   try {

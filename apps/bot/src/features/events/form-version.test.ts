@@ -42,6 +42,23 @@ test('appearance edit on a populated published event preserves version and answe
   } finally { await db.close(); }
 });
 
+test('explicit light mode on a Halloween appearance survives event form persistence', async () => {
+  const db = await openTestDb();
+  try {
+    const created = await createEvent(db, 'test', 'guild-halloween-light', { name: 'Halloween light' });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const appearance = { themePreset: 'halloween' as const, accentColor: '#ef793e', bannerUrl: null, mode: 'light' as const };
+    const saved = await updateEventForm(db, 'test', created.value.id, { appearance });
+    assert.equal(saved.ok, true);
+    if (!saved.ok) return;
+    assert.equal(saved.value.appearance?.mode, 'light');
+    const reloaded = getEventForm(db, await getEvent(db, created.value.id), DEFAULT_FORM);
+    assert.equal(reloaded.appearance?.mode, 'light');
+    assert.equal(reloaded.appearance?.themePreset, 'halloween');
+  } finally { await db.close(); }
+});
+
 test('changing a mapped core target is structural on populated published events', async () => {
   const db = await openTestDb();
   try {

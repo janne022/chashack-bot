@@ -242,6 +242,7 @@ try {
 
   await nav(base+'/templates'); await wait(`document.body.innerText.includes('Form templates')`);
   await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Themes'))`);
+  check('built-in themes are visible in the theme library before creating a custom theme',await evaluate(`['Default','Halloween','Christmas'].every(name=>[...document.querySelectorAll('[data-slot=card-title]')].some(e=>e.innerText===name))`));
   await click(button('New theme')); await wait(`!!document.querySelector('[role=dialog] input[maxlength="80"]')`);
   await fill('[role=dialog] input[maxlength="80"]','Autumn guild theme');
   await click(`document.querySelector('[role=dialog] [role=combobox]')`);
@@ -364,7 +365,7 @@ try {
   await wait(`!document.body.innerText.includes('Autumn guild theme')`);
   templates=(await api('/api/state',undefined,'GET')).templates;
   form=JSON.parse(templates.find(item=>item.id===formTemplate.id).json);
-  check('deleting a theme leaves forms that already copied its appearance intact',!templates.some(item=>item.kind==='theme')&&form.appearance?.themePreset==='halloween'&&form.appearance?.accentColor==='#ef793e');
+  check('deleting a theme preserves built-ins and forms that copied its appearance',!templates.some(item=>item.name==='Autumn guild theme')&&templates.filter(item=>item.kind==='theme').length===3&&form.appearance?.themePreset==='halloween'&&form.appearance?.accentColor==='#ef793e');
   form=authoredForm;
 
   const collection=(await api('/api/templates',{name:'Svenska uppdrag',kind:'assignments',json:JSON.stringify({assignments:[{id:'brief',title:'Bygg tillsammans',instructions:'Bygg något för {team}'}]})})).template;
@@ -406,10 +407,17 @@ try {
   await click(button('Preview CSV'));
   await wait(`document.querySelector('[role=dialog]')?.innerText.includes('7 new')`);
   check('real CSV preview maps Swedish columns and shows seven editable rows without a Discord column',await evaluate(`document.querySelector('[role=dialog]').innerText.includes('Synthetic import 1')&&document.querySelector('[role=dialog]').innerText.includes('Name and class')&&document.querySelector('[role=dialog]').innerText.includes('Preferred areas / skills')`));
+  const mappingFits = `(()=>{const d=document.querySelector('[role=dialog]');return [...d.querySelectorAll('label[for^="map-"]')].every(label=>{const select=document.getElementById(label.htmlFor),l=label.getBoundingClientRect(),s=select.getBoundingClientRect(),p=d.getBoundingClientRect();return l.left>=p.left&&s.right<=p.right&&((l.bottom<=s.top+1)||(l.right<=s.left+1))&&select.scrollWidth<=select.clientWidth+1})})()`;
+  check('CSV desktop review uses a wide workspace and all Swedish mapping labels fit',await evaluate(`document.querySelector('[role=dialog]').getBoundingClientRect().width>=900&&${mappingFits}`));
   await screenshot('signup-import-review-desktop.png');
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);
+  await delay(300);
   check('CSV review dialog fits mobile viewport with a usable scroll region',await evaluate(`(()=>{const d=document.querySelector('[role=dialog]')?.getBoundingClientRect();return !!d&&d.left>=0&&d.right<=innerWidth&&document.documentElement.scrollWidth<=innerWidth&&document.querySelector('[role=dialog]').scrollHeight>document.querySelector('[role=dialog]').clientHeight})()`));
+  check('CSV mobile mapping stacks readable labels and selects without overlap or internal horizontal scrolling',await evaluate(`${mappingFits}&&(()=>{const d=document.querySelector('[role=dialog]');return d.scrollWidth<=d.clientWidth+1})()`));
   await screenshot('signup-import-review-mobile.png');
+  await send('Emulation.setDeviceMetricsOverride',{width:768,height:1000,deviceScaleFactor:1,mobile:false},sid);
+  await delay(300);
+  check('CSV tablet mapping stays inside its dialog without overlap',await evaluate(mappingFits));
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
   check('parsed supported answers arrive pre-selected and keep the imported source text visible',await evaluate(`(()=>{const field=document.querySelector('[role=dialog] fieldset');if(!field)return false;const checked=[...field.querySelectorAll('[data-slot=checkbox][data-state=checked]')].map(e=>e.innerText.trim());return field.innerText.includes('Choose supported options explicitly')&&field.innerText.includes('Imported source text')&&checked.includes('Frontend — React')&&checked.includes('UI/UX Design')})()`));
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1400,deviceScaleFactor:1,mobile:false},sid);
@@ -430,6 +438,7 @@ try {
   check('unlinked imported signup creates no participant row',await withGuildContext(db,event.guildId,()=>db.get('SELECT user_id FROM participants WHERE event_id=? AND user_id=?',event.id,'33333333333333333'))===undefined);
   await click(button('Review and edit'));
   await wait(`!!document.querySelector('[role=dialog] input#saved-discordUsername')`);
+  check('saved signup review has enough desktop width for editing',await evaluate(`document.querySelector('[role=dialog]').getBoundingClientRect().width>=650`));
   const savedSkills=`[...document.querySelectorAll('[role=dialog] fieldset')].find(f=>f.innerText.includes('Frontend — React'))`;
   const savedAreaState=`(()=>{const f=${savedSkills};if(!f)return {};const s=n=>[...f.querySelectorAll('[data-slot=checkbox]')].find(e=>e.innerText.includes(n))?.dataset.state;return {react:s('Frontend — React'),design:s('UI/UX Design')}})()`;
   const savedAreaToggle=`(()=>{const f=${savedSkills};return [...f.querySelectorAll('[data-slot=checkbox]')].find(e=>e.innerText.includes('Frontend — React'))})()`;
@@ -477,6 +486,18 @@ try {
   check('mobile toolbar targets are at least 44px',mobile.targets.length>0&&mobile.targets.every(t=>t.height>=44&&t.width>=44));
   check('mobile no horizontal overflow and reduced motion enabled',mobile.scroll<=390&&mobile.reduced);
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
+  for (const mode of ['dark','light']) {
+    await evaluate(`document.documentElement.dataset.theme=${JSON.stringify(mode)}`);
+    await click(button('Announce'));
+    await wait(`!!document.querySelector('input[placeholder*="for tags"]')`);
+    await click(`document.querySelector('input[placeholder*="for tags"]')`);
+    await fill('input[placeholder*="for tags"]','{');
+    await wait(`!![...document.querySelectorAll('button')].find(b=>b.querySelector('code')?.innerText==='{event}')`);
+    check(`selected tag suggestion has readable title, description, context and code in ${mode} mode`,await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.classList.contains('bg-foreground')&&b.querySelector('code'));if(!b)return false;const rgb=c=>(c.match(/[0-9.]+/g)||[]).slice(0,3).map(Number);const lum=c=>rgb(c).map(n=>{n/=255;return n<=.04045?n/12.92:((n+.055)/1.055)**2.4}).reduce((v,n,i)=>v+n*[.2126,.7152,.0722][i],0);const contrast=(a,z)=>(Math.max(lum(a),lum(z))+.05)/(Math.min(lum(a),lum(z))+.05);const bg=getComputedStyle(b).backgroundColor;return [b,...b.querySelectorAll('.tag-detail')].every(e=>contrast(getComputedStyle(e).color,bg)>=4.5)&&contrast(getComputedStyle(b.querySelector('code')).color,getComputedStyle(b.querySelector('code')).backgroundColor)>=4.5})()`));
+    await nav(base+'/events?event='+event.id);
+    await wait(`!!(${button('Announce')})`);
+  }
+  await evaluate(`document.documentElement.dataset.theme='dark'`);
   await click(button('Edit event'));
   await wait(`!!document.querySelector('textarea[maxlength="1000"]')`);
   check('edit dialog has named modal semantics and initial focus',await evaluate(`!!document.querySelector('[role=dialog][aria-labelledby][aria-modal=true]')&&document.querySelector('[role=dialog]').contains(document.activeElement)`));

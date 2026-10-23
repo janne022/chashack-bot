@@ -111,7 +111,7 @@ function Signup() {
     } catch (error) { setMessage(error instanceof Error ? error.message : t('participant.signup_failed')); setState('failed') }
   }
   if (!event) return <main className="mx-auto max-w-2xl space-y-4 p-6">{state === 'loading' ? <p aria-busy="true">{t('participant.signup_loading')}</p> : <><p role="alert">{message}</p><Button onClick={() => void load()}>{t('participant.retry')}</Button></>}</main>
-  return <ParticipantFrame appearance={event.form.appearance}>
+  return <ParticipantFrame appearance={event.form.appearance} portalTheme>
     <LiveStatus {...live} />
     <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
       <section className="order-2 space-y-6 lg:order-1">

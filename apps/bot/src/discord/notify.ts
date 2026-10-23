@@ -457,11 +457,17 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 const chan = op.channelId ?? event.panelChannelId ?? await readGuildPanel(db, event.guildId)
                 if (chan && isSnowflake(chan) && isSnowflake(event.guildId)) {
                   const { postOrUpdatePanel } = await import('./signup-panel.js')
-                  await postOrUpdatePanel(db, client, event.guildId, chan)
-                  audit(db, 'system', 'schedule.post_signup', event.id, { scheduleId, channelId: chan }, event.guildId)
-                  summary.push(`schedule signup: ${event.name} — ${item.title} → #${chan}`)
+                  const posted = await postOrUpdatePanel(db, client, event.guildId, chan, botLocale(), getEventFormLocal(db, event), event.id)
+                  if ('error' in posted) {
+                    audit(db, 'system', 'schedule.post_signup_failed', event.id, { scheduleId, channelId: chan, error: posted.error }, event.guildId)
+                    summary.push(`schedule signup failed: ${event.name} — ${item.title} → #${chan}: ${posted.error}`)
+                  } else {
+                    audit(db, 'system', 'schedule.post_signup', event.id, { scheduleId, channelId: chan, edited: posted.edited }, event.guildId)
+                    summary.push(`schedule signup: ${event.name} — ${item.title} → #${chan}`)
+                  }
                 } else {
                   audit(db, 'system', 'schedule.post_signup_skipped', event.id, { scheduleId, reason: 'no_channel' }, event.guildId)
+                  summary.push(`schedule signup skipped: ${event.name} — ${item.title} (no channel configured)`)
                 }
               } else if (op.type === 'assign_random' || op.type === 'auto_match') {
                 const config = getEventFormLocal(db, event)

@@ -4,6 +4,7 @@ import type { ChatInputCommandInteraction } from 'discord.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
 import { upsertParticipant } from '../features/signup/data.js';
 import { createTeam } from '../features/teams/data.js';
+import { activateEvent, createEvent, setMessageRef } from '../features/events/data.js';
 import { openTestDb } from '../shared/test-db.js';
 import { t } from '../shared/i18n.js';
 import { handleUserCommand } from './user-commands.js';
@@ -66,6 +67,60 @@ test('create-team waits for participant lookup and refuses missing signup', asyn
   assert.equal(i.replies.length, 1);
   assert.equal((i.replies[0] as { content?: string }).content, t('en', 'discord.teams.signup_first'));
   await db.close();
+});
+
+test('team panel invite uses a native modal user selector and remains panel and actor bound', async () => {
+  const db = await openTestDb();
+  try {
+    const guildId = '11111111111111111';
+    const event = await createEvent(db, 'test', guildId, { name: 'Invite journey' });
+    assert.equal(event.ok, true);
+    if (!event.ok) return;
+    await activateEvent(db, 'test', event.value.id);
+    const ownerId = '22222222222222222';
+    const targetId = '33333333333333333';
+    const now = Date.now();
+    for (const [userId, name] of [[ownerId, 'Owner'], [targetId, 'Target']]) {
+      await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES (?,?,?,?,?,'','[]','','[]','active',?,?)",
+        event.value.id, userId, guildId, name, '', now, now);
+    }
+    const createdTeam = await createTeam(db, 'test', event.value.id, guildId, 'Invite team', 'public', ownerId);
+    assert.equal(createdTeam.ok, true);
+    if (!createdTeam.ok) return;
+    const teamId = createdTeam.value.id;
+    const channelId = '44444444444444444';
+    const panelMessageId = '55555555555555555';
+    await db.run('UPDATE teams SET text_channel_id = ? WHERE id = ?', channelId, teamId);
+    await setMessageRef(db, `team_panel:${teamId}`, { channelId, messageId: panelMessageId });
+    let modal: unknown;
+    const button = {
+      customId: `hack:team-panel:${event.value.id}:${teamId}:invite`, user: { id: ownerId, username: 'owner' },
+      channelId, message: { id: panelMessageId }, isButton: () => true,
+      reply: async () => undefined, showModal: async (payload: unknown) => { modal = payload; },
+    };
+    await onComponent(button as never, { ...context(db), guildId, announce: async () => undefined });
+    assert.ok(modal);
+    const modalJson = (modal as { toJSON: () => { components: { component: { type: number; custom_id: string } }[] } }).toJSON();
+    assert.equal(modalJson.components[0]!.component.type, 5);
+    assert.equal(modalJson.components[0]!.component.custom_id, 'hack:team-invite:target');
+    const submitReplies: unknown[] = [];
+    const submit = {
+      customId: `hack:team-panel-modal:invite:${event.value.id}:${teamId}:${panelMessageId}:${ownerId}`,
+      user: { id: ownerId, username: 'owner' }, channelId,
+      fields: { getSelectedUsers: () => ({ first: () => ({ id: targetId }) }) },
+      reply: async (payload: unknown) => { submitReplies.push(payload); },
+    };
+    const client = { guilds: { fetch: async () => ({ channels: { fetch: async () => null } }) } } as unknown as Ctx['client'];
+    await onModalSubmit(submit as never, { ...context(db), guildId, client, announce: async () => undefined });
+    assert.equal(await db.get('SELECT id FROM team_requests WHERE event_id = ? AND team_id = ? AND target_id = ?', event.value.id, teamId, targetId) !== undefined, true);
+    assert.equal(submitReplies.length, 1);
+
+    const staleReplies: unknown[] = [];
+    await onModalSubmit({ ...submit, user: { id: targetId, username: 'target' }, reply: async (payload: unknown) => { staleReplies.push(payload); } } as never,
+      { ...context(db), guildId, client, announce: async () => undefined });
+    assert.equal(staleReplies.length, 1);
+    assert.equal((staleReplies[0] as { content: string }).content, t('en', 'discord.team_panel.owner_only'));
+  } finally { await db.close(); }
 });
 
 test('teammates waits for participant lookup and refuses missing signup', async () => {

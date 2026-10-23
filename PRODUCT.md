@@ -51,7 +51,9 @@ self-cleaning weekend.
   time. Activating an event only flips its status; nothing is posted on Activate.
 - Events are set up from **templates** (event / form / announcement / assignment
   collection), whose schedules are anchor-relative so the same template works for
-  any dates.
+  any dates. Each guild's Themes library starts with persisted Default, Halloween
+  and Christmas appearances; organizers can apply, customize or delete them.
+  Event appearance remains a snapshot when a saved theme changes.
 - Organizers also work through Discord itself: `/hackathon admin` for
   block/unblock/remove, moving participants, category, match preview/commit,
   reset; `/hackathon auto-match at:` for a scheduled match.
