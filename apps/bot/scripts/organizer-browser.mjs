@@ -377,6 +377,26 @@ try {
   await click(button('Continue with template'));
   await wait(`!!document.querySelector('input[maxlength="100"]')`);
   check('Swedish template fills event editor',await evaluate(`document.querySelector('input[maxlength="100"]').value==='Svensk verkstad' && document.body.innerText.includes('Svenska uppdrag') && document.body.innerText.includes('Verkstad')`));
+  await click(`[...document.querySelectorAll('button')].find(e=>e.innerText.includes('Signup window'))`);
+  await click(`[...document.querySelectorAll('button')].find(e=>e.dataset.empty==='true')`);
+  await wait(`document.querySelectorAll('[data-slot="popover-content"] button[data-day]:not([disabled])').length>7`);
+  const rangeDays=await evaluate(`(()=>[...new Map([...document.querySelectorAll('[data-slot="popover-content"] button[data-day]:not([disabled])')].map(b=>[b.dataset.day,b])).keys()])()`);
+  assert.ok(rangeDays.length>4,'date range calendar exposes enough enabled dates');
+  await click(`[...document.querySelectorAll('[data-slot="popover-content"] button[data-day]')].find(b=>b.dataset.day===${JSON.stringify(rangeDays[0])})`);
+  await click(`[...document.querySelectorAll('[data-slot="popover-content"] button[data-day]:not([disabled])')].find(b=>b.dataset.day===${JSON.stringify(rangeDays[4])})`);
+  await wait(`document.querySelectorAll('[data-slot="popover-content"] button[data-range-middle="true"]').length>=3`);
+  const rangeVisual=async theme=>{
+    await evaluate(`(()=>{document.documentElement.dataset.theme=${JSON.stringify(theme)};document.documentElement.classList.toggle('dark',${JSON.stringify(theme==='dark')})})()`);
+    await evaluate(`(async()=>{const pop=document.querySelector('[data-slot="popover-content"]');getComputedStyle(pop).backgroundColor;await Promise.allSettled(pop.getAnimations({subtree:true}).filter(a=>a instanceof CSSTransition).map(a=>a.finished))})()`);
+    const visual=await evaluate(`(()=>{const pop=document.querySelector('[data-slot="popover-content"]');const mid=pop?.querySelector('button[data-range-middle="true"]');const start=pop?.querySelector('button[data-range-start="true"]');const end=pop?.querySelector('button[data-range-end="true"]');if(!pop||!mid||!start||!end)return null;const style=e=>getComputedStyle(e).backgroundColor;const cell=e=>e.parentElement;const ctx=document.createElement('canvas').getContext('2d');const pixel=color=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=color;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data]};const popRgb=pixel(style(pop)).slice(0,3);const bandPixel=pixel(style(cell(mid)));const base=bandPixel.slice(0,3).map((v,i)=>v*bandPixel[3]/255+popRgb[i]*(1-bandPixel[3]/255));const middlePixel=pixel(style(mid));const bg=middlePixel.slice(0,3).map((v,i)=>v*middlePixel[3]/255+base[i]*(1-middlePixel[3]/255));const fg=pixel(getComputedStyle(mid).color).slice(0,3);const lum=c=>{const v=c/255;return v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4};const l=c=>0.2126*lum(c[0])+0.7152*lum(c[1])+0.0722*lum(c[2]);const a=l(bg),b=l(fg);return {middleCount:pop.querySelectorAll('button[data-range-middle="true"]').length,popover:style(pop),middle:style(mid),text:getComputedStyle(mid).color,textContrast:(Math.max(a,b)+0.05)/(Math.min(a,b)+0.05),start:style(start),end:style(end),band:style(cell(mid)),startConnector:getComputedStyle(cell(start),'::after').backgroundColor,endConnector:getComputedStyle(cell(end),'::after').backgroundColor}})()`);
+    check(`signup date range shows a continuous tinted band with readable text in ${theme} theme`,!!visual&&visual.middleCount>=3&&visual.middle!==visual.popover&&visual.band!==visual.popover&&visual.start!==visual.middle&&visual.end!==visual.middle&&visual.startConnector===visual.band&&visual.endConnector===visual.band&&visual.textContrast>=4.5,JSON.stringify(visual));
+    await screenshot(`signup-date-range-${theme}.png`);
+  };
+  await rangeVisual('dark');
+  await rangeVisual('light');
+  await evaluate(`(()=>{delete document.documentElement.dataset.theme;document.documentElement.classList.add('dark')})()`);
+  await click(button('Done'));
+  await click(`document.querySelector('[aria-label="Clear range"]')`);
   await click(`[...document.querySelectorAll('button')].find(e=>e.innerText.startsWith('Hackathon Starts'))`);
   await click(button('Pick date & time'));
   await wait(`!!document.querySelector('button[data-day]:not([disabled])')`);

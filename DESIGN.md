@@ -378,6 +378,10 @@ reserved for avatars, the live pulse and icon-only buttons.
   12px `muted-foreground`, never as placeholder-only.
 - Selects, date pickers and popovers reuse the input shell; picker popovers open
   as popper-positioned panels with the ambient-low shadow.
+- Calendar date ranges use a `primary/20` band across the start, middle and end
+  cells, with solid primary endpoint buttons. The translucent band stays visible
+  against the popover in dark and light themes while preserving the selected
+  dates as the strongest emphasis.
 
 ### Cards
 - **Interaction model (hybrid).** The whole card is a click target for its
