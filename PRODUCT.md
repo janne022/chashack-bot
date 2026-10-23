@@ -54,6 +54,8 @@ self-cleaning weekend.
   any dates. Each guild's Themes library starts with persisted Default, Halloween
   and Christmas appearances; organizers can apply, customize or delete them.
   Event appearance remains a snapshot when a saved theme changes.
+  Signup panel messages are tracked per event, including when two active events
+  share a Discord channel; refreshing one never replaces the other's controls.
 - Organizers also work through Discord itself: `/hackathon admin` for
   block/unblock/remove, moving participants, category, match preview/commit,
   reset; `/hackathon auto-match at:` for a scheduled match.

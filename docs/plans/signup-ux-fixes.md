@@ -39,3 +39,10 @@ instruction files or CI workflows were changed. `impeccable detect` could not ru
 because that executable is not installed. Browser cleanup required closing only
 the Chrome processes owned by these checks because the existing harness uses
 Unix process-group signals. Live Discord delivery/OAuth was not exercised.
+
+The single same-card qa-judge review found that a guild-wide panel reference could
+replace another active event's message. The bounded repair keys references by
+guild and event, uses legacy references only as channel fallbacks, and makes
+notification fallback readers prefer the event's panel. Targeted verification
+passed 31 posting, interaction and RLS checks, including two active events sharing
+a channel, independent refresh/movement and preservation of a legacy message.
