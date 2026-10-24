@@ -53,6 +53,7 @@ test('RLS hides tenant rows without context and rejects cross-tenant writes as a
         team_requests: { event_id: 'a', guild_id: 'guild-a', team_id: 'team-a', requester_id: 'user', target_id: 'other', kind: 'invite', created_at: 1 },
         member_deletions: { guild_id: 'guild-a', user_id: 'deleted', deleted_at: 1 },
         private_answer_deletions: { guild_id: 'guild-a', event_id: 'a', user_id: 'deleted', deleted_at: 1 },
+        team_role_revocations: { guild_id: 'guild-a', event_id: 'a', user_id: 'deleted', team_id: 'team-a', role_id: 'role-a', created_at: 1, updated_at: 1 },
       };
       const insert = (target: typeof db, table: string, row: Record<string, unknown>) => target.run(`INSERT INTO ${table} (${Object.keys(row).join(',')}) VALUES (${Object.keys(row).map(() => '?').join(',')})`, ...Object.values(row));
       for (const [table, own] of Object.entries(fixtures)) {

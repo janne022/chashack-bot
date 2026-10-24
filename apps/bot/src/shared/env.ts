@@ -40,6 +40,8 @@ export interface Env {
   teamCategoryId: string | undefined;
   botLanguage: 'en' | 'sv';
   skipDiscord: boolean;
+  skipDatabaseMigrations?: boolean;
+  trustedProxies?: string[];
 }
 
 export function requireSessionSecret(secret: string): string {
@@ -65,6 +67,19 @@ export function env(): Env {
     if (clientSecret === '') missing.push('DISCORD_CLIENT_SECRET');
   }
   if (missing.length > 0) throw new Error(`Missing required environment variables: ${missing.join(', ')} (see .env.example)`);
+  const publicUrl = get('PUBLIC_URL') || undefined;
+  const oauthRedirectUri = get('OAUTH_REDIRECT_URI') || undefined;
+  for (const [key, value] of [['PUBLIC_URL', publicUrl], ['OAUTH_REDIRECT_URI', oauthRedirectUri]] as const) {
+    if (!value) continue;
+    let url: URL;
+    try { url = new URL(value); } catch { throw new Error(`${key} must be an absolute HTTP(S) URL`); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash ||
+        (key === 'PUBLIC_URL' && url.pathname !== '/') ||
+        (key === 'OAUTH_REDIRECT_URI' && url.pathname !== '/auth/discord/callback')) throw new Error(`${key} is not a valid public URL`); // g0:allow:secrets t_33947af2 - public environment key and callback path, no credential value
+    if (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') throw new Error(`${key} must use HTTPS in production`);
+  }
+  if (process.env.NODE_ENV === 'production' && !publicUrl) throw new Error('PUBLIC_URL is required in production');
+  if (publicUrl && oauthRedirectUri && new URL(publicUrl).origin !== new URL(oauthRedirectUri).origin) throw new Error('OAuth callback must use PUBLIC_URL origin');
   cached = {
     discordToken: token,
     clientId,
@@ -73,8 +88,10 @@ export function env(): Env {
     adminPort: Number(get('ADMIN_PORT') || '8420'),
     adminSessionSecret: requireSessionSecret(get('ADMIN_SESSION_SECRET')),
     discordClientSecret: clientSecret || undefined,
-    oauthRedirectUri: get('OAUTH_REDIRECT_URI') || undefined,
-    publicUrl: get('PUBLIC_URL') || undefined,
+    oauthRedirectUri,
+    publicUrl,
+    skipDatabaseMigrations: get('SKIP_DATABASE_MIGRATIONS') === '1', // g0:allow:secrets t_33947af2 - public environment key and callback path, no credential value
+    trustedProxies: get('TRUSTED_PROXIES').split(',').map(value => value.trim()).filter(Boolean),
     databaseUrl: process.env.DATABASE_URL,
     migrationDatabaseUrl: process.env.MIGRATION_DATABASE_URL,
     announceChannelId: get('ANNOUNCE_CHANNEL_ID') || undefined,

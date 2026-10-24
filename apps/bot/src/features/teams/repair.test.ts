@@ -88,16 +88,22 @@ for (const operation of ['join', 'code', 'invite', 'request', 'assign'] as const
 for (const state of ['blocked', 'incomplete', 'absent', 'lookup-error', 'detached'] as const) test(`QA2 ${state} owner cannot accept a join request`, async () => {
   const db = await fixture();
   try {
+    setMembershipLookup(db, async () => true);
     if (state === 'incomplete') {
       const form = { ...DEFAULT_FORM, teamSize: 2, customQuestions: [{ id: 'required', kind: 'text', label: { en: 'Required' }, help: { en: '' }, required: true, presentation: 'web', visibility: 'self_and_organizer' }] };
       await db.run("UPDATE events SET form_json=? WHERE id='ev'", JSON.stringify(form));
       for (const user of ['owner', 'member']) await db.run("INSERT INTO registration_answers VALUES ('ev',?,1,?,1)", user, JSON.stringify({ required: 'done' }));
     }
-    const team = await createTeam(db, 'test', 'ev', GUILD, 'Alpha', 'private', 'owner');
+    const team = await createTeam(db, 'test', 'ev', GUILD, 'Alpha', state === 'blocked' ? 'public' : 'private', 'owner');
     assert.ok(team.ok);
     const request = await createJoinRequest(db, 'discord:member', 'ev', GUILD, 'member', team.value.id, 2);
     assert.ok(request.ok);
-    if (state === 'blocked') assert.ok((await blockParticipant(db, 'test', 'ev', 'owner', 'blocked')).ok);
+    if (state === 'blocked') {
+      await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES ('ev','successor',?,'successor','some_experience','backend','[]','random_team','[]','active',1,1)", GUILD);
+      assert.ok((await joinTeam(db, 'test', 'ev', 'successor', team.value.id, 2)).ok);
+      assert.ok((await blockParticipant(db, 'test', 'ev', 'owner', 'blocked')).ok);
+      assert.equal((await getTeam(db, team.value.id))?.ownerId, 'successor');
+    }
     if (state === 'incomplete') await db.run("DELETE FROM registration_answers WHERE user_id='owner'");
     if (state === 'detached') await db.run("UPDATE participants SET team_id=NULL WHERE user_id='owner'");
     if (state === 'absent' || state === 'lookup-error') setMembershipLookup(db, async (_guild, user) => { if (user !== 'owner') return true; if (state === 'lookup-error') throw new Error('unavailable'); return false; });

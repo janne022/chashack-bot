@@ -6,9 +6,10 @@
 
 web
 
-The participant surface is Discord (slash commands, modals, DMs, team channels);
-participant-facing OAuth identity and self-scoped API work is planned, not a signup
-form or team-management web UI. The organizer console is served by the bot on `ADMIN_PORT`.
+Participants use Discord (slash commands, modals, DMs, team channels) and an
+OAuth-authenticated web signup/team surface. Participant APIs bind identity to
+the live session and current guild membership. The organizer console is served
+by the bot on `ADMIN_PORT`.
 
 ## Users
 
@@ -16,13 +17,19 @@ form or team-management web UI. The organizer console is served by the bot on `A
   of helpers running one hackathon weekend live. They work from the admin console
   (and the `/hackathon admin …` commands) while the event is in progress.
 - **Participants: students**, using Discord for signup, team creation/joins,
-  invitations and team spaces. Participant OAuth identity and self-scoped API are
-  planned; forms and team management remain in Discord.
+  invitations and team spaces, with web signup and team management through a
+  separate participant OAuth session.
 
 Organizers sign in with Discord OAuth. Current guild owner/Administrator or
 configured delegated roles can manage a guild where the bot is installed; the
 shared-password and env-guild authorization paths are removed. The session signing
 secret is required explicitly; rotating it revokes every session.
+
+Organizer and participant sessions can be revoked individually or together for
+the signed-in Discord user. Authorized organizers can retrieve individual form
+answers within their selected guild; the individual-answer UI is tracked as
+separate frontend work. Confidential participant-provided questions remain
+readable by their subject and authorized organizers, not by other participants.
 
 ## Product Purpose
 

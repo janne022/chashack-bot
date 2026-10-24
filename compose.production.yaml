@@ -1,0 +1,201 @@
+services:
+  edge:
+    image: ${CADDY_IMAGE:?Set CADDY_IMAGE to a reviewed immutable image digest}
+    restart: unless-stopped
+    init: true
+    environment:
+      CANONICAL_DOMAIN: ${CANONICAL_DOMAIN:?Set the canonical public DNS name}
+      ACME_EMAIL: ${ACME_EMAIL:?Set the certificate contact email}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      edge:
+        ipv4_address: ${EDGE_PROXY_IP:?Set the TLS proxy address in EDGE_SUBNET}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      app:
+        condition: service_healthy
+
+  app:
+    image: ${APP_IMAGE:?Set APP_IMAGE to a reviewed immutable image digest}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      ADMIN_PORT: "8420"
+      PUBLIC_URL: https://${CANONICAL_DOMAIN:?Set the canonical public DNS name}
+      OAUTH_REDIRECT_URI: https://${CANONICAL_DOMAIN}/auth/discord/callback
+      TRUSTED_PROXIES: ${EDGE_PROXY_IP:?Set the exact TLS proxy address}/32
+      DATABASE_URL_FILE: /run/secrets/database_url
+      ADMIN_SESSION_SECRET_FILE: /run/secrets/admin_session_secret
+      DISCORD_TOKEN_FILE: /run/secrets/discord_token
+      DISCORD_CLIENT_SECRET_FILE: /run/secrets/discord_client_secret
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?Set the Discord application client ID}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+      ADMIN_IDS: ${ADMIN_IDS:-}
+      BOT_LANGUAGE: ${BOT_LANGUAGE:-en}
+      SKIP_DATABASE_MIGRATIONS: "1"
+    secrets:
+      - database_url
+      - admin_session_secret
+      - discord_token
+      - discord_client_secret
+    expose: ["8420"]
+    networks:
+      edge:
+        ipv4_address: ${EDGE_APP_IP:?Set the app address in EDGE_SUBNET}
+      data: {}
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1.00
+    pids_limit: 256
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8420/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    image: ${APP_IMAGE:?Set APP_IMAGE to a reviewed immutable image digest}
+    restart: "no"
+    init: true
+    command: ["node", "apps/bot/dist/shared/migrate-cli.js"]
+    environment:
+      MIGRATION_DATABASE_URL_FILE: /run/secrets/migration_database_url
+    secrets:
+      - migration_database_url
+    networks: [data]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 128
+    depends_on:
+      db:
+        condition: service_healthy
+
+  replay-deletions:
+    image: ${APP_IMAGE:?Set APP_IMAGE to a reviewed immutable image digest}
+    profiles: [recovery]
+    restart: "no"
+    init: true
+    command: ["node", "apps/bot/dist/shared/replay-deletions-cli.js"]
+    environment:
+      DELETION_REPLAY_DATABASE_URL_FILE: /run/secrets/deletion_replay_database_url
+    secrets:
+      - deletion_replay_database_url
+    networks: [data]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 128
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: ${POSTGRES_IMAGE:?Set POSTGRES_IMAGE to a reviewed immutable image digest}
+    restart: unless-stopped
+    init: true
+    environment:
+      POSTGRES_DB: chashack
+      POSTGRES_USER: chashack_bootstrap
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_bootstrap_password
+      CHASHACK_APP_PASSWORD_FILE: /run/secrets/chashack_app_password
+      CHASHACK_MIGRATION_PASSWORD_FILE: /run/secrets/chashack_migration_password
+    secrets:
+      - postgres_bootstrap_password
+      - chashack_app_password
+      - chashack_migration_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init/10-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chashack_bootstrap -d chashack"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    shm_size: 256mb
+    mem_limit: 1g
+    cpus: 2.00
+    pids_limit: 256
+    security_opt: [no-new-privileges:true]
+
+networks:
+  edge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:?Set an unused private subnet}
+  data:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+secrets:
+  postgres_bootstrap_password:
+    file: ./deploy/secrets/postgres_bootstrap_password
+  chashack_app_password:
+    file: ./deploy/secrets/chashack_app_password
+  chashack_migration_password:
+    file: ./deploy/secrets/chashack_migration_password
+  database_url:
+    file: ./deploy/secrets/database_url
+  migration_database_url:
+    file: ./deploy/secrets/migration_database_url
+  admin_session_secret:
+    file: ./deploy/secrets/admin_session_secret
+  discord_token:
+    file: ./deploy/secrets/discord_token
+  discord_client_secret:
+    file: ./deploy/secrets/discord_client_secret
+
+
+  deletion_replay_database_url:
+    file: ./deploy/secrets/deletion_replay_database_url

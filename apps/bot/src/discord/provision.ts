@@ -177,8 +177,8 @@ export async function grantTeamRole(deps: ProvisionDeps, team: Team, userId: str
 }
 
 /** Revoke the team role (leave/kick/delete). */
-export async function applyTeamLeave(deps: ProvisionDeps, team: Team, userId: string): Promise<void> {
-  await revokeTeamRole(deps, team, userId);
+export async function applyTeamLeave(deps: ProvisionDeps, team: Team, userId: string, roleAlreadyRevoked = false): Promise<void> {
+  if (!roleAlreadyRevoked) await revokeTeamRole(deps, team, userId);
   const remaining = await getTeam(deps.db, team.id);
   if (remaining === null) await destroyTeamSpace(deps, team);
   else await refreshTeamPanel(deps, remaining, botLocale());
@@ -187,14 +187,13 @@ export async function applyTeamLeave(deps: ProvisionDeps, team: Team, userId: st
 /** Revoke the team role (leave/kick/delete). */
 export async function revokeTeamRole(deps: ProvisionDeps, team: Team, userId: string): Promise<void> {
   if (team.roleId === null) return;
-  try {
-    const guild = await deps.client.guilds.fetch(team.guildId);
-    const member = await guild.members.fetch(userId).catch(() => null);
-    if (member !== null && member.roles.cache.has(team.roleId)) {
-      await member.roles.remove(team.roleId, t(botLocale(), 'discord.provision.reason_revoke'));
-    }
-  } catch (error) {
-    console.warn(`revoke role failed:`, error);
+  const guild = await deps.client.guilds.fetch(team.guildId);
+  const member = await guild.members.fetch(userId).catch((error) => {
+    if ((error as { code?: number }).code === 10007) return null;
+    throw error;
+  });
+  if (member !== null && member.roles.cache.has(team.roleId)) {
+    await member.roles.remove(team.roleId, t(botLocale(), 'discord.provision.reason_revoke'));
   }
 }
 
