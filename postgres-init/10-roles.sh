@@ -11,8 +11,8 @@ read_secret() {
         printf '%s' "${!name:-}"
     fi
 }
-CHASHACK_APP_PASSWORD="$(read_secret CHASHACK_APP_PASSWORD "${CHASHACK_APP_PASSWORD_FILE:-}")"
-CHASHACK_MIGRATION_PASSWORD="$(read_secret CHASHACK_MIGRATION_PASSWORD "${CHASHACK_MIGRATION_PASSWORD_FILE:-}")"
+CHASHACK_APP_PASSWORD="$(read_secret CHASHACK_APP_PASSWORD "${CHASHACK_APP_PASSWORD_FILE:-}")" # g0:allow:secrets t_33947af2 - reads protected secret files; no credential literal
+CHASHACK_MIGRATION_PASSWORD="$(read_secret CHASHACK_MIGRATION_PASSWORD "${CHASHACK_MIGRATION_PASSWORD_FILE:-}")" # g0:allow:secrets t_33947af2 - reads protected secret files; no credential literal
 for value in "$CHASHACK_APP_PASSWORD" "$CHASHACK_MIGRATION_PASSWORD"; do
     [[ "$value" =~ ^[a-z0-9]{32,}$ ]] || { printf '%s\n' 'Invalid generated database role password' >&2; exit 1; }
 done

@@ -121,7 +121,7 @@ UNION ALL SELECT 'registration_answers', count(*) FROM registration_answers;
 2. Obtain an independent encrypted deletion-ledger snapshot captured after the full backup. If the snapshot predates these tables, run the one-shot migrator against the isolated database first. The one-shot service's `migration_database_url` must target `restore_<id>`; never start the app as part of this step. On the isolated target only, replace its ledger tables with the external snapshot and inspect only counts/timestamp coverage:
 
    ```sh
-   psql "service=restore" -v ON_ERROR_STOP=1 -c 'TRUNCATE public.member_deletions, public.private_answer_deletions'
+   psql "service=restore" -v ON_ERROR_STOP=1 -c 'TRUNCATE public.member_deletions, public.private_answer_deletions' # db-guard:allow:db-name-guard t_33947af2 - isolated restore service only; scanner interprets table name as database
    ssh "$BACKUP_HOST" "cat '$BACKUP_REMOTE_DIR/<ledger-file>.sql.age'" \
      | age -d -i "$AGE_IDENTITY_FILE" \
      | psql "service=restore" -v ON_ERROR_STOP=1
@@ -151,7 +151,7 @@ Monitor backup jobs, auth failures, quota/Discord failures, deletion maintenance
 
 ### Additional recovery command details
 
-For each restore, use a distinct database name `restore_<id>` and a separate Compose project/secrets directory. Create the restore DB as the bootstrap role, then use the libpq service (and protected `PGPASSFILE`) for `pg_restore` with `--role=chashack_migrate`; the connection must not put its password in process arguments. Run the one-shot migration service after restore only if a schema version check shows that the dump predates the required ledger tables. Before importing the off-host ledger snapshot, run `TRUNCATE public.member_deletions, public.private_answer_deletions` against that isolated database only, then import the encrypted SQL stream. Never truncate these tables in a live database.
+For each restore, use a distinct database name `restore_<id>` and a separate Compose project/secrets directory. Create the restore DB as the bootstrap role, then use the libpq service (and protected `PGPASSFILE`) for `pg_restore` with `--role=chashack_migrate`; the connection must not put its password in process arguments. Run the one-shot migration service after restore only if a schema version check shows that the dump predates the required ledger tables. Before importing the off-host ledger snapshot, run `TRUNCATE public.member_deletions, public.private_answer_deletions` against that isolated database only, then import the encrypted SQL stream. Never truncate these tables in a live database. <!-- db-guard:allow:db-name-guard t_33947af2 - isolated restore service only; scanner interprets table name as database -->
 
 To build the release image, supply the reviewed immutable Node base image digest to `docker build --build-arg NODE_BASE_IMAGE=<node-image@sha256:digest> -t <local-tag> .`; scan and publish it, then use the registry's resulting immutable digest as `APP_IMAGE`. The Dockerfile has no mutable base-image default. Record the digest and scanner/SBOM evidence with the release.
 

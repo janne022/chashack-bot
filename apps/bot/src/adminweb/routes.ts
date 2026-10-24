@@ -911,7 +911,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     reply.header('set-cookie', clearCookie(PARTICIPANT_COOKIE, secureCookies));
     return { ok: true };
   });
-  for (const path of ['/api/auth/logout-all', '/api/participant/logout-all']) {
+  for (const path of ['/api/auth/logout-all', '/api/participant/logout-all']) { // g0:allow:secrets t_33947af2 - public logout endpoint names, no credentials
     app.post(path, async (req, reply) => {
       const session = path.includes('/participant/') ? await participantSessionFrom(req) : (await sessionFrom(req))?.session;
       if (!session) return reply.code(401).send({ error: 'unauthorized' });

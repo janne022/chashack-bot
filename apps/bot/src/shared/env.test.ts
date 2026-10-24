@@ -13,7 +13,7 @@ test('production origin and OAuth callback configuration fail closed', () => {
   const previous = keys.map(key => [key, process.env[key]] as const);
   try {
     process.env.NODE_ENV = 'production'; process.env.RUN_DRY = '1';
-    process.env.ADMIN_SESSION_SECRET = 'synthetic-test-secret-with-32-characters';
+    process.env.ADMIN_SESSION_SECRET = 'synthetic-test-secret-with-32-characters'; // g0:allow:secrets t_33947af2 - synthetic fixture signing material only
     for (const [origin, callback] of [
       ['', ''], ['http://console.example.test', ''],
       ['https://user:password@console.example.test', ''],

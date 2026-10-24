@@ -8,14 +8,14 @@ import { createSession, getSession } from '../features/auth/data.js';
 import { makeDiscordToken, makeParticipantState, participantStateReturn, participantReturnPath } from '../features/auth/domain.js';
 import type { Env } from '../shared/env.js';
 
-const secret = 'synthetic-fixture-signing-material-32-plus';
+const secret = 'synthetic-fixture-signing-material-32-plus'; // g0:allow:secrets t_33947af2 - synthetic test signing material and API paths only
 const config = { adminSessionSecret: secret, clientId: '', skipDiscord: true, publicUrl: 'https://console.example.test' } as Env;
 const cookie = (id: string, audience: 'organizer' | 'participant') => `${audience === 'participant' ? 'hackpartsess' : 'hacksess'}=${makeDiscordToken(secret, id, Date.now(), audience)}`;
 
 test('OAuth return destinations are allowlisted, authenticated and expire', () => {
   for (const value of ['https://evil.test', '//evil.test', '/\\evil', '/events/%2f%2fevil/signup', '/events/a/signup?next=https://evil.test']) assert.equal(participantReturnPath(value), '/my-hackathons');
-  const state = makeParticipantState(secret, '/events/ev_123/signup', 100);
-  assert.equal(participantStateReturn(secret, state, 101), '/events/ev_123/signup');
+  const state = makeParticipantState(secret, '/events/ev_123/signup', 100); // g0:allow:secrets t_33947af2 - synthetic test signing material and API paths only
+  assert.equal(participantStateReturn(secret, state, 101), '/events/ev_123/signup'); // g0:allow:secrets t_33947af2 - synthetic test signing material and API paths only
   assert.equal(participantStateReturn(secret, `${state}x`, 101), null);
   assert.equal(participantStateReturn('different secret', state, 101), null);
   assert.equal(participantStateReturn(secret, state, 600_101), null);
@@ -41,7 +41,7 @@ test('participant logout revokes its row, logout-all revokes both audiences only
   assert.match(String(logout.headers['set-cookie']), /hackpartsess=.*Max-Age=0/);
   assert.equal((await app.inject({ url: '/api/participant/me', headers: { cookie: cookie(p.id, 'participant') } })).statusCode, 401);
   const p2 = await createSession(db, { ...input, audience: 'participant' });
-  assert.equal((await app.inject({ method: 'POST', url: '/api/participant/logout-all', headers: { cookie: cookie(p2.id, 'participant') } })).statusCode, 200);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/participant/logout-all', headers: { cookie: cookie(p2.id, 'participant') } })).statusCode, 200); // g0:allow:secrets t_33947af2 - synthetic test signing material and API paths only
   assert.equal(await getSession(db, p2.id), null); assert.equal(await getSession(db, o.id), null);
   assert.notEqual(await getSession(db, other.id), null);
 });

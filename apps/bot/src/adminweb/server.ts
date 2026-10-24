@@ -24,10 +24,10 @@ export async function startAdminServer(deps: {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, requestTimeout: 30_000,
     trustProxy: deps.config.trustedProxies?.length ? deps.config.trustedProxies : false });
   app.addHook('onRequest', async (_req, reply) => {
-    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Content-Type-Options', 'nosniff'); // g0:allow:secrets t_33947af2 - public security header policy values, no credentials
     reply.header('Referrer-Policy', 'no-referrer');
     reply.header('X-Frame-Options', 'DENY');
-    reply.header('Content-Security-Policy', "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'");
+    reply.header('Content-Security-Policy', "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"); // g0:allow:secrets t_33947af2 - public security header policy values, no credentials
   });
   app.setErrorHandler((error, req, reply) => {
     const failure = error as { statusCode?: number };

@@ -123,20 +123,20 @@ test('real app-role handlers bind fresh participant authority, public projection
   });
   await t.test('individual answer inspection requires current organizer authority in the selected guild and audits no answer values', async () => {
     const orgHeaders = { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, organizer.id))}` };
-    const response = await app.inject({ url: '/api/events/a/registrations/subject', headers: orgHeaders });
+    const response = await app.inject({ url: '/api/events/a/registrations/subject', headers: orgHeaders }); // g0:allow:secrets t_33947af2 - synthetic API paths, no credentials
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.headers['cache-control'], 'no-store');
     assert.deepEqual(response.json().answers, { private: 'UPDATED' });
     assert.equal(response.json().questions[0].id, 'private');
-    assert.equal((await app.inject({ url: '/api/events/b/registrations/subject', headers: orgHeaders })).statusCode, 404);
+    assert.equal((await app.inject({ url: '/api/events/b/registrations/subject', headers: orgHeaders })).statusCode, 404); // g0:allow:secrets t_33947af2 - synthetic API paths, no credentials
     assert.equal((await app.inject({ url: '/api/events/a/registrations/missing', headers: orgHeaders })).statusCode, 404);
-    assert.equal((await app.inject({ url: '/api/events/a/registrations/subject', headers })).statusCode, 401);
-    assert.equal((await app.inject({ url: '/api/events/a/registrations/subject' })).statusCode, 401);
+    assert.equal((await app.inject({ url: '/api/events/a/registrations/subject', headers })).statusCode, 401); // g0:allow:secrets t_33947af2 - synthetic API paths, no credentials
+    assert.equal((await app.inject({ url: '/api/events/a/registrations/subject' })).statusCode, 401); // g0:allow:secrets t_33947af2 - synthetic API paths, no credentials
     const entry = await owner.get<{ actor: string; details: string }>("SELECT actor, details FROM audit_log WHERE action='registration.read' AND target='a'");
     assert.equal(entry?.actor, 'discord:organizer');
     assert.deepEqual(JSON.parse(entry!.details), { userId: 'subject' });
     await owner.run("UPDATE registration_answers SET form_version=99 WHERE event_id='a' AND user_id='subject'");
-    const historical = (await app.inject({ url: '/api/events/a/registrations/subject', headers: orgHeaders })).json();
+    const historical = (await app.inject({ url: '/api/events/a/registrations/subject', headers: orgHeaders })).json(); // g0:allow:secrets t_33947af2 - synthetic API paths, no credentials
     assert.equal(historical.historicalDefinitionUnavailable, true);
     assert.deepEqual(historical.questions, []);
     await owner.run("UPDATE registration_answers SET form_version=1 WHERE event_id='a' AND user_id='subject'");

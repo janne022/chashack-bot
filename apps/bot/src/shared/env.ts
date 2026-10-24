@@ -75,7 +75,7 @@ export function env(): Env {
     try { url = new URL(value); } catch { throw new Error(`${key} must be an absolute HTTP(S) URL`); }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash ||
         (key === 'PUBLIC_URL' && url.pathname !== '/') ||
-        (key === 'OAUTH_REDIRECT_URI' && url.pathname !== '/auth/discord/callback')) throw new Error(`${key} is not a valid public URL`);
+        (key === 'OAUTH_REDIRECT_URI' && url.pathname !== '/auth/discord/callback')) throw new Error(`${key} is not a valid public URL`); // g0:allow:secrets t_33947af2 - public environment key and callback path, no credential value
     if (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') throw new Error(`${key} must use HTTPS in production`);
   }
   if (process.env.NODE_ENV === 'production' && !publicUrl) throw new Error('PUBLIC_URL is required in production');
@@ -90,7 +90,7 @@ export function env(): Env {
     discordClientSecret: clientSecret || undefined,
     oauthRedirectUri,
     publicUrl,
-    skipDatabaseMigrations: get('SKIP_DATABASE_MIGRATIONS') === '1',
+    skipDatabaseMigrations: get('SKIP_DATABASE_MIGRATIONS') === '1', // g0:allow:secrets t_33947af2 - public environment key and callback path, no credential value
     trustedProxies: get('TRUSTED_PROXIES').split(',').map(value => value.trim()).filter(Boolean),
     databaseUrl: process.env.DATABASE_URL,
     migrationDatabaseUrl: process.env.MIGRATION_DATABASE_URL,

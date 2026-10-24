@@ -4,9 +4,9 @@ export function mutationBodyError(raw: unknown): string | null {
   if (raw === undefined || raw === null) return null;
   if (typeof raw !== 'object' || Array.isArray(raw)) return 'body';
   const body = raw as Record<string, unknown>;
-  const strings = new Set(['name', 'description', 'title', 'message', 'reason', 'action', 'decision', 'kind', 'revision', 'eventId', 'teamId', 'userId', 'ownerId', 'targetId', 'participantId', 'guildId', 'templateId', 'formTemplateId', 'channelId', 'panelChannelId', 'announcementChannelId', 'scheduleChannelId', 'categoryId', 'teamCategoryId', 'defaultAnnouncementChannelId', 'defaultPanelChannelId', 'defaultCategoryId', 'defaultScheduleChannelId', 'defaultFormTemplateId', 'discordUsername', 'linkDiscordUserId', 'colorId', 'json', 'formJson', 'csv', 'saveTemplateName', 'assignmentStrategy']);
+  const strings = new Set(['name', 'description', 'title', 'message', 'reason', 'action', 'decision', 'kind', 'revision', 'eventId', 'teamId', 'userId', 'ownerId', 'targetId', 'participantId', 'guildId', 'templateId', 'formTemplateId', 'channelId', 'panelChannelId', 'announcementChannelId', 'scheduleChannelId', 'categoryId', 'teamCategoryId', 'defaultAnnouncementChannelId', 'defaultPanelChannelId', 'defaultCategoryId', 'defaultScheduleChannelId', 'defaultFormTemplateId', 'discordUsername', 'linkDiscordUserId', 'colorId', 'json', 'formJson', 'csv', 'saveTemplateName', 'assignmentStrategy']); // g0:allow:secrets t_33947af2 - public payload field names, no credentials
   const dates = new Set(['startsAt', 'endsAt', 'signupStartsAt', 'signupEndsAt', 'matchAt']);
-  const numbers = new Set(['days', 'durationHours', 'cleanupDelayHours', 'defaultCleanupDelayHours', 'formVersion']);
+  const numbers = new Set(['days', 'durationHours', 'cleanupDelayHours', 'defaultCleanupDelayHours', 'formVersion']); // g0:allow:secrets t_33947af2 - public payload field names, no credentials
   for (const [key, value] of Object.entries(body)) {
     if (['__proto__', 'constructor', 'prototype'].includes(key)) return key;
     if (strings.has(key) && value !== null && (typeof value !== 'string' || value.length > (['csv', 'json', 'formJson'].includes(key) ? 900_000 : 10_000))) return key;
