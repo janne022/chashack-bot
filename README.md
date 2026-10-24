@@ -117,6 +117,24 @@ used only for instant local command registration, never web authorization.
 The admin panel lives at
 `http://localhost:8420`.
 
+Production deployment uses [compose.production.yaml](compose.production.yaml) and
+the [deployment and recovery runbook](docs/operations/production-recovery.md).
+Set `PUBLIC_URL` to the canonical HTTPS origin and `OAUTH_REDIRECT_URI` to that
+origin plus `/auth/discord/callback`; register `/auth/participant/callback` with
+Discord as well. Redirect domain aliases to the canonical origin. Independent
+credentialed origins are not supported by this configuration.
+
+Set `TRUSTED_PROXIES` only to the actual proxy IP/CIDR; the production template
+trusts its fixed Caddy address. Leave it empty for direct local access. Run the
+one-shot migration with `MIGRATION_DATABASE_URL`, then start the restricted app
+with `SKIP_DATABASE_MIGRATIONS=1` and only `DATABASE_URL`. The template mounts the
+DDL credential into the migration service only. Follow the runbook for explicit
+secret-file handling, immutable images, backups and isolated recovery drills.
+
+Security work and verification limits are tracked in the
+[requirements ledger](docs/plans/security-remediation-requirements.md), with
+remaining [investigations and frontend handoff](docs/security-frontend-investigation-backlog.md).
+
 ### Signing in to the console
 
 Sign-in is **Discord OAuth only**. Configure `DISCORD_CLIENT_ID`,

@@ -44,6 +44,26 @@ test('upsertParticipant accepts active events', async () => {
   assert.equal(res.ok, true);
 });
 
+test('signup window rejects early and closed registrations but permits active edits', async () => {
+  const db = await seed();
+  await db.run('UPDATE events SET signup_starts_at = 100, signup_ends_at = 200 WHERE id = ?', 'ev1');
+  const realNow = Date.now;
+  try {
+    Date.now = () => 99;
+    const early = await upsertParticipant(db, 'discord:42', 'ev1', 'g1', '42', signup);
+    assert.equal(early.ok, false);
+    if (!early.ok) assert.equal(early.code, 'signup_not_open');
+
+    Date.now = () => 100;
+    assert.equal((await upsertParticipant(db, 'discord:42', 'ev1', 'g1', '42', signup)).ok, true);
+    Date.now = () => 200;
+    assert.equal((await upsertParticipant(db, 'discord:42', 'ev1', 'g1', '42', signup)).ok, true, 'existing active registrations can edit after closing');
+    const withdrawn = await upsertParticipant(db, 'discord:43', 'ev1', 'g1', '43', signup);
+    assert.equal(withdrawn.ok, false);
+    if (!withdrawn.ok) assert.equal(withdrawn.code, 'signup_closed');
+  } finally { Date.now = realNow; }
+});
+
 test('participant audit mutations refuse missing events without host audit or data mutation', async () => {
   const db = await seed();
   const blocked = await blockParticipant(db, 'admin', 'ghost-event', '42', 'reason');

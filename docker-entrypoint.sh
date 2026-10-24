@@ -1,33 +1,27 @@
 #!/bin/sh
-# Entrypoint: support PUID/PGID (LinuxServer.io convention, the default on
-# Unraid/Synology) by dropping privileges before
-# exec'ing the bot.
-#
-# - When PUID/PGID are unset (or already match uid 1000), run directly as the
-#   current user — no root process lingers.
-# - The container must start as root for the chown path to work; docker's
-#   `user:` directive overrides this script, so leave it unset when using
-#   PUID/PGID.
-set -e
-
-PUID="${PUID:-1000}"
-PGID="${PGID:-1000}"
-
-# Only attempt privilege work when actually running as root.
-if [ "$(id -u)" = "0" ]; then
-  # Create the group/user if they don't exist (PUID/PGID may be arbitrary host ids).
-  if ! getent group "$PGID" >/dev/null 2>&1; then
-    addgroup -g "$PGID" appgroup
+# Compose mounts protected secret files and names them with *_FILE variables.
+set -eu
+for name in DATABASE_URL MIGRATION_DATABASE_URL ADMIN_SESSION_SECRET DISCORD_TOKEN DISCORD_CLIENT_SECRET DELETION_REPLAY_DATABASE_URL; do
+  case "$name" in
+    DATABASE_URL) secret_file=${DATABASE_URL_FILE:-} ;;
+    MIGRATION_DATABASE_URL) secret_file=${MIGRATION_DATABASE_URL_FILE:-} ;;
+    ADMIN_SESSION_SECRET) secret_file=${ADMIN_SESSION_SECRET_FILE:-} ;;
+    DISCORD_TOKEN) secret_file=${DISCORD_TOKEN_FILE:-} ;;
+    DISCORD_CLIENT_SECRET) secret_file=${DISCORD_CLIENT_SECRET_FILE:-} ;;
+    DELETION_REPLAY_DATABASE_URL) secret_file=${DELETION_REPLAY_DATABASE_URL_FILE:-} ;;
+  esac
+  if [ -n "$secret_file" ]; then
+    if [ ! -r "$secret_file" ]; then
+      printf '%s\n' "Required secret file is unreadable: $secret_file" >&2
+      exit 1
+    fi
+    secret_value=$(cat "$secret_file")
+    [ -n "$secret_value" ] || { printf '%s\n' "Required secret file is empty: $secret_file" >&2; exit 1; }
+    export "$name=$secret_value"
+    unset "${name}_FILE"
   fi
-  if ! getent passwd "$PUID" >/dev/null 2>&1; then
-    adduser -D -u "$PUID" -G "$(getent group "$PGID" | cut -d: -f1)" appuser
-  fi
-  USER_NAME=$(getent passwd "$PUID" | cut -d: -f1)
-
-  # setpriv: drop privileges permanently, then exec the bot (PID 1 = node).
-  exec setpriv --reuid "$PUID" --regid "$PGID" --init-groups \
-    node apps/bot/dist/index.js
+done
+if [ "$#" -eq 0 ]; then
+  set -- node apps/bot/dist/index.js
 fi
-
-# Non-root start (user: directive or PUID already correct): run as-is.
-exec node apps/bot/dist/index.js
+exec "$@"

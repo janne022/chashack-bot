@@ -8,12 +8,12 @@ let total = 0;
 
 /** Same-origin cookie streams carry no identifiers or snapshots to the browser. */
 export function registerLiveRoute(app: FastifyInstance, db: Db, path: string,
-  authorize: (req: FastifyRequest) => Promise<LiveAccess | null>, heartbeatMs = 10_000): void {
+  authorize: (req: FastifyRequest) => Promise<LiveAccess | null>, heartbeatMs = 10_000, publicUrl?: string): void {
   const closing = new Set<() => void>();
   app.addHook('preClose', async () => { for (const close of closing) close(); });
   app.get(path, async (req: FastifyRequest, reply: FastifyReply) => {
     const origin = req.headers.origin;
-    const expected = `${req.protocol}://${req.headers.host}`;
+    const expected = publicUrl ? new URL(publicUrl).origin : `${req.protocol}://${req.headers.host}`;
     if ((origin !== undefined && origin !== expected) || (req.headers['sec-fetch-site'] !== undefined && req.headers['sec-fetch-site'] !== 'same-origin')) {
       return reply.code(403).send({ error: 'origin_refused' });
     }

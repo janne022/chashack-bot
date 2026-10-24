@@ -109,6 +109,11 @@ export async function deleteSession(db: Db, id: string): Promise<void> {
   await db.run('DELETE FROM web_sessions WHERE id = ?', id);
 }
 
+/** Self-service incident containment across both browser audiences. */
+export async function deleteUserSessions(db: Db, userId: string): Promise<void> {
+  await db.run('DELETE FROM web_sessions WHERE user_id = ?', userId);
+}
+
 /**
  * Switch the guild a session is managing. Returns false when the session may not
  * manage that guild — the authorisation check lives here so no route can forget

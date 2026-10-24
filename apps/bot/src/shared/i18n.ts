@@ -45,6 +45,8 @@ const EN: Catalog = {
   'discord.join.fix_title': 'Fix these and try again',
   'discord.join.fix_hint': 'Use `/hackathon join` to open the form again.',
   'discord.join.saved_title': 'Signup saved ✅',
+  'discord.join.signup_not_open': 'Signups have not opened yet.',
+  'discord.join.signup_closed': 'Signups are closed.',
   'discord.join.saved_thanks': 'Thanks, **{name}**! {hint}',
   'discord.join.web_completion': 'Complete your remaining signup here: {url}',
   'discord.join.hint_create': 'Use `/hackathon create-team` to set up your team — you get invite powers, a private channel and a role.',
@@ -235,6 +237,7 @@ const EN: Catalog = {
   'discord.admin.something_broke_title': 'Something went wrong',
   'discord.admin.something_broke': 'Something broke on our side. Try again, or ping an organizer.',
   'discord.admin.failed_label': 'Failed: {message}',
+  'discord.admin.role_revoke_failed': 'Signup was updated, but Discord team access could not be revoked. An organizer must retry the removal.',
   'discord.admin.moved_done': 'Done — <@{user}> moved.',
   'discord.admin.event_name_fallback': 'the hackathon',
 
@@ -434,6 +437,8 @@ const SV: Catalog = {
   'discord.join.fix_title': 'Rätta det här och försök igen',
   'discord.join.fix_hint': 'Använd `/hackathon join` för att öppna formuläret igen.',
   'discord.join.saved_title': 'Anmälan sparad ✅',
+  'discord.join.signup_not_open': 'Anmälan har inte öppnat än.',
+  'discord.join.signup_closed': 'Anmälan är stängd.',
   'discord.join.saved_thanks': 'Tack, **{name}**! {hint}',
   'discord.join.web_completion': 'Fyll i resten av din anmälan här: {url}',
   'discord.join.hint_create': 'Använd `/hackathon create-team` för att ordna ditt team — du får bjudningsrättigheter, en privat kanal och en roll.',
@@ -624,6 +629,7 @@ const SV: Catalog = {
   'discord.admin.something_broke_title': 'Något gick fel',
   'discord.admin.something_broke': 'Något gick sönder hos oss. Försök igen, eller pinga en organisatör.',
   'discord.admin.failed_label': 'Misslyckades: {message}',
+  'discord.admin.role_revoke_failed': 'Anmälan uppdaterades, men teamåtkomsten i Discord kunde inte tas bort. En organisatör måste försöka igen.',
   'discord.admin.moved_done': 'Klart — <@{user}> flyttad.',
   'discord.admin.event_name_fallback': 'hackathonet',
 

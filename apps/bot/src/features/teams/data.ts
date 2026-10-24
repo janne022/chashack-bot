@@ -31,6 +31,14 @@ export interface TeamWithMembers extends Team {
   members: { userId: string; displayName: string; roleTrack: string; experience: string; skills: string[]; matchingImportance?: Partial<Record<'experience' | 'role' | 'skills', number>> }[];
 }
 
+async function enqueueRoleRevocation(db: Db, team: Team, userId: string): Promise<void> {
+  if (team.roleId === null) return;
+  const now = Date.now();
+  await db.run(`INSERT INTO team_role_revocations
+    (guild_id,event_id,user_id,team_id,role_id,status,attempt_count,next_attempt_at,lease_until,created_at,updated_at)
+    VALUES (?,?,?,?,?,'pending',0,0,0,?,?)`, team.guildId, team.eventId, userId, team.id, team.roleId, now, now);
+}
+
 /** Serialize team membership mutations across independent pooled connections. */
 export async function lockEventTeams(db: Db, eventId: string): Promise<boolean> {
   return (await db.get<{ id: string }>('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId)) !== undefined;
@@ -251,6 +259,7 @@ export async function removeFromTeam(db: Db, actor: string, teamId: string, user
     const team = await getTeam(db, teamId);
     if (team === null) return err('not_found', 'Team not found.');
     const eventId = team.eventId;
+    await enqueueRoleRevocation(db, team, userId);
     await db.run('UPDATE participants SET team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ? AND team_id = ?', Date.now(), eventId, userId, team.id);
     if (team.ownerId === userId) {
       const candidates = await db.all<{ user_id: string }>("SELECT user_id FROM participants WHERE team_id = ? AND status = 'active' ORDER BY user_id", team.id);

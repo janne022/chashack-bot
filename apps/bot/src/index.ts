@@ -13,7 +13,7 @@ import { registerCommands, registerCommandsInGuild } from './register-commands-l
 import { registerMemberLifecycle } from './discord/member-lifecycle.js';
 
 const config = env();
-const db = await openDatabase(config.databaseUrl, config.migrationDatabaseUrl);
+const db = await openDatabase(config.databaseUrl, config.migrationDatabaseUrl, config.skipDatabaseMigrations ?? false);
 const kysely = createKysely(db);
 
 const client = new Client({
@@ -54,8 +54,10 @@ async function announce(guildId: string, content: string): Promise<void> {
   if (config.auditChannelId === undefined) return;
   try {
     const channel = await client.channels.fetch(config.auditChannelId);
-    if (channel !== null && channel.isTextBased() && 'send' in channel) {
+    if (channel !== null && channel.isTextBased() && 'send' in channel && 'guildId' in channel && channel.guildId === guildId) {
       await channel.send({ content: content.slice(0, 2000) });
+    } else {
+      console.warn(`audit channel send refused: configured destination is missing, non-text, or outside source guild ${guildId}`);
     }
   } catch (error) {
     console.error('audit channel send failed:', error);

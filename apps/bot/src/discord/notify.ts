@@ -32,6 +32,8 @@ import { postOrUpdatePanel } from './signup-panel.js';
 import { t } from '../shared/i18n.js';
 import { purgeEventPrivateAnswers, purgeExpiredPrivateAnswers } from '../features/registration/retention.js';
 import { purgeImportedSignups } from '../features/signup-import/data.js';
+import { retryFailedParticipantRoleRevocations } from '../features/signup/lifecycle.js';
+import { pruneResolvedTeamRoleRevocations } from '../features/signup/data.js';
 
 export interface NotifyDeps {
   db: Db;
@@ -238,6 +240,26 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
 
   // System maintenance enumerates installed guilds, then uses ordinary tenant-scoped reads.
   const guildIds = [...client.guilds.cache.values()].filter((guild) => guild.available !== false).map((guild) => guild.id);
+  for (const guildId of guildIds) {
+    const retry = await withGuildContext(db, guildId, () => retryFailedParticipantRoleRevocations(db, guildId, async (targetGuildId, userId, roleId) => {
+      if (targetGuildId !== guildId) throw new Error('role retry guild mismatch');
+      const guild = client.guilds.cache.get(guildId);
+      if (!guild) throw new Error('guild unavailable');
+      const role = await guild.roles.fetch(roleId).catch((error) => {
+        if ((error as { code?: number }).code === 10011) return null;
+        throw error;
+      });
+      if (role === null) return;
+      const member = await guild.members.fetch(userId).catch((error) => {
+        if ((error as { code?: number }).code === 10007) return null;
+        throw error;
+      });
+      if (member !== null && member.roles.cache.has(roleId)) await member.roles.remove(roleId, 'Retry failed participant team role revocation');
+    }));
+    if (retry.succeeded > 0 || retry.attempted > retry.succeeded) summary.push(`team role revocations retried in ${guildId}: ${retry.succeeded}/${retry.attempted} succeeded`);
+    const prunedRevocations = await withGuildContext(db, guildId, () => pruneResolvedTeamRoleRevocations(db, guildId));
+    if (prunedRevocations > 0) summary.push(`pruned ${prunedRevocations} resolved team role revocation records in ${guildId}`);
+  }
   const allEvents: HackathonEvent[] = [];
   for (const guildId of guildIds) allEvents.push(...await withGuildContext(db, guildId, () => listEvents(db, guildId)));
   const actions = planMaintenance(allEvents, now);
@@ -446,6 +468,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             announceActions.map(a=>({ title: a.title!, message: a.message!, channelId: a.channelId ?? null }))
 
           // 1) Run ops first (lock / assign / signup) so announcements that follow can reference final teams
+          let retrySchedule = false
           for (const op of opActions) {
             try {
               if (op.type === 'lock_teams') {
@@ -479,23 +502,39 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 const assigns = (event.assignments ?? []) as { id:string; title:string; instructions:string; imageUrl?:string }[]
                 if (assigns.length > 0) {
                   const { listTeams } = await import('../features/teams/data.js')
-                  const teams = (await listTeams(db, event.guildId)).filter((t: { eventId: string })=>t.eventId===event.id)
+                  const teams = await listTeams(db, event.id)
                   if (teams.length > 0) {
                     const mode = op.mode === 'same' ? 'same' : 'random'
                     const perTeam = mode === 'same'
-                      ? teams.map((team: { name: string; id: string })=>({ team, assign: (op.assignmentId ? assigns.find(x=>x.id===op.assignmentId) ?? assigns[0]! : assigns[0]!) }))
-                      : (()=>{ const sh=[...assigns].sort(()=>Math.random()-0.5); return teams.map((team: { name: string; id: string },i: number)=>({ team, assign: sh[i % sh.length]! })) })()
-                    for (const { team, assign } of perTeam) {
-                      const chanId = (team as unknown as { channelId?: string | null }).channelId ?? (team as unknown as { channel_id?: string | null }).channel_id ?? null
-                      if (!chanId || !isSnowflake(chanId)) continue
-                      const text = `**${assign.title}**\n${assign.instructions.replaceAll('{team}', team.name).replaceAll('{event}', event.name)}`.slice(0, 2000)
-                      // Attach the assignment's image when it has a usable URL.
-                      const payload: Parameters<import('discord.js').TextChannel['send']>[0] = { content: text, allowedMentions: { parse: ['everyone'] } as never }
-                      if (typeof assign.imageUrl === 'string' && /^https?:\/\//.test(assign.imageUrl)) payload.files = [assign.imageUrl]
-                      try { const guild = await client.guilds.fetch(event.guildId); const ch = await guild.channels.fetch(chanId).catch(()=>null) as import('discord.js').TextChannel | null; if (ch && ch.isTextBased()) await ch.send(payload).catch(()=>undefined) } catch {}
+                      ? teams.map((team)=>({ team, assign: (op.assignmentId ? assigns.find(x=>x.id===op.assignmentId) ?? assigns[0]! : assigns[0]!) }))
+                      : (()=>{ const sh=[...assigns].sort(()=>Math.random()-0.5); return teams.map((team,i)=>({ team, assign: sh[i % sh.length]! })) })()
+                    const priorDeliveries = await db.all<{ details: string | null }>("SELECT details FROM audit_log WHERE guild_id=? AND target=? AND action='schedule.assignment_team_delivered'", event.guildId, event.id)
+                    const deliveredTeams = new Set<string>()
+                    for (const row of priorDeliveries) {
+                      try {
+                        const details = JSON.parse(row.details ?? '{}') as { scheduleId?: string; teamId?: string }
+                        if (details.scheduleId === scheduleId && details.teamId) deliveredTeams.add(details.teamId)
+                      } catch { /* Ignore malformed historical audit details. */ }
                     }
-                    audit(db, 'system', 'schedule.distribute_assignments', event.id, { scheduleId, mode, teams: teams.length, assignments: assigns.length }, event.guildId)
-                    summary.push(`schedule assignments (${mode}): ${event.name} — ${teams.length} teams`)
+                    let delivered = 0
+                    let failed = 0
+                    for (const { team, assign } of perTeam) {
+                      if (deliveredTeams.has(team.id)) { delivered++; continue }
+                      const chanId = team.textChannelId
+                      if (!chanId || !isSnowflake(chanId)) { failed++; continue }
+                      const text = `**${assign.title}**\n${assign.instructions.replaceAll('{team}', team.name).replaceAll('{event}', event.name)}`.slice(0, 2000)
+                      try {
+                        const guild = await client.guilds.fetch(event.guildId)
+                        const ch = await guild.channels.fetch(chanId).catch(() => null) as import('discord.js').TextChannel | null
+                        if (!ch || !ch.isTextBased() || !('guildId' in ch) || ch.guildId !== event.guildId) { failed++; continue }
+                        await ch.send({ content: text, allowedMentions: { parse: [] } })
+                        await audit(db, 'system', 'schedule.assignment_team_delivered', event.id, { scheduleId, teamId: team.id }, event.guildId)
+                        delivered++
+                      } catch (error) { failed++; console.warn(`scheduled assignment delivery failed for team ${team.id}:`, error) }
+                    }
+                    await audit(db, 'system', 'schedule.distribute_assignments', event.id, { scheduleId, mode, teams: teams.length, assignments: assigns.length, delivered, failed, attachmentPolicy: 'remote_images_omitted' }, event.guildId)
+                    if (failed > 0) retrySchedule = true
+                    summary.push(`schedule assignments (${mode}): ${event.name} — ${delivered}/${teams.length} delivered${failed ? `, ${failed} failed` : ''}`)
                   }
                 }
               }
@@ -506,7 +545,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             // no announcements, just ops
             audit(db, 'system', 'schedule.ops', event.id, { scheduleId, title: item.title, ops: opActions.map(o=>o.type) }, event.guildId)
             if (opActions.length > 0) summary.push(`schedule ops: ${event.name} — ${item.title} (${opActions.map(o=>o.type).join(', ')})`)
-            await markScheduleAnnounced(db, event.id, scheduleId)
+            if (!retrySchedule) await markScheduleAnnounced(db, event.id, scheduleId)
             break
           }
 
@@ -535,7 +574,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             audit(db, 'system', 'schedule.announce', event.id, { scheduleId, title: item.title, count: toSend.length }, event.guildId)
             summary.push(`schedule: ${event.name} — ${item.title}`)
           } catch (e) { console.warn('schedule announce failed', e) }
-          await markScheduleAnnounced(db, event.id, scheduleId)
+          if (!retrySchedule) await markScheduleAnnounced(db, event.id, scheduleId)
           break;
         }
       }

@@ -21,7 +21,21 @@ export async function startAdminServer(deps: {
   announce: (guildId: string, content: string) => Promise<void>;
   client: import('discord.js').Client | null;
 }): Promise<AdminServerHandle> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, requestTimeout: 30_000,
+    trustProxy: deps.config.trustedProxies?.length ? deps.config.trustedProxies : false });
+  app.addHook('onRequest', async (_req, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Content-Security-Policy', "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'");
+  });
+  app.setErrorHandler((error, req, reply) => {
+    const failure = error as { statusCode?: number };
+    const status = typeof failure.statusCode === 'number' && failure.statusCode >= 400 && failure.statusCode < 500 ? failure.statusCode : 500;
+    // Do not log cookies, payloads, provider errors or database values.
+    console.warn(JSON.stringify({ event: 'http.failure', requestId: req.id, status }));
+    void reply.code(status).send({ error: status === 500 ? 'internal_error' : 'invalid_request', code: status === 500 ? 'internal_error' : 'invalid_request', requestId: req.id });
+  });
 
   registerRoutes(app, deps as WebDeps);
 

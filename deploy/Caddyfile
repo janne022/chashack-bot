@@ -1,0 +1,15 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$CANONICAL_DOMAIN} {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	reverse_proxy app:8420
+}
+
+

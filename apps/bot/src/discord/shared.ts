@@ -81,6 +81,8 @@ const FRIENDLY: Record<string, { key: string }> = {
   stale_preview: { key: 'errors.stale_preview' },
   not_owner: { key: 'errors.not_owner' },
   blocked: { key: 'errors.blocked' },
+  signup_not_open: { key: 'discord.join.signup_not_open' },
+  signup_closed: { key: 'discord.join.signup_closed' },
   already_in_team: { key: 'errors.already_in_team' },
   team_full: { key: 'errors.team_full' },
   not_found: { key: 'errors.not_found' },
