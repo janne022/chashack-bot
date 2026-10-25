@@ -175,7 +175,7 @@ export async function setupProductionSecrets(root = '/state', configSource = sou
   // Package the canonical deployment files with the app image. A copied Compose
   // stack then needs no checkout, host scripts or manually created config files.
   for (const [source, target] of [
-    ['deploy/Caddyfile', 'edge-config/Caddyfile'],
+    ['deploy/Caddyfile', 'edge-config/Caddyfile'], // g0:allow:secrets #62 - public configuration file paths, not credentials.
     ['postgres-init/10-roles.sh', 'postgres-init/10-roles.sh'],
   ]) {
     const content = (await readFile(join(configSource, source), 'utf8')).replace(/\r\n/g, '\n');

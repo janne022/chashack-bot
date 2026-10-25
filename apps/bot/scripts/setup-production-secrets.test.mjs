@@ -6,8 +6,8 @@ import { test } from 'node:test';
 import { setupProductionSecrets } from './setup-production-secrets.mjs';
 
 const paths = [
-  'database/postgres_bootstrap_password', 'database/chashack_app_password', 'database/chashack_migration_password',
-  'app/database_url', 'app/admin_session_secret', 'migration/migration_database_url',
+  'database/postgres_bootstrap_password', 'database/chashack_app_password', 'database/chashack_migration_password', // g0:allow:secrets #62 - credential file paths only.
+  'app/database_url', 'app/admin_session_secret', 'migration/migration_database_url', // g0:allow:secrets #62 - credential file paths only.
 ];
 const linuxRoot = process.platform === 'linux' && process.getuid?.() === 0;
 const options = { skip: linuxRoot ? false : 'Run inside a disposable Linux container as root to verify real UID/GID permissions.' };
@@ -16,8 +16,8 @@ async function fixture(t) {
   await mkdir(join(root, 'postgres'));
   await mkdir(join(root, 'legacy'));
   await mkdir(join(root, 'inputs'));
-  await writeFile(join(root, 'inputs/discord_token'), 'synthetic-fixture-token');
-  await writeFile(join(root, 'inputs/discord_client_secret'), 'synthetic-fixture-client-secret');
+  await writeFile(join(root, 'inputs/discord_token'), 'synthetic-fixture-token'); // g0:allow:secrets #62 - synthetic local fixture, never a Discord credential.
+  await writeFile(join(root, 'inputs/discord_client_secret'), 'synthetic-fixture-client-secret'); // g0:allow:secrets #62 - synthetic local fixture, never a Discord credential.
   t.after(async () => {
     await chown(join(root, 'postgres'), 0, 0);
     await chmod(join(root, 'postgres'), 0o700);
@@ -51,7 +51,7 @@ test('first startup creates distinct secrets with correct role URLs and access p
     assert.equal(info.uid, 0);
     assert.equal(info.gid, 10001);
   }
-  assert.match(await readFile(join(root, 'edge-config/Caddyfile'), 'utf8'), /trusted_proxies_strict/);
+  assert.match(await readFile(join(root, 'edge-config/Caddyfile'), 'utf8'), /trusted_proxies_strict/); // g0:allow:secrets #62 - public config file path and Caddy setting name.
   assert.match(await readFile(join(root, 'postgres-init/10-roles.sh'), 'utf8'), /CREATE ROLE chashack_app/);
   assert.doesNotMatch(await readFile(join(root, 'postgres-init/10-roles.sh'), 'utf8'), /\r/);
 });
@@ -156,7 +156,7 @@ test('updated Discord inputs rotate their protected copies without changing gene
   const root = await fixture(t);
   await setupProductionSecrets(root);
   const before = await snapshot(root);
-  await writeFile(join(root, 'inputs/discord_token'), 'synthetic-replacement-token');
+  await writeFile(join(root, 'inputs/discord_token'), 'synthetic-replacement-token'); // g0:allow:secrets #62 - synthetic rotation fixture, not an issued token.
   assert.equal(await setupProductionSecrets(root), 'reused');
   assert.equal(await readFile(join(root, 'app/discord_token'), 'utf8'), 'synthetic-replacement-token\n');
   assert.deepEqual(await snapshot(root), before);
@@ -164,7 +164,7 @@ test('updated Discord inputs rotate their protected copies without changing gene
 
 test('unset or placeholder Discord inputs fail before generating a credential record', options, async t => {
   const root = await fixture(t);
-  await writeFile(join(root, 'inputs/discord_token'), 'REPLACE_WITH_DISCORD_BOT_TOKEN');
+  await writeFile(join(root, 'inputs/discord_token'), 'REPLACE_WITH_DISCORD_BOT_TOKEN'); // g0:allow:secrets #62 - invalid placeholder fixture for rejection coverage.
   await assert.rejects(setupProductionSecrets(root), /Set DISCORD_TOKEN/);
   await assert.rejects(stat(join(root, 'store/credentials.json')), { code: 'ENOENT' });
 });
