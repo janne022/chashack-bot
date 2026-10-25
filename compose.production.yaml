@@ -5,18 +5,16 @@ services:
     init: true
     environment:
       CANONICAL_DOMAIN: ${CANONICAL_DOMAIN:?Set the canonical public DNS name}
-      ACME_EMAIL: ${ACME_EMAIL:?Set the certificate contact email}
+      TUNNEL_PROXY_CIDR: ${TUNNEL_PROXY_CIDR:?Set the cloudflared connector source IP/CIDR}
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "${TUNNEL_ORIGIN_BIND_IP:?Set the Unraid LAN IP}:${TUNNEL_ORIGIN_PORT:-8081}:80"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
       edge:
-        ipv4_address: ${EDGE_PROXY_IP:?Set the TLS proxy address in EDGE_SUBNET}
+        ipv4_address: ${EDGE_PROXY_IP:?Set the Caddy proxy address in EDGE_SUBNET}
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -37,7 +35,7 @@ services:
         condition: service_healthy
 
   app:
-    image: ${APP_IMAGE:?Set APP_IMAGE to a reviewed immutable image digest}
+    image: ${APP_IMAGE:?Set APP_IMAGE to a published GHCR image reference}
     restart: unless-stopped
     init: true
     environment:
@@ -45,7 +43,7 @@ services:
       ADMIN_PORT: "8420"
       PUBLIC_URL: https://${CANONICAL_DOMAIN:?Set the canonical public DNS name}
       OAUTH_REDIRECT_URI: https://${CANONICAL_DOMAIN}/auth/discord/callback
-      TRUSTED_PROXIES: ${EDGE_PROXY_IP:?Set the exact TLS proxy address}/32
+      TRUSTED_PROXIES: ${EDGE_PROXY_IP:?Set the exact Caddy proxy address}/32
       DATABASE_URL_FILE: /run/secrets/database_url
       ADMIN_SESSION_SECRET_FILE: /run/secrets/admin_session_secret
       DISCORD_TOKEN_FILE: /run/secrets/discord_token
@@ -88,7 +86,7 @@ services:
         condition: service_completed_successfully
 
   migrate:
-    image: ${APP_IMAGE:?Set APP_IMAGE to a reviewed immutable image digest}
+    image: ${APP_IMAGE:?Set APP_IMAGE to a published GHCR image reference}
     restart: "no"
     init: true
     command: ["node", "apps/bot/dist/shared/migrate-cli.js"]
@@ -111,7 +109,7 @@ services:
         condition: service_healthy
 
   replay-deletions:
-    image: ${APP_IMAGE:?Set APP_IMAGE to a reviewed immutable image digest}
+    image: ${APP_IMAGE:?Set APP_IMAGE to a published GHCR image reference}
     profiles: [recovery]
     restart: "no"
     init: true
