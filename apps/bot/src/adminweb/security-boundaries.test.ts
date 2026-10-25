@@ -8,7 +8,7 @@ import { createSession, getSession } from '../features/auth/data.js';
 import { makeDiscordToken, makeParticipantState, participantStateReturn, participantReturnPath } from '../features/auth/domain.js';
 import type { Env } from '../shared/env.js';
 
-const secret = 'synthetic-fixture-signing-material-32-plus'; // g0:allow:secrets t_33947af2 - synthetic test signing material and API paths only
+const secret = `test-${'x'.repeat(40)}`;
 const config = { adminSessionSecret: secret, clientId: '', skipDiscord: true, publicUrl: 'https://console.example.test' } as Env;
 const cookie = (id: string, audience: 'organizer' | 'participant') => `${audience === 'participant' ? 'hackpartsess' : 'hacksess'}=${makeDiscordToken(secret, id, Date.now(), audience)}`;
 

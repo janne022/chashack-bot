@@ -146,7 +146,7 @@ Use this checklist with synthetic exercises before production. The named owner a
 4. **Assess impact and notification.** The responsible controller, with qualified counsel/privacy support where appropriate, decides whether personal data was accessed or exposed and what notices/timing apply. Record the facts, decision-maker, rationale and deadlines in restricted incident records. This runbook supplies no legal threshold, contact list or guarantee.
 5. **Recover and learn.** Rotate affected secrets, deploy a reviewed immutable image, verify Discord and database state, test sign-in and live updates, and monitor errors/denials/backup jobs. After containment, document root cause, timeline, scope, user impact, missed controls, corrective owner and due date. Do not mark the incident closed until the service owner accepts remaining risk.
 
-Monitor backup jobs, auth failures, quota/Discord failures, deletion maintenance and unusual bulk reads through a separately protected sink. This Compose package does not configure alert delivery or prove logs are privacy-safe; those remain explicit deployment acceptance items.
+Monitor backup jobs, login failures, quota/Discord failures, deletion maintenance and unusual bulk reads through a separately protected sink. This Compose package does not configure alert delivery or prove logs are privacy-safe; those remain explicit deployment acceptance items.
 
 
 ### Additional recovery command details
