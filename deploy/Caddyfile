@@ -1,8 +1,14 @@
 {
-	email {$ACME_EMAIL}
+	servers {
+		trusted_proxies static {$TUNNEL_PROXY_CIDR}
+		trusted_proxies_strict
+	}
 }
 
-{$CANONICAL_DOMAIN} {
+http://{$CANONICAL_DOMAIN} {
+	@notTunnel not remote_ip {$TUNNEL_PROXY_CIDR}
+	respond @notTunnel 403
+
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
