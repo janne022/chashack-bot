@@ -173,7 +173,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       const write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
       const identity = `${session.userId}:${session.selectedGuildId ?? ''}`;
       const ordinary = await consumeQuota(db, write ? 'ordinary' : 'web-read', identity, write ? 30 : 90);
-      const expensive = /\/guild\/members|invite|invitation|teams?|match|announce|discord-events|signup-import|channel-test|\/panel|schedule-itinerary/i.test(req.url);
+      const path = req.url.split('?')[0]!;
+      // Routine team reads share the bounded read quota, not the much smaller
+      // provisioning/fan-out quota. Query values never determine route cost.
+      const expensive = path === '/api/guild/members' || (write && /invite|invitation|teams?|match|announce|discord-events|signup-import|channel-test|\/panel|schedule-itinerary/i.test(path));
       const costly = ordinary.allowed && expensive ? await consumeQuota(db, 'expensive', identity, 5) : ordinary;
       const denied = !ordinary.allowed ? ordinary : costly;
       if (!denied.allowed) return reply.header('Retry-After', denied.retryAfterSeconds).code(429).send({ error: 'rate_limited', retryAfterSeconds: denied.retryAfterSeconds });

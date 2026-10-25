@@ -66,6 +66,7 @@ test('authenticated expensive reads are denied before fresh Discord lookups', as
   registerRoutes(app, { db, config, announce: async () => undefined, client: { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild } } as never });
   const session = await createSession(db, { userId: 'owner', username: 'Owner', avatar: null, guilds: [{ id: guildId, name: 'Test', icon: null }] });
   const headers = { cookie: cookie(session.id, 'organizer') };
+  for (let i = 0; i < 6; i++) assert.equal((await app.inject({ url: '/api/auth/me?filter=teams', headers })).statusCode, 200, 'ordinary reads and query values must not consume the expensive-operation quota');
   for (let i = 0; i < 5; i++) assert.equal((await app.inject({ url: '/api/guild/members?query=Test', headers })).statusCode, 200);
   const before = lookups;
   const denied = await app.inject({ url: '/api/guild/members?query=Other', headers });
