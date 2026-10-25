@@ -83,6 +83,10 @@ try {
     return result.result.value;
   };
   const nav = async (url) => {
+    // Separate accelerated journeys sharing this disposable fixture/session.
+    // Real quota enforcement is tested in security-boundaries.test.ts; the
+    // explicit browser 429 scenario below still verifies retry feedback.
+    await db.run('DELETE FROM rate_limit_buckets');
     await send('Page.navigate', { url }, sid);
     for (let i = 0; i < 100; i++) {
       const ready = await evaluate(`document.readyState === 'complete' && (document.querySelector('#root')?.innerText.trim().length ?? 0) > 0`);
