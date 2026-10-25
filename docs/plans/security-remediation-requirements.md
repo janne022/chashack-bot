@@ -129,6 +129,13 @@ requires janne's attended approval; no merge or deployment is performed here.
 
 ### Local verification, 24 October 2026
 
+Release update, 25 October 2026: after the cooldown expired, `body-parser` was
+pinned to 2.4.0 and the lockfile regenerated. Frozen install passed with the
+unchanged 4,320-minute policy. The high-severity audit now passes: zero high or
+critical findings; 11 moderate and four low findings remain for follow-up.
+This supersedes the dependency blocker described above. The user explicitly
+approved merging this PR, including its workflow changes, once final CI passes.
+
 - Backend build passed; complete PostgreSQL suite passed **261/261** before the
   independent review repair. API smoke passed all ten assertions.
 - Same-card independent Luna qa-judge identified missing outbox coverage for

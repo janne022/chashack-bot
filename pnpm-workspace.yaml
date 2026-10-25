@@ -7,6 +7,7 @@ allowBuilds:
 minimumReleaseAge: 4320
 minimumReleaseAgeStrict: true
 overrides:
+  body-parser: 2.4.0
   '@modelcontextprotocol/sdk': 1.32.0
   brace-expansion: 5.0.12
   proxy-addr: 2.0.8
