@@ -119,17 +119,21 @@ The admin panel lives at
 
 Production deployment uses [compose.production.yaml](compose.production.yaml) and
 the [deployment and recovery runbook](docs/operations/production-recovery.md).
-Set `PUBLIC_URL` to the canonical HTTPS origin and `OAUTH_REDIRECT_URI` to that
-origin plus `/auth/discord/callback`; register `/auth/participant/callback` with
-Discord as well. Redirect domain aliases to the canonical origin. Independent
-credentialed origins are not supported by this configuration.
+For an Unraid Custom Stack, copy the Compose file and fill in its private `.env`
+field using [the production example](deploy/production.env.example), then click
+**Compose Up**. The stack generates and retains the database passwords, both
+database URLs and the session secret automatically. It packages its Caddy and
+database initialization files in the app image; no shell setup is required.
+Supply the credentials issued by Discord. `CANONICAL_DOMAIN` determines the HTTPS
+origin and callbacks; register `/auth/discord/callback` and
+`/auth/participant/callback` with Discord. Redirect aliases to that origin.
 
 Set `TRUSTED_PROXIES` only to the actual proxy IP/CIDR; the production template
-trusts its fixed Caddy address. Leave it empty for direct local access. Run the
-one-shot migration with `MIGRATION_DATABASE_URL`, then start the restricted app
-with `SKIP_DATABASE_MIGRATIONS=1` and only `DATABASE_URL`. The template mounts the
-DDL credential into the migration service only. Follow the runbook for explicit
-secret-file handling, immutable images, backups and isolated recovery drills.
+trusts its fixed Caddy address. Leave it empty for direct local access. The
+production stack runs migration before starting the restricted app and mounts
+the DDL credential only into migration.
+Preserve the credential volumes with the database volume. Follow the runbook for
+secret storage, immutable images, backups and isolated recovery drills.
 
 Security work and verification limits are tracked in the
 [requirements ledger](docs/plans/security-remediation-requirements.md), with

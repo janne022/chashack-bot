@@ -21,6 +21,8 @@ COPY apps/bot/scripts apps/bot/scripts
 RUN npm install -g pnpm@12.3.4 \
  && pnpm install --prod --frozen-lockfile --filter bot \
  && npm uninstall -g pnpm
+COPY deploy/Caddyfile deploy/Caddyfile
+COPY postgres-init/10-roles.sh postgres-init/10-roles.sh
 COPY --from=build --chown=10001:10001 /app/apps/bot/dist apps/bot/dist
 COPY --from=build --chown=10001:10001 /app/apps/admin-ui/dist apps/admin-ui/dist
 COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
