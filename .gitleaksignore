@@ -1,0 +1,8 @@
+# t_33947af2: exact historical findings reviewed from PR55 SARIF.
+# The two test files contain only fixed synthetic signing strings, never real credentials.
+a1280ad5de337ea742b7055b6af1bad8136c87c3:apps/bot/src/shared/env.test.ts:generic-api-key:16
+d806b82143e701bd67a80bc9c7ca4c2a0bc45b67:apps/bot/src/shared/env.test.ts:generic-api-key:16
+a1280ad5de337ea742b7055b6af1bad8136c87c3:apps/bot/src/adminweb/security-boundaries.test.ts:generic-api-key:11
+d806b82143e701bd67a80bc9c7ca4c2a0bc45b67:apps/bot/src/adminweb/security-boundaries.test.ts:generic-api-key:11
+# Runbook prose about privacy-safe logs; no credential literal. No path/rule-wide exclusion.
+d806b82143e701bd67a80bc9c7ca4c2a0bc45b67:docs/operations/production-recovery.md:generic-api-key:149

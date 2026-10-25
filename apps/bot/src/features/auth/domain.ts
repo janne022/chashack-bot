@@ -134,3 +134,22 @@ export function safeEqual(a: string, b: string): boolean {
   const y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
 }
+
+export function participantReturnPath(value: unknown): string {
+  return typeof value === 'string' && /^\/events\/[A-Za-z0-9_-]{1,100}\/signup$/.test(value) ? value : '/my-hackathons';
+}
+
+/** Return destination is authenticated, expires, and is also bound to the state cookie. */
+export function makeParticipantState(secret: string, path: unknown, now = Date.now()): string {
+  const payload = Buffer.from(JSON.stringify({ nonce: makeState(), path: participantReturnPath(path), exp: now + 600_000 })).toString('base64url');
+  return `${payload}.${sign(secret, 'participant-oauth', payload)}`;
+}
+
+export function participantStateReturn(secret: string, state: string, now = Date.now()): string | null {
+  const [payload, mac, extra] = state.split('.');
+  if (!payload || !mac || extra !== undefined || !macMatches(sign(secret, 'participant-oauth', payload), mac)) return null;
+  try {
+    const value = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { path: unknown; exp: unknown };
+    return typeof value.exp === 'number' && value.exp >= now ? participantReturnPath(value.path) : null;
+  } catch { return null; }
+}

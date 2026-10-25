@@ -10,3 +10,7 @@ data
 .env.*
 !.env.example
 README.md
+deploy/secrets
+deploy/production.env
+.worktrees
+security-test-results.txt
