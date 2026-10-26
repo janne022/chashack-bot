@@ -6,7 +6,7 @@ export function questionErrors(form: FormConfig): Record<string, string> {
   const mapped = new Set<string>()
   for (const q of form.customQuestions ?? []) {
     if (!q.label.en.trim()) errors[`${q.id}-label`] = 'form.label_required'
-    if (q.kind !== 'text') {
+    if (['single_choice', 'multi_choice'].includes(q.kind)) {
       if (!q.choices?.length) errors[`${q.id}-kind`] = 'form.choice_required'
       for (const c of q.choices ?? []) {
         if (!c.label.en.trim()) errors[`${q.id}-${c.id}-label`] = 'form.label_required'

@@ -3,7 +3,7 @@ name: ChasHack Admin
 description: The organizer console for running a ChaS hackathon weekend, in the "Honeycomb playtech" world.
 colors:
   comb-sky: "#55bbda"
-  deep-comb-sky: "#2e8fb3"
+  deep-comb-sky: "#216f8a"
   signal-coral: "#f08080"
   moss-teal: "#4e8780"
   orchid-lilac: "#c77fc7"
@@ -21,12 +21,12 @@ colors:
   paper-shade: "#f0ede6"
   paper-line: "#ded9cf"
   graphite: "#1a1d24"
-  pencil-grey: "#6b7280"
+  pencil-grey: "#626977"
 typography:
   display:
-    fontFamily: "Nunito, ui-sans-serif, system-ui, sans-serif"
+    fontFamily: "Geist Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "1.5rem"
-    fontWeight: 800
+    fontWeight: 600
     lineHeight: 1.2
     letterSpacing: "-0.02em"
   headline:
@@ -62,7 +62,7 @@ spacing:
   cell: "4px"
   compact: "8px"
   card-sm: "12px"
-  card: "16px"
+  card: "24px"
   section: "24px"
 components:
   button-primary:
@@ -70,7 +70,7 @@ components:
     textColor: "{colors.night-comb}"
     typography: "{typography.body}"
     rounded: "{rounded.hex}"
-    height: "28px"
+    height: "40px"
     padding: "0 10px"
   button-primary-hover:
     backgroundColor: "{colors.comb-sky}"
@@ -81,21 +81,21 @@ components:
     textColor: "{colors.moonlight-ink}"
     typography: "{typography.body}"
     rounded: "{rounded.hex}"
-    height: "28px"
+    height: "40px"
     padding: "0 10px"
   button-outline:
     backgroundColor: "{colors.night-comb}"
     textColor: "{colors.moonlight-ink}"
     typography: "{typography.body}"
     rounded: "{rounded.hex}"
-    height: "28px"
+    height: "40px"
     padding: "0 10px"
   button-destructive:
     backgroundColor: "{colors.alert-red}"
     textColor: "{colors.alert-red}"
     typography: "{typography.body}"
     rounded: "{rounded.hex}"
-    height: "28px"
+    height: "40px"
     padding: "0 10px"
   badge-success:
     backgroundColor: "{colors.moss-teal}"
@@ -115,7 +115,7 @@ components:
     textColor: "{colors.moonlight-ink}"
     typography: "{typography.body}"
     rounded: "{rounded.hex}"
-    height: "32px"
+    height: "40px"
     padding: "0 10px"
 ---
 
@@ -152,8 +152,7 @@ material.
   direction for anything that lifts (see Elevation & Depth).
 - Hexagon motifs as the recurring signature: clipped badges, weave backgrounds,
   cell-shaped hero panels.
-- Compact, tactile controls (28px default height, press-down feedback) over airy
-  marketing spacing.
+- Readable 40px controls and 44px mobile targets, with generous card spacing.
 - Semantic colour trio (`ok` / `warn` / `danger`) reserved for state, never mood.
 
 ## Colors
@@ -165,8 +164,8 @@ A near-monochrome comb lit by one sky-blue accent, with a small semantic set
 - **Comb Sky** (`#55bbda`): the interactive accent in dark mode — primary
   buttons, focus rings, active nav, link text and accent-soft washes behind
   selected rows. Live states use a stable accent plus a text label, never a pulse.
-  In light mode the role moves to **Deep Comb Sky** (`#2e8fb3`) so contrast holds on paper.
-- **Deep Comb Sky** (`#2e8fb3`): light-mode accent, and the darker end of sky
+  In light mode the role moves to **Deep Comb Sky** (`#216f8a`) so contrast holds on paper.
+- **Deep Comb Sky** (`#216f8a`): light-mode accent, and the darker end of sky
   gradients on hero and login surfaces.
 
 ### Secondary
@@ -192,7 +191,7 @@ A near-monochrome comb lit by one sky-blue accent, with a small semantic set
 - **Warm Paper** (`#f7f5f0`) / **Paper Card** (`#fffdf9`) / **Paper Shade**
   (`#f0ede6`) / **Paper Line** (`#ded9cf`): the light-mode equivalents of floor,
   cell, raised cell and edge.
-- **Graphite** (`#1a1d24`) / **Pencil Grey** (`#6b7280`): light-mode primary and
+- **Graphite** (`#1a1d24`) / **Pencil Grey** (`#626977`): light-mode primary and
   secondary text.
 - **Boundary Amber** (`#f0b429`) and **Alert Red** (`#ef4444`): warning and
   danger state (draft badge, destructive buttons, validation), on top of the
@@ -419,8 +418,7 @@ can read the hexagons before the content, the opacity is wrong.
 ### Do:
 - **Do** reference tokens (`--color-accent`, `bg-surface-2`, `text-muted-foreground`)
   so dark and light stay true to each other.
-- **Do** keep control heights compact: 28px buttons in console chrome, 32px for
-  the primary page action, 32px inputs, 20px chips.
+- **Do** use 40px default controls, 44px primary/mobile targets, and 32px compact secondary actions.
 - **Do** give every interactive element the same focus treatment — 3px ring at
   50% accent, `focus-visible` only.
 - **Do** express state with the semantic trio and tinted chips, and pair colour
@@ -453,11 +451,28 @@ can read the hexagons before the content, the opacity is wrong.
 
 Public event and signup pages share one scoped frame, separate from organizer chrome.
 Keep the event description and dates visible beside the one-page form on desktop;
-stack them above the form on mobile. A default event needs no uploaded artwork.
+place the form first and event details below it on mobile. A default event needs no uploaded artwork.
 Event-local appearance may override preset, mode, accent, page background, form
 surface, text and HTTPS banner/background images, but must retain readable opaque
 form surfaces and a contrast-resolved action foreground. A failed image disappears
 without covering content; it never blocks registration. Theme templates copy their
 appearance into the event snapshot rather than binding future theme edits to it.
 Participant primary actions and navigation links use a minimum 44px touch target;
-compact organizer controls above are not the participant sizing rule.
+organizer mobile controls use the same target size.
+
+## Community workspace refresh
+
+Use restrained flat cards, Geist headings and a clear content hierarchy. The account-level
+server picker sits outside the organizer workspace. The sidebar starts with All servers
+and the current server; remember a deliberate server choice per account. Theme controls
+are labeled and language selection remains available on mobile.
+
+Participant navigation has Overview, Your signup and Your team. Saved answers start in
+read-only mode with an explicit edit action and completion state. Keep the visitor's
+light/dark preference separate from event branding. Group skills visibly and reserve
+accent color for choices, progress and actions.
+
+Loading uses skeleton shapes with screen-reader status. Reconnecting live updates is
+silent; a persistent outage gets an accessible retry icon. Respect reduced motion.
+Validate desktop/mobile in both themes, including open dialogs, keyboard navigation,
+file errors and real saved data. A compilation or API smoke check is not visual proof.

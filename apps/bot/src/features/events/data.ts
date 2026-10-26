@@ -128,7 +128,7 @@ export function resolveScheduleAnchors(items: ScheduleItem[], dates: ScheduleDat
             ? dates.signupStartsAt ?? dates.startsAt ?? null
             : dates.signupEndsAt ?? dates.startsAt ?? null;
     if (anchorTime === null || !Number.isFinite(anchorTime)) return item;
-    return { ...item, time: startOfDay(anchorTime) + item.offsetMinutes * 60_000 };
+    return { ...item, time: SYNTHETIC_ANCHORS[item.id] ? anchorTime : startOfDay(anchorTime) + item.offsetMinutes * 60_000 };
   });
 }
 
@@ -179,6 +179,7 @@ export function withAssignmentDistribution(
   strategy: AssignmentStrategy,
   startsAt: number | null | undefined,
 ): ScheduleItem[] {
+  if (schedule.some(block => block.id !== '__start__' && block.actions?.some(action => action.type === 'distribute_assignments'))) return schedule;
   const startIdx = schedule.findIndex((s) => s.id === '__start__');
   const action: ScheduleAction = { id: DISTRIBUTE_ACTION_ID, type: 'distribute_assignments', mode: strategy };
   if (startIdx !== -1) {
@@ -439,9 +440,11 @@ export async function updateEvent(
     const name = update.name !== undefined ? update.name.trim().slice(0, 100) || event.name : event.name;
     const description = update.description !== undefined ? update.description.slice(0, 1000) : event.description;
     const startsAt = update.startsAt !== undefined ? update.startsAt : event.startsAt;
-    const endsAt = update.endsAt !== undefined ? update.endsAt : event.endsAt;
-    const signupStartsAt = update.signupStartsAt !== undefined ? update.signupStartsAt : event.signupStartsAt;
-    const signupEndsAt = update.signupEndsAt !== undefined ? update.signupEndsAt : event.signupEndsAt;
+    const delta = startsAt !== null && event.startsAt !== null ? startsAt - event.startsAt : 0;
+    const shift = (value: number | null) => value === null ? null : value + delta;
+    const endsAt = update.endsAt !== undefined ? update.endsAt : shift(event.endsAt);
+    const signupStartsAt = update.signupStartsAt !== undefined ? update.signupStartsAt : shift(event.signupStartsAt);
+    const signupEndsAt = update.signupEndsAt !== undefined ? update.signupEndsAt : shift(event.signupEndsAt);
     if (startsAt !== null && endsAt !== null && endsAt <= startsAt) {
       return err('bad_dates', 'The event must end after it starts.');
     }
@@ -451,7 +454,7 @@ export async function updateEvent(
     if (signupEndsAt !== null && startsAt !== null && signupEndsAt > startsAt) {
       return err('bad_dates', 'Signup must end before the hackathon starts.');
     }
-    if (update.startsAt !== undefined && startsAt !== null) {
+    if (update.startsAt !== undefined && startsAt !== null && startsAt !== event.startsAt) {
       const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
       if (startsAt < todayStart.getTime()) return err('bad_dates', 'Event cannot start in the past.');
     }
@@ -480,7 +483,13 @@ export async function updateEvent(
         ? JSON.stringify(
             resolveScheduleAnchors(normalizeSchedule(update.schedule), { startsAt, endsAt, signupStartsAt, signupEndsAt }),
           )
-        : JSON.stringify(event.schedule),
+        : JSON.stringify(resolveScheduleAnchors(event.schedule.map(item => {
+            if (item.anchor || !delta || startsAt === null || event.startsAt === null) return item;
+            const oldDate = new Date(event.startsAt), newDate = new Date(startsAt), date = new Date(item.time);
+            const days = Math.round((Date.UTC(newDate.getFullYear(), newDate.getMonth(), newDate.getDate()) - Date.UTC(oldDate.getFullYear(), oldDate.getMonth(), oldDate.getDate())) / 86400000);
+            date.setDate(date.getDate() + days);
+            return { ...item, time: date.getTime() };
+          }), { startsAt, endsAt, signupStartsAt, signupEndsAt })),
       update.announcements !== undefined ? JSON.stringify(normalizeAnnouncements(update.announcements)) : JSON.stringify(event.announcements),
       update.assignments !== undefined ? JSON.stringify(normalizeAssignments(update.assignments)) : JSON.stringify(event.assignments),
       Date.now(),
@@ -624,7 +633,11 @@ export async function listTemplates(db: Db, guildId: string, kind?: Template['ki
         guildId,
         k,
       );
-      if ((c?.c ?? 0) === 0) {
+      const refreshable = k === 'event' || k === 'announcement';
+      const seedKey = 'starter_templates_v2:' + guildId + ':' + k;
+      const seeded = refreshable ? await db.get('SELECT value FROM meta WHERE key = ?', seedKey) : undefined;
+      if (refreshable ? !seeded : (c?.c ?? 0) === 0) {
+        if (refreshable) await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', seedKey, '1');
         for (const s of seeds) {
           const id = newId('tpl');
           await db.run('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, guildId, s.name, k, s.json, Date.now());
@@ -633,9 +646,10 @@ export async function listTemplates(db: Db, guildId: string, kind?: Template['ki
     };
     if (kind === undefined || kind === 'announcement') {
       await seedIfEmpty('announcement', [
-        { name: "Initial — signups open", json: JSON.stringify({ title: "{event} — signups open!", message: "Listen up {everyone} **{event}** is live! {event_description} Starts {start_date} {timer} — sign up in {panel}\n\nFull schedule:\n{schedule}", trigger: "manual", channelId: null }) },
-        { name: "Signup panel", json: JSON.stringify({ title: "Join {event}", message: "Hey {everyone}, the signup panel is ready in {panel} — hit Join! Starts {start_date} {timer}", trigger: "manual", channelId: null }) },
-        { name: "Schedule — next up", json: JSON.stringify({ title: "{schedule_title}", message: "⏰ **{schedule_title}** — {schedule_desc} at {schedule_time} {timer_schedule} {everyone}\n\n{schedule}", trigger: "schedule", channelId: null }) },
+        { name: 'EN · Registration opens', json: JSON.stringify({ title: '{event} · Join us', message: 'Registration is open for **{event}**.\n{event_description}\n\nWe start {startsAt}. Sign up in {panel}.', trigger: 'manual', channelId: null }) },
+        { name: 'SV · Anmälan öppnar', json: JSON.stringify({ title: '{event} · Var med', message: 'Anmälan till **{event}** är öppen.\n{event_description}\n\nVi börjar {startsAt}. Anmäl dig i {panel}.', trigger: 'manual', channelId: null }) },
+        { name: 'EN · Next activity', json: JSON.stringify({ title: '{schedule_title}', message: '**{schedule_title}** starts {schedule_time}.\n{schedule_desc}', trigger: 'schedule', channelId: null }) },
+        { name: 'SV · Nästa programpunkt', json: JSON.stringify({ title: '{schedule_title}', message: '**{schedule_title}** börjar {schedule_time}.\n{schedule_desc}', trigger: 'schedule', channelId: null }) },
       ]);
     }
     if (kind === undefined || kind === 'form') {
@@ -657,22 +671,20 @@ export async function listTemplates(db: Db, guildId: string, kind?: Template['ki
       ]);
     }
     if (kind === undefined || kind === 'event') {
-      // Default hackathon event: signup 7 days before, 48h hackathon, a few schedule blocks with signup + announcements via schedule
-      const now = Date.now();
-      const hackStarts = now + 14 * 24 * 3600 * 1000; // 2 weeks out so it passes past-date validation
-      const hackEnds = hackStarts + 2 * 24 * 3600 * 1000;
-      const signupStarts = hackStarts - 7 * 24 * 3600 * 1000;
-      const signupEnds = hackStarts;
-      const baseDay = new Date(hackStarts);
-      baseDay.setHours(12, 0, 0, 0);
-      const sched = [
-        { id: 'sch_signup', time: signupStarts, title: 'Signups open', description: 'Signup window opens — post signup panel', kind: 'custom', actions: [{ id: 'a1', type: 'post_signup' }] },
-        { id: 'sch_dinner', time: new Date(new Date(hackStarts).setHours(18, 0, 0, 0)).getTime(), title: 'Dinner', description: 'Pizza in the kitchen', kind: 'food', actions: [{ id: 'a2', type: 'announce', title: '{schedule_title}', message: '🍽️ {schedule_title} — {schedule_desc} at {schedule_time} {everyone}' }] },
-        { id: 'sch_fika', time: new Date(new Date(hackStarts).setHours(15, 0, 0, 0)).getTime(), title: 'Fika', description: 'Coffee & buns', kind: 'break' },
-        { id: 'sch_voting', time: new Date(new Date(hackEnds).setHours(14, 0, 0, 0)).getTime(), title: 'Voting', description: 'Vote for your favourite', kind: 'voting', actions: [{ id: 'a3', type: 'announce', title: 'Voting time!', message: '🗳️ {schedule_title} — {schedule_desc} {timer_schedule} {everyone}' }] },
-      ];
+      const starter = (sv: boolean) => ({
+        name: 'ChasHack', description: sv ? 'En helg för att bygga tillsammans, lära av varandra och visa vad ni skapat.' : 'A weekend to build together, learn from each other, and show what you made.',
+        cleanupDelayHours: 48, form: { ...DEFAULT_FORM, title: sv ? 'Anmäl dig till ChasHack' : 'Join ChasHack', description: sv ? 'Berätta lite om dig själv så hjälper vi dig att hitta ett lag.' : 'Tell us a little about yourself and we’ll help you find a team.', signupMode: 'both', participantChannels: false }, assignmentStrategy: 'random',
+        schedule: [
+          { id: '__signup__', time: 0, anchor: 'signup_start', offsetMinutes: 0, title: sv ? 'Anmälan öppnar' : 'Registration opens', kind: 'custom', actions: [{ id: 'signup-panel', type: 'post_signup' }] },
+          { id: 'welcome', time: 0, anchor: 'hackathon_start', offsetMinutes: 600, title: sv ? 'Välkommen och introduktion' : 'Welcome and introductions', description: sv ? 'Träffa deltagarna och gå igenom helgens upplägg.' : 'Meet the community and get oriented for the weekend.', kind: 'talk' },
+          { id: 'fika', time: 0, anchor: 'hackathon_start', offsetMinutes: 900, title: 'Fika', description: sv ? 'Kaffe, något gott och en paus tillsammans.' : 'Coffee, something sweet, and a break together.', kind: 'break' },
+          { id: 'dinner', time: 0, anchor: 'hackathon_start', offsetMinutes: 1080, title: sv ? 'Middag' : 'Dinner', description: sv ? 'Ät tillsammans och byt idéer.' : 'Eat together and exchange ideas.', kind: 'food', actions: [{ id: 'dinner-note', type: 'announce', title: '{schedule_title}', message: '{schedule_desc} · {schedule_time}' }] },
+          { id: 'demos', time: 0, anchor: 'hackathon_end', offsetMinutes: 840, title: sv ? 'Demo och avslutning' : 'Demos and wrap-up', description: sv ? 'Visa vad ni byggt och vad ni lärt er.' : 'Show what you built and share what you learned.', kind: 'talk' },
+        ],
+      });
       await seedIfEmpty('event', [
-        { name: 'Default Hackathon', json: JSON.stringify({ name: 'ChasHack', description: '48-hour hackathon — build, ship, demo!', cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, assignmentStrategy: 'random' }) },
+        { name: 'EN · Community build weekend', json: JSON.stringify(starter(false)) },
+        { name: 'SV · Bygghelg tillsammans', json: JSON.stringify(starter(true)) },
       ]);
     }
     const rows =
@@ -860,11 +872,11 @@ export function planMaintenance(events: HackathonEvent[], now: number): Maintena
       if (event.endsAt !== null && event.endsAt <= now) {
         actions.push({ type: 'end_event', eventId: event.id });
       }
-      // Schedule items: fire once when time is reached (within 10 min window to avoid backlog spam)
+      // Durable operations catch up after downtime; message delivery has its own persisted receipts.
       const announced = new Set(event.announcedScheduleIds ?? [])
       for (const item of event.schedule ?? []) {
         if (announced.has(item.id)) continue
-        if (item.time <= now && now - item.time <= 60*60*1000 && item.time > now - 24*3600*1000) {
+        if (item.time <= now) {
           actions.push({ type: 'schedule', eventId: event.id, scheduleId: item.id })
         }
       }

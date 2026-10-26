@@ -51,7 +51,7 @@ export function resolveScheduleAnchors(items: ScheduleItem[], dates: ScheduleDat
     if (item.anchor === undefined || item.offsetMinutes === undefined) return item
     const from = anchorDate(item.anchor, dates)
     if (from === null || !Number.isFinite(from)) return item
-    return { ...item, time: startOfDay(from) + item.offsetMinutes * 60_000 }
+    return { ...item, time: SYNTHETIC_ANCHORS[item.id] ? from : startOfDay(from) + item.offsetMinutes * 60_000 }
   })
 }
 
@@ -84,3 +84,24 @@ export function offsetFromDayTime(day: number, hour: number, minute: number): nu
 
 /** Minutes-of-day granularity offered in the relative editor (matches DateRangePicker). */
 export const TIME_MINUTES = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']
+
+export function consolidateSignupBlock(items: ScheduleItem[]): ScheduleItem[] {
+  const legacy = items.filter(item => item.id === 'sch_signup' && item.actions?.every(action => action.type === 'post_signup'))
+  if (!legacy.length) return items
+  const existing = items.find(item => item.id === '__signup__')
+  const actions = [...(existing?.actions ?? []), ...legacy.flatMap(item => item.actions ?? [])]
+  const first = existing ?? legacy[0]!
+  return [...items.filter(item => item.id !== '__signup__' && !legacy.includes(item)), { ...first, id: '__signup__', anchor: 'signup_start', offsetMinutes: 0, actions }]
+}
+
+/** Move unanchored activities by calendar days, retaining their local clock time. */
+export function moveScheduleDates(items: ScheduleItem[], before: number | null, after: number): ScheduleItem[] {
+  const source = before ?? (items.length ? Math.min(...items.map(item => item.time)) : after)
+  const a = new Date(source), b = new Date(after)
+  const days = Math.round((Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 86400000)
+  return items.map(item => {
+    if (item.anchor) return item
+    const date = new Date(item.time); date.setDate(date.getDate() + days)
+    return { ...item, time: date.getTime() }
+  })
+}

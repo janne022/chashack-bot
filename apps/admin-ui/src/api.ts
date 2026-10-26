@@ -31,7 +31,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       res.status === 429 && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
         ? `${message} (retry in ${retryAfterSeconds}s)`
         : message,
-      (body.code as string) ?? 'error',
+      (body.code as string) ?? (body.error as string) ?? 'error',
       false,
       Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? retryAfterSeconds : undefined,
     )

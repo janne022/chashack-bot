@@ -82,6 +82,7 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
         name: team.name.slice(0, 100),
         colors: { primaryColor: color.int },
         mentionable: true,
+        hoist: true,
         reason: t(locale, 'discord.provision.reason_create_role', { team: team.name }),
       });
       roleId = role.id;
@@ -159,6 +160,8 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
     voiceChannelId,
   };
   await refreshTeamPanel(deps, provisioned, locale);
+  try { const { reconcileTeamAssignments } = await import('./event-delivery.js'); await reconcileTeamAssignments(deps.db, deps.client, team.eventId); }
+  catch (error) { console.warn('Late-team assignment reconciliation failed; maintenance will retry:', error); }
   return provisioned;
 }
 
@@ -181,7 +184,16 @@ export async function applyTeamLeave(deps: ProvisionDeps, team: Team, userId: st
   await revokeTeamRole(deps, team, userId);
   const remaining = await getTeam(deps.db, team.id);
   if (remaining === null) await destroyTeamSpace(deps, team);
-  else await refreshTeamPanel(deps, remaining, botLocale());
+  else {
+    if (remaining.textChannelId) {
+      try {
+        const guild = await deps.client.guilds.fetch(remaining.guildId);
+        const channel = await guild.channels.fetch(remaining.textChannelId);
+        if (channel?.isTextBased()) await channel.send({ content: t(botLocale(), 'discord.provision.member_left', { user: userId }), allowedMentions: { parse: [] } });
+      } catch (error) { console.warn('Team departure message failed:', error); }
+    }
+    await refreshTeamPanel(deps, remaining, botLocale());
+  }
 }
 
 /** Revoke the team role (leave/kick/delete). */
@@ -254,6 +266,7 @@ export async function syncRoleColor(deps: ProvisionDeps, team: Team): Promise<vo
     const guild = await deps.client.guilds.fetch(team.guildId);
     const role = await guild.roles.fetch(team.roleId);
     if (role !== null) {
+      if (!role.hoist) await role.setHoist(true);
       await role.setColor(teamColor(team.colorId).int, t(locale, 'discord.provision.reason_color'));
       await role.setName(team.name.slice(0, 100), t(locale, 'discord.provision.reason_rename')).catch(() => undefined);
     }

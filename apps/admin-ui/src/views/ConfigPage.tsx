@@ -182,10 +182,10 @@ export function ConfigPage() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label>Default signup form</Label>
+              <Label>{t("config.default_signup_form")}</Label>
               {(state.templates ?? []).filter(t=>t.kind==='form').length > 0 ? (
                 <Select value={defaultForm || '__none'} onValueChange={(v)=>setDefaultForm(v==='__none' ? '' : v)}>
-                  <SelectTrigger><SelectValue placeholder="Default form (fallback to built-in)" /></SelectTrigger>
+                  <SelectTrigger aria-label={t("config.default_signup_form")}><SelectValue placeholder={t("config.default_signup_form")} /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none">Built-in default</SelectItem>
                     {(state.templates ?? []).filter(t=>t.kind==='form').map(f=> <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
@@ -237,7 +237,7 @@ export function ConfigPage() {
                     <span key={r.id} className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2.5 py-1 text-xs font-medium">
                       <span className="size-2 rounded-full" style={{ backgroundColor: r.color && r.color !== "#000000" ? r.color : "#71717a" }} />
                       {r.name}
-                      <button onClick={()=>setModRoles(prev=>prev.filter(id=>id!==r.id))} className="ml-0.5 rounded-full p-0.5 hover:bg-accent/20"><X className="size-3" /></button>
+                      <button aria-label={t("common.remove") + ": " + r.name} onClick={()=>setModRoles(prev=>prev.filter(id=>id!==r.id))} className="ml-0.5 rounded-full p-0.5 hover:bg-accent/20"><X className="size-3" /></button>
                     </span>
                   ))}
                   <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={()=>setModRoles([])}>{t('config.moderator_clear_all')}</Button>
@@ -255,7 +255,7 @@ export function ConfigPage() {
                     className="h-8 pl-8"
                   />
                   {roleQuery && (
-                    <button onClick={()=>setRoleQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-muted"><X className="size-3.5" /></button>
+                    <button aria-label={t("common.clear")} onClick={()=>setRoleQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-muted"><X className="size-3.5" /></button>
                   )}
                 </div>
                 <span className="text-xs text-muted-foreground">

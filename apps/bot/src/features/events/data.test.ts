@@ -162,3 +162,10 @@ test('planner: auto_match fires alongside other active-event actions', () => {
     { type: 'end_event', eventId: 'evM' },
   ]);
 });
+
+
+test('planner catches overdue actions after extended downtime', () => {
+  const now = 1000 * H;
+  const event = ev({ status: 'active', matchLocked: true, schedule: [{ id: 'overdue', time: now - 48 * H, title: 'Open signup', actions: [{ id: 'post', type: 'post_signup' }] }] });
+  assert.ok(planMaintenance([event], now).some(action => action.type === 'schedule' && action.scheduleId === 'overdue'));
+});

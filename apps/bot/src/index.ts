@@ -35,6 +35,8 @@ client.once(Events.ClientReady, async (ready) => {
   } catch (error) {
     console.error('Slash command registration failed (bot keeps running; fix and restart or run register:commands):', error);
   }
+  try { await runMaintenance({ db, client, kysely }); }
+  catch (error) { console.error('Startup catch-up failed; maintenance will retry:', error); }
 });
 
 // Invited somewhere new → make /hackathon available there immediately instead of

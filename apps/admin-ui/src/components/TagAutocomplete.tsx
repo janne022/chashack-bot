@@ -1,6 +1,7 @@
 "use client"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { useT } from "@/lib/i18n"
 import { TAG_DEFS } from "@/components/TagHelp"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea-label"
@@ -30,15 +31,21 @@ function FilteredTagsPortal({
   onPick: (tag: string) => void
   selectedIdx: number
 }) {
+  const t = useT()
+  const menu = useRef<HTMLDivElement>(null)
+  useEffect(() => { menu.current?.querySelector(`[data-selected="true"]`)?.scrollIntoView({ block: "nearest" }) }, [selectedIdx])
   const [rect, setRect] = useState<DOMRect | null>(null)
 
   useEffect(() => {
     if (!anchor) return
     const update = () => setRect(anchor.getBoundingClientRect())
     update()
+    const observer = new ResizeObserver(update)
+    observer.observe(anchor)
     window.addEventListener("scroll", update, true)
     window.addEventListener("resize", update)
     return () => {
+      observer.disconnect()
       window.removeEventListener("scroll", update, true)
       window.removeEventListener("resize", update)
     }
@@ -51,30 +58,49 @@ function FilteredTagsPortal({
   }, [prefix])
 
   if (!anchor || !rect || filtered.length === 0) return null
-  // position fixed below the input, with fallback above if near bottom
-  const spaceBelow = window.innerHeight - rect.bottom
-  const showAbove = spaceBelow < 280
+  // Stay inside every scroll/clipping ancestor, including modal content.
+  let top = 0, bottom = window.innerHeight
+  for (let parent = anchor.parentElement; parent; parent = parent.parentElement) {
+    if (/(auto|scroll|hidden|clip)/.test(getComputedStyle(parent).overflowY)) {
+      const bounds = parent.getBoundingClientRect()
+      top = Math.max(top, bounds.top)
+      bottom = Math.min(bottom, bounds.bottom)
+    }
+  }
+  const spaceBelow = bottom - rect.bottom
+  const spaceAbove = rect.top - top
+  const showAbove = spaceBelow < Math.min(272, spaceAbove)
   const style: React.CSSProperties = {
-    position: "fixed",
-    left: Math.min(rect.left, window.innerWidth - 336),
-    top: showAbove ? Math.max(8, rect.top - 268) : rect.bottom + 6,
-    width: Math.min(360, Math.max(320, rect.width)),
+    position: "absolute",
+    left: 0,
+    ...(showAbove ? { bottom: "calc(100% + 6px)" } : { top: "calc(100% + 6px)" }),
+    width: "min(100%, 30rem)",
+    maxHeight: Math.max(100, Math.min(256, (showAbove ? spaceAbove : spaceBelow) - 16)),
     zIndex: 100,
   }
 
   const node = (
     <div
+      ref={menu}
+      role="listbox"
+      tabIndex={0}
+      data-tag-suggestions="true"
+      aria-label={t("tags.title")}
       style={style}
-      className="max-h-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl"
+      className="max-h-64 overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover p-1 shadow-xl"
       onMouseDown={e=>e.preventDefault()}
     >
-      <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Tags — {prefix ? `matching "{${prefix}"` : "type to filter"}</div>
+      <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t("tags.title")}</div>
       {filtered.map((d, idx) => (
         <button
           key={d.tag}
+          role="option"
+          aria-selected={idx === selectedIdx}
+          data-selected={idx === selectedIdx}
+          tabIndex={-1}
           type="button"
-          onMouseDown={e=>{ e.preventDefault(); onPick(d.tag) }}
-          className={`flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent ${idx===selectedIdx ? "bg-accent" : ""}`}
+          onClick={()=>onPick(d.tag)}
+          className={`flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted ${idx===selectedIdx ? "bg-muted ring-1 ring-inset ring-border" : ""}`}
         >
           <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{d.tag}</code>
           <div className="min-w-0 flex-1">
@@ -84,10 +110,10 @@ function FilteredTagsPortal({
           <span className="shrink-0 text-[10px] text-muted-foreground">{d.context}</span>
         </button>
       ))}
-      <div className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground">↑↓ navigate · Enter Tab to pick · Esc to close</div>
+      <div className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground">{t("tags.keyboard")}</div>
     </div>
   )
-  return createPortal(node, document.body)
+  return createPortal(node, anchor.parentElement!)
 }
 
 function useTagAutocomplete(value: string, onChange: (next: string) => void) {
@@ -95,7 +121,10 @@ function useTagAutocomplete(value: string, onChange: (next: string) => void) {
   const [selIdx, setSelIdx] = useState(0)
   const ref = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
 
-  const updatePos = (v: string, cursor: number) => {
+  const lastPosition = useRef<{ value: string; cursor: number } | null>(null)
+  const updatePos = (v: string, cursor: number, force = false) => {
+    if (!force && lastPosition.current?.value === v && lastPosition.current.cursor === cursor) return
+    lastPosition.current = { value: v, cursor }
     const p = getTagPos(v, cursor)
     setPos(p)
     setSelIdx(0)
@@ -131,16 +160,17 @@ function useTagAutocomplete(value: string, onChange: (next: string) => void) {
     else if (e.key === "ArrowUp") { e.preventDefault(); setSelIdx(i=>Math.max(i-1, 0)) }
     else if (e.key === "Enter" || e.key === "Tab") {
       if (filtered[selIdx]) { e.preventDefault(); pick(filtered[selIdx].tag) }
-    } else if (e.key === "Escape") { setPos(null) }
+    } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setPos(null) }
   }
 
   return { pos, selIdx, filtered, pick, onKeyDown, ref, updatePos, setPos }
 }
 
 export function TagAutocompleteTextarea({ value, onChange, placeholder, maxLength, className }: { value: string; onChange: (v: string)=>void; placeholder?: string; maxLength?: number; className?: string }) {
+  const t = useT()
   const { pos, selIdx, pick, onKeyDown, ref, updatePos, setPos } = useTagAutocomplete(value, onChange)
   return (
-    <>
+    <div className="relative min-w-0">
       <Textarea
         ref={ref as React.RefObject<HTMLTextAreaElement>}
         value={value}
@@ -157,21 +187,23 @@ export function TagAutocompleteTextarea({ value, onChange, placeholder, maxLengt
         onBlur={()=> setTimeout(()=>setPos(null), 150)}
         onClick={e=>{
           const el = e.target as HTMLTextAreaElement
-          updatePos(el.value, el.selectionStart ?? 0)
+          updatePos(el.value, el.selectionStart ?? 0, true)
         }}
-        placeholder={placeholder ? `${placeholder} — type { for tags` : "Type { to see tags"}
+        placeholder={placeholder ?? t("tags.placeholder")}
+        aria-label={placeholder ?? t("tags.placeholder")}
         maxLength={maxLength}
         className={className}
       />
       {pos && <FilteredTagsPortal anchor={ref.current} prefix={pos.prefix} onPick={pick} selectedIdx={selIdx} />}
-    </>
+    </div>
   )
 }
 
 export function TagAutocompleteInput({ value, onChange, placeholder, maxLength, className }: { value: string; onChange: (v: string)=>void; placeholder?: string; maxLength?: number; className?: string }) {
+  const t = useT()
   const { pos, selIdx, pick, onKeyDown, ref, updatePos, setPos } = useTagAutocomplete(value, onChange)
   return (
-    <>
+    <div className="relative min-w-0">
       <Input
         ref={ref as React.RefObject<HTMLInputElement>}
         value={value}
@@ -188,13 +220,14 @@ export function TagAutocompleteInput({ value, onChange, placeholder, maxLength, 
         onBlur={()=> setTimeout(()=>setPos(null), 150)}
         onClick={e=>{
           const el = e.target as HTMLInputElement
-          updatePos(el.value, el.selectionStart ?? 0)
+          updatePos(el.value, el.selectionStart ?? 0, true)
         }}
-        placeholder={placeholder ? `${placeholder} — { for tags` : "Type { for tags"}
+        placeholder={placeholder ?? t("tags.placeholder")}
+        aria-label={placeholder ?? t("tags.placeholder")}
         maxLength={maxLength}
         className={className}
       />
       {pos && <FilteredTagsPortal anchor={ref.current} prefix={pos.prefix} onPick={pick} selectedIdx={selIdx} />}
-    </>
+    </div>
   )
 }

@@ -46,6 +46,8 @@ export interface SkillOption {
 }
 
 export interface FormConfig {
+  signupMode?: 'web' | 'both';
+  participantChannels?: boolean;
   version: number
   title: string
   description: string
@@ -74,7 +76,7 @@ export interface FormAppearance {
 
 export interface CustomQuestion {
   id: string
-  kind: 'text' | 'single_choice' | 'multi_choice'
+  kind: 'text' | 'single_choice' | 'multi_choice' | 'slider' | 'toggle'
   label: { en: string; sv?: string }
   help: { en: string; sv?: string }
   required: boolean

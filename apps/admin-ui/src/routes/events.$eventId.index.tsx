@@ -1,3 +1,5 @@
+import { ParticipantNavigation } from '@/components/participant-navigation'
+import { PageSkeleton } from '@/components/ui/skeleton'
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -25,9 +27,9 @@ function EventLanding() {
       .catch(() => { if (active) setError(true) })
     return () => { active = false }
   }, [eventId])
-  if (!details) return <main className="mx-auto max-w-2xl p-8">{error ? <><p role="alert">{t('participant.signup_unavailable')}</p><Button onClick={() => location.reload()}>{t('participant.retry')}</Button></> : <p aria-busy="true">{t('participant.signup_loading')}</p>}</main>
+  if (!details) return <main className="mx-auto max-w-2xl p-8">{error ? <><p role="alert">{t('participant.signup_unavailable')}</p><Button onClick={() => location.reload()}>{t('participant.retry')}</Button></> : <PageSkeleton />}</main>
   const language = localStorage.getItem('chas-locale') === 'sv' ? 'sv-SE' : 'en-US'
-  return <ParticipantFrame appearance={details.form.appearance}>
+  return <ParticipantFrame appearance={details.form.appearance}><ParticipantNavigation eventId={eventId} active="overview" />
     <article className={details.event.startsAt || details.event.endsAt ? 'grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]' : 'max-w-3xl space-y-8'}>
       <div className="space-y-6">
         <h1 className="text-3xl font-bold sm:text-5xl">{details.event.name}</h1>

@@ -1,6 +1,6 @@
 "use client"
 import { useState } from "react"
-import { Plus, Trash2, Lightbulb, Shuffle, Users, Crown, GraduationCap, HelpCircle, Layers } from "lucide-react"
+import { Plus, Trash2, Shuffle, Users, Crown, HelpCircle } from "lucide-react"
 import { toast } from "sonner"
 import type { FormConfig } from "@/types"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -42,62 +42,36 @@ export function FormConfigEditor({
   }
   return (
     <div className="flex flex-col gap-5">
-      {/* ── How matching works ── */}
-      <Card className="border-accent/30 bg-accent-soft/40">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base"><Lightbulb className="size-4 text-accent" /> How team matching uses this form</CardTitle>
-          <CardDescription>When you hit <b>Preview / Commit</b> in Operations, the bot scores every pair 0–100 and greedily builds teams. Base 50, then:</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 text-sm sm:grid-cols-2">
-            <div className="flex gap-2.5 rounded-lg border border-border bg-background p-3">
-              <Layers className="size-4 shrink-0 text-accent mt-0.5" />
-              <div><div className="font-semibold">Skills + groups</div><div className="text-muted-foreground leading-snug">Shared skills +8 each (max +24). Different skill groups +4 each (max +12). So one frontend + one backend beats two backends.</div></div>
-            </div>
-            <div className="flex gap-2.5 rounded-lg border border-border bg-background p-3">
-              <Shuffle className="size-4 shrink-0 text-accent mt-0.5" />
-              <div><div className="font-semibold">Role tracks</div><div className="text-muted-foreground leading-snug">Same track +5. Complementary pairs (frontend↔backend, frontend↔design, backend↔design, devops↔frontend/backend, fullstack↔design/devops) +9. Custom roles get no bonus.</div></div>
-            </div>
-            <div className="flex gap-2.5 rounded-lg border border-border bg-background p-3">
-              <GraduationCap className="size-4 shrink-0 text-accent mt-0.5" />
-              <div><div className="font-semibold">Experience mix</div><div className="text-muted-foreground leading-snug">Adjacent levels (first-timer + some_experience) +6, same level +3, veteran + first-timer +0. Encourages mentorship without punishing.</div></div>
-            </div>
-            <div className="flex gap-2.5 rounded-lg border border-border bg-background p-3">
-              <Users className="size-4 shrink-0 text-accent mt-0.5" />
-              <div><div className="font-semibold">Friends (teammates field)</div><div className="text-muted-foreground leading-snug">Mutual mentions = <b>hard</b> must-be-together (unless group &gt; team size → reported as conflict). One-way mention +25.</div></div>
-            </div>
-          </div>
-          <div className="mt-3 rounded-md bg-background px-3 py-2 text-xs text-muted-foreground">
-            Example: A <b>frontend/react</b> veteran + <b>backend/node</b> some_experience = 50 + 8 (if share builds?) + 4 (different groups) + 9 (complementary roles) + 6 (adjacent experience) = <b>~77/100</b>. Two backend/node veterans on same track = 50 + 8 + 0 + 5 + 3 = 66.
-          </div>
-        </CardContent>
-      </Card>
+      <Card><CardHeader><CardTitle>{t('form.signup_mode')}</CardTitle><CardDescription>{t('form.signup_mode_help')}</CardDescription></CardHeader><CardContent className="space-y-5"><Select value={value.signupMode ?? 'both'} onValueChange={mode => edit('signupMode', mode as 'web' | 'both')}><SelectTrigger aria-label={t('form.signup_mode')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="web">{t('form.signup_web')}</SelectItem><SelectItem value="both">{t('form.signup_both')}</SelectItem></SelectContent></Select><label className="flex items-start gap-3"><input type="checkbox" checked={value.participantChannels ?? false} onChange={event => edit('participantChannels', event.target.checked)} className="mt-1" /><span className="text-sm"><strong>{t('form.participant_channels')}</strong><span className="mt-1 block text-muted-foreground">{t('form.participant_channels_help')}</span></span></label></CardContent></Card>
+      <details className="rounded-xl border p-4 text-sm"><summary className="cursor-pointer font-medium">{t('form.matching_explanation')}</summary><p className="mt-3 leading-relaxed text-muted-foreground">{t('form.matching_summary')}</p></details>
 
       {/* ── Basics ── */}
       <Card>
         <CardHeader>
-          <CardTitle>Basics</CardTitle>
-          <CardDescription>Shown in Discord before anyone taps <b>Sign up</b>.</CardDescription>
+          <CardTitle>{t('form.basics')}</CardTitle>
+          <CardDescription>{t('form.basics_help')}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
           <div className="grid gap-6 sm:grid-cols-[1fr_12rem]">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="f-title">Modal title <span className="font-normal text-muted-foreground">(max 45, Discord modal header)</span></Label>
+              <Label htmlFor="f-title">{t('form.title_label')}</Label>
               <Input id="f-title" value={value.title} maxLength={45} onChange={(e) => edit("title", e.target.value)} />
               <span className="text-xs text-muted-foreground">{value.title.length}/45</span>
             </div>
             <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2"><Label htmlFor="f-size">Team size</Label><Help>Max members per team. The greedy matcher fills teams until this size, then starts a new team. Larger = fewer, bigger teams. This is the <b>only</b> hard cap — friend groups larger than this are reported as a conflict and treated as a preference.</Help></div>
+              <div className="flex items-center gap-2"><Label htmlFor="f-size">{t('form.team_size')}</Label><Help>Max members per team. The greedy matcher fills teams until this size, then starts a new team. Larger = fewer, bigger teams. This is the <b>only</b> hard cap — friend groups larger than this are reported as a conflict and treated as a preference.</Help></div>
               <Input id="f-size" type="number" min={2} max={25} value={value.teamSize} onChange={(e) => edit("teamSize", Number(e.target.value))} />
             </div>
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="f-desc">Intro description <span className="font-normal text-muted-foreground">(max 300, shown above the Sign up button)</span></Label>
+            <Label htmlFor="f-desc">{t('form.description_label')}</Label>
             <Textarea id="f-desc" value={value.description} maxLength={300} onChange={(e) => edit("description", e.target.value)} />
             <span className="text-xs text-muted-foreground">{value.description.length}/300</span>
           </div>
         </CardContent>
       </Card>
+
+      <CustomQuestionsEditor value={value.customQuestions ?? []} onChange={v=>edit("customQuestions", v)} form={value} />
 
       <ExperiencesEditor value={value.experiences} onChange={v=>edit("experiences", v as FormConfig["experiences"])} />
       <RoleTracksEditor value={value.roleTracks} onChange={v=>edit("roleTracks", v)} />
@@ -111,7 +85,7 @@ export function FormConfigEditor({
         </CardContent>
       </Card>
       <p className="text-sm text-muted-foreground">{t('form.version_hint')}</p>
-      <CustomQuestionsEditor value={value.customQuestions ?? []} onChange={v=>edit("customQuestions", v)} form={value} />
+
     </div>
   )
 }

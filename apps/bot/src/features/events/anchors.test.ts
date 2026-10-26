@@ -111,3 +111,12 @@ test('templateToEventInput: keeps anchors through normalization (time optional)'
   assert.equal(schedule[1]!.time, 0, 'anchor-only item keeps the placeholder time until resolution');
   assert.equal(schedule[1]!.anchor, 'signup_end');
 });
+
+
+test('pinned actions follow the exact kickoff/signup time, not midnight', () => {
+  const schedule = toRelativeSchedule([
+    item({ id: '__start__', time: start }), item({ id: '__signup__', time: signupOpen }), item({ id: '__end__', time: end }),
+  ], start);
+  const resolved = resolveScheduleAnchors(schedule, { startsAt: start, signupStartsAt: signupOpen, endsAt: end });
+  assert.deepEqual(resolved.map(block => block.time), [start, signupOpen, end]);
+});

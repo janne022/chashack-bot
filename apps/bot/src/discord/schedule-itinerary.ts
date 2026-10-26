@@ -22,35 +22,33 @@ function setItineraryRef(db: Db, eventId: string, ref: { channelId: string; mess
 
 export function buildScheduleItineraryEmbed(event: HackathonEvent): EmbedBuilder {
   const locale = botLocale()
-  const title = `📅 ${event.name} — Itinerary`
+  const title = t(locale, 'discord.itinerary.title', { name: event.name })
   const lines: string[] = []
   if (event.description) lines.push(event.description, '')
-  if (event.startsAt !== null) lines.push(`**Starts:** <t:${Math.floor(event.startsAt/1000)}:F> (<t:${Math.floor(event.startsAt/1000)}:R>)`)
-  if (event.endsAt !== null) lines.push(`**Ends:** <t:${Math.floor(event.endsAt/1000)}:F>`)
+  if (event.startsAt !== null) lines.push(`**${t(locale, 'discord.events.starts')}:** <t:${Math.floor(event.startsAt/1000)}:F> (<t:${Math.floor(event.startsAt/1000)}:R>)`)
+  if (event.endsAt !== null) lines.push(`**${t(locale, 'discord.events.ends')}:** <t:${Math.floor(event.endsAt/1000)}:F>`)
   lines.push('')
 
   const blocks = (event.schedule ?? []).filter(s => !SYNTHETIC_BLOCK_IDS.includes(s.id))
   if (!event.schedule || blocks.length === 0) {
-    lines.push('_No schedule yet — the organizers will add dinner, breaks, voting etc._')
+    lines.push(t(locale, 'discord.itinerary.empty'))
   } else {
-    lines.push(`**Schedule — ${blocks.length} blocks**`)
+    lines.push(t(locale, 'discord.itinerary.count', { count: blocks.length }))
     for (const item of [...blocks].sort((a,b)=>a.time-b.time)) {
       const timeFull = `<t:${Math.floor(item.time/1000)}:F>`
       const timeRel = `<t:${Math.floor(item.time/1000)}:R>`
       const kindEmoji: Record<string,string> = { food: '🍽️', break: '☕', voting: '🗳️', prize: '🏆', talk: '🎤', custom: '📌' }
       const emoji = kindEmoji[item.kind ?? 'custom'] ?? '📌'
       const desc = item.description ? ` — ${item.description}` : ''
-      // Also list per-block actions if any
-      const actions = item.actions?.length ? `  ↳ ${item.actions.map(a=> `**${a.title}**`).join(' · ')}` : ''
-      lines.push(`${emoji} **${item.title}**${desc}`, `↳ ${timeFull} (${timeRel})${actions ? '\n' + actions : ''}`)
+      lines.push(`${emoji} **${item.title}**${desc}`, `↳ ${timeFull} (${timeRel})`)
     }
   }
-  lines.push('', `Updated: <t:${Math.floor(Date.now()/1000)}:R>`)
+  lines.push('', t(locale, 'discord.itinerary.updated', { ts: Math.floor(event.updatedAt / 1000) }))
   return new EmbedBuilder()
     .setTitle(title)
-    .setDescription(lines.join('\n'))
+    .setDescription(lines.join('\n').slice(0, 4096))
     .setColor(0x5865f2)
-    .setFooter({ text: `Event ID ${event.id}` })
+    .setFooter({ text: event.name })
 }
 
 export async function postOrUpdateScheduleItinerary(
@@ -73,7 +71,7 @@ export async function postOrUpdateScheduleItinerary(
   const existing = await getItineraryRef(db, event.id)
   try {
     if (existing && existing.channelId === channelId) {
-      const msg = await channel.messages.fetch(existing.messageId).catch(()=>null)
+      const msg = await channel.messages.fetch(existing.messageId).catch(error => { if (error?.code === 10008) return null; throw error; })
       if (msg && msg.author.id === client.user?.id) {
         await msg.edit({ embeds: [embed] })
         return { channelId, messageId: existing.messageId, edited: true }

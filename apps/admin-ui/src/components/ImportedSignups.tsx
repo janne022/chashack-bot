@@ -1,6 +1,7 @@
+import { PageSkeleton } from '@/components/ui/skeleton'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { api } from '@/api'
+import { api, ApiError } from '@/api'
 import type { FormConfig, ImportedSignup } from '@/types'
 import { useT } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
@@ -47,10 +48,20 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   const [memberBusy, setMemberBusy] = useState(false)
   const [memberError, setMemberError] = useState('')
 
+  function describeError(error: unknown, fallback: string) {
+    if (error instanceof ApiError) {
+      if (error.unauthorized) return t('imports.session_expired')
+      if (['access_refused', 'not_allowed', 'forbidden'].includes(error.code)) return t('imports.access_denied')
+      if (['csrf', 'bad_origin', 'origin_mismatch'].includes(error.code)) return t('imports.origin_error')
+    }
+    if (error instanceof TypeError) return t('imports.network_error')
+    return error instanceof Error ? error.message : t(fallback)
+  }
+
   async function reload() {
     setLoading(true); setLoadError('')
     try { setRecords((await api.importedSignups(eventId)).records) }
-    catch (e) { setLoadError(e instanceof Error ? e.message : t('imports.load_failed')) }
+    catch (e) { setLoadError(describeError(e, 'imports.load_failed')) }
     finally { setLoading(false) }
   }
   useEffect(() => { void reload() }, [eventId])
@@ -66,6 +77,9 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   async function chooseFile(next: File | undefined) {
     setError(''); setPreview([]); setSummary(null); setSelectedRow(null); setExcluded([])
     if (!next) { setFile(null); setCsv(''); return }
+    setCsv(''); setFile(null); setHeaders([]); setMapping({})
+    if (!/\.csv$/i.test(next.name)) { setError(t('imports.csv_only')); return }
+    if (next.size === 0) { setError(t('imports.file_empty')); return }
     if (next.size > 1_000_000) { setError(t('imports.file_too_large')); setFile(null); setCsv(''); return }
     setFile(next)
     try { setCsv(await next.text()) }
@@ -79,7 +93,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
       const result = await api.previewSignupImport(eventId, csv, Object.keys(nextMapping).length ? nextMapping : undefined)
       setHeaders(result.headers); setMapping(result.suggestedMapping); setPreview(result.rows); setSummary(result.summary)
       setSelectedRow(result.rows[0]?.rowNumber ?? null)
-    } catch (e) { setError(e instanceof Error ? e.message : t('imports.preview_failed')) }
+    } catch (e) { setError(describeError(e, 'imports.preview_failed')) }
     finally { setPending(false) }
   }
 
@@ -91,7 +105,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
       const result = await api.importSignups(eventId, rows.map(row => ({ sourceRow: row.rowNumber, values: row.values, answers: row.answers })))
       toast.success(t('imports.saved_summary', { saved: result.saved, skipped: result.skipped, conflicts: result.conflicts }))
       setImportOpen(false); setFile(null); setCsv(''); setPreview([]); setSummary(null); await reload()
-    } catch (e) { setError(e instanceof Error ? e.message : t('imports.save_failed')) }
+    } catch (e) { setError(describeError(e, 'imports.save_failed')) }
     finally { setPending(false) }
   }
 
@@ -103,7 +117,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   async function searchMembers() {
     setMemberBusy(true); setMemberError(''); setSelectedMember(null)
     try { setMembers((await api.searchGuildMembers(memberQuery)).members) }
-    catch (e) { setMembers([]); setMemberError(e instanceof Error ? e.message : t('imports.member_search_failed')) }
+    catch (e) { setMembers([]); setMemberError(describeError(e, 'imports.member_search_failed')) }
     finally { setMemberBusy(false) }
   }
 
@@ -116,7 +130,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
         ...(link && selectedMember ? { linkDiscordUserId: selectedMember.id } : {}),
       })
       setEditId(null); await reload()
-    } catch (e) { setMemberError(e instanceof Error ? e.message : t('imports.save_failed')) }
+    } catch (e) { setMemberError(describeError(e, 'imports.save_failed')) }
     finally { setPending(false) }
   }
 
@@ -142,7 +156,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
       <div className="min-w-48 flex-1"><Label htmlFor="import-search">{t('common.search')}</Label><Input id="import-search" value={search} onChange={e => setSearch(e.target.value)} /></div>
       <Checkbox className="min-h-10" checked={attentionOnly} onCheckedChange={v => setAttentionOnly(Boolean(v))}>{t('imports.needs_attention')}</Checkbox>
     </div>
-    {loading ? <p aria-busy="true">{t('imports.loading')}</p> : loadError ? <div role="alert" className="space-y-2"><p>{loadError}</p><Button variant="outline" onClick={() => void reload()}>{t('common.retry')}</Button></div> : records.length === 0 ? <EmptyState icon={<Upload className="size-5" />} title={t('imports.empty')} description={t('imports.empty_desc')} action={<Button onClick={() => setImportOpen(true)}><Upload />{t('imports.action')}</Button>} /> : visibleRecords.length === 0 ? <Card><CardContent className="flex items-center justify-between py-4 text-sm"><span>{t('imports.no_matches')}</span><Button variant="ghost" onClick={() => { setSearch(''); setAttentionOnly(false) }}>{t('common.clear')}</Button></CardContent></Card> : <div className="grid gap-3 md:grid-cols-2">
+    {loading ? <PageSkeleton /> : loadError ? <div role="alert" className="space-y-2"><p>{loadError}</p><Button variant="outline" onClick={() => void reload()}>{t('common.retry')}</Button></div> : records.length === 0 ? <EmptyState icon={<Upload className="size-5" />} title={t('imports.empty')} description={t('imports.empty_desc')} action={<Button onClick={() => setImportOpen(true)}><Upload />{t('imports.action')}</Button>} /> : visibleRecords.length === 0 ? <Card><CardContent className="flex items-center justify-between py-4 text-sm"><span>{t('imports.no_matches')}</span><Button variant="ghost" onClick={() => { setSearch(''); setAttentionOnly(false) }}>{t('common.clear')}</Button></CardContent></Card> : <div className="grid gap-3 md:grid-cols-2">
       {visibleRecords.map(record => <Card key={record.id}>
         <CardHeader className="pb-2"><CardTitle className="text-base">{record.values.name || t('imports.unnamed')} <span className="text-xs font-normal text-muted-foreground">· {t(`imports.state_${record.state}`)}</span></CardTitle><CardDescription>{record.values.email || t('imports.no_email')} · {record.values.groupName || t('imports.no_group')}</CardDescription></CardHeader>
         <CardContent className="space-y-2 text-sm">

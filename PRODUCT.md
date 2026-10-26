@@ -6,9 +6,9 @@
 
 web
 
-The participant surface is Discord (slash commands, modals, DMs, team channels);
-participant-facing OAuth identity and self-scoped API work is planned, not a signup
-form or team-management web UI. The organizer console is served by the bot on `ADMIN_PORT`.
+Participants use Discord and a web workspace for signup, saved answers, their hackathons
+and teams. Both surfaces share the same data. The organizer console is served by the bot
+on `ADMIN_PORT`.
 
 ## Users
 
@@ -16,8 +16,8 @@ form or team-management web UI. The organizer console is served by the bot on `A
   of helpers running one hackathon weekend live. They work from the admin console
   (and the `/hackathon admin …` commands) while the event is in progress.
 - **Participants: students**, using Discord for signup, team creation/joins,
-  invitations and team spaces. Participant OAuth identity and self-scoped API are
-  planned; forms and team management remain in Discord.
+  invitations and team spaces, plus a Discord-authenticated web workspace for forms
+  and team management.
 
 Organizers sign in with Discord OAuth. Current guild owner/Administrator or
 configured delegated roles can manage a guild where the bot is installed; the
@@ -141,3 +141,28 @@ Constraints and deliberate limits:
    torn down by the bot, and cleanup is the default end state.
 5. **Swedish parity is a release gate**, not a translation backlog: a feature that
    ships in English only is not shipped.
+
+## Registration and community workspace
+
+Organizers choose web-only signup or Discord profile signup with remaining questions on
+web. Extra custom questions are explicitly identified as web steps. Web custom fields
+include text, choices, a 1–10 slider and yes/no choices. Saved answers have an explicit
+edit state; participants can choose light or dark independent of custom event branding.
+
+The signup panel retains team creation and invitation controls. Team departure posts a
+notice to the team channel. Team roles are displayed separately. Optional member-only
+announcement/activity channels use an event role, granted to eligible registrations at
+kickoff and reconciled for late signups and departures. Signup channels remain public.
+
+The account picker discovers current authorized servers from Discord, including newly
+granted access. Selection is remembered per browser and account; all server operations
+still validate current authority. English and Swedish starter templates use relative
+schedules, with signup-panel posting attached to the signup window.
+
+
+Assignment handout is an explicit schedule action, defaulting to kickoff when a collection
+is chosen. Existing events can replace their assignment pool from a saved collection.
+Overdue signup and handout actions catch up; late teams receive their assignment after
+provisioning. Managed scheduled announcements, handouts and itineraries retain Discord
+message references so edits update the existing post. New actions on completed blocks
+are independently deliverable. Maintenance retries transport failures.

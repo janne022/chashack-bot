@@ -42,6 +42,7 @@ export function TemplatesPage() {
   const [creatingCollection, setCreatingCollection] = useState(false)
   const [editingThemeId, setEditingThemeId] = useState<string | null>(null)
   const [creatingTheme, setCreatingTheme] = useState(false)
+  const [deletingTemplate, setDeletingTemplate] = useState<{ id: string; name: string } | null>(null)
   const [deletingThemeId, setDeletingThemeId] = useState<string | null>(null)
 
   return (
@@ -53,17 +54,18 @@ export function TemplatesPage() {
         </div>
       </header>
 
+      <AlertDialog open={!!deletingTemplate} onOpenChange={open => { if (!open) setDeletingTemplate(null) }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t('templates.delete_title', { name: deletingTemplate?.name ?? '' })}</AlertDialogTitle><AlertDialogDescription>{t('templates.delete_desc')}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel><AlertDialogAction onClick={async () => { const item = deletingTemplate; setDeletingTemplate(null); if (!item) return; try { await api.deleteTemplate(item.id); await refresh() } catch (error) { toast.error(error instanceof Error ? error.message : t('common.load_failed')) } }}>{t('common.delete')}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       <Tabs value={tab} onValueChange={v=>setTab(v as never)} className="w-full">
         <TabsList className="w-full max-w-full justify-start overflow-x-auto">
-          <TabsTrigger value="event" className="gap-2"><LayoutTemplate className="size-4" /> Event templates ({eventTemplates.length})</TabsTrigger>
-          <TabsTrigger value="form" className="gap-2"><BookCopy className="size-4" /> Form templates ({formTemplates.length})</TabsTrigger>
-          <TabsTrigger value="announcement" className="gap-2"><Megaphone className="size-4" /> Announcements ({announcementTemplates.length})</TabsTrigger>
-          <TabsTrigger value="assignments" className="gap-2"><ListChecks className="size-4" /> Assignment collections ({assignmentCollections.length})</TabsTrigger>
-          <TabsTrigger value="theme" className="gap-2"><Palette className="size-4" /> Themes ({themes.length})</TabsTrigger>
+          <TabsTrigger value="event" className="gap-2"><LayoutTemplate className="size-4" /> {t("templates.library_events")} ({eventTemplates.length})</TabsTrigger>
+          <TabsTrigger value="form" className="gap-2"><BookCopy className="size-4" /> {t("templates.library_forms")} ({formTemplates.length})</TabsTrigger>
+          <TabsTrigger value="announcement" className="gap-2"><Megaphone className="size-4" /> {t("templates.library_announcements")} ({announcementTemplates.length})</TabsTrigger>
+          <TabsTrigger value="assignments" className="gap-2"><ListChecks className="size-4" /> {t("templates.library_assignments")} ({assignmentCollections.length})</TabsTrigger>
+          <TabsTrigger value="theme" className="gap-2"><Palette className="size-4" /> {t("templates.library_themes")} ({themes.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="event" className="flex flex-col gap-4 mt-4">
-          <div className="flex justify-end"><Button onClick={()=>setCreatingEvent(true)}><Plus className="size-4" /> New event template</Button></div>
+          <div className="flex justify-end"><Button onClick={()=>setCreatingEvent(true)}><Plus className="size-4" /> {t("templates.new_event")}</Button></div>
           {eventTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="A2" className="mb-2" />{t("templates.no_event_templates")}</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {eventTemplates.map(tpl=>(
@@ -76,12 +78,12 @@ export function TemplatesPage() {
                 >
                   <CardHeader className="pb-3">
                     <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
-                    <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
+                    <CardDescription className="flex items-center gap-2 text-xs"><span>{dateTime(tpl.createdAt)}</span></CardDescription>
                   </CardHeader>
                   <CardContent className="mt-auto flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={()=>setEditingEventId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                    <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                    <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                    <Button size="sm" variant="secondary" onClick={()=>setEditingEventId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
+                    <Button size="sm" variant="ghost" aria-label={t("templates.copy_reference")} onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
+                    <Button size="sm" variant="ghost" aria-label={t("common.delete") + ": " + tpl.name} onClick={e=>{ e.stopPropagation(); setDeletingTemplate({id:tpl.id,name:tpl.name}) }}><Trash2 className="size-3.5" /></Button>
                   </CardContent>
                 </Card>
               ))}
@@ -101,7 +103,7 @@ export function TemplatesPage() {
         <TabsContent value="form" className="flex flex-col gap-4 mt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">Forms define the /hackathon join modal. Set the default in <span className="font-medium text-foreground">Config → Default form</span>.</p>
-            <Button onClick={()=>setCreatingForm(true)}><Plus className="size-4" /> New form template</Button>
+            <Button onClick={()=>setCreatingForm(true)}><Plus className="size-4" /> {t("templates.new_form")}</Button>
           </div>
           {formTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="B2" className="mb-2" />{t("templates.no_form_templates")}</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -115,12 +117,12 @@ export function TemplatesPage() {
                 >
                   <CardHeader className="pb-3">
                     <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
-                    <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
+                    <CardDescription className="flex items-center gap-2 text-xs"><span>{dateTime(tpl.createdAt)}</span></CardDescription>
                   </CardHeader>
                   <CardContent className="mt-auto flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={()=>setEditingFormId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                    <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                    <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                    <Button size="sm" variant="secondary" onClick={()=>setEditingFormId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
+                    <Button size="sm" variant="ghost" aria-label={t("templates.copy_reference")} onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
+                    <Button size="sm" variant="ghost" aria-label={t("common.delete") + ": " + tpl.name} onClick={e=>{ e.stopPropagation(); setDeletingTemplate({id:tpl.id,name:tpl.name}) }}><Trash2 className="size-3.5" /></Button>
                   </CardContent>
                 </Card>
               ))}
@@ -157,9 +159,9 @@ export function TemplatesPage() {
                       <span className="mt-1 w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium">{parsed.trigger ?? "manual"}</span>
                     </CardHeader>
                     <CardContent className="mt-auto flex gap-2">
-                      <Button size="sm" variant="secondary" onClick={()=>setEditingAnnouncementId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                      <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                      <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                      <Button size="sm" variant="secondary" onClick={()=>setEditingAnnouncementId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
+                      <Button size="sm" variant="ghost" aria-label={t("templates.copy_reference")} onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
+                      <Button size="sm" variant="ghost" aria-label={t("common.delete") + ": " + tpl.name} onClick={e=>{ e.stopPropagation(); setDeletingTemplate({id:tpl.id,name:tpl.name}) }}><Trash2 className="size-3.5" /></Button>
                     </CardContent>
                   </Card>
                 )
@@ -178,7 +180,7 @@ export function TemplatesPage() {
         <TabsContent value="assignments" className="flex flex-col gap-4 mt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">Reusable pools of team assignments — name, instructions and an optional image each. Pick a collection when creating an event and choose how it’s dealt out.</p>
-            <Button onClick={()=>setCreatingCollection(true)}><Plus className="size-4" /> New collection</Button>
+            <Button onClick={()=>setCreatingCollection(true)}><Plus className="size-4" /> {t("templates.new_collection")}</Button>
           </div>
           {assignmentCollections.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="C2" className="mb-2" />No collections yet — create one to use assignments at your events.</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -194,7 +196,7 @@ export function TemplatesPage() {
                   >
                     <CardHeader className="pb-2">
                       <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
-                      <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
+                      <CardDescription className="flex items-center gap-2 text-xs"><span>{dateTime(tpl.createdAt)}</span></CardDescription>
                       <span className="mt-1 w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium">{items.length} assignment{items.length===1?"":"s"}</span>
                     </CardHeader>
                     <CardContent className="mt-auto">
@@ -210,9 +212,9 @@ export function TemplatesPage() {
                         </ul>
                       )}
                       <div className="flex gap-2">
-                        <Button size="sm" variant="secondary" onClick={()=>setEditingCollectionId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                        <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                        <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                        <Button size="sm" variant="secondary" onClick={()=>setEditingCollectionId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
+                        <Button size="sm" variant="ghost" aria-label={t("templates.copy_reference")} onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
+                        <Button size="sm" variant="ghost" aria-label={t("common.delete") + ": " + tpl.name} onClick={e=>{ e.stopPropagation(); setDeletingTemplate({id:tpl.id,name:tpl.name}) }}><Trash2 className="size-3.5" /></Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -397,22 +399,22 @@ function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: 
     } catch(e){ toast.error(e instanceof Error ? e.message : "Save failed") } finally{ setBusy(false) }
   }
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
-      <Card className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-pop-in" onClick={e=>e.stopPropagation()}>
-        <CardHeader className="shrink-0">
-          <CardTitle>{isEdit ? "Edit announcement" : "New announcement template"}</CardTitle>
-          <CardDescription>Reusable Discord message — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in title or message for tag suggestions like {"{event}"} {"{everyone}"} {"{timer}"}.</CardDescription>
-        </CardHeader>
-        <div className="flex-1 overflow-y-auto px-6 pb-4 flex flex-col gap-4">
+    <Dialog open onOpenChange={open => { if (!open && !busy) onClose() }}>
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+        <div className="space-y-2 pr-8">
+          <DialogTitle>{t(isEdit ? "templates.edit_message" : "templates.new_message")}</DialogTitle>
+          <DialogDescription>{t("templates.message_help")}</DialogDescription>
+        </div>
+        <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Template name (for picker)</label>
-            <Input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Dinner reminder" maxLength={80} />
+            <label htmlFor="message-template-name" className="text-sm font-medium">{t("templates.name")}</label>
+            <Input id="message-template-name" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Dinner reminder" maxLength={80} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Trigger hint</label>
+              <label className="text-sm font-medium">{t("templates.trigger")}</label>
               <Select value={data.trigger} onValueChange={v=>setData({ ...data, trigger: v as never })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label={t("templates.trigger")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="manual">Manual only</SelectItem>
                   <SelectItem value="on_activate">On activate</SelectItem>
@@ -422,37 +424,37 @@ function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: 
               </Select>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Channel</label>
+              <label className="text-sm font-medium">{t("templates.channel")}</label>
               {channels.length > 0 ? (
                 <Select value={data.channelId ?? "__none"} onValueChange={v=>setData({ ...data, channelId: v==="__none" ? null : v })}>
-                  <SelectTrigger><SelectValue placeholder="Default announcement channel" /></SelectTrigger>
+                  <SelectTrigger aria-label={t("templates.channel")}><SelectValue placeholder={t("templates.channel")} /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none">Default (announcement/panel)</SelectItem>
                     {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               ) : (
-                <Input value={data.channelId ?? ""} onChange={e=>setData({ ...data, channelId: e.target.value.trim() || null })} placeholder="channel id (optional)" />
+                <Input aria-label={t("templates.channel")} value={data.channelId ?? ""} onChange={e=>setData({ ...data, channelId: e.target.value.trim() || null })} placeholder="channel id (optional)" />
               )}
               <span className="text-[11px] text-muted-foreground">Where this announcement is sent by default. Actions can override per-block.</span>
             </div>
           </div>
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Title</label>
+            <label className="text-sm font-medium">{t("templates.message_title")}</label>
             <TagAutocompleteInput value={data.title} onChange={v=>setData({ ...data, title: v })} placeholder="e.g. {schedule_title} — update" maxLength={100} />
           </div>
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Message</label>
+            <label className="text-sm font-medium">{t("templates.message_body")}</label>
             <TagAutocompleteTextarea value={data.message} onChange={v=>setData({ ...data, message: v })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
             <span className="text-[11px] text-muted-foreground">Tip: type <code className="rounded bg-muted px-1 font-mono text-[11px]">{"{"}</code> to autocomplete — e.g. <code className="font-mono">{"{eve"}</code> → <code className="font-mono">{"{event}"}</code> · <code className="font-mono">{"{timer"}</code> etc.</span>
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-border p-4 shrink-0 bg-card">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button disabled={busy || name.trim().length<2 || data.title.trim().length<2} onClick={()=>void save()}>{isEdit ? "Save changes" : "Create"}</Button>
+          <Button variant="outline" onClick={onClose}>{t("common.cancel")}</Button>
+          <Button disabled={busy || name.trim().length<2 || data.title.trim().length<2} onClick={()=>void save()}>{t("common.save")}</Button>
         </div>
-      </Card>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

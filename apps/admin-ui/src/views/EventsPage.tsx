@@ -9,7 +9,7 @@ import { createEventSchema, announceSchema } from '@/lib/schemas'
 import type { Assignment, AssignmentStrategy, FormConfig, FormAppearance, HackathonEvent, Participant } from '@/types'
 import { STRATEGY_OPTIONS } from '@/lib/assignment-strategy'
 import { DEFAULT_FORM } from '@/lib/default-form'
-import { SYNTHETIC_BLOCK_IDS, resolveScheduleAnchors } from '@/lib/schedule-anchor'
+import { SYNTHETIC_BLOCK_IDS, resolveScheduleAnchors, consolidateSignupBlock, moveScheduleDates } from '@/lib/schedule-anchor'
 import { FormConfigEditor } from '@/components/FormConfigEditor'
 import { AppearanceControls } from '@/components/appearance-controls'
 import { resolveAppearance } from '@/components/participant-appearance'
@@ -20,7 +20,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea-label'
+import { Label, Textarea } from '@/components/ui/textarea-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -130,17 +130,18 @@ export function EventsPage() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={t('events.search_placeholder')}
+                  aria-label={t('events.search_placeholder')}
                   className="pl-8"
                   maxLength={100}
                 />
               </div>
               <Select value={sortKey} onValueChange={(v) => setSortKey(v as never)}>
-                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label={t('events.sort_label')} className="w-44"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="newest">Newest first</SelectItem>
-                  <SelectItem value="oldest">Oldest first</SelectItem>
-                  <SelectItem value="name">Name A–Z</SelectItem>
-                  <SelectItem value="starts">Starts soonest</SelectItem>
+                  <SelectItem value="newest">{t('events.sort_newest')}</SelectItem>
+                  <SelectItem value="oldest">{t('events.sort_oldest')}</SelectItem>
+                  <SelectItem value="name">{t('events.sort_name')}</SelectItem>
+                  <SelectItem value="starts">{t('events.sort_starts')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -341,6 +342,18 @@ function NewEventButton() {
     api.getGuildChannels().then(r=>setGuildChannels(r.channels ?? [])).catch(()=>undefined)
   }, [])
 
+  function changeStart(next: string) {
+    const nextMs = dateInputToMs(next), oldMs = dateInputToMs(startsAt)
+    if (nextMs !== null) {
+      const shift = (value: string, fallback: number) => { const ms = dateInputToMs(value); return toLocalIso(new Date(ms !== null && oldMs !== null ? ms + nextMs - oldMs : ms ?? fallback)) }
+      setEndsAt(shift(endsAt, nextMs + 48 * 3600000))
+      setSignupStartsAt(shift(signupStartsAt, nextMs - 7 * 86400000))
+      setSignupEndsAt(shift(signupEndsAt, nextMs))
+      setSchedule(items => moveScheduleDates(items, oldMs, nextMs))
+    }
+    setStartsAt(next)
+  }
+
   // Default signup window: 7 days before hackathon start → hackathon start, if user hasn't touched it
   useEffect(()=>{
     if (startsAt && !signupStartsAt && !signupEndsAt) {
@@ -380,6 +393,15 @@ function NewEventButton() {
       try { const p = JSON.parse(tpl.json) as { assignments?: unknown[] }; if (Array.isArray(p.assignments)) count = p.assignments.length } catch { /* keep 0 */ }
       return { id: tpl.id, name: tpl.name, count }
     })
+  useEffect(() => {
+    if (!assignmentCollectionId) { setStartActions(actions => actions.filter(action => action.id !== DISTRIBUTE_ACTION_ID)); return }
+    const elsewhere = [...signupActions, ...endActions, ...schedule.flatMap(item => item.actions ?? [])].some(action => action.type === 'distribute_assignments')
+    if (!elsewhere) setStartActions(actions => {
+      const existing = actions.find(action => action.type === 'distribute_assignments')
+      return existing ? actions.map(action => action.id === DISTRIBUTE_ACTION_ID ? { ...action, mode: assignmentStrategy } : action)
+        : [...actions, { id: DISTRIBUTE_ACTION_ID, type: 'distribute_assignments', mode: assignmentStrategy }]
+    })
+  }, [assignmentCollectionId, assignmentStrategy])
   const defaults = state.guildSettings
 
   function onOpenChooser() {
@@ -429,8 +451,9 @@ function NewEventButton() {
         // __end__) and real blocks with anchors — split them so the block actions
         // land in the pinned blocks the user can see, and the itinerary resolves
         // onto this event's dates.
-        const blocks = parsed.schedule.filter(s => SYNTHETIC_BLOCK_IDS.includes(s.id))
-        const items = parsed.schedule.filter(s => !SYNTHETIC_BLOCK_IDS.includes(s.id))
+        const normalized = consolidateSignupBlock(parsed.schedule)
+        const blocks = normalized.filter(s => SYNTHETIC_BLOCK_IDS.includes(s.id))
+        const items = normalized.filter(s => !SYNTHETIC_BLOCK_IDS.includes(s.id))
         const pickActions = (blockId: string) => blocks.find(b => b.id === blockId)?.actions ?? []
         setStartActions(pickActions('__start__'))
         setSignupActions(pickActions('__signup__'))
@@ -644,7 +667,7 @@ function NewEventButton() {
                 onChange={setSchedule}
                 startValue={startsAt}
                 endValue={endsAt}
-                onStartChange={setStartsAt}
+                onStartChange={changeStart}
                 onEndChange={setEndsAt}
                 signupStartValue={signupStartsAt}
                 signupEndValue={signupEndsAt}
@@ -1151,17 +1174,17 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   // rows are still read so events created before the migration load correctly.
   const deriveStart = (ev: HackathonEvent) => {
     const ann = (ev.announcements ?? []).filter(a=>a.trigger==='on_activate').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null } as import('@/types').ScheduleAction))
-    const syn = (ev.schedule ?? []).find(s=>s.id==='__start__')
+    const syn = consolidateSignupBlock(ev.schedule ?? []).find(s=>s.id==='__start__')
     return [...ann, ...((syn?.actions ?? []) as import('@/types').ScheduleAction[])]
   }
   const deriveEnd = (ev: HackathonEvent) => {
     const ann = (ev.announcements ?? []).filter(a=>a.trigger==='on_start').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null } as import('@/types').ScheduleAction))
-    const syn = (ev.schedule ?? []).find(s=>s.id==='__end__')
+    const syn = consolidateSignupBlock(ev.schedule ?? []).find(s=>s.id==='__end__')
     return [...ann, ...((syn?.actions ?? []) as import('@/types').ScheduleAction[])]
   }
   const deriveSignup = (ev: HackathonEvent) =>
-    ((ev.schedule ?? []).find(s=>s.id==='__signup__')?.actions ?? []) as import('@/types').ScheduleAction[]
-  const deriveItems = (ev: HackathonEvent) => (ev.schedule ?? []).filter(s=>!SYNTHETIC_BLOCK_IDS.includes(s.id))
+    (consolidateSignupBlock(ev.schedule ?? []).find(s=>s.id==='__signup__')?.actions ?? []) as import('@/types').ScheduleAction[]
+  const deriveItems = (ev: HackathonEvent) => consolidateSignupBlock(ev.schedule ?? []).filter(s=>!SYNTHETIC_BLOCK_IDS.includes(s.id))
 
   const [items, setItems] = useState(()=>deriveItems(event))
   const [start, setStart] = useState(event.startsAt ? toLocalIso(new Date(event.startsAt)) : "")
@@ -1183,6 +1206,18 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [signupActions, setSignupActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveSignup(event))
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState('')
+
+  function changeStart(next: string) {
+    const nextMs = dateInputToMs(next), oldMs = dateInputToMs(start)
+    if (nextMs !== null) {
+      const shift = (value: string, fallback: number) => { const ms = dateInputToMs(value); return toLocalIso(new Date(ms !== null && oldMs !== null ? ms + nextMs - oldMs : ms ?? fallback)) }
+      setEnd(shift(end, nextMs + 48 * 3600000))
+      setSignupStart(shift(signupStart, nextMs - 7 * 86400000))
+      setSignupEnd(shift(signupEnd, nextMs))
+      setItems(items => moveScheduleDates(items, oldMs, nextMs))
+    }
+    setStart(next)
+  }
 
   // Anchored blocks follow the dates while the user edits them.
   useEffect(() => {
@@ -1209,7 +1244,9 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
       // Block actions ride the synthetic blocks. The legacy on_activate/on_start
       // announcement rows are dropped here — nothing sends them, their content
       // lives in the block actions now.
-      const startOps = syncDistribute(startActions, editAssignments)
+      const elsewhere = [...signupActions, ...endActions, ...items.flatMap(item => item.actions ?? [])].some(action => action.type === 'distribute_assignments')
+      if (editAssignments.length && !elsewhere && !startActions.some(action => action.type === 'distribute_assignments')) throw new Error(t('events.assignment_action_required'))
+      const startOps = startActions
       const extra: typeof items = [
         ...syntheticBlock('__signup__', signupStart ? Date.parse(signupStart) : null, 'Signups open', signupActions),
         ...syntheticBlock('__start__', start ? Date.parse(start) : null, 'Event starts', startOps),
@@ -1287,7 +1324,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 onChange={setItems}
                 startValue={start}
                 endValue={end}
-                onStartChange={setStart}
+                onStartChange={changeStart}
                 onEndChange={setEnd}
                 signupStartValue={signupStart}
                 signupEndValue={signupEnd}
@@ -1301,6 +1338,17 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 onSignupActionsChange={setSignupActions}
                 disablePast
               />
+              <div className="space-y-2">
+                <Label>{t('events.assignment_collection')}</Label>
+                <Select value="" onValueChange={id => {
+                  const template = state.templates?.find(template => template.id === id && template.kind === 'assignments')
+                  if (!template) return
+                  try { const pool = JSON.parse(template.json).assignments as Assignment[]; if (Array.isArray(pool)) { setEditAssignments(pool); if (![...signupActions, ...endActions, ...items.flatMap(item => item.actions ?? [])].some(action => action.type === 'distribute_assignments')) setStartActions(actions => syncDistribute(actions, pool)) } } catch { /* retain current pool */ }
+                }}>
+                  <SelectTrigger aria-label={t('events.assignment_collection')}><SelectValue placeholder={t('events.pick_assignment_collection')} /></SelectTrigger>
+                  <SelectContent>{state.templates?.filter(template => template.kind === 'assignments').map(template => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
               <AssignmentsEditor value={editAssignments} onChange={setEditAssignments} />
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.change_form')}</span>
@@ -1554,7 +1602,7 @@ function EventCard({ event, isSelected, onOpen, refresh }: { event: HackathonEve
             </div>
             <div className="mt-auto flex items-center justify-between gap-2 pt-1">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{event.id}</span>
+                <span className="min-w-0 line-clamp-2 text-sm text-muted-foreground">{event.description}</span>
                 <span className="hidden shrink-0 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 md:inline">
                   {t('events.hint_right_click')}
                 </span>

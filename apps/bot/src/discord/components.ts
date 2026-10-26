@@ -1,3 +1,4 @@
+import { replyWithWebSignup } from './signup-entry.js';
 /**
  * Modal submit + button/select component handling.
  *
@@ -216,6 +217,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
     return;
   }
 
+  if (await replyWithWebSignup(i, ctx)) return;
   const raw = {
     displayName: i.fields.getTextInputValue(MODAL_IDS.name),
     experience: i.fields.getStringSelectValues(MODAL_IDS.experience)[0] ?? '',
@@ -274,7 +276,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
     embeds: [
       embedOk(t(locale, 'discord.join.saved_title'), incomplete
         ? `${t(locale, 'discord.join.incomplete_web')}${ctx.webCompletionUrl ? `\n\n${t(locale, 'discord.join.web_completion', { url: `<${ctx.webCompletionUrl}>` })}` : ''}`
-        : `${t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })}${ctx.webCompletionUrl ? `\n\n${t(locale, 'discord.join.web_completion', { url: `<${ctx.webCompletionUrl}>` })}` : ''}`),
+        : t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })),
       await buildParticipantEmbed(ctx.db, ctx.config, saved.value, locale),
     ],
     components: actions === null ? [] : [actions],
@@ -414,6 +416,7 @@ export async function onComponent(
       await i.reply(eph(t(locale, 'errors.blocked')));
       return;
     }
+    if (i.isButton() && await replyWithWebSignup(i, ctx)) return;
     await i.showModal(buildSignupModal(ctx.config, locale, `hack:signup:event:${ctx.eventId}`));
     return;
   }

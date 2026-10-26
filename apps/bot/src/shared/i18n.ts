@@ -14,6 +14,15 @@ export type BotLocale = 'en' | 'sv';
 type Catalog = Record<string, string>;
 
 const EN: Catalog = {
+  'discord.join.web_only': "Sign up on the website. Your answers and team will be available there whenever you need them.",
+  'discord.join.web_unavailable': "Website signup is selected, but the website link is not configured. Please contact an organizer.",
+  'discord.panel.web_questions': "This event has extra questions on the website. You can start your profile here; any required answers must be completed on the website.",
+  'discord.provision.member_left': "<@{user}> left the team.",
+  'discord.event_role': "{name} · participants",
+  'discord.itinerary.title': '{name} · Schedule',
+  'discord.itinerary.empty': 'The organizers will add activities here soon.',
+  'discord.itinerary.count': '**Schedule · {count} activities**',
+  'discord.itinerary.updated': 'Updated <t:{ts}:R>',
   // ── errors: FRIENDLY map ────────────────────────────────────────────────
   'errors.blocked': 'You are blocked from signing up. Contact an organizer.',
   'errors.already_in_team': 'You are already in a team. Use `/hackathon leave-team` first.',
@@ -403,6 +412,15 @@ const EN: Catalog = {
 };
 
 const SV: Catalog = {
+  'discord.join.web_only': "Anmäl dig på webbplatsen. Dina svar och ditt team finns där när du behöver dem.",
+  'discord.join.web_unavailable': "Webbanmälan är vald, men länken till webbplatsen saknas. Kontakta en arrangör.",
+  'discord.panel.web_questions': "Det här eventet har extra frågor på webbplatsen. Du kan börja med din profil här; obligatoriska svar måste fyllas i på webbplatsen.",
+  'discord.provision.member_left': "<@{user}> har lämnat teamet.",
+  'discord.event_role': "{name} · deltagare",
+  'discord.itinerary.title': '{name} · Schema',
+  'discord.itinerary.empty': 'Arrangörerna lägger till programpunkter här snart.',
+  'discord.itinerary.count': '**Schema · {count} programpunkter**',
+  'discord.itinerary.updated': 'Uppdaterat <t:{ts}:R>',
   // ── errors: FRIENDLY map ────────────────────────────────────────────────
   'errors.blocked': 'Du är spärrad från anmälan. Kontakta en organisatör.',
   'errors.already_in_team': 'Du är redan med i ett team. Använd `/hackathon leave-team` först.',

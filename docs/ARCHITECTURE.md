@@ -103,3 +103,24 @@ Consequences worth remembering:
 
 If you change how the layers connect, update `AGENTS.md` first — it is what the
 next person reads before touching code.
+
+
+## Durable event delivery
+
+Schedule operations and Discord message delivery have separate completion state.
+`discord/event-delivery.ts` reconciles signup panels, scheduled announcements,
+itineraries and assignment handouts on maintenance, organizer edits and team provisioning.
+`features/events/delivery-data.ts` owns their PostgreSQL meta records, keyed by guild,
+event, block, action and (for assignments) team. Records retain message/channel IDs,
+content fingerprints and the team's chosen assignment. Failed sends/edits stay retryable;
+unchanged deliveries do not post again. An edited handout keeps the same team assignment.
+
+Historical announcements from releases that never retained message IDs are baselined
+without replaying them. Their first subsequent content edit publishes a tracked replacement;
+the original untracked message cannot be reliably edited. Signup panels and itineraries
+reuse their existing message references. Manual one-off announcements remain one-off.
+
+Pinned signup/start/end actions use the exact anchor timestamp; ordinary activities use
+clock-time offsets from the anchor day. Date-only event edits re-resolve saved anchors and
+move unanchored activities by calendar day. Predefined assignment collections are copied
+into an event when selected, including from the existing-event editor.

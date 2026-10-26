@@ -224,13 +224,14 @@ function ActionList({ actions, channels, templates, announceTitlePlaceholder, an
   )
 }
 
-/** Add-buttons shared by both editors. Distribution is not offered here — it is configured by the event's assignment pool (collection + strategy). */
+/** Add-buttons shared by both editors. Assignment distribution is a first-class schedule action backed by the event’s assignment pool. */
 function AddActionButtons({ onAdd }: { onAdd: (type: ScheduleAction["type"]) => void }) {
   const t = useT()
   return (
     <div className="flex flex-wrap gap-1">
       <Button variant="secondary" size="sm" className="h-6 text-xs" onClick={() => onAdd("announce")}><Megaphone className="size-3" /> {t('events.schedule_action_announcement')}</Button>
       <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => onAdd("post_signup")}><ClipboardList className="size-3" /> {t('events.schedule_action_signup')}</Button>
+      <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => onAdd("distribute_assignments")}><Shuffle className="size-3" /> {t("events.schedule_action_assignments")}</Button>
       <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => onAdd("lock_teams")}><Lock className="size-3" /> {t('events.schedule_action_lock')}</Button>
       <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => onAdd("auto_match")}><UsersRound className="size-3" /> {t('events.schedule_action_auto')}</Button>
     </div>
@@ -587,13 +588,17 @@ export function ScheduleEditor({
                           </Select>
                         </div>
                       )}
+                      <label className="space-y-2 text-sm">
+                        <span>{t("schedule.description_label")}</span>
                       <Input
                         value={item.description ?? ""}
                         onChange={(e) => update(item.id, { description: e.target.value || undefined })}
-                        placeholder="Details (optional) — e.g. Pizza in the kitchen"
+                        placeholder={t("schedule.description_label")}
                         className="h-8 text-xs"
                         maxLength={200}
                       />
+                        <span className="block text-xs text-muted-foreground">{t("schedule.description_help")}</span>
+                      </label>
                       <ScheduleItemActions item={item} onChange={(actions)=>update(item.id, { actions })} />
 
                       <div className="flex justify-end">

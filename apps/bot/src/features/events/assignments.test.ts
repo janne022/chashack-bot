@@ -112,3 +112,9 @@ test('assignments: imageUrl is kept only when it looks like an http(s) URL', () 
   assert.equal(out.assignments?.[2]?.imageUrl, undefined);
   assert.equal(out.assignments?.[3]?.imageUrl, undefined);
 });
+
+
+test('an explicit handout action elsewhere is not duplicated at kickoff', () => {
+  const schedule: ScheduleItem[] = [{ id: 'briefing', title: 'Briefing', time: START + H, actions: [{ id: 'chosen', type: 'distribute_assignments', mode: 'same' }] }];
+  assert.deepEqual(withAssignmentDistribution(schedule, 'random', START), schedule);
+});

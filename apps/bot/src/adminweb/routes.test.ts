@@ -352,3 +352,36 @@ test('theme templates persist only normalized appearance snapshots', async () =>
   await app.close();
   await db.close();
 });
+
+
+test('server discovery refreshes granted and revoked access without a new login', async () => {
+  const db = await openTestDb();
+  const first = '11111111111111111';
+  const second = '22222222222222222';
+  const allowed = new Set([first]);
+  const session = await createSession(db, { userId: 'organizer', username: 'Organizer', avatar: null, guilds: [{ id: first, name: 'First', icon: null }] });
+  const guilds = new Map([first, second].map(id => [id, {
+    id, name: id === first ? 'First' : 'Second', ownerId: 'owner',
+    members: { fetch: async () => ({ permissions: { has: () => false, bitfield: allowed.has(id) ? 8n : 0n }, roles: { cache: new Map() } }) },
+  }]));
+  const app = Fastify({ logger: false });
+  registerRoutes(app, { db, config, announce: async () => undefined, client: { guilds: { cache: guilds, fetch: async (id: string) => guilds.get(id) } } as never });
+  const headers = { cookie: sessionCookie(session.id) };
+  try {
+    let me = await app.inject({ url: '/api/auth/me', headers });
+    assert.deepEqual(me.json().guilds.map((g: { id: string }) => g.id), [first]);
+    allowed.add(second);
+    me = await app.inject({ url: '/api/auth/me', headers });
+    assert.deepEqual(me.json().guilds.map((g: { id: string }) => g.id), [first, second]);
+    assert.equal((await app.inject({ method: 'POST', url: '/api/auth/guild', headers, payload: { guildId: second } })).statusCode, 200);
+    allowed.delete(second);
+    assert.equal((await app.inject({ url: '/api/state', headers })).statusCode, 403);
+    me = await app.inject({ url: '/api/auth/me', headers });
+    assert.equal(me.statusCode, 200, 'account picker still works after selected server access is revoked');
+    assert.deepEqual(me.json().guilds.map((g: { id: string }) => g.id), [first]);
+    assert.equal((await app.inject({ method: 'POST', url: '/api/auth/guild', headers, payload: { guildId: second } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: '/api/auth/guild', headers, payload: { guildId: first } })).statusCode, 200);
+    await app.inject({ method: 'POST', url: '/api/auth/logout', headers });
+    assert.equal((await app.inject({ url: '/api/auth/me', headers })).statusCode, 401);
+  } finally { await app.close(); await db.close(); }
+});

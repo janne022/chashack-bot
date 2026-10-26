@@ -26,6 +26,7 @@ import {
   purgeExpiredSessions,
   selectGuild,
   type WebSession,
+  updateSessionGuilds,
 } from '../features/auth/data.js';
 import { audit } from '../shared/audit.js';
 import { auditList } from '../shared/audit.js';
@@ -202,7 +203,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       })().catch(done);
       return;
     }
-    if (!req.url.startsWith('/api/') || req.url.startsWith('/api/public/') || req.url.startsWith('/api/participant/')) {
+    if (!req.url.startsWith('/api/') || req.url === '/api/auth/me' || req.url.startsWith('/api/public/') || req.url.startsWith('/api/participant/')) {
       done();
       return;
     }
@@ -289,7 +290,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(401).send({ error: 'unauthorized' });
       return;
     }
-    if (req.url === '/api/auth/logout') return;
+    if (req.url === '/api/auth/logout' || req.url === '/api/auth/me') return;
     const targetGuild = req.url === '/api/auth/guild'
       ? ((req.body as { guildId?: string } | null)?.guildId ?? '')
       : live.session.selectedGuildId ?? '';
@@ -826,6 +827,13 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     };
     if (live !== null) {
       const session = live.session;
+      const guilds = [];
+      for (const id of installedGuildIds()) {
+        if (!(await freshGuildAccess(session.userId, id)).allowed) continue;
+        const guild = deps.client!.guilds.cache.get(id)!;
+        guilds.push({ id, name: guild.name, icon: guild.icon ?? null });
+      }
+      await updateSessionGuilds(db, session.id, guilds);
       return {
         kind: 'discord' as const,
         user: { id: session.userId, username: session.username, avatar: session.avatar },
@@ -833,7 +841,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
           id: session.selectedGuildId,
           name: guildName(session.selectedGuildId),
         },
-        guilds: session.guilds.map((g) => ({ ...g, name: guildName(g.id) ?? g.name })),
+        guilds,
       };
     }
     return { kind: 'anonymous' as const, user: null, guild: { id: null, name: null }, guilds: [] };
@@ -1191,10 +1199,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send(res);
       return;
     }
-    // Auto-refresh schedule itinerary if schedule or schedule channel changed and event is active
-    if ((body?.schedule !== undefined || body?.scheduleChannelId !== undefined) && res.value.status === 'active' && deps.client) {
-      const { postOrUpdateScheduleItinerary } = await import('../discord/schedule-itinerary.js')
-      await postOrUpdateScheduleItinerary(db, deps.client, res.value).catch(()=>undefined)
+    if (deps.client && res.value.status === 'active') {
+      try { const { reconcileEventDelivery } = await import('../discord/event-delivery.js'); await reconcileEventDelivery(db, deps.client, res.value); }
+      catch (error) { console.warn('Discord updates will retry during maintenance:', error); }
     }
     return { ok: true, event: res.value };
   });
@@ -1259,7 +1266,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' });
       return;
     }
-    const res = await postOrUpdatePanel(db, deps.client, await guildOf(req), channelId).catch((e: unknown) => ({
+    const res = await postOrUpdatePanel(db, deps.client, await guildOf(req), channelId, config.botLanguage, event.id).catch((e: unknown) => ({
       error: e instanceof Error ? e.message : 'Unknown error',
     }));
     if ('error' in res) {
@@ -1452,6 +1459,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(res.code === 'form_version_conflict' ? 409 : 400).send(res)
       return
     }
+    if (deps.client && !config.skipDiscord) await refreshSignupPanel(db, deps.client, await guildOf(req), config.botLanguage, eventId);
     return { ok: true, form: res.value }
   });
 
