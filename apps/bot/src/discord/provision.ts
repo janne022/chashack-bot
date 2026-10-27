@@ -23,6 +23,8 @@ import { t } from '../shared/i18n.js';
 import { env } from '../shared/env.js';
 import { refreshTeamPanel } from './team-panel.js';
 import { markTeamProvisionPending, clearTeamProvisionRevision } from '../features/teams/provision-data.js';
+import { isDiscordId } from '../shared/discord-id.js';
+import { isImportedPlaceholderId } from '../features/signup-import/sync.js';
 
 const MANAGE_FLAGS = [
   PermissionFlagsBits.ViewChannel,
@@ -194,6 +196,9 @@ async function provisionTeamSpacePass(deps: ProvisionDeps, team: Team): Promise<
 
 /** Grant the team role to a member (join/accept). */
 export async function grantTeamRole(deps: ProvisionDeps, team: Team, userId: string): Promise<boolean> {
+  // An imported participant who is not in the server has no member to grant to;
+  // their team arrives when they join and are linked.
+  if (isImportedPlaceholderId(userId)) return false;
   if (team.roleId === null) {
     await markTeamProvisionPending(deps.db, team.guildId, team.eventId, team.id);
     return false;
@@ -218,7 +223,9 @@ export async function applyTeamLeave(deps: ProvisionDeps, team: Team, userId: st
   const remaining = await getTeam(deps.db, team.id);
   if (remaining === null) await destroyTeamSpace(deps, team);
   else {
-    if (remaining.textChannelId) {
+    // An imported participant has no member to mention; the panel refresh below
+    // is the record that they left.
+    if (remaining.textChannelId && isDiscordId(userId)) {
       try {
         const guild = await deps.client.guilds.fetch(remaining.guildId);
         const channel = await guild.channels.fetch(remaining.textChannelId);
@@ -231,7 +238,7 @@ export async function applyTeamLeave(deps: ProvisionDeps, team: Team, userId: st
 
 /** Revoke the team role (leave/kick/delete). */
 export async function revokeTeamRole(deps: ProvisionDeps, team: Team, userId: string): Promise<void> {
-  if (team.roleId === null) return;
+  if (team.roleId === null || isImportedPlaceholderId(userId)) return;
   const guild = await deps.client.guilds.fetch(team.guildId);
   const member = await guild.members.fetch(userId).catch((error) => {
     if ((error as { code?: number }).code === 10007) return null;
@@ -250,13 +257,16 @@ export async function sendJoinWelcome(
   roster: { userId: string; displayName: string }[],
 ): Promise<void> {
   if (team.textChannelId === null) return;
+  // The welcome announces a person who just joined the server; an imported row
+  // has nobody to announce.
+  if (!isDiscordId(joinerId)) return;
   const locale = botLocale();
   try {
     const guild = await deps.client.guilds.fetch(team.guildId);
     const channel = await guild.channels.fetch(team.textChannelId);
     if (channel === null || !channel.isTextBased()) return;
 
-    const names = roster.map((m) => `<@${m.userId}>`).join(', ');
+    const names = roster.map((m) => isDiscordId(m.userId) ? `<@${m.userId}>` : m.displayName).join(', ');
     const isFounder = team.ownerId === joinerId;
     const lines = isFounder
       ? [t(locale, 'discord.provision.welcome_live', { team: team.name }), ``, t(locale, 'discord.provision.welcome_founder', { user: joinerId }), t(locale, 'discord.provision.welcome_roster', { names })]

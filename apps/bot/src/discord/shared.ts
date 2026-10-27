@@ -13,6 +13,7 @@ import type { Db } from '../shared/db.js';
 import type { FormConfig } from '../features/form/domain.js';
 import { labelForLocale } from '../features/form/domain.js';
 import { t, type BotLocale } from '../shared/i18n.js';
+import { isDiscordId } from '../shared/discord-id.js';
 import { countMembers, getTeam } from '../features/teams/data.js';
 import type { Participant } from '../features/signup/data.js';
 import type { MatchResult } from '../features/matching/domain.js';
@@ -129,7 +130,7 @@ export async function buildParticipantEmbed(db: Db, config: FormConfig, p: Parti
 
 export function matchPreviewEmbed(result: MatchResult, config: FormConfig, locale: BotLocale): EmbedBuilder {
   const lines = result.teams.map((team) => {
-    const members = team.memberIds.map((id) => `<@${id}>`).join(', ');
+    const members = team.memberIds.map((id) => isDiscordId(id) ? `<@${id}>` : t(locale, 'discord.events.imported_member')).join(', ');
     const notes = team.notes.length > 0 ? ` · ⚠️ ${team.notes.join('; ')}` : '';
     return `**${team.name}** — ${t(locale, 'discord.events.score', { score: team.score })}${notes}\n${members}`;
   });

@@ -55,7 +55,7 @@ test('organizer preview is read-only; confirmed rows persist and only a verified
     const incomplete = await app.inject({ method: 'PATCH', url: `/api/events/${eventId}/imported-signups/${id}`, headers, payload: { linkDiscordUserId: '12345678901234567' } });
     assert.equal(incomplete.statusCode, 200, incomplete.body);
     assert.deepEqual(incomplete.json().missingFields, ['diet']);
-    assert.equal((await withGuildContext(db, guildId, () => db.get('SELECT user_id FROM participants WHERE event_id=?', eventId))), undefined);
+    assert.equal((await withGuildContext(db, guildId, () => db.get<{ user_id: string }>('SELECT user_id FROM participants WHERE event_id=?', eventId)))?.user_id, '12345678901234567');
     const linked = await app.inject({ method: 'PATCH', url: `/api/events/${eventId}/imported-signups/${id}`, headers, payload: { answers: { diet: 'vegetarian' }, linkDiscordUserId: '12345678901234567' } });
     assert.equal(linked.statusCode, 200, linked.body);
     assert.equal(linked.json().activated, true);
@@ -243,7 +243,7 @@ test('a participant can claim only their own imported row, and only once', async
     assert.equal(claimed.statusCode, 200, claimed.body);
     assert.equal(claimed.json().activated, true);
     assert.deepEqual(claimed.json().prefill.profile, { experience: '', roleTrack: '', skills: ['frontend_react', 'ui_design'], teamPref: 'random_team' });
-    const participantRow = await withGuildContext(db, guildId, () => db.get<{ user_id: string }>('SELECT user_id FROM participants WHERE event_id=?', eventId));
+    const participantRow = await withGuildContext(db, guildId, () => db.get<{ user_id: string }>("SELECT user_id FROM participants WHERE event_id=? AND user_id=?", eventId, ADA));
     assert.equal(participantRow?.user_id, ADA);
     const registration = await withGuildContext(db, guildId, () => db.get('SELECT user_id FROM registration_answers WHERE event_id=? AND user_id=?', eventId, ADA));
     assert.equal(registration !== undefined, true);

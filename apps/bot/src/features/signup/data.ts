@@ -89,6 +89,8 @@ export interface Participant {
   teamId: string | null;
   status: ParticipantStatus;
   blockReason: string | null;
+  /** Set when this row exists because of an imported signup (placeholder or linked). */
+  importedSignupId: string | null;
   createdAt: number;
   updatedAt: number;
   matchingImportance?: Partial<Record<'experience' | 'role' | 'skills', number>>;
@@ -107,6 +109,7 @@ interface ParticipantRow {
   team_id: string | null;
   status: string;
   block_reason: string | null;
+  imported_signup_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -125,6 +128,7 @@ function toParticipant(row: ParticipantRow): Participant {
     teamId: row.team_id,
     status: row.status as ParticipantStatus,
     blockReason: row.block_reason,
+    importedSignupId: row.imported_signup_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -215,7 +219,10 @@ export async function listMatchable(db: Db, eventId: string): Promise<Participan
   const form = getEventForm(db, event, await getForm(db, event.guildId));
   const eligible: Participant[] = [];
   for (const row of rows) {
-    if (row.guild_id !== event.guildId || !(await isCurrentMember(db, event.guildId, row.user_id))) continue;
+    if (row.guild_id !== event.guildId) continue;
+    // An imported participant has no Discord identity to look up; the imported
+    // signup itself is the proof they signed up for this event.
+    if (row.imported_signup_id === null && !(await isCurrentMember(db, event.guildId, row.user_id))) continue;
     const projected = await projectParticipantForMatching(db, toParticipant(row), form);
     if (projected !== null) eligible.push(projected);
   }

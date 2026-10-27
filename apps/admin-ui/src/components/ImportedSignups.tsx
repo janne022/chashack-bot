@@ -17,10 +17,11 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { SignupQuestion, type Localized } from '@/components/signup-question'
 import { MemberCombobox, memberQueryFromUsername, type GuildMemberOption } from '@/components/member-combobox'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
-import { Upload, UserRoundSearch, Trash2 } from 'lucide-react'
+import { Upload, UserRoundSearch, Trash2, UserPlus } from 'lucide-react'
 
 type PreviewRow = { rowNumber: number; values: Record<string, string>; answers: Record<string, string | string[]>; issues: string[]; duplicateStatus: 'create' | 'duplicate' | 'conflict' }
 type Member = GuildMemberOption
+type AutoLinkSummary = Awaited<ReturnType<typeof api.autoLinkImportedSignups>>
 const CORE_FIELDS = ['name', 'email', 'discordUsername', 'allergies', 'experience', 'role', 'skills', 'teamPref', 'participationPreference', 'preferredAreas', 'groupSize', 'groupName', 'members']
 
 /** Server codes an organizer can actually hit while editing or linking a row. */
@@ -40,6 +41,7 @@ const ERROR_KEYS: Record<string, string> = {
   invalid_edit: 'imports.error_invalid_edit',
   member_search_unavailable: 'imports.member_search_failed',
   member_search_rate_limited: 'imports.member_search_rate_limited',
+  discord_unavailable: 'imports.error_discord_unavailable',
 }
 
 export function ImportedSignups({ eventId, eventName, form }: { eventId: string; eventName: string; form: FormConfig }) {
@@ -74,6 +76,8 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   const [templateId, setTemplateId] = useState('')
   const [appliedTemplate, setAppliedTemplate] = useState<string | null>(null)
   const [saveWarnings, setSaveWarnings] = useState<{ row: number; issues: string[] }[]>([])
+  const [autoLink, setAutoLink] = useState<AutoLinkSummary | null>(null)
+  const [linking, setLinking] = useState(false)
 
   function describeError(error: unknown, fallback: string) {
     if (error instanceof ApiError) {
@@ -149,6 +153,9 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
     try {
       const result = await api.importSignups(eventId, rows.map(row => ({ sourceRow: row.rowNumber, values: row.values, answers: row.answers })))
       toast.success(t('imports.saved_summary', { saved: result.saved, skipped: result.skipped, conflicts: result.conflicts }))
+      if (result.autoLink && result.autoLink.linked.length > 0) {
+        toast.success(t('imports.auto_link_linked', { count: result.autoLink.linked.length }))
+      }
       setSaveWarnings(result.warnings ?? [])
       setImportOpen(false); setFile(null); setCsv(''); setPreview([]); setSummary(null); await reload()
     } catch (e) { setError(describeError(e, 'imports.save_failed')) }
@@ -158,6 +165,19 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   function openEditor(record: ImportedSignup) {
     setEditId(record.id); setEditValues({ ...record.values }); setEditAnswers({ ...record.answers }); setDiscordUsername(record.discordUsername ?? '')
     setSelectedMember(null); setMemberError('')
+  }
+
+  async function runAutoLink() {
+    if (linking) return
+    setLinking(true); setError(''); setAutoLink(null)
+    try {
+      const result = await api.autoLinkImportedSignups(eventId)
+      setAutoLink(result)
+      if (result.linked.length > 0) toast.success(t('imports.auto_link_linked', { count: result.linked.length }))
+      else toast.info(t('imports.auto_link_none'))
+      await reload()
+    } catch (e) { toast.error(describeError(e, 'imports.auto_link_failed')) }
+    finally { setLinking(false) }
   }
 
   async function saveEdit(link = false) {
@@ -231,9 +251,27 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   return <section className="space-y-4" aria-label={t('imports.title')}>
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><h2 className="font-display text-xl">{t('imports.title')}</h2><p className="text-sm text-muted-foreground">{eventName} · {t('imports.organizer_only')}</p></div>
-      <Button onClick={() => { setImportOpen(true); setError('') }}><Upload />{t('imports.action')}</Button>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={linking || records.length === 0} onClick={() => void runAutoLink()} title={t('imports.auto_link_hint')}>
+          <UserPlus />{linking ? t('imports.auto_link_running') : t('imports.auto_link_action')}
+        </Button>
+        <Button onClick={() => { setImportOpen(true); setError('') }}><Upload />{t('imports.action')}</Button>
+      </div>
     </header>
     <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">{t('imports.discord_limitation')}</p>
+    {autoLink !== null && <div className="space-y-1 rounded-lg border border-border bg-surface-2/50 p-3 text-sm" role="status">
+      <p className="font-medium">
+        {t('imports.auto_link_summary', {
+          linked: autoLink.linked.length,
+          ambiguous: autoLink.ambiguous.length,
+          missing: autoLink.missing,
+          conflicts: autoLink.conflicts.length,
+        })}
+      </p>
+      {autoLink.ambiguous.length > 0 && <p className="text-xs text-muted-foreground">
+        {t('imports.auto_link_ambiguous', { names: autoLink.ambiguous.map(row => row.username).join(', ') })}
+      </p>}
+    </div>}
     {saveWarnings.length > 0 && <div className="space-y-1 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
       <div className="flex items-start justify-between gap-2">
         <p className="font-medium">{t('imports.saved_with_warnings', { count: saveWarnings.length })}</p>

@@ -1,6 +1,7 @@
 import type { Db } from '../../shared/db.js';
 import { withGuildContext } from '../../shared/postgres.js';
 import { getTeam, leaveTeam, removeFromTeam, type Team } from '../teams/data.js';
+import { isImportedPlaceholderId } from '../signup-import/sync.js';
 
 /** Confirmed personal departure only; bot uninstall/lookup errors never call this. */
 export async function deleteGuildMemberData(db: Db, guildId: string, userId: string, now = Date.now()): Promise<Team[]> {
@@ -50,6 +51,9 @@ export async function reconcileGuildMembers(db: Db, guildId: string, lookup: (us
     UNION SELECT user_id FROM registration_answers WHERE event_id IN (SELECT id FROM events WHERE guild_id = ?)
     UNION SELECT user_id FROM submission_answers WHERE event_id IN (SELECT id FROM events WHERE guild_id = ?)`, guildId, guildId, guildId);
   for (const { user_id: userId } of users) {
+    // An imported participant has no Discord member to look up; the imported
+    // signup row, not guild presence, is their proof of signing up.
+    if (isImportedPlaceholderId(userId)) continue;
     let present: boolean;
     try { present = await lookup(userId); } catch { continue; }
     if (present !== false) continue;

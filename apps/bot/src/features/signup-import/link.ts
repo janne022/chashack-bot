@@ -3,9 +3,9 @@ import { audit } from '../../shared/audit.js';
 import type { FormConfig } from '../form/domain.js';
 import { validateCustomAnswers } from '../form/domain.js';
 import { getParticipant } from '../signup/data.js';
-import { saveRegistrationAnswers } from '../registration/data.js';
 import { joinGroupTeam, type GroupTeamMembership } from '../teams/group-teams.js';
 import { importedRowProfile, normalizeImportedRow } from './normalize.js';
+import { mergeImportedPlaceholder, projectImportedParticipant } from './sync.js';
 
 export interface LinkResult {
   linked: boolean;
@@ -69,8 +69,12 @@ export async function linkImportedSignup(
       return { linked: false, activated: false, missingFields: [], error: 'stale_form_version' };
     }
 
-    const existing = await getParticipant(db, eventId, userId);
-    if (existing !== null && existing.status === 'blocked') return { linked: false, activated: false, missingFields: [], error: 'registration_blocked' };
+    const target = await getParticipant(db, eventId, userId);
+    if (target !== null && target.status === 'blocked') return { linked: false, activated: false, missingFields: [], error: 'registration_blocked' };
+    const hadParticipant = target !== null;
+    // A placeholder the import created becomes this member's participant, keeping
+    // the team they were matched into and the answers they already gave.
+    await mergeImportedPlaceholder(db, eventId, importId, userId);
     const checked = validateCustomAnswers(form, answers);
     if (!checked.ok) return { linked: false, activated: false, missingFields: [], error: 'invalid_answers' };
     const missingFields = checked.missingRequiredQuestionIds;
@@ -90,29 +94,34 @@ export async function linkImportedSignup(
       );
     };
     const actor = options.actor ?? (options.organizer ? 'organizer' : 'participant');
+    // Profile and answers of the row become the participant's, re-normalised
+    // against the current form. Safe to call again: it merges, never duplicates.
+    const project = async (): Promise<void> => {
+      await projectImportedParticipant(db, { eventId, guildId, importId, userId, form, values, answers });
+    };
+    if ((await getParticipant(db, eventId, userId))?.status === 'blocked') return { linked: false, activated: false, missingFields: [], error: 'registration_blocked' };
 
     if (missingFields.length) {
       await persist();
+      await project();
       const groupTeam = await joinGroupTeam(db, actor, eventId, guildId, userId, values.groupName);
       await audit(db, actor, 'imported_signup.link', eventId, { importId, userId, activated: false, missing: missingFields.length, organizer: options.organizer === true }, guildId);
       return { linked: true, activated: false, missingFields, ...(groupTeam ? { groupTeam } : {}), ...(warnings.length ? { warnings } : {}) };
     }
 
-    if (existing !== null) {
+    if (hadParticipant) {
       // A participant claim stays strict: an existing registration is not silently
       // merged with an imported row. An organizer may adopt it on purpose.
       if (!options.organizer) return { linked: false, activated: false, missingFields: [], error: 'participant_conflict' };
       await persist();
+      await project();
       const groupTeam = await joinGroupTeam(db, actor, eventId, guildId, userId, values.groupName);
       await audit(db, actor, 'imported_signup.link', eventId, { importId, userId, activated: true, adopted: true, organizer: options.organizer === true }, guildId);
       return { linked: true, activated: true, missingFields: [], alreadyRegistered: true, ...(groupTeam ? { groupTeam } : {}), ...(warnings.length ? { warnings } : {}) };
     }
 
-    const result = await saveRegistrationAnswers(db, eventId, userId, form.version, checked.answers);
-    if (!result.ok) return { linked: false, activated: false, missingFields: [], error: result.code };
     await persist();
-    await db.run(`INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,'[]','active',?,?)`, eventId, userId, guildId, values.name ?? 'Imported participant', experience, role, JSON.stringify(skills), teamPref, Date.now(), Date.now());
+    await project();
     const groupTeam = await joinGroupTeam(db, actor, eventId, guildId, userId, values.groupName);
     await audit(db, actor, 'imported_signup.link', eventId, { importId, userId, activated: true, organizer: options.organizer === true }, guildId);
     return { linked: true, activated: true, missingFields: [], ...(groupTeam ? { groupTeam } : {}), ...(warnings.length ? { warnings } : {}) };

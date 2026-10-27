@@ -1,4 +1,4 @@
-import { Events, type Client } from 'discord.js';
+import { Events, type Client, type GuildMember } from 'discord.js';
 import type { Db } from '../shared/db.js';
 import { withGuildContext } from '../shared/postgres.js';
 import { deleteGuildMemberData, reconcileGuildMembers } from '../features/signup/departures.js';
@@ -15,6 +15,48 @@ export async function lookupGuildMember(client: Client, guildId: string, userId:
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === 10007) return false;
     throw error;
   }
+}
+
+function indexMember(map: Map<string, string[]>, member: GuildMember): void {
+  if (member.user.bot) return;
+  for (const name of [member.user.username, member.user.globalName, member.user.tag]) {
+    if (!name) continue;
+    const key = name.trim().toLocaleLowerCase('en-US').replace(/^@/, '');
+    if (key === '') continue;
+    const ids = map.get(key) ?? [];
+    if (!ids.includes(member.id)) ids.push(member.id);
+    map.set(key, ids);
+  }
+}
+
+/**
+ * Resolve a sheet's "Discord username" column against the members already in the
+ * server. One member index is built per import (not one REST call per row);
+ * a tie is reported as ambiguous so a wrong link is never guessed.
+ */
+export function createMemberUsernameLookup(client: Client, guildId: string): (username: string) => Promise<string | null | 'ambiguous'> {
+  let index: Promise<Map<string, string[]>> | null = null;
+  const build = async (): Promise<Map<string, string[]>> => {
+    const map = new Map<string, string[]>();
+    // A guild or member list we cannot read means no auto-link, never a guessed
+    // one: the organizer can still link by hand.
+    try {
+      const guild = await client.guilds.fetch(guildId);
+      let members = guild.members.cache;
+      if (members.size === 0) members = await guild.members.fetch();
+      for (const member of members.values()) indexMember(map, member);
+    } catch (error) {
+      console.warn('Discord member index unavailable; imported rows stay unlinked:', error);
+    }
+    return map;
+  };
+  return async (username: string) => {
+    index ??= build();
+    const key = username.trim().toLocaleLowerCase('en-US').replace(/^@/, '');
+    if (key === '') return null;
+    const ids = (await index).get(key) ?? [];
+    return ids.length === 0 ? null : ids.length === 1 ? ids[0]! : 'ambiguous';
+  };
 }
 
 export function registerMemberLifecycle(db: Db, client: Client): () => Promise<void> {

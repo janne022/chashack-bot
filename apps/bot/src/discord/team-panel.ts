@@ -12,6 +12,7 @@ import { listTeamRoster } from '../features/signup/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
 import { getMessageRef, setMessageRef } from '../features/events/data.js';
 import { t, type BotLocale } from '../shared/i18n.js';
+import { isDiscordId } from '../shared/discord-id.js';
 
 export function isCurrentTeamPanel(ref: { channelId: string; messageId: string } | null, channelId: string | null, messageId: string): boolean {
   return ref !== null && ref.channelId === channelId && ref.messageId === messageId;
@@ -23,7 +24,9 @@ export function buildTeamPanel(
   locale: BotLocale,
   teamSize = DEFAULT_FORM.teamSize,
 ): { embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[] } {
-  const lines = roster.map(({ userId, displayName }) => `• ${displayName} <@${userId}>`);
+  // An imported teammate has no mention: show the name the sheet gave instead of
+  // a dead `<@imp:…>`.
+  const lines = roster.map(({ userId, displayName }) => isDiscordId(userId) ? `• ${displayName} <@${userId}>` : `• ${displayName}`);
   const status = team.kind === 'matched' ? t(locale, 'discord.team_panel.matched')
     : roster.length >= teamSize ? t(locale, 'discord.team_panel.full') : t(locale, 'discord.team_panel.open');
   const embed = new EmbedBuilder()

@@ -233,6 +233,7 @@ export async function migratePostgres(db: Db): Promise<void> {
     for (const sql of statements.filter((sql) => !sql.startsWith('CREATE TABLE'))) await db.run(sql);
     await db.run('CREATE INDEX IF NOT EXISTS idx_participants_team ON participants(team_id)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_participants_event ON participants(event_id, status)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_participants_import ON participants(imported_signup_id)');
     await migrateLiveChanges(db);
   });
 }

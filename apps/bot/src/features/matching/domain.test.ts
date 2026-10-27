@@ -18,6 +18,7 @@ function makeParticipant(overrides: Partial<Participant> & { userId: string }): 
     teamId: null,
     status: 'active',
     blockReason: null,
+    importedSignupId: null,
     createdAt: 0,
     updatedAt: 0,
     ...overrides,

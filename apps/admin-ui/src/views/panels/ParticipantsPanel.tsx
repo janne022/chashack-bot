@@ -50,7 +50,7 @@ import {
 import type { ParticipantsFeatures } from './participants-table/features'
 import type { ParticipantAction } from './participants-table/types'
 
-type StatusFilter = 'all' | 'active' | 'blocked' | 'withdrawn' | 'unteamed'
+type StatusFilter = 'all' | 'active' | 'blocked' | 'withdrawn' | 'unteamed' | 'imported'
 
 /** Rows above this count switch the table to a virtualized scroll container. */
 const VIRTUALIZE_THRESHOLD = 30
@@ -82,8 +82,9 @@ export function ParticipantsPanel({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return state.participants.filter((p) => {
+      if (filter === 'imported' && p.importedSignupId === null) return false
       if (filter === 'unteamed' && !(p.status === 'active' && p.teamId === null)) return false
-      if (filter !== 'all' && filter !== 'unteamed' && p.status !== filter) return false
+      if (filter !== 'all' && filter !== 'unteamed' && filter !== 'imported' && p.status !== filter) return false
       if (q === '') return true
       return (
         p.displayName.toLowerCase().includes(q) ||
@@ -140,7 +141,19 @@ export function ParticipantsPanel({
           const p = ctx.row.original
           return (
             <div>
-              <div className="font-medium">{p.displayName}</div>
+              <div className="flex items-center gap-1.5 font-medium">
+                <span className="truncate">{p.displayName}</span>
+                {p.importedSignupId !== null && (
+                  <Badge variant="secondary" className="shrink-0 text-[10px] font-normal">
+                    {t('participants.badge_imported')}
+                  </Badge>
+                )}
+                {p.userId.startsWith('imp:') && (
+                  <Badge variant="outline" className="shrink-0 text-[10px] font-normal">
+                    {t('participants.badge_not_in_discord')}
+                  </Badge>
+                )}
+              </div>
               <div className="text-xs text-muted-foreground">
                 {label('experiences', p.experience)} · {timeAgo(p.createdAt)}
               </div>
@@ -327,6 +340,7 @@ export function ParticipantsPanel({
               <SelectItem value="blocked">{t('participants.filter_blocked')}</SelectItem>
               <SelectItem value="withdrawn">{t('participants.filter_withdrawn')}</SelectItem>
               <SelectItem value="unteamed">{t('participants.filter_unteamed')}</SelectItem>
+              <SelectItem value="imported">{t('participants.filter_imported')}</SelectItem>
             </SelectContent>
           </Select>
           <span className="text-sm text-muted-foreground">

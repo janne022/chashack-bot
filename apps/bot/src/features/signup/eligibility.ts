@@ -18,6 +18,8 @@ export async function eligibleParticipant(db: Db, eventId: string, userId: strin
   if (event === null || event.status !== 'active') return null;
   const participant = await getParticipant(db, eventId, userId);
   if (participant === null || participant.status !== 'active' || participant.guildId !== event.guildId) return null;
-  if (!(await isCurrentMember(db, event.guildId, userId, strictMembership))) return null;
+  // Imported participants have no Discord member to resolve until an organizer
+  // links them; their row is the registration.
+  if (participant.importedSignupId === null && !(await isCurrentMember(db, event.guildId, userId, strictMembership))) return null;
   return projectParticipantForMatching(db, participant, getEventForm(db, event, await getForm(db, event.guildId)));
 }

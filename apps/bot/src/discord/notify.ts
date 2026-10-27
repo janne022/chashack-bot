@@ -34,7 +34,8 @@ import { previewMatch, commitMatch } from '../features/matching/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
 import { destroyTeamSpace, botLocale, provisionTeamSpace, grantTeamRole } from './provision.js';
 import { getSignupPanelRef, postOrUpdatePanel } from './signup-panel.js';
-import { t, type BotLocale } from '../shared/i18n.js';
+import { t, t as tl, type BotLocale } from '../shared/i18n.js';
+import { isDiscordId } from '../shared/discord-id.js';
 import { purgeEventPrivateAnswers, purgeExpiredPrivateAnswers } from '../features/registration/retention.js';
 import { purgeImportedSignups } from '../features/signup-import/data.js';
 import { retryFailedParticipantRoleRevocations } from '../features/signup/lifecycle.js';
@@ -161,6 +162,8 @@ export async function sendAnnouncement(
     const renderedDM = renderTags(event, title, message)
     const embed = buildAnnouncementEmbed(event, renderedDM.title, renderedDM.message);
     for (const p of participants) {
+      // An imported signup has no Discord user to DM; it is not a failure.
+      if (!isDiscordId(p.userId)) continue;
       try {
         const user = await client.users.fetch(p.userId);
         await user.send({ embeds: [embed] });
@@ -487,8 +490,9 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           } else if (channelId !== null) {
             warnInvalidGuild(event.guildId, 'remind_24h');
           }
-          // DM participants
+          // DM participants (an imported signup has no inbox to reach)
           for (const p of await listParticipants(db, event.id, 'active')) {
+            if (!isDiscordId(p.userId)) continue;
             await client.users.fetch(p.userId).then((u) => u.send({ embeds: [embed] })).catch(() => undefined);
           }
           if (kysely !== undefined) {
@@ -622,7 +626,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
               const lines =
                 preview.ok
                   ? preview.value.teams
-                      .map((t) => `**${t.name}** — ${t.memberIds.map((id) => `<@${id}>`).join(', ')}`)
+                      .map((t) => `**${t.name}** — ${t.memberIds.map((id) => isDiscordId(id) ? `<@${id}>` : tl(locale, 'discord.events.imported_member')).join(', ')}`)
                       .join('\n')
                   : '';
               await channel

@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS participants (
       team_id TEXT REFERENCES teams(id) ON DELETE SET NULL,
       status TEXT NOT NULL DEFAULT 'active',
       block_reason TEXT,
+      imported_signup_id TEXT,
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL,
       PRIMARY KEY (event_id, user_id)

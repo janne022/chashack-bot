@@ -89,12 +89,14 @@ import type { ChangeHint } from '../shared/live-changes.js';
 import { applyTeamLeave, grantTeamRole } from '../discord/provision.js';
 import { refreshTeamPanel } from '../discord/team-panel.js';
 import { eligibleParticipant, setMembershipLookup } from '../features/signup/eligibility.js';
-import { lookupGuildMember } from '../discord/member-lifecycle.js';
+import { lookupGuildMember, createMemberUsernameLookup } from '../discord/member-lifecycle.js';
 import { runWithGuildContext, withGuildContext } from '../shared/postgres.js';
 import { consumeQuota } from '../shared/rate-limit.js';
 import { parseSignupCsv } from '../features/signup-import/domain.js';
 import { createImportedSignups, deleteImportedSignup, deleteImportedSignups, editImportedSignup, listImportedSignups, purgeImportedSignups, summarizeImportedRows } from '../features/signup-import/data.js';
 import { linkImportedSignup, claimImportedSignupByEmail, findImportedSignupByEmail } from '../features/signup-import/link.js';
+import { autoLinkImportedSignups } from '../features/signup-import/auto-link.js';
+import { dropImportedPlaceholder, reconcileImportedParticipants, syncImportedRow } from '../features/signup-import/sync.js';
 import { importedRowProfile, normalizeImportedRow } from '../features/signup-import/normalize.js';
 import { presetCatalog, presetExists, suggestMapping } from '../features/signup-import/presets.js';
 import { eventEnforcesSignupWindow, signupWindowReason } from '../features/signup/domain.js';
@@ -172,6 +174,7 @@ const importErrorMessages: Record<string, string> = {
   not_guild_member: 'That Discord member is not in this server.',
   invalid_member_id: 'That is not a valid Discord member.',
   invalid_edit: 'The edit could not be applied.',
+  discord_unavailable: 'Linking needs the bot to be online.',
 };
 
 export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
@@ -2151,7 +2154,20 @@ app.post('/api/event/reset', async (req) => {
     }
     try {
       const result = await createImportedSignups(db, eventId, await guildOf(req), importForm.version, rows);
-      return { ...result, warnings };
+      // A CSV naming people who are already in the server should be linked before
+      // an organizer sees the list, not one row at a time.
+      const autoLink = deps.client === null || config.skipDiscord
+        ? null
+        : await autoLinkImportedSignups(db, eventId, event.guildId, importForm, createMemberUsernameLookup(deps.client, event.guildId), await actorOf(req)).catch((error) => {
+          console.warn('auto-link after import failed; the rows stay unlinked:', error);
+          return null;
+        });
+      // Every imported row is a participant, including the ones just linked above.
+      const reconciled = await reconcileImportedParticipants(db, eventId, event.guildId, importForm).catch((error) => {
+        console.warn('imported participant sync failed; the next import change retries:', error);
+        return null;
+      });
+      return { ...result, warnings, ...(autoLink ? { autoLink } : {}), ...(reconciled ? { participants: reconciled } : {}) };
     } catch (error) {
       const code = error instanceof Error ? error.message : 'import_failed';
       return reply.code(code === 'event_unavailable' ? 409 : 400).send({ error: code });
@@ -2165,6 +2181,19 @@ app.post('/api/event/reset', async (req) => {
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
     return { records: await listImportedSignups(db, eventId, required) };
+  });
+
+  app.post('/api/events/:eventId/imported-signups/auto-link', async (req, reply) => {
+    const eventId = (req.params as { eventId: string }).eventId;
+    const event = await getEvent(db, eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'event_not_found', message: importErrorMessages.event_not_found });
+    if (event.status === 'ended') return reply.code(409).send({ error: 'event_ended', message: importErrorMessages.event_ended });
+    if (deps.client === null || config.skipDiscord) return reply.code(503).send({ error: 'discord_unavailable', message: importErrorMessages.discord_unavailable });
+    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    const result = await autoLinkImportedSignups(db, eventId, event.guildId, form, createMemberUsernameLookup(deps.client, event.guildId), await actorOf(req));
+    const reconciled = await reconcileImportedParticipants(db, eventId, event.guildId, form);
+    const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
+    return { ...result, participants: reconciled, records: await listImportedSignups(db, eventId, required) };
   });
 
   app.patch('/api/events/:eventId/imported-signups/:id', async (req, reply) => {
@@ -2201,9 +2230,13 @@ app.post('/api/event/reset', async (req) => {
           const linked = await linkImportedSignup(db, event.id, event.guildId, params.id, body.linkDiscordUserId, form, { organizer: true, actor: await actorOf(req) });
           if (linked.error) throw new Error(linked.error);
           const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
+          // No sync here: linking already projected the row onto its participant.
           return { record, ...linked, warnings: [...warnings, ...(linked.warnings ?? [])] };
         }
         const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
+        // An edit is an update of the same participant, so the console never shows
+        // the old name/profile next to the new row.
+        await syncImportedRow(db, event.id, event.guildId, record, form);
         return { record, linked: record.discordUserId !== null, missingFields: record.missingFields, warnings };
       });
     } catch (error) {
@@ -2220,7 +2253,9 @@ app.post('/api/event/reset', async (req) => {
     const deleted = await deleteImportedSignup(db, event.id, params.id, await actorOf(req));
     if (!deleted) return reply.code(404).send({ error: 'import_not_found', message: importErrorMessages.import_not_found });
     // The imported row is paperwork: the participant it was linked to keeps their
-    // registration, their team and their answers.
+    // registration, their team and their answers. An unlinked row takes its
+    // placeholder participant with it.
+    await dropImportedPlaceholder(db, event.id, params.id);
     return { ok: true, deleted: 1 };
   });
 
@@ -2232,6 +2267,7 @@ app.post('/api/event/reset', async (req) => {
       return reply.code(400).send({ error: 'invalid_ids', message: 'Select between 1 and 200 imported signups.' });
     }
     const deleted = await deleteImportedSignups(db, event.id, ids as string[], await actorOf(req));
+    for (const id of ids as string[]) await dropImportedPlaceholder(db, event.id, id);
     return { ok: true, deleted };
   });
 }

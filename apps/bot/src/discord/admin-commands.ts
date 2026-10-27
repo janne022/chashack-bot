@@ -32,6 +32,7 @@ import {
 } from '../features/events/data.js';
 import { IDS, confirmRow, displayErr, embedOk, eph, matchPreviewEmbed, type Ctx } from './shared.js';
 import { t } from '../shared/i18n.js';
+import { isDiscordId } from '../shared/discord-id.js';
 import { finishParticipantDeparture } from '../features/signup/lifecycle.js';
 
 export async function handleAdminCommand(
@@ -296,7 +297,7 @@ export async function commitMatchAndAnnounce(
       userId: id,
       displayName: allParticipants.find((p) => p.userId === id)?.displayName ?? id,
     }));
-    const first = matchTeam.memberIds[0];
+    const first = matchTeam.memberIds.find(isDiscordId);
     if (first !== undefined) {
       await (await import('./provision.js')).sendJoinWelcome(provisionDeps, provisioned, first, roster);
     }
@@ -307,7 +308,7 @@ export async function commitMatchAndAnnounce(
     components: [],
   });
   const lines = res.value.teams.map((team) => {
-    const members = team.memberIds.map((id) => `<@${id}>`).join(', ');
+    const members = team.memberIds.map((id) => isDiscordId(id) ? `<@${id}>` : t(locale, 'discord.events.imported_member')).join(', ');
     return `**${team.name}** — ${t(locale, 'discord.admin.compatibility')} ${team.score}\n${members}`;
   });
   await announce(ctx.guildId, `${t(locale, 'discord.admin.teams_locked_title')}\n\n${lines.join('\n\n')}`);

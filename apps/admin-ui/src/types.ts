@@ -13,6 +13,8 @@ export interface Participant {
   teamId: string | null
   status: ParticipantStatus
   blockReason: string | null
+  /** Set when this participant came from an imported signup row. */
+  importedSignupId: string | null
   createdAt: number
   updatedAt: number
 }

@@ -296,7 +296,7 @@ export const api = {
     return request(`/api/events/${encodeURIComponent(eventId)}/signup-import/templates`)
   },
 
-  async importSignups(eventId: string, rows: { sourceRow: number; values: Record<string, string>; answers: Record<string, string | string[]> }[]): Promise<{ saved: number; skipped: number; conflicts: number; warnings?: { row: number; issues: string[] }[] }> {
+  async importSignups(eventId: string, rows: { sourceRow: number; values: Record<string, string>; answers: Record<string, string | string[]> }[]): Promise<{ saved: number; skipped: number; conflicts: number; warnings?: { row: number; issues: string[] }[]; autoLink?: { linked: { importId: string; userId: string; username: string; alreadyRegistered: boolean }[]; ambiguous: { importId: string; username: string }[]; missing: number; conflicts: { importId: string; username: string; error: string }[] } }> {
     return request(`/api/events/${encodeURIComponent(eventId)}/signup-import`, { method: 'POST', body: JSON.stringify({ rows }) })
   },
 
@@ -321,6 +321,20 @@ export const api = {
 
   async deleteImportedSignups(eventId: string, ids: string[]): Promise<{ deleted: number }> {
     return request(`/api/events/${encodeURIComponent(eventId)}/imported-signups/delete`, { method: 'POST', body: JSON.stringify({ ids }) })
+  },
+
+  /**
+   * Link every imported row whose Discord username matches exactly one member.
+   * Ambiguous or unknown names stay unlinked and are reported, never guessed.
+   */
+  async autoLinkImportedSignups(eventId: string): Promise<{
+    linked: { importId: string; userId: string; username: string; alreadyRegistered: boolean }[]
+    ambiguous: { importId: string; username: string }[]
+    missing: number
+    conflicts: { importId: string; username: string; error: string }[]
+    records?: ImportedSignup[]
+  }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/imported-signups/auto-link`, { method: 'POST' })
   },
 
   async searchGuildMembers(query: string): Promise<{ members: { id: string; username: string; displayName: string }[] }> {

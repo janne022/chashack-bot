@@ -300,6 +300,7 @@ export function suggestTeamsForParticipant(
             teamId: team.id,
             status: 'active',
             blockReason: null,
+            importedSignupId: null,
             createdAt: 0,
             updatedAt: 0,
             ...(m.matchingImportance ? { matchingImportance: m.matchingImportance } : {}),
