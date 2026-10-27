@@ -40,7 +40,7 @@ export function ParticipantFrame({ appearance, children, preview = false }: { ap
   const variables = {
     '--destructive': contrastRatio(errorColor, surface) >= 4.5 && contrastRatio(errorColor, background) >= 4.5 ? errorColor : text,
     '--participant-accent': accent,
-    '--primary': accent, '--primary-foreground': readableInk(accent),
+    '--primary': accent, '--primary-foreground': readableInk(accent), // g0:allow:secrets #63 — CSS custom property names, not credentials.
     '--background': background, '--card': surface, '--popover': surface,
     '--foreground': text, '--card-foreground': text, '--popover-foreground': text,
     '--muted-foreground': text,

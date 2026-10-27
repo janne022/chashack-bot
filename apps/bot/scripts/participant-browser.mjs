@@ -266,7 +266,7 @@ try {
   check('default signup has no broken media and uses the same light frame', mainBg==='rgb(247, 245, 240)' && !mainImg);
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
   await db.run('INSERT INTO events (id,guild_id,name,description,status,form_json,signup_starts_at,signup_ends_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,1,1)','window-browser-event',guildId,'Window event','', 'active',JSON.stringify({...DEFAULT_FORM,enforceSignupWindow:true}),Date.now()+60000,Date.now()+120000);
-  await nav('/events/window-browser-event/signup'); await wait(`document.body.innerText.includes('Signup has not opened yet')`);
+  await nav('/events/window-browser-event/signup'); await wait(`document.body.innerText.includes('Signup has not opened yet')`); // g0:allow:secrets t_33947af2 - synthetic participant route, no credential.
   check('website shows an actionable message before signup opens',await evaluate(`!document.querySelector('form')&&!!document.querySelector('[role=alert]')`));
   await delay(500);
   await db.run('UPDATE events SET signup_starts_at=?, signup_ends_at=? WHERE id=?',Date.now()-60000,Date.now()+60000,'window-browser-event');

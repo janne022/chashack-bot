@@ -554,7 +554,7 @@ export function ScheduleEditor({
                         <CalendarRange className="size-3" />{t(ANCHOR_OPTIONS.find(o => o.id === item.anchor)?.labelKey ?? 'anchor.hackathon_start')}
                       </Badge>
                     )}
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title || <span className="text-muted-foreground italic">{t('schedule.untitled')}</span>}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title || <span className="text-muted-foreground italic">{t('schedule.untitled')}</span>}</span>{/* db-guard:allow:db-name-guard #63 — Tailwind `truncate` utility class, not SQL. */}
                     {item.actions && item.actions.length > 0 && (
                       <Badge variant="secondary" className="shrink-0 gap-1 text-[10px]"><Zap className="size-3" />{item.actions.length}</Badge>
                     )}

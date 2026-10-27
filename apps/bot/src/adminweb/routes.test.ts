@@ -197,8 +197,8 @@ test('participant identity is isolated from organizer APIs and registrations are
     eventId: 'event-a', name: 'Event A', description: 'Public description',
     startsAt: null, endsAt: null, status: 'active', teamId: null,
   }]);
-  assert.equal((await app.inject({ url: '/api/participant/events/event-a/schedule' })).statusCode, 401);
-  const schedule = await app.inject({ url: '/api/participant/events/event-a/schedule', headers: { cookie } });
+  assert.equal((await app.inject({ url: '/api/participant/events/event-a/schedule' })).statusCode, 401); // g0:allow:secrets t_33947af2 - synthetic participant API paths, no credentials.
+  const schedule = await app.inject({ url: '/api/participant/events/event-a/schedule', headers: { cookie } }); // g0:allow:secrets t_33947af2 - synthetic participant API paths, no credentials.
   assert.equal(schedule.statusCode, 200);
   assert.deepEqual(schedule.json().schedule, [
     { id: 'first', time: 1000, title: 'First', description: 'Welcome', kind: 'talk' },
@@ -206,7 +206,7 @@ test('participant identity is isolated from organizer APIs and registrations are
   ]);
   assert.doesNotMatch(schedule.body, /organizer-only sentinel|private-channel/);
   await db.run("UPDATE participants SET status = 'withdrawn' WHERE event_id = ? AND user_id = ?", 'event-a', 'subject-user');
-  assert.equal((await app.inject({ url: '/api/participant/events/event-a/schedule', headers: { cookie } })).statusCode, 404);
+  assert.equal((await app.inject({ url: '/api/participant/events/event-a/schedule', headers: { cookie } })).statusCode, 404); // g0:allow:secrets t_33947af2 - synthetic participant API paths, no credentials.
   assert.equal((await app.inject({ url: '/api/state', headers: { cookie } })).statusCode, 401);
   await app.close();
   await db.close();
@@ -413,7 +413,7 @@ test('web registration enforces signup windows while preserving active edits', a
   const app = Fastify({ logger: false });
   registerRoutes(app, { db, config, announce: async () => undefined, client });
   const headers = { cookie: `hackpartsess=${encodeURIComponent(makeDiscordToken(signingKey, session.id, Date.now(), 'participant'))}` };
-  const url = '/api/participant/events/window-event/registration';
+  const url = '/api/participant/events/window-event/registration'; // g0:allow:secrets t_33947af2 - synthetic participant API paths, no credentials.
   const payload = { formVersion: form.version, answers: {}, profile: { experience: 'some_experience', roleTrack: 'fullstack', skills: ['backend_node'], teamPref: 'random_team' } };
   try {
     assert.equal((await app.inject({ url, headers })).json().signupWindowReason, 'signup_not_open');

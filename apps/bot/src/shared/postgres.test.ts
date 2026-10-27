@@ -130,7 +130,7 @@ test('populated legacy event survives additive submission upgrade and repeat mig
     const tables = ['events', 'teams', 'participants', 'registration_answers', 'meta'];
     const before = await Promise.all(tables.map(table => db.all(`SELECT * FROM ${table}`)));
     // Only empty new tables are dropped, inside openTestDb's disposable schema.
-    await db.run('DROP TABLE submission_answers, submission_forms');
+    await db.run('DROP TABLE submission_answers, submission_forms'); // db-guard:allow:db-name-guard t_25580df8 - fixture tables created by this test inside openTestDb's disposable schema.
     await migratePostgres(db);
     await migratePostgres(db);
     const after = await Promise.all(tables.map(table => db.all(`SELECT * FROM ${table}`)));
