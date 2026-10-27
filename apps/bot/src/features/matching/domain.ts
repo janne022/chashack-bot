@@ -279,7 +279,7 @@ export function suggestTeamsForParticipant(
 ): TeamSuggestion[] {
   const teamSize = config.teamSize;
   return teams
-    .filter((team) => team.members.length < teamSize)
+    .filter((team) => team.kind !== 'private' && team.members.length < teamSize)
     .map((team) => {
       if (team.members.length === 0) {
         return { teamId: team.id, teamName: team.name, score: 50 };
