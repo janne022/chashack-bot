@@ -148,7 +148,13 @@ function Signup() {
             draftRevision.current++
             dirty.current = true
             setAnswers(current => ({ ...current, ...prefill.answers }))
-            setProfile(current => ({ ...current, ...prefill.profile }))
+            // Never clobber a choice the participant already made with an empty import.
+            setProfile(current => ({
+              experience: prefill.profile.experience || current.experience,
+              roleTrack: prefill.profile.roleTrack || current.roleTrack,
+              skills: prefill.profile.skills.length > 0 ? prefill.profile.skills : current.skills,
+              teamPref: prefill.profile.teamPref || current.teamPref,
+            }))
             setMessage(t('participant.claim_prefilled'))
           }}
         />}

@@ -201,7 +201,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
           <div className="space-y-2"><Label htmlFor="signup-csv">{t('imports.csv_file')}</Label><Input id="signup-csv" type="file" accept=".csv,text/csv" disabled={pending} onChange={e => void chooseFile(e.currentTarget.files?.[0])} />{file && <p className="text-xs text-muted-foreground">{file.name} · {file.size.toLocaleString()} bytes</p>}</div>
           {templates.length > 0 && <div className="space-y-1">
             <Label htmlFor="import-template">{t('imports.template')}</Label>
-            <Select value={templateId || '__auto__'} onValueChange={value => { const next = value === '__auto__' ? '' : value; setTemplateId(next); if (preview.length > 0) void runPreview(mapping, next) }}>
+            <Select value={templateId || '__auto__'} onValueChange={value => { const next = value === '__auto__' ? '' : value; setTemplateId(next); if (preview.length > 0) void runPreview({}, next) }}>
               <SelectTrigger id="import-template"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__auto__">{t('imports.template_auto')}</SelectItem>
