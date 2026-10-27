@@ -1944,7 +1944,11 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/match/preview', async (req, reply) => {
-    const res = await previewMatch(db, await resolveEventId(req, await guildOf(req)), await getForm(db, await guildOf(req)));
+    const guildId = await guildOf(req);
+    const eventId = await resolveEventId(req, guildId);
+    const event = await getEvent(db, eventId);
+    const form = event === null ? await getForm(db, guildId) : getEventForm(db, event, await getForm(db, guildId));
+    const res = await previewMatch(db, eventId, form);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1953,10 +1957,13 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
 app.post('/api/match/commit', async (req, reply) => {
-    const eventId = await resolveEventId(req, await guildOf(req));
+    const guildId = await guildOf(req);
+    const eventId = await resolveEventId(req, guildId);
     const revision = (req.body as { revision?: unknown } | null)?.revision;
     if (typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision)) return reply.code(409).send({ code: 'stale_preview' });
-    const res = await commitMatch(db, await actorOf(req), eventId, await guildOf(req), await getForm(db, await guildOf(req)), revision);
+    const event = await getEvent(db, eventId);
+    const form = event === null ? await getForm(db, guildId) : getEventForm(db, event, await getForm(db, guildId));
+    const res = await commitMatch(db, await actorOf(req), eventId, guildId, form, revision);
     if (!res.ok) {
       return reply.code(409).send({ ok: false, code: res.code, message: res.message });
     }
