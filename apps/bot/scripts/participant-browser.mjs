@@ -87,7 +87,14 @@ try {
   check('seasonal accent is resolved on the served participant page',await evaluate(`getComputedStyle(document.querySelector('main')).getPropertyValue('--participant-accent').trim()==='#ef793e'`));
   check('primary submit uses the seasonal accent with a readable foreground',await evaluate(`(()=>{const s=getComputedStyle(document.querySelector('form button[type=submit]'));return s.backgroundColor==='rgb(239, 121, 62)'&&s.color==='rgb(17, 24, 39)'})()`));
   check('connection retries never render loading chatter', await evaluate(`!document.body.innerText.includes('Reconnecting live updates')&&!document.body.innerText.includes('Återansluter')`));
+  // The signup shell must honour an authored light appearance after a dark event: the
+  // participant frame swaps palette and clears the inherited `dark` variants.
+  const lightForm={...form,appearance:{themePreset:'halloween',accentColor:'#ef793e',bannerUrl:null,mode:'light'}};
+  await db.run('UPDATE events SET form_json=? WHERE id=?',JSON.stringify(lightForm),eventId);
+  await nav(`/events/${eventId}/signup`); await wait(`!!document.querySelector('#profile-experience')`);
   check('an explicitly light Halloween form stays light and clears inherited dark variants',await evaluate(`getComputedStyle(document.querySelector('main')).backgroundColor==='rgb(247, 245, 240)'&&!document.documentElement.classList.contains('dark')`));
+  await db.run('UPDATE events SET form_json=? WHERE id=?',JSON.stringify(form),eventId);
+  await nav(`/events/${eventId}/signup`); await wait(`!!document.querySelector('#profile-experience')`);
   await fillProfile();
   await evaluate(`document.querySelectorAll('img[referrerpolicy="no-referrer"]').forEach(img=>img.dispatchEvent(new Event('error')))`);
   check('broken optional images fall back without broken image surfaces',await evaluate(`[...document.querySelectorAll('img[referrerpolicy="no-referrer"]')].every(img=>img.hidden)`));

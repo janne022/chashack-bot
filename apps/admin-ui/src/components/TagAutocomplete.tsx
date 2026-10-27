@@ -159,6 +159,7 @@ export function TagAutocompleteTextarea({ value, onChange, placeholder, maxLengt
     <div className="relative min-w-0">
       <Textarea
         ref={ref as React.RefObject<HTMLTextAreaElement>}
+        data-tag-autocomplete="textarea"
         value={value}
         onChange={e=>{
           const v = e.target.value
@@ -192,6 +193,7 @@ export function TagAutocompleteInput({ value, onChange, placeholder, maxLength, 
     <div className="relative min-w-0">
       <Input
         ref={ref as React.RefObject<HTMLInputElement>}
+        data-tag-autocomplete="input"
         value={value}
         onChange={e=>{
           const v = e.target.value

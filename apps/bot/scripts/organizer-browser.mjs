@@ -519,9 +519,9 @@ try {
   for (const mode of ['dark','light']) {
     await evaluate(`document.documentElement.dataset.theme=${JSON.stringify(mode)}`);
     await click(button('Announce'));
-    await wait(`!!document.querySelector('input[placeholder*="for tags"]')`);
-    await click(`document.querySelector('input[placeholder*="for tags"]')`);
-    await fill('input[placeholder*="for tags"]','{');
+    await wait(`!!document.querySelector('input[data-tag-autocomplete]')`);
+    await click(`document.querySelector('input[data-tag-autocomplete]')`);
+    await fill('input[data-tag-autocomplete]','{');
     await wait(`!![...document.querySelectorAll('button')].find(b=>b.querySelector('code')?.innerText==='{event}')`);
     check(`selected tag suggestion has readable title, description, context and code in ${mode} mode`,await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.classList.contains('bg-foreground')&&b.querySelector('code'));if(!b)return false;const rgb=c=>(c.match(/[0-9.]+/g)||[]).slice(0,3).map(Number);const lum=c=>rgb(c).map(n=>{n/=255;return n<=.04045?n/12.92:((n+.055)/1.055)**2.4}).reduce((v,n,i)=>v+n*[.2126,.7152,.0722][i],0);const contrast=(a,z)=>(Math.max(lum(a),lum(z))+.05)/(Math.min(lum(a),lum(z))+.05);const bg=getComputedStyle(b).backgroundColor;return [b,...b.querySelectorAll('.tag-detail')].every(e=>contrast(getComputedStyle(e).color,bg)>=4.5)&&contrast(getComputedStyle(b.querySelector('code')).color,getComputedStyle(b.querySelector('code')).backgroundColor)>=4.5})()`));
     await nav(base+'/events?event='+event.id);

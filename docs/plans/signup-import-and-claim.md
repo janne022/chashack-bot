@@ -95,6 +95,11 @@ account can never be re-bound from the participant side.
       stolen row, existing participant, foreign event, audit).
 - [x] Bot build + full PostgreSQL suite (327 passed), admin-ui typecheck, Vite
       build and 16 unit tests including catalog parity.
+- [x] Both served browser journeys re-run after merging `origin/main`: organizer
+      133 assertions, participant 90. The merge had dropped the light-form setup
+      the participant journey's light-theme assertion depended on (restored), and
+      the refreshed copy no longer contains the old "for tags" placeholder, so the
+      announce-composer checks now target `data-tag-autocomplete` instead of copy.
 
 ## Out of scope, still open
 
