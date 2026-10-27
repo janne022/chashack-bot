@@ -28,8 +28,11 @@ function fromCache() {
 export const chromePath =
   process.env.CHROME_PATH || fromCache() || '/usr/bin/google-chrome'; // g0:allow:secrets t_c2833b53 — public Chromium executable path, no credential.
 
-if (!existsSync(chromePath)) {
-  throw new Error(
-    `no Chromium executable at ${chromePath}; install one or set CHROME_PATH`,
-  );
+export function assertChromePath() {
+  if (!existsSync(chromePath)) {
+    throw new Error(
+      `no Chromium executable at ${chromePath}; install one or set CHROME_PATH`,
+    );
+  }
+  return chromePath;
 }
