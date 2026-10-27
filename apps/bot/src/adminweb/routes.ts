@@ -784,6 +784,24 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return { schedule: event.schedule.filter(item => scheduleTimeResolved(event, item)).map(({ id, time, title, description, kind }) => ({ id, time, title, description, kind })).sort((a, b) => a.time - b.time) };
   });
 
+  app.get('/api/participant/events/:eventId/members', async (req, reply) => {
+    const session = await participantSessionFrom(req);
+    if (!session) return reply.code(401).send({ error: 'unauthorized' });
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session.userId);
+    if (!event) return reply.code(404).send({ error: 'event_unavailable' });
+    const term = typeof (req.query as { query?: unknown })?.query === 'string' ? (req.query as { query: string }).query.trim() : '';
+    if (term.length < 2 || term.length > 100) return reply.code(400).send({ error: 'invalid_query' });
+    if (deps.client === null) return reply.code(503).send({ error: 'member_search_unavailable' });
+    try {
+      const guild = await deps.client.guilds.fetch(event.guildId);
+      const members = await guild.members.search({ query: term, limit: 10 });
+      return { members: [...members.values()].map((member) => ({ id: member.id, username: member.user.username, displayName: member.displayName, avatar: member.user.displayAvatarURL({ size: 64 }) })) };
+    } catch (error) {
+      const status = typeof error === 'object' && error !== null && 'status' in error ? (error as { status?: number }).status : undefined;
+      return reply.code(status === 429 ? 429 : 503).send({ error: status === 429 ? 'member_search_rate_limited' : 'member_search_unavailable' });
+    }
+  });
+
   app.get('/api/participant/events/:eventId/submission', async (req, reply) => {
     const session = await participantSessionFrom(req);
     const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
