@@ -1833,8 +1833,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       const team = await getTeam(db, body.teamId);
       if (team?.eventId === eventId) {
         const provisionDeps = { db, client: deps.client, categoryIdFor: () => undefined };
-        await grantTeamRole(provisionDeps, team, userId);
-        await refreshTeamPanel(provisionDeps, team);
+        const { provisionTeamSpace } = await import('../discord/provision.js');
+        const provisioned = await provisionTeamSpace(provisionDeps, team);
+        await grantTeamRole(provisionDeps, provisioned, userId);
+        await refreshTeamPanel(provisionDeps, provisioned);
       }
     }
     return { ok: true };
@@ -2198,7 +2200,13 @@ app.post('/api/event/reset', async (req) => {
       for (const linked of result.linked) {
         try {
           const team = await getTeamForUser(db, eventId, linked.userId);
-          if (team !== null && team.roleId !== null) await grantTeamRole({ db, client: deps.client, categoryIdFor: () => undefined }, team, linked.userId);
+          if (team !== null) {
+            const provisionDeps = { db, client: deps.client, categoryIdFor: () => undefined };
+            const { provisionTeamSpace } = await import('../discord/provision.js');
+            const provisioned = await provisionTeamSpace(provisionDeps, team);
+            await grantTeamRole(provisionDeps, provisioned, linked.userId);
+            await refreshTeamPanel(provisionDeps, provisioned);
+          }
         } catch (error) { console.warn('role grant after auto-link failed; provisioning will retry:', error); }
       }
     }
@@ -2253,8 +2261,12 @@ app.post('/api/event/reset', async (req) => {
       if (linkedUserId !== undefined && deps.client !== null && !config.skipDiscord) {
         try {
           const team = await getTeamForUser(db, event.id, linkedUserId);
-          if (team !== null && team.roleId !== null) {
-            await grantTeamRole({ db, client: deps.client, categoryIdFor: () => undefined }, team, linkedUserId);
+          if (team !== null) {
+            const provisionDeps = { db, client: deps.client, categoryIdFor: () => undefined };
+            const { provisionTeamSpace } = await import('../discord/provision.js');
+            const provisioned = await provisionTeamSpace(provisionDeps, team);
+            await grantTeamRole(provisionDeps, provisioned, linkedUserId);
+            await refreshTeamPanel(provisionDeps, provisioned);
           }
         } catch (error) { console.warn('role grant after link failed; provisioning will retry:', error); }
       }

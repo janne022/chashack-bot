@@ -32,12 +32,14 @@ import { listTeams, getTeam, getGuildSettings, deleteEventTeams } from '../featu
 import { listPendingTeamProvisionIds } from '../features/teams/provision-data.js';
 import { previewMatch, commitMatch } from '../features/matching/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
+import { getForm } from '../features/form/data.js';
 import { destroyTeamSpace, botLocale, provisionTeamSpace, grantTeamRole } from './provision.js';
 import { getSignupPanelRef, postOrUpdatePanel } from './signup-panel.js';
 import { t, t as tl, type BotLocale } from '../shared/i18n.js';
 import { isDiscordId } from '../shared/discord-id.js';
 import { purgeEventPrivateAnswers, purgeExpiredPrivateAnswers } from '../features/registration/retention.js';
 import { purgeImportedSignups } from '../features/signup-import/data.js';
+import { reconcileImportedParticipants } from '../features/signup-import/sync.js';
 import { retryFailedParticipantRoleRevocations } from '../features/signup/lifecycle.js';
 import { pruneResolvedTeamRoleRevocations } from '../features/signup/data.js';
 
@@ -399,6 +401,21 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
   }
   const allEvents: HackathonEvent[] = [];
   for (const guildId of guildIds) allEvents.push(...await withGuildContext(db, guildId, () => listEvents(db, guildId)));
+  // Backfill: imported signups are participants, even ones imported before this
+  // feature shipped or whose reconcile step was missed. Idempotent.
+  for (const event of allEvents) {
+    try {
+      await withGuildContext(db, event.guildId, async () => {
+        const count = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM imported_signups WHERE event_id=?', event.id);
+        if (!count || count.n === 0) return;
+        const form = await getForm(db, event.guildId);
+        const eventForm = getEventForm(db, event, form);
+        await reconcileImportedParticipants(db, event.id, event.guildId, eventForm);
+      });
+    } catch (error) {
+      console.warn(`Imported participant backfill failed for ${event.id}:`, error);
+    }
+  }
   for (const event of allEvents) {
     await withGuildContext(db, event.guildId, async () => {
       try { await reconcileEventDelivery(db, client, event, now); }
