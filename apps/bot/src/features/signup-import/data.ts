@@ -1,4 +1,5 @@
 import { newId, type Db } from '../../shared/db.js';
+import { audit } from '../../shared/audit.js';
 
 export interface ImportedSignup {
   id: string;
@@ -105,4 +106,37 @@ export async function editImportedSignup(db: Db, eventId: string, id: string, ed
       JSON.stringify(values), JSON.stringify(answers), sourceTimestamp, edit.discordUsername === undefined ? row.discord_username : edit.discordUsername?.trim() || null, edit.formVersion ?? row.form_version, Date.now(), id, eventId);
     return decode({ ...row, source_timestamp: sourceTimestamp, form_version: edit.formVersion ?? row.form_version, values_json: JSON.stringify(values), answers_json: JSON.stringify(answers), discord_username: edit.discordUsername === undefined ? row.discord_username : edit.discordUsername?.trim() || null });
   });
+}
+
+/**
+ * Delete one imported row. The row is paperwork: a participant it was linked to
+ * keeps their registration, answers and team, so a duplicate submission can be
+ * removed without touching the person.
+ */
+export async function deleteImportedSignup(db: Db, eventId: string, id: string, actor: string): Promise<boolean> {
+  return db.transaction(async () => {
+    const row = await db.get<{ id: string; discord_user_id: string | null }>('SELECT id,discord_user_id FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', id, eventId);
+    if (row === undefined) return false;
+    await db.run('DELETE FROM imported_signups WHERE id=? AND event_id=?', id, eventId);
+    await audit(db, actor, 'imported_signup.delete', eventId, { importId: id, linkedUserId: row.discord_user_id }, await guildOfEvent(db, eventId));
+    return true;
+  });
+}
+
+/** Delete up to a page of imported rows in one go. Returns how many existed. */
+export async function deleteImportedSignups(db: Db, eventId: string, ids: string[], actor: string): Promise<number> {
+  return db.transaction(async () => {
+    const unique = [...new Set(ids)];
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await db.all<{ id: string; discord_user_id: string | null }>(
+      `SELECT id,discord_user_id FROM imported_signups WHERE event_id=? AND id IN (${placeholders}) FOR UPDATE`, eventId, ...unique);
+    if (rows.length === 0) return 0;
+    await db.run(`DELETE FROM imported_signups WHERE event_id=? AND id IN (${placeholders})`, eventId, ...unique);
+    await audit(db, actor, 'imported_signup.delete', eventId, { importIds: rows.map((row) => row.id), linked: rows.filter((row) => row.discord_user_id !== null).length }, await guildOfEvent(db, eventId));
+    return rows.length;
+  });
+}
+
+async function guildOfEvent(db: Db, eventId: string): Promise<string> {
+  return (await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id=?', eventId))?.guild_id ?? '';
 }

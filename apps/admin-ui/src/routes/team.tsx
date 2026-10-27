@@ -1,6 +1,7 @@
 import { ParticipantNavigation } from '@/components/participant-navigation'
 import { PageSkeleton } from '@/components/ui/skeleton'
 import { createFileRoute } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,16 +9,20 @@ import { ParticipantFrame, type Appearance } from '@/components/participant-appe
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { useT } from '@/lib/i18n'
 import { LiveStatus, useLiveUpdates } from '@/lib/live-updates'
+import { publicEventQuery } from '@/lib/public-event'
 
 export const Route = createFileRoute('/team')({ component: TeamPage })
 type Team = { id: string; name: string; memberCount: number; kind: string; ownerId?: string; joinCode?: string; members?: { userId: string; displayName: string }[] }
 type TeamList = { teams: Team[]; ownTeam: Team | null; invitations: { id: number; teamId: string; requesterId: string; kind: 'invite' | 'join_request' }[] }
+const DEFAULT_APPEARANCE: Appearance = { themePreset: 'default', accentColor: '#55bbda', bannerUrl: null }
 function TeamPage() {
   const t = useT()
   const eventId = new URLSearchParams(location.search).get('eventId') ?? ''
+  // The event name and theme come from the same cached read as the signup page.
+  const publicEvent = useQuery({ ...publicEventQuery(eventId), enabled: eventId !== '' })
+  const eventName = publicEvent.data?.event.name ?? ''
+  const appearance = publicEvent.data?.form.appearance ?? DEFAULT_APPEARANCE
   const [data, setData] = useState<TeamList | null>(null)
-  const [eventName, setEventName] = useState('')
-  const [appearance, setAppearance] = useState<Appearance>({ themePreset: 'default', accentColor: '#55bbda', bannerUrl: null })
   const [name, setName] = useState('')
   const [targetId, setTargetId] = useState('')
   const [error, setError] = useState('')
@@ -36,7 +41,7 @@ function TeamPage() {
       if (!signal?.aborted) setData(value)
     } catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : t('participant.my_error')) }
   }
-  useEffect(() => { const controller = new AbortController(); void load(controller.signal); if (eventId) void fetch(`/api/public/events/${encodeURIComponent(eventId)}`, { signal: controller.signal }).then(r => r.ok ? r.json() : null).then(value => { if (!controller.signal.aborted && value) { setEventName(value.event.name); setAppearance(value.form.appearance) } }).catch(() => undefined); return () => controller.abort() }, [eventId])
+  useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort() }, [eventId])
   const live = useLiveUpdates(eventId ? `${base}/live` : null, load)
   const mutate = async (path: string, method: string, body?: object) => {
     setWaiting(true); setError('')

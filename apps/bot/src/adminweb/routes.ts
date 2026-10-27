@@ -93,7 +93,7 @@ import { lookupGuildMember } from '../discord/member-lifecycle.js';
 import { runWithGuildContext, withGuildContext } from '../shared/postgres.js';
 import { consumeQuota } from '../shared/rate-limit.js';
 import { parseSignupCsv } from '../features/signup-import/domain.js';
-import { createImportedSignups, editImportedSignup, listImportedSignups, purgeImportedSignups, summarizeImportedRows } from '../features/signup-import/data.js';
+import { createImportedSignups, deleteImportedSignup, deleteImportedSignups, editImportedSignup, listImportedSignups, purgeImportedSignups, summarizeImportedRows } from '../features/signup-import/data.js';
 import { linkImportedSignup, claimImportedSignupByEmail, findImportedSignupByEmail } from '../features/signup-import/link.js';
 import { importedRowProfile, normalizeImportedRow } from '../features/signup-import/normalize.js';
 import { presetCatalog, presetExists, suggestMapping } from '../features/signup-import/presets.js';
@@ -151,6 +151,28 @@ function clearCookie(name: string, secure: boolean): string {
 function isSnowflake(id: string): boolean {
   return /^[0-9]{17,20}$/.test(id);
 }
+
+/**
+ * Human text for the imported-signup link/edit failures. Machine codes stay the
+ * contract; the console shows this message, so a refusal says what to do next
+ * instead of "Request failed".
+ */
+const importErrorMessages: Record<string, string> = {
+  event_not_found: 'Event not found.',
+  event_ended: 'This event has ended.',
+  event_not_active: 'Activate the event before linking members.',
+  import_not_found: 'This imported signup no longer exists.',
+  not_found: 'This imported signup no longer exists.',
+  identity_conflict: 'That Discord member is already linked to another imported signup in this event.',
+  participant_conflict: 'That Discord member already has a registration in this event.',
+  registration_blocked: 'That Discord member is blocked for this event.',
+  invalid_answers: 'The stored answers no longer fit the signup form.',
+  invalid_core_answer: 'The stored profile choices no longer fit the signup form.',
+  stale_form_version: 'This imported signup was saved against an older form version.',
+  not_guild_member: 'That Discord member is not in this server.',
+  invalid_member_id: 'That is not a valid Discord member.',
+  invalid_edit: 'The edit could not be applied.',
+};
 
 export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   const { db, config } = deps;
@@ -2151,9 +2173,9 @@ app.post('/api/event/reset', async (req) => {
     if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'event_not_found' });
     if (event.status === 'ended') return reply.code(409).send({ error: 'event_ended' });
     const body = req.body as { values?: unknown; answers?: unknown; discordUsername?: unknown; linkDiscordUserId?: unknown } | null;
-    if (body?.linkDiscordUserId !== undefined && (typeof body.linkDiscordUserId !== 'string' || !isSnowflake(body.linkDiscordUserId))) return reply.code(400).send({ error: 'invalid_member_id' });
+    if (body?.linkDiscordUserId !== undefined && (typeof body.linkDiscordUserId !== 'string' || !isSnowflake(body.linkDiscordUserId))) return reply.code(400).send({ error: 'invalid_member_id', message: importErrorMessages.invalid_member_id });
     if (body?.values !== undefined && (!body.values || typeof body.values !== 'object' || Array.isArray(body.values)) || body?.answers !== undefined && (!body.answers || typeof body.answers !== 'object' || Array.isArray(body.answers)) || body?.discordUsername !== undefined && body.discordUsername !== null && typeof body.discordUsername !== 'string') {
-      return reply.code(400).send({ error: 'invalid_edit' });
+      return reply.code(400).send({ error: 'invalid_edit', message: importErrorMessages.invalid_edit });
     }
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     if (body?.values && Object.values(body.values as Record<string, unknown>).some((value) => typeof value !== 'string' || value.length > 10_000)) return reply.code(400).send({ error: 'invalid_edit', issues: ['Values must be bounded text'] });
@@ -2162,9 +2184,9 @@ app.post('/api/event/reset', async (req) => {
     const normalizedEdit = normalizeImportedRow(form,
       (body?.values as Record<string, unknown> | undefined) ?? {},
       (body?.answers as Record<string, unknown> | undefined) ?? {});
-    if (typeof body?.discordUsername === 'string' && body.discordUsername.length > 256) return reply.code(400).send({ error: 'invalid_edit' });
+    if (typeof body?.discordUsername === 'string' && body.discordUsername.length > 256) return reply.code(400).send({ error: 'invalid_edit', message: importErrorMessages.invalid_edit });
     const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
-    if (typeof body?.linkDiscordUserId === 'string' && !(await currentMember(event.guildId, body.linkDiscordUserId))) return reply.code(400).send({ error: 'not_guild_member' });
+    if (typeof body?.linkDiscordUserId === 'string' && !(await currentMember(event.guildId, body.linkDiscordUserId))) return reply.code(400).send({ error: 'not_guild_member', message: importErrorMessages.not_guild_member });
     try {
       return await db.transaction(async () => {
         const edited = await editImportedSignup(db, params.eventId, params.id, {
@@ -2176,17 +2198,40 @@ app.post('/api/event/reset', async (req) => {
         if (!edited) throw new Error('not_found');
         const warnings = normalizedEdit.issues;
         if (typeof body?.linkDiscordUserId === 'string') {
-          const linked = await linkImportedSignup(db, event.id, event.guildId, params.id, body.linkDiscordUserId, form);
+          const linked = await linkImportedSignup(db, event.id, event.guildId, params.id, body.linkDiscordUserId, form, { organizer: true, actor: await actorOf(req) });
           if (linked.error) throw new Error(linked.error);
           const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
-          return { record, ...linked, warnings };
+          return { record, ...linked, warnings: [...warnings, ...(linked.warnings ?? [])] };
         }
         const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
         return { record, linked: record.discordUserId !== null, missingFields: record.missingFields, warnings };
       });
     } catch (error) {
       const code = error instanceof Error ? error.message : 'edit_failed';
-      return reply.code(code === 'event_not_active' ? 409 : code === 'not_found' || code === 'import_not_found' ? 404 : 400).send({ error: code });
+      return reply.code(code === 'event_not_active' || code === 'event_ended' ? 409 : code === 'not_found' || code === 'import_not_found' ? 404 : 400)
+        .send({ error: code, message: importErrorMessages[code] ?? 'The change could not be saved.' });
     }
+  });
+
+  app.delete('/api/events/:eventId/imported-signups/:id', async (req, reply) => {
+    const params = req.params as { eventId: string; id: string };
+    const event = await getEvent(db, params.eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'event_not_found', message: importErrorMessages.event_not_found });
+    const deleted = await deleteImportedSignup(db, event.id, params.id, await actorOf(req));
+    if (!deleted) return reply.code(404).send({ error: 'import_not_found', message: importErrorMessages.import_not_found });
+    // The imported row is paperwork: the participant it was linked to keeps their
+    // registration, their team and their answers.
+    return { ok: true, deleted: 1 };
+  });
+
+  app.post('/api/events/:eventId/imported-signups/delete', async (req, reply) => {
+    const event = await getEvent(db, (req.params as { eventId: string }).eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'event_not_found', message: importErrorMessages.event_not_found });
+    const ids = (req.body as { ids?: unknown } | null)?.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 200 || ids.some((id) => typeof id !== 'string' || id.length === 0 || id.length > 200)) {
+      return reply.code(400).send({ error: 'invalid_ids', message: 'Select between 1 and 200 imported signups.' });
+    }
+    const deleted = await deleteImportedSignups(db, event.id, ids as string[], await actorOf(req));
+    return { ok: true, deleted };
   });
 }

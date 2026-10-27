@@ -13,7 +13,7 @@ export function mutationBodyError(raw: unknown): string | null {
     if (dates.has(key) && value !== null && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 8_640_000_000_000_000)) return key;
     if (numbers.has(key) && value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1_000_000)) return key;
     if (['launch', 'saveAsTemplate', 'dm'].includes(key) && typeof value !== 'boolean') return key;
-    if (['schedule', 'announcements', 'assignments', 'rows', 'modRoleIds'].includes(key) && value !== null && (!Array.isArray(value) || value.length > (key === 'rows' ? 1000 : 100))) return key;
+    if (['schedule', 'announcements', 'assignments', 'rows', 'ids', 'modRoleIds'].includes(key) && value !== null && (!Array.isArray(value) || value.length > (key === 'rows' ? 1000 : key === 'ids' ? 200 : 100))) return key;
   }
   return null;
 }

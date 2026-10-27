@@ -1,11 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { ParticipantFrame } from '@/components/participant-appearance'
-import { SignupQuestion, type Localized, type Question } from '@/components/signup-question'
-import type { FormAppearance } from '@/types'
+import { SignupQuestion, type Localized } from '@/components/signup-question'
 import { useLocale, useT } from '@/lib/i18n'
 import { LiveStatus, useLiveUpdates } from '@/lib/live-updates'
+import { publicEventQuery, type PublicEvent } from '@/lib/public-event'
 
 
 import { ParticipantNavigation } from '@/components/participant-navigation'
@@ -14,26 +15,46 @@ import { PageSkeleton } from '@/components/ui/skeleton'
 import { Check, Pencil, ArrowRight } from 'lucide-react'
 
 type Profile = { experience: string; roleTrack: string; skills: string[]; teamPref: string }
-type EventForm = { event: { id: string; name: string; description: string; startsAt: number | null; endsAt: number | null }; form: { version: number; title: string; description: string; appearance: FormAppearance; questions: Question[]; profileFields: { experiences: { id: string; label: string; label_sv?: string }[]; roleTracks: { id: string; label: string; label_sv?: string }[]; skills: { id: string; label: string; label_sv?: string; group: string }[]; teamPrefs: { id: string; label: string; label_sv?: string }[] } } }
+type EventForm = PublicEvent
 type Registration = { answers: Record<string, string | string[]>; profile: Profile | null; complete: boolean; missingRequiredQuestionIds: string[]; status: string; signupWindowReason?: 'signup_not_open' | 'signup_closed' | null }
+type RegistrationLookup = { kind: 'member'; registration: Registration } | { kind: 'nonmember' } | { kind: 'anonymous' }
 export const Route = createFileRoute('/events/$eventId/signup')({ component: Signup })
+
+const emptyProfile = (): Profile => ({ experience: '', roleTrack: '', skills: [], teamPref: '' })
+
+// A 401/404 from the participant endpoint is an answer, not a failure: it tells
+// the page to show the login or the non-member notice.
+const registrationQuery = (eventId: string, force = false) => ({
+  queryKey: ['participant-registration', eventId] as const,
+  queryFn: async (): Promise<RegistrationLookup> => {
+    const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`)
+    if (res.status === 401) return { kind: 'anonymous' }
+    if (res.status === 404) return { kind: 'nonmember' }
+    if (!res.ok) throw new Error('participant.signup_load_error')
+    return { kind: 'member', registration: await res.json() as Registration }
+  },
+  staleTime: force ? 0 : 15_000,
+  gcTime: 30 * 60_000,
+})
 
 function Signup() {
   const { eventId } = Route.useParams()
   const t = useT()
   const locale = useLocale()
+  const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [attempted, setAttempted] = useState(false)
   const [event, setEvent] = useState<EventForm | null>(null)
   const [registration, setRegistration] = useState<Registration | null>(null)
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
-  const [profile, setProfile] = useState<Profile>({ experience: '', roleTrack: '', skills: [], teamPref: '' })
+  const [profile, setProfile] = useState<Profile>(emptyProfile)
   const [state, setState] = useState<'loading' | 'idle' | 'waiting' | 'failed'>('loading')
   const [message, setMessage] = useState('')
   const [stale, setStale] = useState(false)
   const [access, setAccess] = useState<'anonymous' | 'member' | 'nonmember'>('anonymous')
   const dirty = useRef(false)
   const draftRevision = useRef(0)
+  const sequence = useRef(0)
   const changeProfile = (next: Profile) => { draftRevision.current++; dirty.current = true; setProfile(next) }
 
   const language = locale
@@ -57,41 +78,47 @@ function Signup() {
     return () => window.removeEventListener('beforeunload', warn)
   }, [])
 
-  const load = async (signal?: AbortSignal, background = false) => {
+  // One run at a time: a live-update refresh racing a manual reload keeps the
+  // newest answer instead of letting the slower response win.
+  const load = async (background = false) => {
+    const run = ++sequence.current
     if (!background) { setState('loading'); setMessage(''); setStale(false) }
     try {
-      const res = await fetch(`/api/public/events/${encodeURIComponent(eventId)}`, signal ? { signal } : undefined)
-      if (!res.ok) throw new Error(t('participant.signup_unavailable'))
-      const next = await res.json() as EventForm
-      const saved = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`, signal ? { signal } : undefined)
-      const value = saved.ok ? await saved.json() as Registration : null
-      if (signal?.aborted) return
+      const [next, lookup] = await Promise.all([
+        queryClient.fetchQuery(publicEventQuery(eventId, background)),
+        queryClient.fetchQuery(registrationQuery(eventId, background)),
+      ])
+      if (run !== sequence.current) return
       if (dirty.current && event && next.form.version !== event.form.version) {
         setStale(true); setMessage(t('participant.signup_stale'))
         setEvent({ ...next, form: event.form })
       } else setEvent(next)
-      if (saved.ok) {
-        setRegistration(value); if (!dirty.current) { setAnswers(value!.answers); setProfile(value!.profile ?? { experience: '', roleTrack: '', skills: [], teamPref: '' }) } setAccess('member')
-      } else if (saved.status === 404) { setAccess('nonmember'); setRegistration(null) }
-      else if (saved.status === 401) { setAccess('anonymous'); setRegistration(null) }
-      else throw new Error(t('participant.signup_load_error'))
+      if (lookup.kind === 'member') {
+        setRegistration(lookup.registration)
+        if (!dirty.current) { setAnswers(lookup.registration.answers); setProfile(lookup.registration.profile ?? emptyProfile()) }
+        setAccess('member')
+      } else { setRegistration(null); setAccess(lookup.kind) }
       if (!background) setState('idle')
-    } catch (error) { if (!signal?.aborted) { setMessage(error instanceof Error ? error.message : t('participant.signup_load_error')); if (!background) setState('failed') } }
+    } catch (error) {
+      if (run !== sequence.current) return
+      // Query functions throw catalog keys, so a cached failure stays localized.
+      const key = error instanceof Error && error.message.startsWith('participant.') ? error.message : ''
+      setMessage(key ? t(key) : error instanceof Error ? error.message : t('participant.signup_load_error'))
+      if (!background) setState('failed')
+    }
   }
   useEffect(() => {
-    const controller = new AbortController(); dirty.current = false
+    dirty.current = false
     setEvent(null); setRegistration(null); setAnswers({})
-    void load(controller.signal)
-    return () => controller.abort()
+    void load()
+    return () => { sequence.current++ }
   }, [eventId])
-  const live = useLiveUpdates(access === 'member' ? `/api/participant/events/${encodeURIComponent(eventId)}/live` : null, signal => load(signal, true))
+  const live = useLiveUpdates(access === 'member' ? `/api/participant/events/${encodeURIComponent(eventId)}/live` : null, () => load(true))
 
   const refreshForm = async () => {
     setState('waiting')
     try {
-      const res = await fetch(`/api/public/events/${encodeURIComponent(eventId)}`)
-      if (!res.ok) throw new Error(t('participant.signup_unavailable'))
-      const next = await res.json() as EventForm
+      const next = await queryClient.fetchQuery(publicEventQuery(eventId, true))
       const previous = new Map(event?.form.questions.map(q => [q.id, q.kind]))
       setAnswers(current => Object.fromEntries(next.form.questions.flatMap((q): [string, string | string[]][] => {
         const answer = current[q.id]
@@ -103,7 +130,10 @@ function Signup() {
       setEvent(next)
       setRegistration(current => current ? { ...current, complete: false, missingRequiredQuestionIds: [] } : current)
       setStale(false); setMessage(t('participant.signup_review')); setState('idle')
-    } catch (error) { setMessage(error instanceof Error ? error.message : t('participant.signup_load_error')); setState('failed') }
+    } catch (error) {
+      const key = error instanceof Error && error.message.startsWith('participant.') ? error.message : ''
+      setMessage(key ? t(key) : error instanceof Error ? error.message : t('participant.signup_load_error')); setState('failed')
+    }
   }
 
   const submit = async (e: FormEvent) => {

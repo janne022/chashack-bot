@@ -1,27 +1,79 @@
 import type { Db } from '../../shared/db.js';
+import { audit } from '../../shared/audit.js';
 import type { FormConfig } from '../form/domain.js';
 import { validateCustomAnswers } from '../form/domain.js';
 import { getParticipant } from '../signup/data.js';
 import { saveRegistrationAnswers } from '../registration/data.js';
-import { importedRowProfile } from './normalize.js';
+import { joinGroupTeam, type GroupTeamMembership } from '../teams/group-teams.js';
+import { importedRowProfile, normalizeImportedRow } from './normalize.js';
 
-export async function linkImportedSignup(db: Db, eventId: string, guildId: string, importId: string, userId: string, form: FormConfig): Promise<{ linked: boolean; activated: boolean; missingFields: string[]; error?: string }> {
+export interface LinkResult {
+  linked: boolean;
+  activated: boolean;
+  missingFields: string[];
+  error?: string;
+  /** The member already had a participant row; it was adopted instead of duplicated. */
+  alreadyRegistered?: boolean;
+  /** The pre-formed group team the member landed on, when their form named one. */
+  groupTeam?: GroupTeamMembership;
+  /** Values dropped while re-reading the row against the current form. */
+  warnings?: string[];
+}
+
+export interface LinkOptions {
+  /**
+   * Organizer link. The event may still be a draft (organizers pre-register
+   * people before launch), an existing participant is adopted, a row bound to a
+   * different member may be re-bound, and stored answers are normalized against
+   * the current form instead of failing on a stale version.
+   */
+  organizer?: boolean;
+  /** Who did it, for the audit trail. Defaults to the audience name. */
+  actor?: string;
+}
+
+export async function linkImportedSignup(
+  db: Db,
+  eventId: string,
+  guildId: string,
+  importId: string,
+  userId: string,
+  form: FormConfig,
+  options: LinkOptions = {},
+): Promise<LinkResult> {
   return db.transaction(async () => {
     const event = await db.get<{ guild_id: string; status: string }>('SELECT guild_id,status FROM events WHERE id=? FOR UPDATE', eventId);
     if (!event || event.guild_id !== guildId) return { linked: false, activated: false, missingFields: [], error: 'event_not_found' };
-    if (event.status !== 'active') return { linked: false, activated: false, missingFields: [], error: 'event_not_active' };
+    if (event.status === 'ended') return { linked: false, activated: false, missingFields: [], error: 'event_ended' };
+    if (!options.organizer && event.status !== 'active') return { linked: false, activated: false, missingFields: [], error: 'event_not_active' };
     const row = await db.get<{ values_json: string; answers_json: string; discord_user_id: string | null; form_version: number }>('SELECT values_json,answers_json,discord_user_id,form_version FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', importId, eventId);
     if (!row) return { linked: false, activated: false, missingFields: [], error: 'import_not_found' };
-    if (row.form_version !== form.version) return { linked: false, activated: false, missingFields: [], error: 'stale_form_version' };
-    if (row.discord_user_id !== null && row.discord_user_id !== userId) return { linked: false, activated: false, missingFields: [], error: 'identity_conflict' };
+    // A member claimed by a *different* row is a duplicate the organizer must
+    // resolve; re-binding this row to someone else is a correction, not a clash.
     if (await db.get('SELECT id FROM imported_signups WHERE event_id=? AND discord_user_id=? AND id<>?', eventId, userId, importId)) return { linked: false, activated: false, missingFields: [], error: 'identity_conflict' };
+    if (row.discord_user_id !== null && row.discord_user_id !== userId && !options.organizer) return { linked: false, activated: false, missingFields: [], error: 'identity_conflict' };
+
+    const warnings: string[] = [];
+    let values = JSON.parse(row.values_json) as Record<string, string>;
+    let answers = JSON.parse(row.answers_json) as Record<string, string | string[]>;
+    let formVersion = row.form_version;
+    if (options.organizer) {
+      // The organizer is authoritative: an option id from an older form, or a
+      // stale version stamp, must not block the correction they came here to make.
+      const normalized = normalizeImportedRow(form, values, answers);
+      values = normalized.values;
+      answers = normalized.answers;
+      warnings.push(...normalized.issues);
+      formVersion = form.version;
+    } else if (row.form_version !== form.version) {
+      return { linked: false, activated: false, missingFields: [], error: 'stale_form_version' };
+    }
+
     const existing = await getParticipant(db, eventId, userId);
-    if (existing) return { linked: false, activated: false, missingFields: [], error: existing.status === 'blocked' ? 'registration_blocked' : 'participant_conflict' };
-    const answers = JSON.parse(row.answers_json) as Record<string, string | string[]>;
+    if (existing !== null && existing.status === 'blocked') return { linked: false, activated: false, missingFields: [], error: 'registration_blocked' };
     const checked = validateCustomAnswers(form, answers);
     if (!checked.ok) return { linked: false, activated: false, missingFields: [], error: 'invalid_answers' };
     const missingFields = checked.missingRequiredQuestionIds;
-    const values = JSON.parse(row.values_json) as Record<string, string>;
     const experience = values.experience ?? '';
     const role = values.role ?? '';
     const teamPref = values.teamPref ?? '';
@@ -30,16 +82,40 @@ export async function linkImportedSignup(db: Db, eventId: string, guildId: strin
     if (role && !form.roleTracks.some((option) => option.id === role)) return { linked: false, activated: false, missingFields: ['role'], error: 'invalid_core_answer' };
     if (teamPref && !form.teamPrefs.some((option) => option.id === teamPref)) return { linked: false, activated: false, missingFields: ['teamPref'], error: 'invalid_core_answer' };
     if (skills.some((skill) => !form.skills.some((option) => option.id === skill))) return { linked: false, activated: false, missingFields: ['skills'], error: 'invalid_core_answer' };
+
+    const persist = async (): Promise<void> => {
+      await db.run(
+        'UPDATE imported_signups SET discord_user_id=?,values_json=?,answers_json=?,form_version=?,updated_at=? WHERE id=? AND event_id=?',
+        userId, JSON.stringify(values), JSON.stringify(answers), formVersion, Date.now(), importId, eventId,
+      );
+    };
+    const actor = options.actor ?? (options.organizer ? 'organizer' : 'participant');
+
     if (missingFields.length) {
-      await db.run('UPDATE imported_signups SET discord_user_id=?,updated_at=? WHERE id=? AND event_id=?', userId, Date.now(), importId, eventId);
-      return { linked: true, activated: false, missingFields };
+      await persist();
+      const groupTeam = await joinGroupTeam(db, actor, eventId, guildId, userId, values.groupName);
+      await audit(db, actor, 'imported_signup.link', eventId, { importId, userId, activated: false, missing: missingFields.length, organizer: options.organizer === true }, guildId);
+      return { linked: true, activated: false, missingFields, ...(groupTeam ? { groupTeam } : {}), ...(warnings.length ? { warnings } : {}) };
     }
+
+    if (existing !== null) {
+      // A participant claim stays strict: an existing registration is not silently
+      // merged with an imported row. An organizer may adopt it on purpose.
+      if (!options.organizer) return { linked: false, activated: false, missingFields: [], error: 'participant_conflict' };
+      await persist();
+      const groupTeam = await joinGroupTeam(db, actor, eventId, guildId, userId, values.groupName);
+      await audit(db, actor, 'imported_signup.link', eventId, { importId, userId, activated: true, adopted: true, organizer: options.organizer === true }, guildId);
+      return { linked: true, activated: true, missingFields: [], alreadyRegistered: true, ...(groupTeam ? { groupTeam } : {}), ...(warnings.length ? { warnings } : {}) };
+    }
+
     const result = await saveRegistrationAnswers(db, eventId, userId, form.version, checked.answers);
     if (!result.ok) return { linked: false, activated: false, missingFields: [], error: result.code };
-    await db.run('UPDATE imported_signups SET discord_user_id=?,updated_at=? WHERE id=? AND event_id=?', userId, Date.now(), importId, eventId);
+    await persist();
     await db.run(`INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,'[]','active',?,?)`, eventId, userId, guildId, values.name ?? 'Imported participant', experience, role, JSON.stringify(skills), teamPref, Date.now(), Date.now());
-    return { linked: true, activated: true, missingFields: [] };
+    const groupTeam = await joinGroupTeam(db, actor, eventId, guildId, userId, values.groupName);
+    await audit(db, actor, 'imported_signup.link', eventId, { importId, userId, activated: true, organizer: options.organizer === true }, guildId);
+    return { linked: true, activated: true, missingFields: [], ...(groupTeam ? { groupTeam } : {}), ...(warnings.length ? { warnings } : {}) };
   });
 }
 

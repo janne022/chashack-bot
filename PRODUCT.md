@@ -97,6 +97,11 @@ Confirmed functionality (the README is the detailed inventory; this is the shape
   hackathon start (`random` per team or `same` for all).
 - Audit log of every mutation; event reset clears participants and teams but keeps
   the form config.
+- Imported signups (Google Form/CSV) stay organizer-only paperwork until a current
+  server member is linked. Linking activates the registration instead of
+  duplicating it, a CSV group name becomes that member's private team (the first
+  joiner owns it, later members join), and deleting the imported row never deletes
+  the registration it pointed at.
 
 Constraints and deliberate limits:
 

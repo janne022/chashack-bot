@@ -61,8 +61,14 @@ test('organizer preview is read-only; confirmed rows persist and only a verified
     assert.equal(linked.json().activated, true);
     assert.equal((await withGuildContext(db, guildId, () => db.get<{ user_id: string }>('SELECT user_id FROM participants WHERE event_id=?', eventId)))?.user_id, '12345678901234567');
     const beforeFailedLink = await withGuildContext(db, guildId, () => db.get<{ values_json: string; answers_json: string; discord_username: string | null }>('SELECT values_json,answers_json,discord_username FROM imported_signups WHERE id=?', id));
+    // An organizer may re-bind a row (that path has its own test), so this link
+    // fails for a reason that must still stop it: the target is blocked.
+    await withGuildContext(db, guildId, () => db.run(`INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,'[]','blocked',?,?)`, eventId, '22345678901234567', guildId, 'Blocked', '', '', '[]', '', Date.now(), Date.now()));
     const failedLink = await app.inject({ method: 'PATCH', url: `/api/events/${eventId}/imported-signups/${id}`, headers, payload: { values: { name: 'Must roll back' }, answers: { diet: 'changed' }, linkDiscordUserId: '22345678901234567' } });
     assert.equal(failedLink.statusCode, 400, failedLink.body);
+    assert.equal(failedLink.json().error, 'registration_blocked');
+    assert.equal(typeof failedLink.json().message, 'string');
     assert.deepEqual(await withGuildContext(db, guildId, () => db.get('SELECT values_json,answers_json,discord_username FROM imported_signups WHERE id=?', id)), beforeFailedLink);
     const foreignUrl = ['/api/events/', 'missing', '/imported-signups'].join('');
     const foreign = await app.inject({ method: 'GET', url: foreignUrl, headers });

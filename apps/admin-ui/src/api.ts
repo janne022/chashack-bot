@@ -304,8 +304,23 @@ export const api = {
     return request(`/api/events/${encodeURIComponent(eventId)}/imported-signups`)
   },
 
-  async updateImportedSignup(eventId: string, id: string, update: { values?: Record<string, string>; answers?: Record<string, string | string[]>; discordUsername?: string | null; linkDiscordUserId?: string }): Promise<{ record: ImportedSignup; activated?: boolean; missingFields: string[] }> {
+  async updateImportedSignup(eventId: string, id: string, update: { values?: Record<string, string>; answers?: Record<string, string | string[]>; discordUsername?: string | null; linkDiscordUserId?: string }): Promise<{
+    record: ImportedSignup
+    activated?: boolean
+    missingFields: string[]
+    alreadyRegistered?: boolean
+    groupTeam?: { teamId: string; teamName: string; created: boolean }
+    warnings?: string[]
+  }> {
     return request(`/api/events/${encodeURIComponent(eventId)}/imported-signups/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(update) })
+  },
+
+  async deleteImportedSignup(eventId: string, id: string): Promise<{ deleted: number }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/imported-signups/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+
+  async deleteImportedSignups(eventId: string, ids: string[]): Promise<{ deleted: number }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/imported-signups/delete`, { method: 'POST', body: JSON.stringify({ ids }) })
   },
 
   async searchGuildMembers(query: string): Promise<{ members: { id: string; username: string; displayName: string }[] }> {

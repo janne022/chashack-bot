@@ -1,6 +1,7 @@
 import { PageSkeleton } from '@/components/ui/skeleton'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { cn } from 'cn'
 import { api, ApiError } from '@/api'
 import type { FormConfig, ImportedSignup } from '@/types'
 import { useLocale, useT } from '@/lib/i18n'
@@ -14,11 +15,32 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SignupQuestion, type Localized } from '@/components/signup-question'
-import { Upload, UserRoundSearch } from 'lucide-react'
+import { MemberCombobox, memberQueryFromUsername, type GuildMemberOption } from '@/components/member-combobox'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { Upload, UserRoundSearch, Trash2 } from 'lucide-react'
 
 type PreviewRow = { rowNumber: number; values: Record<string, string>; answers: Record<string, string | string[]>; issues: string[]; duplicateStatus: 'create' | 'duplicate' | 'conflict' }
-type Member = { id: string; username: string; displayName: string }
+type Member = GuildMemberOption
 const CORE_FIELDS = ['name', 'email', 'discordUsername', 'allergies', 'experience', 'role', 'skills', 'teamPref', 'participationPreference', 'preferredAreas', 'groupSize', 'groupName', 'members']
+
+/** Server codes an organizer can actually hit while editing or linking a row. */
+const ERROR_KEYS: Record<string, string> = {
+  event_ended: 'imports.error_event_ended',
+  event_not_active: 'imports.error_event_not_active',
+  event_not_found: 'imports.error_missing_row',
+  import_not_found: 'imports.error_missing_row',
+  identity_conflict: 'imports.error_identity_conflict',
+  participant_conflict: 'imports.error_participant_conflict',
+  registration_blocked: 'imports.error_blocked',
+  invalid_answers: 'imports.error_invalid_answers',
+  invalid_core_answer: 'imports.error_invalid_core',
+  stale_form_version: 'imports.error_stale_form',
+  not_guild_member: 'imports.error_not_member',
+  invalid_member_id: 'imports.error_invalid_member',
+  invalid_edit: 'imports.error_invalid_edit',
+  member_search_unavailable: 'imports.member_search_failed',
+  member_search_rate_limited: 'imports.member_search_rate_limited',
+}
 
 export function ImportedSignups({ eventId, eventName, form }: { eventId: string; eventName: string; form: FormConfig }) {
   const t = useT()
@@ -43,11 +65,11 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   const [editValues, setEditValues] = useState<Record<string, string>>({})
   const [editAnswers, setEditAnswers] = useState<Record<string, string | string[]>>({})
   const [discordUsername, setDiscordUsername] = useState('')
-  const [memberQuery, setMemberQuery] = useState('')
-  const [members, setMembers] = useState<Member[]>([])
   const [selectedMember, setSelectedMember] = useState<Member | null>(null)
-  const [memberBusy, setMemberBusy] = useState(false)
   const [memberError, setMemberError] = useState('')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [confirmDelete, setConfirmDelete] = useState<{ ids: string[]; label: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [templates, setTemplates] = useState<{ id: string; label: { en: string; sv: string }; description: { en: string; sv: string } }[]>([])
   const [templateId, setTemplateId] = useState('')
   const [appliedTemplate, setAppliedTemplate] = useState<string | null>(null)
@@ -58,6 +80,11 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
       if (error.unauthorized) return t('imports.session_expired')
       if (['access_refused', 'not_allowed', 'forbidden'].includes(error.code)) return t('imports.access_denied')
       if (['csrf', 'bad_origin', 'origin_mismatch'].includes(error.code)) return t('imports.origin_error')
+      // Every failure the server can explain has a localized twin here; the
+      // server's own message is the last resort, not the first.
+      const key = ERROR_KEYS[error.code]
+      if (key) return t(key)
+      if (error.message && error.message !== 'Request failed') return error.message
     }
     if (error instanceof TypeError) return t('imports.network_error')
     return error instanceof Error ? error.message : t(fallback)
@@ -78,6 +105,9 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   }), [records, search, attentionOnly])
   const currentPreview = preview.find(row => row.rowNumber === selectedRow) ?? null
   const activeEdit = records.find(record => record.id === editId) ?? null
+  // Only rows the organizer can still see count as selected: a filter must not
+  // leave a delete that touches rows hidden from the list.
+  const selectedVisible = useMemo(() => visibleRecords.filter(record => selectedIds.includes(record.id)).map(record => record.id), [visibleRecords, selectedIds])
 
   async function chooseFile(next: File | undefined) {
     setError(''); setPreview([]); setSummary(null); setSelectedRow(null); setExcluded([])
@@ -127,31 +157,67 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
 
   function openEditor(record: ImportedSignup) {
     setEditId(record.id); setEditValues({ ...record.values }); setEditAnswers({ ...record.answers }); setDiscordUsername(record.discordUsername ?? '')
-    setMemberQuery(''); setMembers([]); setSelectedMember(null); setMemberError('')
-  }
-
-  async function searchMembers() {
-    setMemberBusy(true); setMemberError(''); setSelectedMember(null)
-    try { setMembers((await api.searchGuildMembers(memberQuery)).members) }
-    catch (e) { setMembers([]); setMemberError(describeError(e, 'imports.member_search_failed')) }
-    finally { setMemberBusy(false) }
+    setSelectedMember(null); setMemberError('')
   }
 
   async function saveEdit(link = false) {
     if (!activeEdit || pending || (link && !selectedMember)) return
     setPending(true); setMemberError('')
     try {
-      await api.updateImportedSignup(eventId, activeEdit.id, {
+      const result = await api.updateImportedSignup(eventId, activeEdit.id, {
         values: editValues, answers: editAnswers, discordUsername: discordUsername || null,
         ...(link && selectedMember ? { linkDiscordUserId: selectedMember.id } : {}),
       })
+      if (link && selectedMember) {
+        if (result.record.discordUserId !== null) {
+          toast.success(t('imports.linked_toast', { name: result.record.values.name || selectedMember.displayName }))
+        }
+        if (result.groupTeam) {
+          toast.success(t(result.groupTeam.created ? 'imports.group_team_created' : 'imports.group_team_joined', { team: result.groupTeam.teamName }))
+        }
+      }
+      if (result.warnings && result.warnings.length > 0) toast.warning(t('imports.saved_with_warnings', { count: result.warnings.length }))
       setEditId(null); await reload()
     } catch (e) { setMemberError(describeError(e, 'imports.save_failed')) }
     finally { setPending(false) }
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
+  }
+
+  async function confirmDeletion() {
+    if (confirmDelete === null || deleting) return
+    setDeleting(true)
+    try {
+      const result = confirmDelete.ids.length === 1
+        ? await api.deleteImportedSignup(eventId, confirmDelete.ids[0]!)
+        : await api.deleteImportedSignups(eventId, confirmDelete.ids)
+      toast.success(t('imports.deleted', { count: result.deleted }))
+      setSelectedIds(current => current.filter(id => !confirmDelete.ids.includes(id)))
+      setConfirmDelete(null)
+      if (editId !== null && confirmDelete.ids.includes(editId)) setEditId(null)
+      await reload()
+    } catch (e) { toast.error(describeError(e, 'imports.delete_failed')) }
+    finally { setDeleting(false) }
+  }
+
   const questionLabel = (label: Localized) => typeof label === 'string' ? label : label[localStorage.getItem('chas-locale') === 'sv' ? 'sv' : 'en'] ?? label.en
-  const skillsField = (value: string, onChange: (next: string) => void) => <fieldset className="space-y-1 rounded border p-2"><legend className="px-1 text-xs">{t('imports.map_choices')}</legend>{value && <p className="text-xs text-muted-foreground">{t('imports.source_value')}: {value}</p>}{form.skills.map(option => <Checkbox key={option.id} className="min-h-9" checked={value.split(',').map(v => v.trim()).includes(option.id)} onCheckedChange={checked => { const ids = value.split(',').map(v => v.trim()).filter(Boolean); onChange(checked ? [...new Set([...ids, option.id])].join(',') : ids.filter(v => v !== option.id).join(',')) }}>{option.label}</Checkbox>)}</fieldset>
+  const skillsField = (value: string, onChange: (next: string) => void) => {
+    const ids = value.split(',').map(v => v.trim()).filter(Boolean)
+    return <fieldset className="space-y-2 rounded-lg border border-border p-3">
+      <legend className="px-1 text-xs">{t('imports.map_choices')}</legend>
+      {value && <p className="truncate text-xs text-muted-foreground">{t('imports.source_value')}: {value}</p>}
+      <div className="grid gap-1 sm:grid-cols-2">
+        {form.skills.map(option => <Checkbox
+          key={option.id}
+          className={cn('min-h-10 w-full rounded-md px-2.5 py-2 text-sm hover:bg-surface-2', ids.includes(option.id) && 'bg-accent/5')}
+          checked={ids.includes(option.id)}
+          onCheckedChange={checked => onChange(checked ? [...new Set([...ids, option.id])].join(',') : ids.filter(v => v !== option.id).join(','))}
+        >{option.label}</Checkbox>)}
+      </div>
+    </fieldset>
+  }
   const selectOptions: Record<string, { id: string; label: string }[]> = {
     experience: form.experiences, role: form.roleTracks, teamPref: form.teamPrefs,
   }
@@ -181,16 +247,46 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
       <div className="min-w-48 flex-1"><Label htmlFor="import-search">{t('common.search')}</Label><Input id="import-search" value={search} onChange={e => setSearch(e.target.value)} /></div>
       <Checkbox className="min-h-10" checked={attentionOnly} onCheckedChange={v => setAttentionOnly(Boolean(v))}>{t('imports.needs_attention')}</Checkbox>
     </div>
+    {selectedVisible.length > 0 && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface-2/50 p-3 text-sm">
+      <span className="font-medium">{t('imports.selected_count', { count: selectedVisible.length })}</span>
+      <div className="flex gap-2">
+        <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])}>{t('common.clear')}</Button>
+        <Button variant="outline" size="sm" onClick={() => setConfirmDelete({ ids: selectedVisible, label: t('imports.delete_selected_count', { count: selectedVisible.length }) })}>
+          <Trash2 />{t('common.delete')}
+        </Button>
+      </div>
+    </div>}
     {loading ? <PageSkeleton /> : loadError ? <div role="alert" className="space-y-2"><p>{loadError}</p><Button variant="outline" onClick={() => void reload()}>{t('common.retry')}</Button></div> : records.length === 0 ? <EmptyState icon={<Upload className="size-5" />} title={t('imports.empty')} description={t('imports.empty_desc')} action={<Button onClick={() => setImportOpen(true)}><Upload />{t('imports.action')}</Button>} /> : visibleRecords.length === 0 ? <Card><CardContent className="flex items-center justify-between py-4 text-sm"><span>{t('imports.no_matches')}</span><Button variant="ghost" onClick={() => { setSearch(''); setAttentionOnly(false) }}>{t('common.clear')}</Button></CardContent></Card> : <div className="grid gap-3 md:grid-cols-2">
-      {visibleRecords.map(record => <Card key={record.id}>
-        <CardHeader className="pb-2"><CardTitle className="text-base">{record.values.name || t('imports.unnamed')} <span className="text-xs font-normal text-muted-foreground">· {t(`imports.state_${record.state}`)}</span></CardTitle><CardDescription>{record.values.email || t('imports.no_email')} · {record.values.groupName || t('imports.no_group')}</CardDescription></CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          {record.missingFields.length > 0 && <p className="text-warning">{t('imports.missing_fields', { fields: record.missingFields.join(', ') })}</p>}
-          {!record.discordUserId && <p className="text-muted-foreground">{t('imports.unlinked_detail', { username: record.discordUsername || t('imports.not_provided') })}</p>}
-          {Object.entries(record.values).filter(([key]) => key.startsWith('source:')).map(([key, value]) => <p key={key} className="break-words text-xs text-muted-foreground">{key.slice(7)}: {value}</p>)}
-          <Button variant="secondary" onClick={() => openEditor(record)}>{t('imports.review_edit')}</Button>
-        </CardContent>
-      </Card>)}
+      {visibleRecords.map(record => {
+        const viaForm = record.discordUserId === null && Boolean(record.discordUsername)
+        const stateKey = record.state === 'linked' ? 'imports.state_linked' : record.state === 'incomplete' ? 'imports.state_incomplete' : viaForm ? 'imports.state_form' : 'imports.state_unlinked'
+        return <Card key={record.id} data-state={viaForm ? 'form' : record.state}>
+          <CardHeader className="pb-2">
+            <div className="flex items-start gap-2">
+              <Checkbox className="mt-0.5" checked={selectedIds.includes(record.id)} onCheckedChange={() => toggleSelected(record.id)} aria-label={t('imports.select_row', { name: record.values.name || t('imports.unnamed') })} />
+              <div className="min-w-0 flex-1">
+                <CardTitle className="text-base">{record.values.name || t('imports.unnamed')} <span className="text-xs font-normal text-muted-foreground">· {t(stateKey)}</span></CardTitle>
+                <CardDescription>{record.values.email || t('imports.no_email')} · {record.values.groupName || t('imports.no_group')}</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" className="shrink-0 text-muted-foreground"
+                aria-label={t('imports.delete_row', { name: record.values.name || t('imports.unnamed') })}
+                onClick={() => setConfirmDelete({ ids: [record.id], label: record.values.name || t('imports.unnamed') })}>
+                <Trash2 />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {record.missingFields.length > 0 && <p className="text-warning">{t('imports.missing_fields', { fields: record.missingFields.join(', ') })}</p>}
+            {record.discordUserId !== null
+              ? <p className="text-muted-foreground">{t('imports.linked_to', { id: record.discordUserId })}</p>
+              : viaForm
+                ? <p className="text-muted-foreground">{t('imports.linked_via_form', { username: record.discordUsername ?? '' })}</p>
+                : <p className="text-muted-foreground">{t('imports.unlinked_detail', { username: t('imports.not_provided') })}</p>}
+            {Object.entries(record.values).filter(([key]) => key.startsWith('source:')).map(([key, value]) => <p key={key} className="break-words text-xs text-muted-foreground">{key.slice(7)}: {value}</p>)}
+            <Button variant="secondary" onClick={() => openEditor(record)}>{t('imports.review_edit')}</Button>
+          </CardContent>
+        </Card>
+      })}
     </div>}
 
     <Dialog open={importOpen} onOpenChange={open => { if (!pending) setImportOpen(open) }}>
@@ -232,11 +328,29 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
       {activeEdit && <DialogContent className="max-h-[90vh] w-[95vw] max-w-[min(42rem,95vw)] sm:max-w-[min(42rem,95vw)] overflow-y-auto"><DialogTitle>{t('imports.edit_title', { name: activeEdit.values.name || t('imports.unnamed') })} · {eventName}</DialogTitle><DialogDescription>{t('imports.edit_desc')}</DialogDescription><div className="space-y-3">
         {CORE_FIELDS.filter(key => Object.hasOwn(editValues, key) || ['name', 'email', 'discordUsername'].includes(key)).map(key => <div key={key} className="space-y-1"><Label htmlFor={`saved-${key}`}>{fixedLabels[key]}</Label>{key === 'skills' ? skillsField(editValues.skills ?? '', next => setEditValues(values => ({ ...values, skills: next }))) : selectOptions[key] ? <Select value={editValues[key] || '__empty__'} onValueChange={value => setEditValues(values => ({ ...values, [key]: value === '__empty__' ? '' : value }))}><SelectTrigger id={`saved-${key}`}><SelectValue placeholder={t('participant.signup_choose')} /></SelectTrigger><SelectContent><SelectItem value="__empty__">{t('participant.signup_choose')}</SelectItem>{selectOptions[key]!.map(option => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}</SelectContent></Select> : <Input id={`saved-${key}`} value={key === 'discordUsername' ? discordUsername : editValues[key] ?? ''} onChange={e => key === 'discordUsername' ? setDiscordUsername(e.target.value) : setEditValues(values => ({ ...values, [key]: e.target.value }))} />}</div>)}
         {form.customQuestions?.filter(question => question.visibility !== 'organizer_only').map(question => <SignupQuestion key={question.id} question={question} answer={editAnswers[question.id]} invalid={false} label={questionLabel} onChange={value => setEditAnswers(answers => ({ ...answers, [question.id]: value }))} t={t} />)}
-        {activeEdit.discordUserId ? <p className="rounded-lg border border-ok/40 p-3 text-sm">{t('imports.linked_to', { id: activeEdit.discordUserId })}</p> : <div className="space-y-2 rounded-lg border p-3"><h3 className="font-medium"><UserRoundSearch className="mr-1 inline size-4" />{t('imports.link_member')}</h3><p className="text-xs text-muted-foreground">{t('imports.link_explanation')}</p><div className="flex gap-2"><Input aria-label={t('imports.member_search')} minLength={2} maxLength={100} value={memberQuery} onChange={e => setMemberQuery(e.target.value)} /><Button variant="outline" disabled={memberBusy || memberQuery.trim().length < 2} onClick={() => void searchMembers()}>{memberBusy ? t('imports.searching') : t('common.search')}</Button></div>{members.map(member => <Button key={member.id} type="button" variant={selectedMember?.id === member.id ? 'secondary' : 'outline'} aria-pressed={selectedMember?.id === member.id} className="w-full justify-start" onClick={() => setSelectedMember(member)}>{member.displayName} <span className="text-muted-foreground">@{member.username}</span></Button>)}</div>}
+        <div className="space-y-2 rounded-lg border border-border p-3"><h3 className="font-medium"><UserRoundSearch className="mr-1 inline size-4" />{t('imports.link_member')}</h3><p className="text-xs text-muted-foreground">{activeEdit.discordUserId ? t('imports.relink_explanation') : t('imports.link_explanation')}</p>
+          {activeEdit.discordUserId && <p className="rounded-lg border border-ok/40 p-2 text-xs">{t('imports.linked_to', { id: activeEdit.discordUserId })}</p>}
+          <MemberCombobox value={selectedMember} onSelect={setSelectedMember} initialQuery={memberQueryFromUsername(discordUsername || activeEdit.discordUsername)} disabled={pending} />
+          {discordUsername && <p className="text-xs text-muted-foreground">{t('imports.link_using_form', { username: discordUsername })}</p>}
+          {editValues.groupName && <p className="text-xs text-muted-foreground">{t('imports.link_group_hint', { group: editValues.groupName })}</p>}
+        </div>
         {memberError && <p role="alert" className="text-sm text-destructive">{memberError}</p>}
         <p className="text-xs text-muted-foreground">{t('imports.link_eligibility')}</p>
-        <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={pending} onClick={() => setEditId(null)}>{t('common.cancel')}</Button><Button variant="secondary" disabled={pending} onClick={() => void saveEdit()}>{pending ? t('imports.saving') : t('imports.save')}</Button>{!activeEdit.discordUserId && <Button disabled={pending || !selectedMember} onClick={() => void saveEdit(true)}>{t('imports.save_and_link')}</Button>}</div>
+        <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={pending} onClick={() => setEditId(null)}>{t('common.cancel')}</Button><Button variant="secondary" disabled={pending} onClick={() => void saveEdit()}>{pending ? t('imports.saving') : t('imports.save')}</Button><Button disabled={pending || !selectedMember} onClick={() => void saveEdit(true)}>{t('imports.save_and_link')}</Button></div>
       </div></DialogContent>}
     </Dialog>
+
+    <AlertDialog open={confirmDelete !== null} onOpenChange={open => { if (!open && !deleting) setConfirmDelete(null) }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('imports.delete_title')}</AlertDialogTitle>
+          <AlertDialogDescription>{t('imports.delete_desc', { label: confirmDelete?.label ?? '' })}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting}>{t('common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction disabled={deleting} onClick={event => { event.preventDefault(); void confirmDeletion() }}>{deleting ? t('imports.deleting') : t('common.delete')}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </section>
 }
