@@ -30,10 +30,10 @@ import {
   purgeExpiredSessions,
   selectGuild,
   type WebSession,
+  updateSessionGuilds,
 } from '../features/auth/data.js';
 import { audit } from '../shared/audit.js';
 import { finishParticipantDeparture } from '../features/signup/lifecycle.js';
-import { signupAdmission } from '../features/signup/domain.js';
 import { auditList } from '../shared/audit.js';
 import {
   blockParticipant,
@@ -41,6 +41,7 @@ import {
   withdrawParticipant,
   listParticipants,
   getParticipant,
+  checkSignupWrite,
   reactivateParticipant,
 } from '../features/signup/data.js';
 import {
@@ -74,17 +75,18 @@ import {
   listTemplates,
   deleteTemplate,
   updateTemplateContent,
+  scheduleTimeResolved,
 } from '../features/events/data.js';
 import { getForm, updateForm, resetForm } from '../features/form/data.js';
 import { refreshSignupPanel, postOrUpdatePanel } from '../discord/signup-panel.js';
 import { sendAnnouncement, createDiscordEvents } from '../discord/notify.js';
 import type { FormConfig } from '../features/form/domain.js';
 import { validateCustomAnswers, validateCustomQuestions, validBannerUrl, normalizeAppearance, resolveAppearance } from '../features/form/domain.js';
-import { getRegistrationAnswers, listRegistrationAnswers, saveRegistrationAnswers } from '../features/registration/data.js';
+import { getRegistrationAnswers, listRegistrationAnswers, saveParticipantAnswers } from '../features/registration/data.js';
 import { registerParticipantTeamRoutes } from './participant-teams.js';
 import { registerLiveRoute } from './live.js';
 import type { ChangeHint } from '../shared/live-changes.js';
-import { applyTeamLeave } from '../discord/provision.js';
+import { applyTeamLeave, grantTeamRole } from '../discord/provision.js';
 import { refreshTeamPanel } from '../discord/team-panel.js';
 import { eligibleParticipant, setMembershipLookup } from '../features/signup/eligibility.js';
 import { lookupGuildMember } from '../discord/member-lifecycle.js';
@@ -92,7 +94,12 @@ import { runWithGuildContext, withGuildContext } from '../shared/postgres.js';
 import { consumeQuota } from '../shared/rate-limit.js';
 import { parseSignupCsv } from '../features/signup-import/domain.js';
 import { createImportedSignups, editImportedSignup, listImportedSignups, purgeImportedSignups, summarizeImportedRows } from '../features/signup-import/data.js';
-import { linkImportedSignup } from '../features/signup-import/link.js';
+import { linkImportedSignup, claimImportedSignupByEmail, findImportedSignupByEmail } from '../features/signup-import/link.js';
+import { importedRowProfile, normalizeImportedRow } from '../features/signup-import/normalize.js';
+import { presetCatalog, presetExists, suggestMapping } from '../features/signup-import/presets.js';
+import { eventEnforcesSignupWindow, signupWindowReason } from '../features/signup/domain.js';
+import { getSubmission, getSubmissionForm, listSubmissions, saveSubmission, saveSubmissionForm } from '../features/submission/data.js';
+import { currentSubmissionAnswers, validateSubmissionAnswers } from '../features/submission/domain.js';
 
 export interface WebDeps {
   db: Db;
@@ -238,7 +245,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       })().catch(done);
       return;
     }
-    if (!req.url.startsWith('/api/') || req.url.startsWith('/api/public/') || req.url.startsWith('/api/participant/')) {
+    if (!req.url.startsWith('/api/') || req.url === '/api/auth/me' || req.url.startsWith('/api/public/') || req.url.startsWith('/api/participant/')) {
       done();
       return;
     }
@@ -325,7 +332,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(401).send({ error: 'unauthorized' });
       return;
     }
-    if (['/api/auth/logout', '/api/auth/logout-all'].includes(req.url.split('?')[0]!)) return;
+    if (req.url === '/api/auth/me' || ['/api/auth/logout', '/api/auth/logout-all'].includes(req.url.split('?')[0]!)) return;
     const targetGuild = req.url === '/api/auth/guild'
       ? ((req.body as { guildId?: string } | null)?.guildId ?? '')
       : live.session.selectedGuildId ?? '';
@@ -714,10 +721,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       const event = await getEvent(db, hint.eventId!);
       if (!event || event.status === 'draft') return false;
       if (hint.userId === userId || hint.targetId === userId || hint.requesterId === userId) return true;
-      if (hint.table === 'team_requests' || hint.table === 'registration_answers') return false;
+      if (hint.table === 'team_requests' || hint.table === 'registration_answers' || hint.table === 'submission_answers') return false;
       const own = await getParticipant(db, hint.eventId!, userId);
       if (!own || own.status !== 'active') return false;
-      if (hint.table === 'events') return true;
+      if (hint.table === 'events' || hint.table === 'submission_forms') return true;
       if (hint.teamId && (hint.publicTeam || (await getTeam(db, hint.teamId))?.kind === 'public')) {
         return await eligibleParticipant(db, hint.eventId!, userId) !== null;
       }
@@ -742,6 +749,62 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       hint.guildId !== null && guilds.includes(hint.guildId) && await ownHint(hint, session.userId) };
   }, 10_000, config.publicUrl);
 
+  app.get('/api/participant/events/:eventId/schedule', async (req, reply) => {
+    const session = await participantSessionFrom(req);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    if (event === null || (await getParticipant(db, event.id, session!.userId))?.status !== 'active') {
+      return reply.code(404).send({ error: 'event_unavailable' });
+    }
+    return { schedule: event.schedule.filter(item => scheduleTimeResolved(event, item)).map(({ id, time, title, description, kind }) => ({ id, time, title, description, kind })).sort((a, b) => a.time - b.time) };
+  });
+
+  app.get('/api/participant/events/:eventId/submission', async (req, reply) => {
+    const session = await participantSessionFrom(req);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    if (!event || !await eligibleParticipant(db, event.id, session!.userId)) return reply.code(404).send({ error: 'event_unavailable' });
+    const form = await getSubmissionForm(db, event.id);
+    if (!form.enabled) return { form, submission: null, complete: false, editable: false, missingRequiredQuestionIds: [] };
+    const record = await getSubmission(db, event.id, session!.userId);
+    const answers = currentSubmissionAnswers(form, record?.answers ?? {});
+    const checked = validateSubmissionAnswers(form, answers);
+    const complete = !!record && checked.ok && checked.missingRequiredQuestionIds.length === 0;
+    return { form, submission: record ? { ...record, answers } : null, complete, editable: form.allowEdits || !complete,
+      missingRequiredQuestionIds: checked.ok ? checked.missingRequiredQuestionIds : form.questions.filter(q => q.required).map(q => q.id) };
+  });
+
+  app.put('/api/participant/events/:eventId/submission', async (req, reply) => {
+    const session = await participantSessionFrom(req);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    if (!event || !await eligibleParticipant(db, event.id, session!.userId)) return reply.code(404).send({ error: 'event_unavailable' });
+    const body = req.body as { formVersion?: unknown; answers?: unknown } | null;
+    if (!Number.isSafeInteger(body?.formVersion)) return reply.code(400).send({ error: 'invalid_form_version' });
+    const result = await saveSubmission(db, event.id, session!.userId, body!.formVersion as number, body?.answers);
+    if (!result.ok) return reply.code(result.code === 'event_unavailable' ? 404 : result.code === 'invalid_answers' ? 400 : 409).send({ error: result.code });
+    return result.value;
+  });
+
+  app.get('/api/events/:eventId/submission-form', async (req, reply) => {
+    const event = await getEvent(db, (req.params as { eventId: string }).eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'not_found' });
+    return { form: await getSubmissionForm(db, event.id) };
+  });
+
+  app.put('/api/events/:eventId/submission-form', async (req, reply) => {
+    const event = await getEvent(db, (req.params as { eventId: string }).eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'not_found' });
+    const body = req.body as { version?: unknown; form?: unknown } | null;
+    const result = await saveSubmissionForm(db, event.id, body?.version as number, body?.form);
+    if (!result.ok) return reply.code(result.code === 'stale_form_version' ? 409 : 400).send({ error: result.code });
+    await audit(db, 'web', 'submission.form_update', event.id, { version: result.value.version }, event.guildId);
+    return { form: result.value };
+  });
+
+  app.get('/api/events/:eventId/submissions', async (req, reply) => {
+    const event = await getEvent(db, (req.params as { eventId: string }).eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'not_found' });
+    return { form: await getSubmissionForm(db, event.id), submissions: await listSubmissions(db, event.id) };
+  });
+
   app.get('/api/participant/events/:eventId/registration', async (req, reply) => {
     const session = await participantSessionFrom(req);
     const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
@@ -749,15 +812,19 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     const stored = await getRegistrationAnswers(db, event.id, session!.userId);
     const participant = await getParticipant(db, event.id, session!.userId);
-    const checked = validateCustomAnswers(form, stored?.answers ?? {});
+    const participantQuestions = (form.customQuestions ?? []).filter(q => q.visibility === 'self_and_organizer' && (q.presentation === 'web' || q.presentation === 'both'));
+    const visibleIds = new Set(participantQuestions.map(q => q.id));
+    const answers = Object.fromEntries(Object.entries(stored?.answers ?? {}).filter(([id]) => visibleIds.has(id)));
+    const checked = validateCustomAnswers({ ...form, customQuestions: participantQuestions }, answers);
     const profileRequired = form.experiences.length + form.roleTracks.length + form.skills.length + form.teamPrefs.length > 0;
     const hasQuestions = (form.customQuestions ?? []).some((question) => question.visibility !== 'organizer_only' && (question.presentation === 'web' || question.presentation === 'both'));
-    return { eventId: event.id, formVersion: form.version, answers: stored?.answers ?? {},
-      // Confidential definitions are available only to the authenticated subject, never the public projection.
-      questions: form.customQuestions ?? [],
+    return { eventId: event.id, formVersion: form.version, answers,
+      // Only the authenticated participant's own visible definitions are exposed; organizer-only questions stay hidden.
+      questions: participantQuestions,
       profile: participant === null ? null : { experience: participant.experience, roleTrack: participant.roleTrack, skills: participant.skills, teamPref: participant.teamPref },
       missingRequiredQuestionIds: checked.ok ? checked.missingRequiredQuestionIds : [],
       complete: participant !== null && (profileRequired || hasQuestions) && checked.ok && checked.missingRequiredQuestionIds.length === 0 && (!profileRequired || ((form.experiences.length === 0 || !!participant.experience) && (form.roleTracks.length === 0 || !!participant.roleTrack) && (form.skills.length === 0 || !!participant.skills.length) && (form.teamPrefs.length === 0 || !!participant.teamPref))),
+      signupWindowReason: signupWindowReason(eventEnforcesSignupWindow(event.formJson), event.signupStartsAt, event.signupEndsAt, participant?.status ?? null, Date.now()),
       teamPref: participant?.teamPref ?? null, status: participant?.status ?? 'not_registered' };
   });
 
@@ -768,7 +835,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const body = req.body as { formVersion?: unknown; answers?: unknown; profile?: { experience?: unknown; roleTrack?: unknown; skills?: unknown; teamPref?: unknown }; teamPref?: unknown } | null;
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     if (!Number.isInteger(body?.formVersion) || body?.formVersion !== form.version) return reply.code(409).send({ error: 'stale_form_version' });
-    const checked = validateCustomAnswers(form, body?.answers);
+    const participantQuestions = (form.customQuestions ?? []).filter(q => q.visibility === 'self_and_organizer' && (q.presentation === 'web' || q.presentation === 'both'));
+    const checked = validateCustomAnswers({ ...form, customQuestions: participantQuestions }, body?.answers);
     if (!checked.ok) return reply.code(400).send({ error: 'invalid_answers', details: checked.errors });
     const teamPref = body?.teamPref;
     if (teamPref !== undefined && teamPref !== null && (typeof teamPref !== 'string' || !['create_team', 'join_team', 'random_team'].includes(teamPref))) return reply.code(400).send({ error: 'invalid_team_pref' });
@@ -778,13 +846,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (!profileRequired && !hasQuestions) return reply.code(400).send({ error: 'empty_signup_form' });
     if (profile !== undefined && (!profile || (form.experiences.length > 0 ? typeof profile.experience !== 'string' || !form.experiences.some((item) => item.id === profile.experience) : !!profile.experience) || (form.roleTracks.length > 0 ? typeof profile.roleTrack !== 'string' || !form.roleTracks.some((item) => item.id === profile.roleTrack) : !!profile.roleTrack) || !Array.isArray(profile.skills) || (form.skills.length > 0 && profile.skills.length === 0) || profile.skills.some((id) => typeof id !== 'string' || !form.skills.some((item) => item.id === id)) || new Set(profile.skills).size !== profile.skills.length || [...new Set(profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean))].length !== profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean).length || (form.teamPrefs.length > 0 ? typeof profile.teamPref !== 'string' || !form.teamPrefs.some((item) => item.id === profile.teamPref) : !!profile.teamPref))) return reply.code(400).send({ error: 'invalid_profile' });
     return db.transaction(async () => {
+      const access = await checkSignupWrite(db, event.id, session!.userId, event.guildId);
+      if (!access.ok) return reply.code(access.code === 'blocked' ? 403 : 409).send({ error: access.code });
+      const currentEvent = await getEvent(db, event.id);
+      if (!currentEvent || getEventForm(db, currentEvent, await getForm(db, event.guildId)).version !== form.version) return reply.code(409).send({ error: 'stale_form_version' });
       const existing = await getParticipant(db, event.id, session!.userId);
-      if (existing?.status === 'blocked') return reply.code(403).send({ error: 'registration_blocked' });
-      const admission = signupAdmission(event, existing?.status ?? null, Date.now());
-      if (admission !== 'allowed') return reply.code(409).send({ error: admission, code: admission });
       const effectiveProfile = profile ?? (existing && existing.experience && existing.roleTrack && existing.skills.length && existing.teamPref ? { experience: existing.experience, roleTrack: existing.roleTrack, skills: existing.skills, teamPref: existing.teamPref } : null);
       if (profileRequired && effectiveProfile === null) return reply.code(400).send({ error: 'invalid_profile' });
-      const saved = await saveRegistrationAnswers(db, event.id, session!.userId, form.version, checked.answers);
+      const saved = await saveParticipantAnswers(db, event.id, session!.userId, form.version, checked.answers, participantQuestions.map(q => q.id));
       if (!saved.ok) return reply.code(409).send({ error: saved.code });
       if (existing === null) {
         await db.run(`INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at)
@@ -798,7 +867,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       } else if (existing?.status === 'withdrawn') {
         await db.run("UPDATE participants SET status = 'active', updated_at = ? WHERE event_id = ? AND user_id = ?", Date.now(), event.id, session!.userId);
       }
-      return { eventId: event.id, formVersion: form.version, answers: saved.value.answers,
+      return { eventId: event.id, formVersion: form.version, answers: checked.answers,
         missingRequiredQuestionIds: checked.missingRequiredQuestionIds, complete: checked.missingRequiredQuestionIds.length === 0 && (!profileRequired || ((form.experiences.length === 0 || !!(profile?.experience ?? existing?.experience)) && (form.roleTracks.length === 0 || !!(profile?.roleTrack ?? existing?.roleTrack)) && (form.skills.length === 0 || (Array.isArray(profile?.skills) ? profile.skills.length > 0 : !!existing?.skills.length)) && (form.teamPrefs.length === 0 || !!(profile?.teamPref ?? teamPref ?? existing?.teamPref)))),
         profile: effectiveProfile,
         teamPref: typeof profile?.teamPref === 'string' ? profile.teamPref : typeof teamPref === 'string' ? teamPref : existing?.teamPref ?? null, status: existing?.status === 'withdrawn' ? 'active' : existing?.status ?? 'active' };
@@ -813,6 +882,41 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (!result.ok) return reply.code(404).send({ error: result.code });
     if (!await completeDeparture(event.id, event.guildId, session!.userId, result.value)) return reply.code(503).send({ error: 'role_revocation_pending', committed: true });
     return { ok: true };
+  });
+
+  /**
+   * A participant who filled an external form before joining Discord can find
+   * their own imported row by the e-mail they used. Only identifyng fields come
+   * back so a guessed address cannot read somebody else's answers.
+   */
+  app.post('/api/participant/events/:eventId/claim/lookup', async (req, reply) => {
+    const session = await participantSessionFrom(req);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
+    const email = (req.body as { email?: unknown } | null)?.email;
+    if (typeof email !== 'string' || email.trim().length < 3 || email.length > 254 || !email.includes('@')) return reply.code(400).send({ error: 'invalid_email' });
+    const match = await findImportedSignupByEmail(db, event.id, email, session!.userId);
+    if (match === null) return { found: false };
+    return { found: true, record: { name: match.name, groupName: match.groupName, discordUsername: match.discordUsername }, linkedToSelf: match.linkedToSelf, linkedToOther: match.linkedToOther };
+  });
+
+  app.post('/api/participant/events/:eventId/claim', async (req, reply) => {
+    const session = await participantSessionFrom(req);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
+    const email = (req.body as { email?: unknown } | null)?.email;
+    if (typeof email !== 'string' || email.trim().length < 3 || email.length > 254 || !email.includes('@')) return reply.code(400).send({ error: 'invalid_email' });
+    const signupAccess = await checkSignupWrite(db, event.id, session!.userId, event.guildId);
+    if (!signupAccess.ok) return reply.code(signupAccess.code === 'blocked' ? 403 : 409).send({ error: signupAccess.code });
+    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    const result = await claimImportedSignupByEmail(db, event.id, event.guildId, email, session!.userId, form);
+    if (result.error === 'import_not_found') return reply.code(404).send({ error: result.error });
+    if (result.error === 'identity_conflict' || result.error === 'participant_conflict') return reply.code(409).send({ error: result.error });
+    if (result.error === 'registration_blocked') return reply.code(403).send({ error: result.error });
+    if (result.error === 'event_not_active') return reply.code(409).send({ error: result.error });
+    if (result.error) return reply.code(400).send({ error: result.error });
+    await audit(db, `discord:${session!.userId}`, 'participant.claim_import', event.id, { activated: result.activated, missingFields: result.missingFields.length }, event.guildId);
+    return result;
   });
 
   app.get('/api/events/:eventId/registrations', async (req) => {
@@ -867,6 +971,13 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     };
     if (live !== null) {
       const session = live.session;
+      const guilds = [];
+      for (const id of installedGuildIds()) {
+        if (!(await freshGuildAccess(session.userId, id)).allowed) continue;
+        const guild = deps.client!.guilds.cache.get(id)!;
+        guilds.push({ id, name: guild.name, icon: guild.icon ?? null });
+      }
+      await updateSessionGuilds(db, session.id, guilds);
       return {
         kind: 'discord' as const,
         user: { id: session.userId, username: session.username, avatar: session.avatar },
@@ -874,7 +985,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
           id: session.selectedGuildId,
           name: guildName(session.selectedGuildId),
         },
-        guilds: session.guilds.map((g) => ({ ...g, name: guildName(g.id) ?? g.name })),
+        guilds,
       };
     }
     return { kind: 'anonymous' as const, user: null, guild: { id: null, name: null }, guilds: [] };
@@ -1102,7 +1213,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
     let form: Parameters<typeof createEvent>[3]['form'];
     // Parse the event template once — it seeds form, schedule, assignments and strategy.
-    let tplInput: Partial<Parameters<typeof createEvent>[3]> | undefined;
+    let tplInput: (Partial<Parameters<typeof createEvent>[3]> & { assignmentCollectionId?: string }) | undefined;
     if (body.templateId !== undefined) {
       const tpl = (await listTemplates(db, await guildOf(req), 'event')).find((t) => t.id === body.templateId);
       if (tpl === undefined) {
@@ -1140,7 +1251,22 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const gs = await getGuildSettings(db, await guildOf(req))
     // Template seeds the schedule + assignment pool when the caller didn't supply them.
     const schedule = body.schedule ?? tplInput?.schedule
-    const assignments = body.assignments ?? tplInput?.assignments
+    let assignments = body.assignments ?? tplInput?.assignments
+    if (body.assignments === undefined && tplInput?.assignmentCollectionId) {
+      const collection = (await listTemplates(db, await guildOf(req), 'assignments')).find(t => t.id === tplInput!.assignmentCollectionId);
+      if (!collection) {
+        await reply.code(400).send({ ok: false, code: 'assignment_collection_missing', message: 'The template’s assignment collection is unavailable. Select another collection or remove it from the template.' });
+        return;
+      }
+      try {
+        const parsed = JSON.parse(collection.json) as { assignments?: unknown };
+        if (!Array.isArray(parsed.assignments) || parsed.assignments.length > 50 || parsed.assignments.some((item: unknown) => !item || typeof item !== 'object' || typeof (item as { title?: unknown }).title !== 'string' || !(item as { title: string }).title.trim() || typeof (item as { instructions?: unknown }).instructions !== 'string' || !(item as { instructions: string }).instructions.trim())) throw new Error('invalid collection');
+        assignments = parsed.assignments as NonNullable<Parameters<typeof createEvent>[3]['assignments']>;
+      } catch {
+        await reply.code(400).send({ ok: false, code: 'assignment_collection_invalid', message: 'The template’s assignment collection is invalid. Edit the collection or choose another one.' });
+        return;
+      }
+    }
     const strategy = body.assignmentStrategy ?? tplInput?.assignmentStrategy
     const res = await createEvent(db, await actorOf(req), await guildOf(req), {
       name: body.name,
@@ -1251,10 +1377,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send(res);
       return;
     }
-    // Auto-refresh schedule itinerary if schedule or schedule channel changed and event is active
-    if ((body?.schedule !== undefined || body?.scheduleChannelId !== undefined) && res.value.status === 'active' && deps.client) {
-      const { postOrUpdateScheduleItinerary } = await import('../discord/schedule-itinerary.js')
-      await postOrUpdateScheduleItinerary(db, deps.client, res.value).catch(()=>undefined)
+    if (deps.client && res.value.status === 'active') {
+      try { const { reconcileEventDelivery } = await import('../discord/event-delivery.js'); await reconcileEventDelivery(db, deps.client, res.value); }
+      catch (error) { console.warn('Discord updates will retry during maintenance:', error); }
     }
     return { ok: true, event: res.value };
   });
@@ -1319,7 +1444,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' });
       return;
     }
-    const res = await postOrUpdatePanel(db, deps.client, await guildOf(req), channelId, config.botLanguage, getEventForm(db, event, await getForm(db, await guildOf(req))), event.id).catch((e: unknown) => ({
+    const res = await postOrUpdatePanel(db, deps.client, await guildOf(req), channelId, config.botLanguage, event.id).catch((e: unknown) => ({
       error: e instanceof Error ? e.message : 'Unknown error',
     }));
     if ('error' in res) {
@@ -1403,18 +1528,22 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         try { JSON.parse(body.json); json = body.json } catch { await reply.code(400).send({ ok: false, code: 'bad_json', message: 'Event template json is not valid JSON.' }); return }
       } else {
         const event = body?.eventId !== undefined ? await getEvent(db, body.eventId) : await getActiveEvent(db, await guildOf(req))
-        if (event === null) {
+        if (event === null || event.guildId !== await guildOf(req)) {
           await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found. Provide json or eventId.' })
           return
         }
         const { getEventForm } = await import('../features/events/data.js')
+        const { toRelativeSchedule } = await import('../features/events/data.js')
         const { DEFAULT_FORM } = await import('../features/form/domain.js')
+        const assignmentStrategy = event.schedule.flatMap(item => item.actions ?? []).find(action => action.type === 'distribute_assignments')?.mode
         const payload = {
           name: event.name,
           description: event.description,
           cleanupDelayHours: event.cleanupDelayHours,
           form: getEventForm(db, event, DEFAULT_FORM),
-          schedule: event.schedule,
+          schedule: toRelativeSchedule(event.schedule, event.startsAt),
+          assignments: event.assignments,
+          assignmentStrategy: assignmentStrategy === 'same' ? 'same' : 'random',
         }
         json = JSON.stringify(payload)
       }
@@ -1512,6 +1641,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(res.code === 'form_version_conflict' ? 409 : 400).send(res)
       return
     }
+    if (deps.client && !config.skipDiscord) await refreshSignupPanel(db, deps.client, await guildOf(req), config.botLanguage, eventId);
     return { ok: true, form: res.value }
   });
 
@@ -1616,28 +1746,63 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
     if (body?.teamId && deps.client !== null && !deps.config.skipDiscord) {
       const team = await getTeam(db, body.teamId);
-      if (team?.eventId === eventId) await refreshTeamPanel({ db, client: deps.client, categoryIdFor: () => undefined }, team);
+      if (team?.eventId === eventId) {
+        const provisionDeps = { db, client: deps.client, categoryIdFor: () => undefined };
+        await grantTeamRole(provisionDeps, team, userId);
+        await refreshTeamPanel(provisionDeps, team);
+      }
     }
     return { ok: true };
   });
 
   app.post('/api/teams', async (req, reply) => {
-    const body = req.body as { name?: string; kind?: string; ownerId?: string } | null;
+    const body = req.body as { name?: string; kind?: string; ownerId?: unknown } | null;
     if (body?.kind !== 'public' && body?.kind !== 'private') {
       await reply.code(400).send({ ok: false, code: 'bad_kind', message: 'kind must be public|private' });
       return;
     }
-    if (body.ownerId !== undefined && await getParticipant(db, await resolveEventId(req, await guildOf(req)), body.ownerId) === null) {
-      await reply.code(400).send({ ok: false, code: 'not_found', message: 'Owner has no signup.' });
+    if (typeof body.ownerId !== 'string' || body.ownerId.length === 0 || body.ownerId.length > 25) {
+      await reply.code(400).send({ ok: false, code: 'owner_required', message: 'Choose a registered participant as team owner.' });
       return;
     }
-    const ownerId = body.ownerId ?? `admin-${Date.now()}`;
-    const res = await createTeam(db, await actorOf(req), await resolveEventId(req, await guildOf(req)), await guildOf(req), body.name ?? '', body.kind, ownerId);
+    const eventId = await resolveEventId(req, await guildOf(req));
+    const res = await createTeam(db, await actorOf(req), eventId, await guildOf(req), body.name ?? '', body.kind, body.ownerId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
     }
-    return { ok: true, team: res.value };
+    if (deps.client === null || config.skipDiscord) return { ok: true, team: res.value, provisioning: 'disabled' };
+    try {
+      const categoryId = (await getEvent(db, eventId))?.categoryId ?? (await getGuildSettings(db, await guildOf(req))).teamCategoryId ?? config.teamCategoryId;
+      const provisionDeps = { db, client: deps.client, categoryIdFor: () => categoryId ?? undefined };
+      const { provisionTeamSpace, grantTeamRole } = await import('../discord/provision.js');
+      const team = await provisionTeamSpace(provisionDeps, res.value);
+      const granted = await grantTeamRole(provisionDeps, team, body.ownerId);
+      return { ok: true, team, provisioning: granted && team.roleId && team.textChannelId && team.voiceChannelId ? 'complete' : 'pending' };
+    } catch (error) {
+      console.warn(`Team ${res.value.id} was created but Discord provisioning failed:`, error);
+      return { ok: true, team: res.value, provisioning: 'pending' };
+    }
+  });
+
+  app.post('/api/teams/:teamId/provision', async (req, reply) => {
+    const team = await getTeam(db, (req.params as { teamId: string }).teamId);
+    if (!team || team.guildId !== await guildOf(req)) return reply.code(404).send({ ok: false, code: 'not_found' });
+    if (!deps.client || config.skipDiscord) return reply.code(503).send({ ok: false, code: 'discord_unavailable' });
+    const event = await getEvent(db, team.eventId);
+    if (!event || event.status !== 'active') return reply.code(409).send({ ok: false, code: 'event_not_active' });
+    try {
+      const categoryId = event.categoryId ?? (await getGuildSettings(db, team.guildId)).teamCategoryId ?? config.teamCategoryId;
+      const provisionDeps = { db, client: deps.client, categoryIdFor: () => categoryId ?? undefined };
+      const { provisionTeamSpace, grantAllTeamRoles } = await import('../discord/provision.js');
+      const ready = await provisionTeamSpace(provisionDeps, team);
+      const roster = (await listTeams(db, team.eventId)).find(candidate => candidate.id === team.id)?.members ?? [];
+      const granted = await grantAllTeamRoles(provisionDeps, ready, roster.map(member => member.userId));
+      return { ok: true, team: ready, provisioning: granted && ready.roleId && ready.textChannelId && ready.voiceChannelId ? 'complete' : 'pending' };
+    } catch (error) {
+      console.warn(`Discord provisioning retry failed for team ${team.id}:`, error);
+      return reply.code(503).send({ ok: false, code: 'provision_failed' });
+    }
   });
 
   app.post('/api/teams/:teamId/delete', async (req, reply) => {
@@ -1809,14 +1974,11 @@ app.post('/api/event/reset', async (req) => {
     return { ok: true };
   });
 
-  const validateImportCore = (values: Record<string, unknown>, form: FormConfig): string[] => {
-    const issues: string[] = [];
-    if (typeof values.experience === 'string' && values.experience && !form.experiences.some((option) => option.id === values.experience)) issues.push('Invalid experience choice');
-    if (typeof values.role === 'string' && values.role && !form.roleTracks.some((option) => option.id === values.role)) issues.push('Invalid role choice');
-    if (typeof values.teamPref === 'string' && values.teamPref && !form.teamPrefs.some((option) => option.id === values.teamPref)) issues.push('Invalid participation choice');
-    if (typeof values.skills === 'string' && values.skills.split(',').map((value) => value.trim()).filter(Boolean).some((id) => !form.skills.some((option) => option.id === id))) issues.push('Invalid preferred-area choice');
-    return issues;
-  };
+  app.get('/api/events/:eventId/signup-import/templates', async (req, reply) => {
+    const event = await getEvent(db, (req.params as { eventId: string }).eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'event_not_found' });
+    return { templates: presetCatalog() };
+  });
 
   app.post('/api/events/:eventId/signup-import/preview', async (req, reply) => {
     const { eventId } = req.params as { eventId: string };
@@ -1824,43 +1986,52 @@ app.post('/api/event/reset', async (req) => {
     if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'event_not_found' });
     if (event.status === 'ended') return reply.code(409).send({ error: 'event_ended' });
     const importForm = getEventForm(db, event, await getForm(db, event.guildId));
-    const body = req.body as { csv?: unknown; mapping?: unknown } | null;
+    const body = req.body as { csv?: unknown; mapping?: unknown; templateId?: unknown } | null;
     if (typeof body?.csv !== 'string') return reply.code(400).send({ error: 'invalid_csv', issues: ['csv must be text'] });
+    if (body?.templateId !== undefined && typeof body.templateId !== 'string') return reply.code(400).send({ error: 'invalid_template', issues: ['templateId must be text'] });
+    if (typeof body?.templateId === 'string' && !presetExists(body.templateId)) return reply.code(400).send({ error: 'invalid_template', issues: ['Unknown import template'] });
     try {
       const parsed = parseSignupCsv(body.csv);
-      const mapping = body.mapping && typeof body.mapping === 'object' && !Array.isArray(body.mapping)
+      const requested = body.mapping && typeof body.mapping === 'object' && !Array.isArray(body.mapping)
         ? body.mapping as Record<string, unknown> : {};
-      if (Object.keys(mapping).some((header) => !parsed.headers.includes(header)) || Object.values(mapping).some((target) => typeof target !== 'string')) {
+      if (Object.keys(requested).some((header) => !parsed.headers.includes(header)) || Object.values(requested).some((target) => typeof target !== 'string')) {
         return reply.code(400).send({ error: 'invalid_mapping', issues: ['Mapping headers must exist in the CSV and targets must be text.'] });
       }
-      const suggestedMapping = Object.fromEntries(parsed.headers.map((header) => {
-        const key = header.toLocaleLowerCase('sv-SE').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^a-z]/g, '');
-        const target = ({ timestamp: 'sourceTimestamp', tidstampel: 'sourceTimestamp', nameclass: 'name', dittnamnochklass: 'name', name: 'name', chasemail: 'email', dinchasmail: 'email', email: 'email', discordusername: 'discordUsername', allergies: 'allergies', dietary: 'allergies', hardunagrallergierviskatahansyntillnarkoperfika: 'allergies', hardunagraallergierviskatahansyntillnarvikoperfika: 'allergies', participationpreference: 'teamPref', hurvildeltaihackoween: 'teamPref', hurvilldudeltaihackoween: 'teamPref', groupsize: 'groupSize', hurmangaarnierergrupp: 'groupSize', hurmangaarniiergrupp: 'groupSize', groupname: 'groupName', gruppnamnfordiganmalerienfardiggrupp: 'groupName', gruppnamnfordigsomanmalerienfardiggrupp: 'groupName', gruppnamnfordigsomanmalerenfardiggrupp: 'groupName', members: 'members', namnpamedlemmarnaigruppen: 'members', preferredworkareas: 'skills', vilketomradevillduhelstjobbameddurhackatonet: 'skills', vilketomradevillduhelstjobbamedunderhackatonet: 'skills' } as Record<string, string>)[key];
-        return [header, mapping[header] ?? target ?? ''];
-      }).filter(([, target]) => target !== ''));
+      // A recognised export (for example the Hackoween Google Form) supplies the
+      // column map, so an organizer does not have to re-map nine known columns.
+      const suggested = suggestMapping(parsed.headers, typeof body.templateId === 'string' ? body.templateId : null);
+      const suggestedMapping: Record<string, string> = {};
+      for (const header of parsed.headers) {
+        const override = requested[header];
+        const target = typeof override === 'string' ? override : suggested.mapping[header];
+        if (target) suggestedMapping[header] = target;
+      }
       const rows = parsed.rows.map((cells, index) => {
+        const raw: Record<string, string> = Object.fromEntries(parsed.headers.map((header, i) => [header, cells[i]!.trim()]));
         const values: Record<string, string> = {};
         const answers: Record<string, string> = {};
-        const raw = Object.fromEntries(parsed.headers.map((header, i) => [header, cells[i]!.trim()]));
         for (const [header, value] of Object.entries(raw)) {
           const target = suggestedMapping[header];
           if (!target) { values[`source:${header}`] = value; continue; }
-          if (['experience', 'role', 'teamPref', 'skills'].includes(target)) values[`source:${header}`] = value;
-          if (target === 'sourceTimestamp') values.sourceTimestamp = value;
-          else if (['name', 'email', 'discordUsername', 'allergies', 'participationPreference', 'groupSize', 'groupName', 'members', 'preferredAreas', 'experience', 'role', 'teamPref', 'skills'].includes(target)) values[target] = value;
+          if (target === 'sourceTimestamp') { values.sourceTimestamp = value; continue; }
+          if (['name', 'email', 'discordUsername'].includes(target)) { values[target] = value; continue; }
+          // A cell that is rewritten to an option id keeps its original wording
+          // so an organizer can see what the participant actually answered.
+          values[`source:${header}`] = value;
+          if (['allergies', 'participationPreference', 'groupSize', 'groupName', 'members', 'preferredAreas', 'experience', 'role', 'teamPref', 'skills'].includes(target)) values[target] = value;
           else answers[target] = value;
         }
-        const issues: string[] = [];
-        if (!values.name) issues.push('Missing name');
-        if (!values.email) issues.push('Missing email; this row needs explicit review');
-        const checked = validateCustomAnswers(importForm, answers);
+        const normalized = normalizeImportedRow(importForm, values, answers);
+        const issues = [...normalized.issues];
+        if (!normalized.values.name) issues.push('Missing name');
+        if (!normalized.values.email) issues.push('Missing email; this row needs explicit review');
+        const checked = validateCustomAnswers(importForm, normalized.answers);
         if (!checked.ok) issues.push(...checked.errors);
         else issues.push(...checked.missingRequiredQuestionIds.map((id) => `Missing required answer: ${id}`));
-        issues.push(...validateImportCore(values, importForm));
-        return { rowNumber: index + 2, values, answers, issues };
+        return { rowNumber: index + 2, values: normalized.values, answers: normalized.answers, issues };
       });
       const summary = await summarizeImportedRows(db, eventId, rows);
-      return { headers: parsed.headers, suggestedMapping, rows: rows.map((row, index) => ({ ...row, duplicateStatus: summary.statuses[index] })), summary: { create: summary.create, duplicate: summary.duplicate, conflict: summary.conflict } };
+      return { headers: parsed.headers, suggestedMapping, presetId: suggested.presetId, rows: rows.map((row, index) => ({ ...row, duplicateStatus: summary.statuses[index] })), summary: { create: summary.create, duplicate: summary.duplicate, conflict: summary.conflict } };
     } catch (error) {
       return reply.code(400).send({ error: 'invalid_csv', issues: [error instanceof Error ? error.message : 'Invalid CSV'] });
     }
@@ -1873,30 +2044,33 @@ app.post('/api/event/reset', async (req) => {
     if (event.status === 'ended') return reply.code(409).send({ error: 'event_ended' });
     const importForm = getEventForm(db, event, await getForm(db, event.guildId));
     const body = req.body as { rows?: unknown } | null;
-    if (!Array.isArray(body?.rows) || body.rows.length > 2000 || Buffer.byteLength(JSON.stringify(body.rows), 'utf8') > 1_000_000) {
-      return reply.code(400).send({ error: 'invalid_rows', issues: ['rows must contain at most 2,000 records and 1 MB'] });
+    if (!Array.isArray(body?.rows) || body.rows.length > 2000 || Buffer.byteLength(JSON.stringify(body.rows), 'utf8') > 2_000_000) {
+      return reply.code(400).send({ error: 'invalid_rows', issues: ['rows must contain at most 2,000 records and 2 MB'] });
     }
     const rows: { sourceRow: number; sourceTimestamp?: string; values: Record<string, string>; answers: Record<string, string | string[]> }[] = [];
+    const warnings: { row: number; issues: string[] }[] = [];
     for (const [index, raw] of body.rows.entries()) {
-      if (!raw || typeof raw !== 'object') return reply.code(400).send({ error: 'invalid_row', row: index + 1 });
+      const rowNumber = index + 1;
+      if (!raw || typeof raw !== 'object') return reply.code(400).send({ error: 'invalid_row', row: rowNumber });
       const row = raw as Record<string, unknown>;
       if (!Number.isInteger(row.sourceRow) || !row.values || typeof row.values !== 'object' || Array.isArray(row.values) || !row.answers || typeof row.answers !== 'object' || Array.isArray(row.answers)) {
-        return reply.code(400).send({ error: 'invalid_row', row: index + 1 });
+        return reply.code(400).send({ error: 'invalid_row', row: rowNumber });
       }
       const values = row.values as Record<string, unknown>;
       const answers = row.answers as Record<string, unknown>;
+      // Structural limits stay fatal; a value the form cannot interpret is not.
+      // One unmappable cell must never discard the rest of an organizer's import.
       if (Object.keys(values).some((key) => key.length > 100) || Object.keys(answers).some((key) => key.length > 100) || Object.values(values).some((v) => typeof v !== 'string' || v.length > 10_000) || Object.values(answers).some((v) => typeof v !== 'string' ? !Array.isArray(v) || v.length > 100 || v.some((x) => typeof x !== 'string' || x.length > 10_000) : v.length > 10_000)) {
-        return reply.code(400).send({ error: 'invalid_row', row: index + 1, issues: ['Values must be bounded text'] });
+        return reply.code(400).send({ error: 'invalid_row', row: rowNumber, issues: ['Values must be bounded text'] });
       }
-      const checked = validateCustomAnswers(importForm, answers);
-      if (!checked.ok) return reply.code(400).send({ error: 'invalid_row', row: index + 1, issues: checked.errors });
-      const coreIssues = validateImportCore(values, importForm);
-      if (coreIssues.length) return reply.code(400).send({ error: 'invalid_row', row: index + 1, issues: coreIssues });
-      rows.push({ sourceRow: row.sourceRow as number, ...(typeof values.sourceTimestamp === 'string' ? { sourceTimestamp: values.sourceTimestamp } : {}), values: values as Record<string, string>, answers: answers as Record<string, string | string[]> });
+      const normalized = normalizeImportedRow(importForm, values, answers);
+      if (normalized.issues.length) warnings.push({ row: rowNumber, issues: normalized.issues });
+      if (typeof normalized.values.sourceTimestamp !== 'string') delete normalized.values.sourceTimestamp;
+      rows.push({ sourceRow: row.sourceRow as number, ...(typeof normalized.values.sourceTimestamp === 'string' ? { sourceTimestamp: normalized.values.sourceTimestamp } : {}), values: normalized.values, answers: normalized.answers });
     }
     try {
       const result = await createImportedSignups(db, eventId, await guildOf(req), importForm.version, rows);
-      return result;
+      return { ...result, warnings };
     } catch (error) {
       const code = error instanceof Error ? error.message : 'import_failed';
       return reply.code(code === 'event_unavailable' ? 409 : 400).send({ error: code });
@@ -1924,34 +2098,32 @@ app.post('/api/event/reset', async (req) => {
     }
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     if (body?.values && Object.values(body.values as Record<string, unknown>).some((value) => typeof value !== 'string' || value.length > 10_000)) return reply.code(400).send({ error: 'invalid_edit', issues: ['Values must be bounded text'] });
-    if (body?.answers) {
-      const checked = validateCustomAnswers(form, body.answers);
-      if (!checked.ok) return reply.code(400).send({ error: 'invalid_edit', issues: checked.errors });
-    }
-    if (body?.values) {
-      const coreIssues = validateImportCore(body.values as Record<string, unknown>, form);
-      if (coreIssues.length) return reply.code(400).send({ error: 'invalid_edit', issues: coreIssues });
-    }
+    // An edit is normalized, not rejected: an unrecognised choice is dropped and
+    // reported so the organizer keeps the rest of their correction.
+    const normalizedEdit = normalizeImportedRow(form,
+      (body?.values as Record<string, unknown> | undefined) ?? {},
+      (body?.answers as Record<string, unknown> | undefined) ?? {});
     if (typeof body?.discordUsername === 'string' && body.discordUsername.length > 256) return reply.code(400).send({ error: 'invalid_edit' });
     const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
     if (typeof body?.linkDiscordUserId === 'string' && !(await currentMember(event.guildId, body.linkDiscordUserId))) return reply.code(400).send({ error: 'not_guild_member' });
     try {
       return await db.transaction(async () => {
         const edited = await editImportedSignup(db, params.eventId, params.id, {
-          ...(body?.values ? { values: body.values as Record<string, string> } : {}),
-          ...(body?.answers ? { answers: body.answers as Record<string, string | string[]> } : {}),
+          ...(body?.values ? { values: normalizedEdit.values } : {}),
+          ...(body?.answers ? { answers: normalizedEdit.answers } : {}),
           ...(body?.discordUsername !== undefined ? { discordUsername: body.discordUsername as string | null } : {}),
           ...(body?.answers !== undefined ? { formVersion: form.version } : {}),
         });
         if (!edited) throw new Error('not_found');
+        const warnings = normalizedEdit.issues;
         if (typeof body?.linkDiscordUserId === 'string') {
           const linked = await linkImportedSignup(db, event.id, event.guildId, params.id, body.linkDiscordUserId, form);
           if (linked.error) throw new Error(linked.error);
           const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
-          return { record, ...linked };
+          return { record, ...linked, warnings };
         }
         const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
-        return { record, linked: record.discordUserId !== null, missingFields: record.missingFields };
+        return { record, linked: record.discordUserId !== null, missingFields: record.missingFields, warnings };
       });
     } catch (error) {
       const code = error instanceof Error ? error.message : 'edit_failed';

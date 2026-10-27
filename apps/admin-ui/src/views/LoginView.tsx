@@ -1,15 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
-import { Info } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { useEffect, useState } from 'react'
+import { Info, Hexagon, ArrowUpRight } from 'lucide-react'
 
 import { useLocale, useT, setLocale } from '@/lib/i18n'
-import brandMark from '@/assets/brand/1.png'
-import wordmark from '@/assets/brand/4.png'
-
-// Three.js is ~1MB — keep it out of the main bundle; only the login needs it.
-const HexHero = lazy(() =>
-  import('@/components/HexHero').then((m) => ({ default: m.HexHero })),
-)
 
 /** Reasons the OAuth callback can bounce back with (`/?auth=…`). */
 const AUTH_ERRORS: Record<string, string> = {
@@ -37,53 +29,18 @@ export function LoginView({ notice }: { notice?: string | null }) {
 
   const bounceKey = bounced !== null ? AUTH_ERRORS[bounced] : undefined
 
-  return (
-    <div className="hex-bg relative grid min-h-screen place-items-center overflow-hidden p-6">
-      <Suspense fallback={null}>
-        <HexHero />
-      </Suspense>
-      <button
-        type="button"
-        onClick={() => setLocale(locale === 'en' ? 'sv' : 'en')}
-        aria-label={t('common.language', { locale: locale.toUpperCase() })}
-        className="absolute right-4 top-4 z-20 flex items-center gap-1 rounded-lg border border-border bg-surface/80 px-2.5 py-1.5 text-xs font-semibold text-muted-foreground backdrop-blur transition-colors hover:text-foreground"
-      >
-        🌐 {locale.toUpperCase()}
-      </button>
-      <div className="relative z-10 w-full max-w-sm animate-pop-in">
-        <div className="mb-6 flex flex-col items-center text-center">
-          <img src={brandMark} alt="ChasHack" className="size-20 drop-shadow-[0_0_24px_var(--color-sky)]" />
-          <img src={wordmark} alt="ChasHack" className="-mt-2 max-w-56 mix-blend-screen" />
-          <p className="mt-3 text-sm text-muted-foreground">{t('login.tagline')}</p>
-        </div>
-        <motion.div
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: 'easeOut' }}
-          className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-2xl"
-        >
-          {notice && <p role="alert" className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{notice === 'access_refused' ? t('login.access_refused') : notice}</p>}
-          {bounceKey !== undefined && (
-            <p role="alert" className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-              {t(bounceKey)}
-            </p>
-          )}
-
-          <a
-            href="/auth/discord"
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-[#5865F2] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4752C4] focus-visible:ring-3 focus-visible:ring-accent/50 focus-visible:outline-none"
-          >
-            <DiscordGlyph />
-            {t('login.with_discord')}
-          </a>
-          <p className="flex items-start gap-1.5 text-left text-xs text-muted-foreground">
-            <Info className="mt-0.5 size-3.5 shrink-0" />
-            {t('login.discord_hint')}
-          </p>
-        </motion.div>
-      </div>
+  return <main className="login-workspace min-h-screen bg-background text-foreground">
+    <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-7"><a href="/" className="inline-flex items-center gap-3 text-xl font-semibold"><Hexagon className="size-7 text-accent" aria-hidden="true" />ChasHack</a><button type="button" onClick={() => setLocale(locale === 'en' ? 'sv' : 'en')} aria-label={t('common.language', { locale: locale.toUpperCase() })} className="min-h-11 min-w-11 rounded-lg border px-3 text-sm">{locale.toUpperCase()}</button></header>
+    <div className="mx-auto grid max-w-6xl gap-12 px-6 py-16 lg:grid-cols-[1.25fr_1fr] lg:items-center lg:gap-24 lg:py-28">
+      <section><p className="mb-6 text-sm font-medium text-accent">{t('login.organizer')}</p><h1 className="max-w-xl text-5xl font-semibold leading-[1.05] tracking-[-.05em] sm:text-6xl">{t('login.headline')}</h1><p className="mt-7 max-w-md text-lg leading-relaxed text-muted-foreground">{t('login.intro')}</p><div className="mt-12 flex items-center gap-4 border-t pt-6"><span className="flex -space-x-2" aria-hidden="true">{['C', 'H', '+'].map(letter => <span key={letter} className="grid size-10 place-items-center rounded-full border-2 border-background bg-surface-2 text-xs font-semibold">{letter}</span>)}</span><p className="max-w-60 text-sm text-muted-foreground">{t('login.community')}</p></div></section>
+      <section className="rounded-2xl border bg-card p-7 sm:p-9"><h2 className="text-2xl font-semibold tracking-tight">{t('common.workspace')}</h2><p className="mb-8 mt-3 text-sm leading-relaxed text-muted-foreground">{t('login.tagline')}</p>
+        {notice && <p role="alert" className="mb-5 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm">{notice === 'access_refused' ? t('login.access_refused') : notice}</p>}
+        {bounceKey && <p role="alert" className="mb-5 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm">{t(bounceKey)}</p>}
+        <a href="/auth/discord" className="flex min-h-12 items-center justify-center gap-3 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground hover:opacity-90"><DiscordGlyph />{t('login.with_discord')}<ArrowUpRight size={17} aria-hidden="true" /></a>
+        <p className="mt-5 flex items-start gap-2 text-sm leading-relaxed text-muted-foreground"><Info className="mt-1 size-4 shrink-0" aria-hidden="true" />{t('login.discord_hint')}</p>
+      </section>
     </div>
-  )
+  </main>
 }
 
 /** Discord's mark, inline — one icon does not justify pulling in an icon set. */

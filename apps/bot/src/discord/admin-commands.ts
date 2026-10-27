@@ -143,7 +143,7 @@ export async function handleAdminCommand(
         return;
       }
       const teams = await listTeams(db, ctx.eventId);
-      const found = teams.find(async (team) => team.id === teamArg || team.name.toLowerCase() === teamArg.toLowerCase());
+      const found = teams.find((team) => team.id === teamArg || team.name.toLowerCase() === teamArg.toLowerCase());
       if (found === undefined) {
         await i.reply(eph(t(locale, 'discord.admin.no_such_team', { arg: teamArg })));
         return;

@@ -335,6 +335,7 @@ function NeedsPlacementSection({
   setDraggingUser: (id: string | null) => void
   onPlace: (userId: string, teamId: string | null, teamName?: string) => Promise<void>
 }) {
+  const t = useT()
   if (unteamed.length === 0) {
     return null
   }
@@ -369,7 +370,7 @@ function NeedsPlacementSection({
                   <span className="text-xs text-muted-foreground">no open teams yet</span>
                 )}
                 {loading && suggestions.length === 0 && (
-                  <span className="text-xs text-muted-foreground">loading suggestions…</span>
+                  <span role="status" aria-busy="true" aria-label={t('common.loading')} className="inline-block h-5 w-32 rounded bg-current/10 motion-safe:animate-pulse" />
                 )}
                 {suggestions.map((s) => (
                   <button

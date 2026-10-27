@@ -5,14 +5,14 @@
 import type { Db } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
-import { validateCustomAnswers, type ValidatedSignup } from '../form/domain.js';
+import { validateStoredParticipantAnswers, type ValidatedSignup } from '../form/domain.js';
 import { getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
 import { deleteRegistrationAnswers, getRegistrationAnswers } from '../registration/data.js';
 import { projectMatchingParticipant } from '../matching/domain.js';
 import { isCurrentMember } from './eligibility.js';
 import { getTeam, removeFromTeam, type Team } from '../teams/data.js';
-import { signupAdmission } from './domain.js';
+import { eventEnforcesSignupWindow, signupWindowReason } from './domain.js';
 
 export interface PendingTeamRoleRevocation {
   id: number;
@@ -141,26 +141,10 @@ export async function upsertParticipant(
   return db.transaction(async () => {
     // Data-layer gate: never write signups for events that are not active
     // (defense in depth — the interaction layer also gates, but a modal can
-    // stay open across an event transition).
-    const eventRow = await db.get<{ status: string; signup_starts_at: number | null; signup_ends_at: number | null }>('SELECT status, signup_starts_at, signup_ends_at FROM events WHERE id = ? FOR UPDATE', eventId);
-    if (eventRow === undefined) {
-      return err('no_event', 'This signup has no active event behind it. An organizer must activate an event first.');
-    }
-    if (eventRow.status !== 'active') {
-      return err('event_not_active', 'This hackathon is not accepting signups right now.');
-    }
-
-    const blocked = await db.get<{ status: string; block_reason: string | null }>(
-      'SELECT status, block_reason FROM participants WHERE event_id = ? AND user_id = ?',
-      eventId,
-      userId,
-    );
-    if (blocked !== undefined && blocked.status === 'blocked') {
-      return err('blocked', 'You are blocked from signing up. Contact an organizer.');
-    }
-    const admission = signupAdmission({ signupStartsAt: eventRow.signup_starts_at, signupEndsAt: eventRow.signup_ends_at }, blocked?.status === 'active' ? 'active' : blocked?.status === 'withdrawn' ? 'withdrawn' : null, Date.now());
-    if (admission === 'signup_not_open') return err('signup_not_open', 'Signups have not opened yet.');
-    if (admission === 'signup_closed') return err('signup_closed', 'Signups are closed.');
+    // stay open across an event transition). Legacy events without an explicit
+    // enforcement flag keep their historical unrestricted behaviour.
+    const access = await checkSignupWrite(db, eventId, userId, guildId);
+    if (!access.ok) return access;
 
     const now = Date.now();
     await db.run(
@@ -192,6 +176,18 @@ export async function upsertParticipant(
     const created = await getParticipant(db, eventId, userId);
     return ok(created!);
   });
+}
+
+/** Call inside a transaction: serializes policy checks with event and form edits. */
+export async function checkSignupWrite(db: Db, eventId: string, userId: string, guildId: string, now = Date.now()): Promise<Result<void>> {
+  const row = await db.get<{ id: string }>('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
+  if (!row) return err('no_event', 'This signup has no active event behind it.');
+  const event = await getEvent(db, eventId);
+  if (!event || event.guildId !== guildId || event.status !== 'active') return err('event_not_active', 'This hackathon is not accepting signups right now.');
+  const participant = await getParticipant(db, eventId, userId);
+  if (participant?.status === 'blocked') return err('blocked', 'You are blocked from signing up. Contact an organizer.');
+  const reason = signupWindowReason(eventEnforcesSignupWindow(event.formJson), event.signupStartsAt, event.signupEndsAt, participant?.status ?? null, now);
+  return reason ? err(reason, reason === 'signup_not_open' ? 'Signup has not opened yet.' : 'Signup has closed. Contact an organizer.') : ok(undefined);
 }
 
 export async function getParticipant(db: Db, eventId: string, userId: string): Promise<Participant | null> {
@@ -230,7 +226,7 @@ export async function projectParticipantForMatching(db: Db, participant: Partici
   const stored = await getRegistrationAnswers(db, participant.eventId, participant.userId);
   if ((form.customQuestions ?? []).some((q) => q.required && q.visibility !== 'organizer_only') && stored?.formVersion !== form.version) return null;
   const answers = stored?.formVersion === form.version ? stored.answers : {};
-  const checked = validateCustomAnswers(form, answers);
+  const checked = validateStoredParticipantAnswers(form, answers);
   if (!checked.ok || checked.missingRequiredQuestionIds.length > 0) return null;
   return projectMatchingParticipant(participant, form, checked.answers);
 }

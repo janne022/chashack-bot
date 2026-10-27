@@ -4,6 +4,7 @@ import { openTestDb } from '../../shared/test-db.js';
 import { DEFAULT_FORM } from '../form/domain.js';
 import { commitMatch, previewMatch } from './data.js';
 import { createTeam } from '../teams/data.js';
+import { listPendingTeamProvisionIds } from '../teams/provision-data.js';
 
 const GUILD = 'g1';
 const EVENT = 'ev1';
@@ -44,6 +45,7 @@ test('commitMatch creates one team row per previewed team, all event-scoped', as
 
   const forEvent = await db.all<{ id: string }>('SELECT id FROM teams WHERE event_id = ?', EVENT);
   assert.equal(forEvent.length, preview.value.teams.length, 'one row per previewed team');
+  assert.deepEqual(await listPendingTeamProvisionIds(db, EVENT), forEvent.map(team => team.id), 'matched teams are queued for Discord provisioning');
 
   const orphans = await db.all('SELECT id FROM teams WHERE event_id IS NULL');
   assert.equal(orphans.length, 0, 'no orphan teams without event_id');

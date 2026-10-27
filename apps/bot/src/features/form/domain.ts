@@ -19,6 +19,9 @@ export interface SkillOption {
 }
 
 export interface FormConfig {
+  signupMode?: 'web' | 'both';
+  enforceSignupWindow?: boolean;
+  participantChannels?: boolean;
   version: number;
   title: string;
   description: string;
@@ -88,7 +91,7 @@ export function resolveAppearance(form: Pick<FormConfig, 'appearance' | 'themePr
 }
 export interface CustomQuestion {
   id: string;
-  kind: 'text' | 'single_choice' | 'multi_choice';
+  kind: 'text' | 'single_choice' | 'multi_choice' | 'slider' | 'toggle';
   label: LocalizedText;
   help: LocalizedText;
   required: boolean;
@@ -123,7 +126,7 @@ export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 
       continue;
     }
     ids.add(item.id);
-    if (!['text', 'single_choice', 'multi_choice'].includes(item.kind) || !['web', 'both'].includes(item.presentation) ||
+    if (!['text', 'single_choice', 'multi_choice', 'slider', 'toggle'].includes(item.kind) || !['web', 'both'].includes(item.presentation) ||
         !['self_and_organizer', 'organizer_only'].includes(item.visibility) || typeof item.required !== 'boolean' ||
         typeof item.label?.en !== 'string' || item.label.en.length < 1 || item.label.en.length > 200 ||
         (item.label.sv !== undefined && (typeof item.label.sv !== 'string' || item.label.sv.length > 200)) ||
@@ -136,8 +139,8 @@ export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 
       errors.push(`private or invalid matching mapping: ${item.id}`);
       continue;
     }
-    if (item.kind === 'text' && item.choices !== undefined) errors.push(`text question cannot have choices: ${item.id}`);
-    if (item.kind !== 'text') {
+    if (!['single_choice', 'multi_choice'].includes(item.kind) && item.choices !== undefined) errors.push(`text question cannot have choices: ${item.id}`);
+    if (['single_choice', 'multi_choice'].includes(item.kind)) {
       const choices = item.choices;
       if (!Array.isArray(choices) || choices.length < 1 || choices.length > 25 || choices.some((choice) =>
         choice === null || typeof choice !== 'object' || !/^[a-zA-Z0-9_-]{1,64}$/.test(choice.id) || typeof choice.label?.en !== 'string' || choice.label.en.length < 1 || choice.label.en.length > 200)) {
@@ -174,8 +177,16 @@ export function validateCustomAnswers(
   const missingRequiredQuestionIds: string[] = [];
   for (const question of questions) {
     const value = input[question.id];
+    if (Array.isArray(value) && question.kind !== 'multi_choice') { errors.push(`invalid answer type: ${question.id}`); continue; }
     if (value === undefined || value === null || value === '' || (typeof value === 'string' && value.trim() === '') || (Array.isArray(value) && value.length === 0)) {
       if (question.required && question.visibility !== 'organizer_only') missingRequiredQuestionIds.push(question.id);
+      continue;
+    }
+    if (question.kind === 'slider' || question.kind === 'toggle') {
+      const valid = typeof value === 'string' && (question.kind === 'toggle'
+        ? ['yes', 'no'].includes(value) : /^(?:[1-9]|10)$/.test(value));
+      if (!valid) errors.push(`invalid ${question.kind} answer: ${question.id}`);
+      else answers[question.id] = value as string;
       continue;
     }
     if (question.kind === 'text') {
@@ -192,6 +203,13 @@ export function validateCustomAnswers(
     } else answers[question.id] = value as string[];
   }
   return errors.length ? { ok: false, errors } : { ok: true, answers, missingRequiredQuestionIds };
+}
+
+/** Validate a stored participant profile against current visible questions only. */
+export function validateStoredParticipantAnswers(config: FormConfig, stored: Record<string, string | string[]>): CustomAnswersResult {
+  const questions = (config.customQuestions ?? []).filter(q => q.visibility === 'self_and_organizer');
+  const ids = new Set(questions.map(q => q.id));
+  return validateCustomAnswers({ ...config, customQuestions: questions }, Object.fromEntries(Object.entries(stored).filter(([id]) => ids.has(id))));
 }
 
 export const DEFAULT_SKILLS: SkillOption[] = [
@@ -336,6 +354,9 @@ export function validateSignupInput(
 /** Replace the option lists while keeping the shape sane. Used by admin UI. */
 export function normalizeFormUpdate(current: FormConfig, update: Partial<FormConfig>): FormConfig {
   const next: FormConfig = { ...current, ...update };
+  next.signupMode = next.signupMode === 'web' ? 'web' : 'both';
+  if (next.enforceSignupWindow !== undefined) next.enforceSignupWindow = next.enforceSignupWindow === true;
+  next.participantChannels = next.participantChannels === true;
 
   if (typeof next.teamSize !== 'number' || !Number.isInteger(next.teamSize)) next.teamSize = current.teamSize;
   next.teamSize = Math.min(Math.max(next.teamSize, 2), 25);

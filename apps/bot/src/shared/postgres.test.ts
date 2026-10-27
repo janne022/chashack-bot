@@ -2,11 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { postgresSql, migratePostgres } from './postgres.js';
+import { postgresSql, migratePostgres, openPostgres } from './postgres.js';
 import { openTestDb } from './test-db.js';
 
 test('Postgres binding ignores quoted text, identifiers, comments and dollar strings', () => {
   assert.equal(postgresSql(`SELECT ?, '?', "?", $$?$$, $tag$?$tag$ /* ? /* ? */ */ -- ?\n, ?`), `SELECT $1, '?', "?", $$?$$, $tag$?$tag$ /* ? /* ? */ */ -- ?\n, $2`);
+});
+
+test('session advisory locks release after errors and do not consume the application pool', async () => {
+  const db = await openTestDb(1);
+  const schema = (await db.get<{ name: string }>('SELECT current_schema() AS name'))!.name;
+  const peer = await openPostgres(process.env.DATABASE_URL!, schema, 1);
+  try {
+    await assert.rejects(db.tryAdvisoryLock('delivery:test', async () => {
+      assert.equal((await db.get<{ value: number }>('SELECT 1 AS value'))?.value, 1);
+      assert.equal(await peer.tryAdvisoryLock('delivery:test', async () => assert.fail('lock should be held')), false);
+      throw new Error('delivery failed');
+    }), /delivery failed/);
+    assert.equal(await peer.tryAdvisoryLock('delivery:test', async () => undefined), true);
+    await assert.rejects(db.transaction(() => db.tryAdvisoryLock('delivery:test', async () => undefined)), /inside a transaction/);
+  } finally { await peer.close(); await db.close(); }
 });
 
 test('Postgres facade binds once, leases transactions, recovers rollback and closes', async (t) => {
@@ -99,5 +114,28 @@ test('Postgres migration repairs indexed and nullable columns before indexes wit
     await migratePostgres(db);
     assert.deepEqual(await columns(), repaired);
     assert.deepEqual(await schema(), before);
+  } finally { await db.close(); }
+});
+
+test('populated legacy event survives additive submission upgrade and repeat migration', async () => {
+  const db = await openTestDb();
+  try {
+    const schedule = JSON.stringify([{ id: 'kickoff', time: 1000, title: 'Kickoff', actions: [{ id: 'handout', type: 'distribute_assignments', mode: 'same' }] }]);
+    const assignments = JSON.stringify([{ id: 'brief', title: 'Build', instructions: 'Make a game' }]);
+    await db.run("INSERT INTO events(id,guild_id,name,status,schedule_json,assignments_json,discord_event_ids,panel_channel_id,created_at,updated_at) VALUES ('legacy','guild','Legacy','active',?,?,'[\"discord-event\"]','panel',1,1)", schedule, assignments);
+    await db.run("INSERT INTO teams(id,event_id,guild_id,name,kind,text_channel_id,created_at) VALUES ('legacy-team','legacy','guild','Team','public','team-channel',1)");
+    await db.run("INSERT INTO participants(event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,team_id,status,created_at,updated_at) VALUES ('legacy','member','guild','Member','','','[]','','[]','legacy-team','active',1,1)");
+    await db.run("INSERT INTO registration_answers VALUES ('legacy','member',1,'{\"answer\":\"preserved\"}',1)");
+    await db.run("INSERT INTO meta VALUES ('signup_panel_event:guild:legacy','{\"channelId\":\"panel\",\"messageId\":\"message\"}')");
+    const tables = ['events', 'teams', 'participants', 'registration_answers', 'meta'];
+    const before = await Promise.all(tables.map(table => db.all(`SELECT * FROM ${table}`)));
+    // Only empty new tables are dropped, inside openTestDb's disposable schema.
+    await db.run('DROP TABLE submission_answers, submission_forms'); // db-guard:allow:db-name-guard t_25580df8 - fixture tables created by this test inside openTestDb's disposable schema.
+    await migratePostgres(db);
+    await migratePostgres(db);
+    const after = await Promise.all(tables.map(table => db.all(`SELECT * FROM ${table}`)));
+    assert.deepEqual(after, before);
+    assert.deepEqual(await db.all('SELECT * FROM submission_forms'), []);
+    assert.deepEqual(await db.all('SELECT * FROM submission_answers'), []);
   } finally { await db.close(); }
 });

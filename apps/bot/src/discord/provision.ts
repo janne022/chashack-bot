@@ -22,6 +22,7 @@ import { teamColor } from '../features/form/domain.js';
 import { t } from '../shared/i18n.js';
 import { env } from '../shared/env.js';
 import { refreshTeamPanel } from './team-panel.js';
+import { markTeamProvisionPending, clearTeamProvisionRevision } from '../features/teams/provision-data.js';
 
 const MANAGE_FLAGS = [
   PermissionFlagsBits.ViewChannel,
@@ -66,6 +67,31 @@ export function botLocale(): 'en' | 'sv' {
  * Skips parts that already exist (idempotent, also used after partial failures).
  */
 export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promise<Team> {
+  let result = team;
+  const acquired = await deps.db.tryAdvisoryLock(`team-provision:${team.guildId}:${team.id}`, async () => {
+    const current = await getTeam(deps.db, team.id);
+    if (!current || current.guildId !== team.guildId || current.eventId !== team.eventId) return;
+    const revision = await markTeamProvisionPending(deps.db, current.guildId, current.eventId, current.id);
+    result = await provisionTeamSpacePass(deps, current);
+    if (result.roleId && result.textChannelId && result.voiceChannelId) {
+      const roster = await listTeamRoster(deps.db, result.id);
+      if (await grantAllTeamRoles(deps, result, roster.map(member => member.userId))) {
+        await clearTeamProvisionRevision(deps.db, result.guildId, result.eventId, result.id, revision);
+      }
+    }
+  });
+  // Delivery has its own event lock. Never hold a team lock while acquiring it:
+  // concurrent events could otherwise exhaust the bounded advisory-lock pool.
+  if (acquired) {
+    try { const { reconcileTeamAssignments } = await import('./event-delivery.js'); await reconcileTeamAssignments(deps.db, deps.client, team.eventId); }
+    catch (error) { console.warn('Late-team assignment reconciliation failed; maintenance will retry:', error); }
+  }
+  // If another worker owns the lock, leave its work alone and report current
+  // persisted state. A later retry can finish any parts that failed.
+  return await getTeam(deps.db, team.id) ?? result;
+}
+
+async function provisionTeamSpacePass(deps: ProvisionDeps, team: Team): Promise<Team> {
   const locale = botLocale();
   const guild = await deps.client.guilds.fetch(team.guildId).catch(() => null);
   if (guild === null) return team;
@@ -82,6 +108,7 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
         name: team.name.slice(0, 100),
         colors: { primaryColor: color.int },
         mentionable: true,
+        hoist: true,
         reason: t(locale, 'discord.provision.reason_create_role', { team: team.name }),
       });
       roleId = role.id;
@@ -90,6 +117,9 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
       console.warn(`provision role failed for ${team.name}:`, error);
     }
   }
+  // A private team channel created without its team role would be unusable by
+  // members. Leave channels pending until the role can be created successfully.
+  if (roleId === null) return team;
 
   // Permission overwrites: team role sees it, everyone else does not.
   const overwrites: { id: string; allow?: bigint[]; deny?: bigint[] }[] = [];
@@ -163,16 +193,22 @@ export async function provisionTeamSpace(deps: ProvisionDeps, team: Team): Promi
 }
 
 /** Grant the team role to a member (join/accept). */
-export async function grantTeamRole(deps: ProvisionDeps, team: Team, userId: string): Promise<void> {
-  if (team.roleId === null) return;
+export async function grantTeamRole(deps: ProvisionDeps, team: Team, userId: string): Promise<boolean> {
+  if (team.roleId === null) {
+    await markTeamProvisionPending(deps.db, team.guildId, team.eventId, team.id);
+    return false;
+  }
   try {
     const guild = await deps.client.guilds.fetch(team.guildId);
     const member = await guild.members.fetch(userId);
     if (!member.roles.cache.has(team.roleId)) {
       await member.roles.add(team.roleId, t(botLocale(), 'discord.provision.reason_grant'));
     }
+    return true;
   } catch (error) {
     console.warn(`grant role failed:`, error);
+    await markTeamProvisionPending(deps.db, team.guildId, team.eventId, team.id);
+    return false;
   }
 }
 
@@ -181,7 +217,16 @@ export async function applyTeamLeave(deps: ProvisionDeps, team: Team, userId: st
   if (!roleAlreadyRevoked) await revokeTeamRole(deps, team, userId);
   const remaining = await getTeam(deps.db, team.id);
   if (remaining === null) await destroyTeamSpace(deps, team);
-  else await refreshTeamPanel(deps, remaining, botLocale());
+  else {
+    if (remaining.textChannelId) {
+      try {
+        const guild = await deps.client.guilds.fetch(remaining.guildId);
+        const channel = await guild.channels.fetch(remaining.textChannelId);
+        if (channel?.isTextBased()) await channel.send({ content: t(botLocale(), 'discord.provision.member_left', { user: userId }), allowedMentions: { parse: [] } });
+      } catch (error) { console.warn('Team departure message failed:', error); }
+    }
+    await refreshTeamPanel(deps, remaining, botLocale());
+  }
 }
 
 /** Revoke the team role (leave/kick/delete). */
@@ -253,6 +298,7 @@ export async function syncRoleColor(deps: ProvisionDeps, team: Team): Promise<vo
     const guild = await deps.client.guilds.fetch(team.guildId);
     const role = await guild.roles.fetch(team.roleId);
     if (role !== null) {
+      if (!role.hoist) await role.setHoist(true);
       await role.setColor(teamColor(team.colorId).int, t(locale, 'discord.provision.reason_color'));
       await role.setName(team.name.slice(0, 100), t(locale, 'discord.provision.reason_rename')).catch(() => undefined);
     }
@@ -262,10 +308,12 @@ export async function syncRoleColor(deps: ProvisionDeps, team: Team): Promise<vo
 }
 
 /** Re-grant roles to all members (used when provisioning runs late, e.g. after a failure). */
-export async function grantAllTeamRoles(deps: ProvisionDeps, team: Team, memberIds: string[]): Promise<void> {
+export async function grantAllTeamRoles(deps: ProvisionDeps, team: Team, memberIds: string[]): Promise<boolean> {
+  let success = true;
   for (const id of memberIds) {
-    await grantTeamRole(deps, team, id);
+    if (!await grantTeamRole(deps, team, id)) success = false;
   }
+  return success;
 }
 
 /**

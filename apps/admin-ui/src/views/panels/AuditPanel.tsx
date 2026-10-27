@@ -4,6 +4,7 @@ import type { AppState } from '@/types'
 import { useT } from '@/lib/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { dateTime } from '@/lib/format'
 
@@ -42,8 +43,9 @@ export function AuditPanel({ state }: { state: AppState }) {
         {filtered.length === 0 ? (
           <EmptyState
             icon={<History className="size-5" />}
-            title={t('audit.none_title')}
-            description={t('audit.none_desc')}
+            title={t(query.trim() ? 'audit.no_matches' : 'audit.none_title')}
+            description={query.trim() ? undefined : t('audit.none_desc')}
+            action={query.trim() ? <Button variant="outline" onClick={() => setQuery('')}>{t('common.clear')}</Button> : undefined}
           />
         ) : (
           <div className="overflow-x-auto">

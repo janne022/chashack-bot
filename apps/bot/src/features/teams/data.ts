@@ -11,6 +11,7 @@ import { eligibleParticipant } from '../signup/eligibility.js';
 import { randomInt } from 'node:crypto';
 import { getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
+import { markTeamProvisionPending, clearTeamProvisionPending, clearEventTeamProvisionMarkers } from './provision-data.js';
 
 export interface Team {
   id: string;
@@ -120,6 +121,7 @@ export async function createTeam(
       Date.now(),
     );
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', id, Date.now(), eventId, ownerId);
+    await markTeamProvisionPending(db, guildId, eventId, id);
     await audit(db, actor, 'team.create', eventId, { teamId: id, name: cleanName, kind, colorId }, guildId);
     const created = await db.get<TeamRow>('SELECT * FROM teams WHERE id = ?', id);
     return ok(toTeam(created!));
@@ -210,6 +212,7 @@ export async function joinTeam(db: Db, actor: string, eventId: string, userId: s
     if (members >= teamSize) return err('team_full', `Team is full (${teamSize}/${teamSize}).`);
 
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', teamId, Date.now(), eventId, userId);
+    await markTeamProvisionPending(db, team.guildId, eventId, team.id);
     await audit(db, actor, 'team.join', eventId, { teamId, userId }, team.guildId);
     return ok(team);
   });
@@ -235,6 +238,7 @@ export async function joinPrivateTeam(
     const members = await countMembers(db, team.id);
     if (members >= teamSize) return err('team_full', `Team is full (${teamSize}/${teamSize}).`);
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', team.id, Date.now(), eventId, userId);
+    await markTeamProvisionPending(db, team.guildId, eventId, team.id);
     await audit(db, actor, 'team.join_code', eventId, { teamId: team.id, userId }, team.guildId);
     return ok(team);
   });
@@ -302,6 +306,7 @@ export async function adminAssign(db: Db, actor: string, eventId: string, userId
       previousTeam = left.value;
     }
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', teamId, Date.now(), eventId, userId);
+    if (teamId !== null && participant.team_id !== teamId) await markTeamProvisionPending(db, event.guild_id, eventId, teamId);
     await audit(db, actor, 'team.assign', eventId, { userId, teamId }, event.guild_id);
     return ok(previousTeam);
   });
@@ -316,6 +321,7 @@ export async function deleteTeam(db: Db, actor: string, teamId: string): Promise
     await lockEventTeams(db, team.eventId);
     await db.run('UPDATE participants SET team_id = NULL WHERE team_id = ?', teamId);
     await db.run('DELETE FROM team_requests WHERE team_id = ?', teamId);
+    await clearTeamProvisionPending(db, team.guildId, team.eventId, team.id);
     await db.run('DELETE FROM teams WHERE id = ?', teamId);
     await audit(db, actor, 'team.delete', team.eventId, { teamId, name: team.name }, team.guildId);
     return ok(team);
@@ -346,6 +352,7 @@ export async function deleteEventTeams(db: Db, actor: string, eventId: string): 
     const count = row?.n ?? 0;
     await db.run('UPDATE participants SET team_id = NULL WHERE team_id IN (SELECT id FROM teams WHERE event_id = ?)', eventId);
     await db.run('DELETE FROM team_requests WHERE event_id = ?', eventId);
+    await clearEventTeamProvisionMarkers(db, eventId);
     await db.run('DELETE FROM teams WHERE event_id = ?', eventId);
     if (count > 0) await audit(db, actor, 'team.purge', eventId, { count }, event.guild_id);
     return count;

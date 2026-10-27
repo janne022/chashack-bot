@@ -1,3 +1,4 @@
+import { replyWithWebSignup } from './signup-entry.js';
 /**
  * User-facing subcommands of /hackathon (everything outside the admin group).
  */
@@ -109,6 +110,7 @@ export async function handleUserCommand(
         await i.reply(eph(t(locale, 'errors.blocked')));
         return;
       }
+      if (await replyWithWebSignup(i, ctx)) return;
       await i.showModal(buildSignupModal(config, locale, `hack:signup:event:${ctx.eventId}`));
       return;
     }

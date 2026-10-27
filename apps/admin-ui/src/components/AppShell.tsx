@@ -1,10 +1,9 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useLocation } from '@tanstack/react-router'
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import {
   CalendarDays,
   History,
-  RefreshCw,
   Sun,
   Moon,
   Globe,
@@ -37,7 +36,6 @@ const NAV_KEYS = [
  */
 export function AppShell({
   state,
-  refresh,
   children,
 }: {
   state: AppState
@@ -49,6 +47,7 @@ export function AppShell({
   const isActive = (to: string) => pathname === to || pathname.startsWith(`${to}/`)
 
   const t = useT()
+  const reducedMotion = useReducedMotion()
   const locale = useLocale()
 
   const [theme, setTheme] = useState<'dark' | 'light'>(
@@ -78,9 +77,9 @@ export function AppShell({
   }
 
   return (
-    <div className="min-h-screen lg:flex">
+    <div className="organizer-workspace min-h-screen lg:flex">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-surface p-4 pl-6 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-card p-5 lg:flex">
         <div className="mb-6 flex items-center gap-3 px-1 pt-1">
           <img src={brandMark} alt="" className="hex-badge size-9 object-cover" />
           <div>
@@ -90,6 +89,7 @@ export function AppShell({
             <div className="text-xs text-muted-foreground">{t('common.organizer_console')}</div>
           </div>
         </div>
+        <ServerSwitcher />
         <nav className="flex flex-col gap-1" aria-label={t('common.sections')}>
           {NAV_KEYS.map(({ to, key, icon: Icon }) => (
             <Link
@@ -97,7 +97,7 @@ export function AppShell({
               to={to}
               aria-current={isActive(to) ? 'page' : undefined}
               className={cn(
-                'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition-all',
+                'group relative flex items-center gap-3 min-h-11 rounded-xl px-3 py-2 text-sm font-semibold transition-all',
                 isActive(to)
                   ? 'bg-accent-soft text-accent'
                   : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground',
@@ -114,24 +114,20 @@ export function AppShell({
             </Link>
           ))}
         </nav>
-        <ServerSwitcher />
         <EventSwitcher state={state} />
         <div className="mt-auto flex flex-col gap-2 pb-1">
           <div className="hex-bg rounded-xl border border-border p-3">
             <div className="font-display text-2xl text-accent">{state.stats.active}</div>
             <div className="text-xs text-muted-foreground">{t('common.active_signups')}</div>
           </div>
-          <div className="flex gap-1">
-            <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label={t('common.refresh_data')}>
-              <RefreshCw />
-            </Button>
+          <div className="flex items-center gap-1 rounded-xl border bg-surface-2 p-1">
             <Button
               variant="ghost"
-              size="icon"
+              className="flex-1 justify-start rounded-lg bg-card text-xs"
               onClick={toggleTheme}
               aria-label={t('common.switch_theme', { mode: theme === 'dark' ? t('common.theme_light') : t('common.theme_dark') })}
             >
-              {theme === 'dark' ? <Sun /> : <Moon />}
+              {theme === 'dark' ? <Sun /> : <Moon />}{theme === 'dark' ? t('common.theme_light') : t('common.theme_dark')}
             </Button>
             <Button variant="ghost" size="icon" onClick={toggleLocale} aria-label={t('common.language', { locale: locale.toUpperCase() })}>
               <span className="flex items-center gap-0.5 text-[10px] font-bold">
@@ -150,9 +146,6 @@ export function AppShell({
           <span className="font-display text-sm">{t('common.app_name')}</span>
         </div>
         <div className="flex gap-1">
-          <Button variant="ghost" size="icon" onClick={() => void refresh()} aria-label={t('common.refresh_data')}>
-            <RefreshCw />
-          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -172,6 +165,11 @@ export function AppShell({
 
       {/* Content */}
       <main className="min-w-0 flex-1 px-4 pb-20 pt-6 lg:px-8 lg:pb-10 lg:pt-8">
+        <div className="mx-auto mb-7 flex max-w-6xl flex-wrap items-center justify-between gap-3 border-b pb-5 text-sm">
+          <p className="hidden text-muted-foreground lg:block">{t('common.workspace')}</p>
+          {state.selectedEventId && <p className="flex items-center gap-2"><CalendarDays size={16} aria-hidden="true" /><span className="text-muted-foreground">{t('common.event_context')}</span><strong className="font-medium">{state.events?.find(event => event.id === state.selectedEventId)?.name}</strong></p>}
+          <div className="w-full lg:hidden"><ServerSwitcher compact /><EventSwitcher state={state} /></div>
+        </div>
         {state.guildConfigured === false && (
           <div className="mx-auto mb-4 flex w-full max-w-6xl items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
             <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
@@ -192,9 +190,9 @@ export function AppShell({
         )}
         <motion.div
           key={pathname}
-          initial={{ opacity: 0, x: 12 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.2, ease: 'easeOut' }}
+          initial={reducedMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.12, ease: 'easeOut' }}
           className="mx-auto flex w-full max-w-6xl flex-col gap-6"
         >
           {children}
@@ -233,6 +231,7 @@ export function AppShell({
  * would be noise, so it renders nothing.
  */
 function EventSwitcher({ state }: { state: AppState }) {
+  const t = useT()
   const { selectEvent } = useAppContext()
   const events = state.events ?? []
   const live = events.filter((e) => e.status === 'active')
@@ -244,10 +243,10 @@ function EventSwitcher({ state }: { state: AppState }) {
   return (
     <div className="mt-4 flex flex-col gap-1.5 rounded-xl border border-border bg-surface-2/40 p-2.5">
       <span className="px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Active event
+        {t('common.event_context')}
       </span>
       <Select value={currentId} onValueChange={selectEvent}>
-        <SelectTrigger className="h-8 text-xs">
+        <SelectTrigger aria-label={t('common.event_context')} className="h-8 text-xs">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

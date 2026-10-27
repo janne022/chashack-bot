@@ -18,9 +18,11 @@ test('departure deletes one guild only, elects eligible successor, records ident
     for (const guild of ['a', 'b']) {
       await db.run("INSERT INTO events (id,guild_id,name,status,created_at,updated_at) VALUES (?,?,'Test','active',1,1)", guild, guild);
       await db.run('UPDATE events SET form_json=? WHERE id=?', JSON.stringify({ ...DEFAULT_FORM, customQuestions: [{ id: 'private', kind: 'text', label: { en: 'Private' }, help: { en: '' }, required: false, presentation: 'web', visibility: 'organizer_only' }] }), guild);
+      await db.run('INSERT INTO submission_forms(event_id,version,enabled,allow_edits,questions_json,updated_at) VALUES (?,1,1,1,?,1)', guild, '[]');
       for (const user of ['same', 'successor', 'blocked']) {
         await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES (?,?,?,?,'some_experience','backend','[]','random_team',?,'active',1,1)", guild, user, guild, user, JSON.stringify(['same']));
         await db.run('INSERT INTO registration_answers VALUES (?,?,1,?,1)', guild, user, JSON.stringify({ private: 'SECRET_ANSWER' }));
+        await db.run('INSERT INTO submission_answers VALUES (?,?,1,?,1,1)', guild, user, JSON.stringify({ project: 'SUBMISSION_SENTINEL' }));
       }
       const team = await createTeam(db, 'test', guild, guild, 'Alpha', 'public', 'same');
       assert.ok(team.ok);
@@ -37,15 +39,19 @@ test('departure deletes one guild only, elects eligible successor, records ident
       await replayMemberDeletions(restored, [{ guildId: 'a', userId: 'same', deletedAt: 100 }]);
       assert.equal((await restored.all("SELECT * FROM registration_answers WHERE event_id='a' AND user_id='same'")).length, 0);
       assert.equal((await restored.all("SELECT * FROM registration_answers WHERE event_id='b' AND user_id='same'")).length, 1);
+      assert.equal((await restored.all("SELECT * FROM submission_answers WHERE event_id='a' AND user_id='same'")).length, 0);
+      assert.equal((await restored.all("SELECT * FROM submission_answers WHERE event_id='b' AND user_id='same'")).length, 1);
     } finally { await restored.close(); }
     await deleteGuildMemberData(db, 'a', 'same', 100);
     await deleteGuildMemberData(db, 'a', 'same', 100);
     assert.equal((await db.all("SELECT * FROM participants WHERE guild_id='a' AND user_id='same'")).length, 0);
     assert.equal((await db.all("SELECT * FROM registration_answers WHERE event_id='a' AND user_id='same'")).length, 0);
+    assert.equal((await db.all("SELECT * FROM submission_answers WHERE event_id='a' AND user_id='same'")).length, 0);
     assert.equal((await db.all("SELECT * FROM team_requests WHERE guild_id='a'")).length, 0);
     assert.equal((await db.all("SELECT * FROM audit_log WHERE guild_id='a' AND actor='discord:same'")).length, 0);
     assert.equal((await db.all("SELECT * FROM participants WHERE guild_id='b' AND user_id='same'")).length, 1);
     assert.equal((await db.all("SELECT * FROM registration_answers WHERE event_id='b' AND user_id='same'")).length, 1);
+    assert.equal((await db.all("SELECT * FROM submission_answers WHERE event_id='b' AND user_id='same'")).length, 1);
     assert.equal((await db.all("SELECT * FROM audit_log WHERE guild_id='b' AND actor='discord:same'")).length, 1);
     assert.equal((await db.get<{ owner_id: string }>("SELECT owner_id FROM teams WHERE event_id='a'"))!.owner_id, 'successor');
     const records = await db.all('SELECT * FROM member_deletions');
@@ -59,9 +65,16 @@ test('departure deletes one guild only, elects eligible successor, records ident
     // Rejoin is a fresh signup, not resurrection of answers or invitations.
     await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES ('a','same','a','New','','','[]','','[]','active',200,200)");
     await db.run("INSERT INTO registration_answers VALUES ('a','same',1,'{\"fresh\":\"NEW_REGISTRATION\"}',200)");
+    await db.run("INSERT INTO submission_answers VALUES ('a','same',1,'{\"fresh\":\"NEW_SUBMISSION\"}',200,200)");
+    await db.run("INSERT INTO events(id,guild_id,name,status,created_at,updated_at) VALUES ('older-a','a','Older event','ended',1,1)");
+    await db.run("INSERT INTO registration_answers VALUES ('older-a','same',1,'{\"old\":\"OLD_REGISTRATION\"}',50)");
+    await db.run("INSERT INTO submission_answers VALUES ('older-a','same',1,'{\"old\":\"OLD_SUBMISSION\"}',50,50)");
     await replayMemberDeletions(db, [{ guildId: 'a', userId: 'same', deletedAt: 100 }]);
     assert.equal((await db.all("SELECT * FROM participants WHERE event_id='a' AND user_id='same'")).length, 1);
     assert.equal((await db.get<{ answers_json: string }>("SELECT answers_json FROM registration_answers WHERE event_id='a' AND user_id='same'"))?.answers_json.includes('NEW_REGISTRATION'), true);
+    assert.equal((await db.get<{ answers_json: string }>("SELECT answers_json FROM submission_answers WHERE event_id='a' AND user_id='same'"))?.answers_json.includes('NEW_SUBMISSION'), true);
+    assert.equal(await db.get("SELECT * FROM registration_answers WHERE event_id='older-a' AND user_id='same'"), undefined);
+    assert.equal(await db.get("SELECT * FROM submission_answers WHERE event_id='older-a' AND user_id='same'"), undefined);
     const team = (await db.get<{ id: string }>("SELECT id FROM teams WHERE event_id='a'"))!;
     await deleteGuildMemberData(db, 'a', 'successor', 300);
     assert.equal(await getTeam(db, team.id), null, 'no eligible remaining member uses team deletion');

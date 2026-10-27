@@ -29,6 +29,7 @@ features/<slice>/
 | `matching/`| Compatibility engine (pure domain), match commit data       |
 | `events/`  | Event CRUD + lifecycle + templates + maintenance planner    |
 | `auth/`    | Guild authorisation (permissions ∩ bot presence), session mint/verify, `web_sessions` SQL |
+| `submission/` | Event submission form configuration, validation and participant answer persistence |
 
 Where things live:
 
@@ -75,6 +76,28 @@ Discord interaction → dispatch.ts ──────┘
 
 Consequences worth remembering:
 
+- Scheduled Discord delivery reconciliation uses a PostgreSQL session advisory
+  lock per guild/event on a separate, lazily created pool (up to four connections
+  per bot process). Competing workers skip the pass and retry on maintenance; no
+  application transaction is held across Discord calls. PostgreSQL releases the
+  lock when its session ends. Each pass rereads the event after obtaining the lock,
+  so a queued stale snapshot cannot publish an older edit or revive an ended event.
+  Discord sends and receipt writes are not atomic:
+  nonce deduplication reduces retry duplicates but cannot guarantee indefinite
+  exactly-once delivery after a crash or a lost lock connection.
+- Schedule JSON keeps legacy offsets as clock minutes from the anchor day's
+  midnight. An explicit `offsetMode: "elapsed"` instead measures from the exact
+  anchor; `withinEvent: true` bounds the result to available start/end times.
+  Backend and organizer resolvers must stay in sync. Starter upgrade v3 updates
+  only byte-identical, unedited v2 starter rows; it does not alter existing events,
+  custom templates, or restore deleted starters. No database column is required.
+- An undated event may carry time-zero anchored actions. Maintenance, Discord
+  delivery, itinerary rendering and participant schedule projections ignore these
+  while their anchor (including its existing fallback) is unavailable. A pending
+  `__start__` handout retains its selected assignment strategy until the start is
+  set. Older undated events without a handout receive a default
+  on their first start-date update unless the caller supplies an explicit schedule.
+
 - **Guild scoping is per request.** Every route resolves its guild with
   `guildOf(req)` (session → configured `DISCORD_GUILD_ID` fallback); never capture
   a guild id at module scope, it silently reads and writes another server's data.
@@ -103,3 +126,48 @@ Consequences worth remembering:
 
 If you change how the layers connect, update `AGENTS.md` first — it is what the
 next person reads before touching code.
+
+
+## Durable event delivery
+
+Schedule operations and Discord message delivery have separate completion state.
+`discord/event-delivery.ts` reconciles signup panels, scheduled announcements,
+itineraries and assignment handouts on maintenance, organizer edits and team provisioning.
+`features/events/delivery-data.ts` owns their PostgreSQL meta records, keyed by guild,
+event, block, action and (for assignments) team. Records retain message/channel IDs,
+content fingerprints and the team's chosen assignment. Failed sends/edits stay retryable;
+unchanged deliveries do not post again. An edited handout keeps the same team assignment.
+
+Historical announcements from releases that never retained message IDs are baselined
+without replaying them. Their first subsequent content edit publishes a tracked replacement;
+the original untracked message cannot be reliably edited. Signup panels and itineraries
+reuse their existing message references. Manual one-off announcements remain one-off.
+
+New teams and membership additions write a revisioned `team_provision:` marker in
+the existing metadata table in the same transaction as the team change. Maintenance
+joins markers through guild-scoped team rows and retries active, unexpired events.
+It reuses recorded role and channel IDs, grants current members their role and
+reconciles late assignment handouts. A per-team advisory lock prevents concurrent
+workers from provisioning the same team, and a conditional revision delete preserves
+new work arriving during a pass. Existing unmarked teams are not backfilled; team
+deletion removes markers. No schema migration is needed. Discord resource creation
+and ID persistence cannot be atomic, so a crash or lost response at that boundary
+can leave an orphan and may require an operator to inspect Discord before retrying.
+
+An explicit `publish_schedule` action publishes at its block's time and then keeps
+the tracked itinerary current. Existing events without this action retain their
+channel-driven behavior. The action can override the schedule channel; member-only
+channel reconciliation includes these overrides while preserving signup channels.
+The action is stored in the existing schedule JSON; no schema migration is needed.
+
+Submission forms and participant submissions live in separate event-scoped tables;
+legacy events have no submission form until configured. Both tables inherit tenant
+isolation from their event. The participant API checks membership and registration,
+and member departure cleanup removes that person's submission answers. Organizers
+configure and review submissions in the event workspace; participants use the
+submission tab, with version checks to protect drafts when questions change.
+
+Pinned signup/start/end actions use the exact anchor timestamp; ordinary activities use
+clock-time offsets from the anchor day. Date-only event edits re-resolve saved anchors and
+move unanchored activities by calendar day. Predefined assignment collections are copied
+into an event when selected, including from the existing-event editor.

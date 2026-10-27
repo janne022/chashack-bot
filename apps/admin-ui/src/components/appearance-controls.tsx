@@ -52,7 +52,7 @@ export function AppearanceControls({ value, onChange, previewTitle }: { value: A
     </div>
     <Button type="button" variant="ghost" size="sm" onClick={() => onChange({ themePreset: 'default', accentColor: PRESET_ACCENTS.default, bannerUrl: null })}>{t('form.reset_appearance')}</Button>
     <div aria-label={t('templates.theme_preview')} className="overflow-hidden rounded-xl border">
-      <ParticipantFrame appearance={value}><div className="space-y-3"><h2 className="text-xl font-bold">{previewTitle || t('templates.theme_preview')}</h2><p>{t('form.appearance_help')}</p><Button type="button">{t('participant.signup_submit')}</Button></div></ParticipantFrame>
+      <ParticipantFrame appearance={value} preview><div className="space-y-3"><h2 className="text-xl font-bold">{previewTitle || t('templates.theme_preview')}</h2><p>{t('form.appearance_help')}</p><Button type="button">{t('participant.signup_submit')}</Button></div></ParticipantFrame>
     </div>
   </div>
 }

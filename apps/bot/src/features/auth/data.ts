@@ -134,3 +134,8 @@ export async function purgeExpiredSessions(db: Db, now: number = Date.now()): Pr
   const res = await db.run('DELETE FROM web_sessions WHERE expires_at < ?', now);
   return Number(res.changes);
 }
+
+/** Refresh the discoverable servers without extending or reviving a session. */
+export async function updateSessionGuilds(db: Db, id: string, guilds: ManageableGuild[]): Promise<void> {
+  await db.run('UPDATE web_sessions SET guild_ids = ? WHERE id = ? AND expires_at >= ?', JSON.stringify(guilds), id, Date.now());
+}

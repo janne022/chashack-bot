@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useT } from './i18n'
+import { RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 /** Invalidation only: the audience's existing loader remains authoritative. */
@@ -56,10 +57,10 @@ export function useLiveUpdates(url: string | null, refresh: (signal?: AbortSigna
     const retryConnection = () => {
       source?.close()
       if (controller.signal.aborted || terminal) return
-      if (++failures > 5) { terminal = true; setStatus('disconnected'); return }
+      failures++
       setStatus('reconnecting')
       clearTimeout(timer)
-      timer = setTimeout(() => { void connect() }, Math.min(1000 * 2 ** (failures - 1), 16000))
+      timer = setTimeout(() => { void connect() }, Math.min(1000 * 2 ** Math.min(failures - 1, 4), 16000))
     }
     const focus = () => { if (document.visibilityState !== 'hidden') schedule() }
     window.addEventListener('focus', focus)
@@ -77,9 +78,6 @@ export function useLiveUpdates(url: string | null, refresh: (signal?: AbortSigna
 
 export function LiveStatus({ status, retry }: ReturnType<typeof useLiveUpdates>) {
   const t = useT()
-  if (status === 'live') return null
-  return <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" data-live-status={status}>
-    <span>{t(status === 'disconnected' ? 'live.disconnected' : 'live.reconnecting')}</span>
-    {status === 'disconnected' && <Button variant="outline" size="sm" onClick={retry}>{t('participant.retry')}</Button>}
-  </div>
+  if (status !== 'disconnected') return null
+  return <Button variant="outline" size="icon" className="fixed bottom-20 right-4 z-30 bg-card shadow-sm lg:bottom-5" data-live-status={status} aria-label={t('live.retry_silent')} title={t('live.retry_silent')} onClick={retry}><RefreshCw aria-hidden="true" /></Button>
 }

@@ -68,14 +68,17 @@ test('real app-role handlers bind fresh participant authority, public projection
   const headers = { cookie: `hackpartsess=${encodeURIComponent(makeDiscordToken(secret, participant.id, Date.now(), 'participant'))}` };
   const get = (id: string) => app.inject({ url: `/api/participant/events/${id}/registration`, headers });
 
-  await t.test('authorized handler reads and writes own private answers; team path inherits the context', async () => {
+  await t.test('participant cannot read or overwrite organizer-only answers; team path inherits the context', async () => {
     const response = await get('a');
     assert.equal(response.statusCode, 200, response.body);
-    assert.deepEqual(response.json().answers, { private: 'PRIVATE_a' });
-    assert.equal(response.json().questions[0].id, 'private');
-    const saved = await app.inject({ method: 'PUT', url: '/api/participant/events/a/registration', headers, payload: { formVersion: 1, answers: { private: 'UPDATED' }, profile: { experience: 'veteran', roleTrack: 'backend', skills: ['ui_design'], teamPref: 'random_team' }, guildId: guildB, userId: 'forged' } });
+    assert.deepEqual(response.json().answers, {});
+    const profile = { experience: 'veteran', roleTrack: 'backend', skills: ['ui_design'], teamPref: 'random_team' };
+    const rejected = await app.inject({ method: 'PUT', url: '/api/participant/events/a/registration', headers, payload: { formVersion: 1, answers: { private: 'UPDATED' }, profile } });
+    assert.equal(rejected.statusCode, 400);
+    const saved = await app.inject({ method: 'PUT', url: '/api/participant/events/a/registration', headers, payload: { formVersion: 1, answers: {}, profile, guildId: guildB, userId: 'forged' } });
     assert.equal(saved.statusCode, 200, saved.body);
-    assert.equal((await get('a')).json().answers.private, 'UPDATED');
+    assert.deepEqual((await get('a')).json().answers, {});
+    assert.equal(JSON.parse((await owner.get<{ answers_json: string }>("SELECT answers_json FROM registration_answers WHERE event_id='a'"))!.answers_json).private, 'PRIVATE_a');
     const teams = await app.inject({ url: '/api/participant/events/a/teams', headers });
     assert.equal(teams.statusCode, 200, teams.body);
     assert.deepEqual(await db.all('SELECT * FROM events'), []);
@@ -126,7 +129,7 @@ test('real app-role handlers bind fresh participant authority, public projection
     const response = await app.inject({ url: '/api/events/a/registrations/subject', headers: orgHeaders }); // g0:allow:secrets t_33947af2 - synthetic API paths, no credentials
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.headers['cache-control'], 'no-store');
-    assert.deepEqual(response.json().answers, { private: 'UPDATED' });
+    assert.deepEqual(response.json().answers, { private: 'PRIVATE_a' });
     assert.equal(response.json().questions[0].id, 'private');
     assert.equal((await app.inject({ url: '/api/events/b/registrations/subject', headers: orgHeaders })).statusCode, 404); // g0:allow:secrets t_33947af2 - synthetic API paths, no credentials
     assert.equal((await app.inject({ url: '/api/events/a/registrations/missing', headers: orgHeaders })).statusCode, 404);

@@ -81,11 +81,15 @@ export interface ScheduleItem {
   anchor?: ScheduleAnchor;
   /** Minutes from the anchor date's 00:00 (negative = earlier than that day). */
   offsetMinutes?: number;
+  /** Absent means legacy clock time; elapsed uses minutes from the exact anchor. */
+  offsetMode?: 'elapsed';
+  /** Optionally constrain elapsed activities to the event's start/end window. */
+  withinEvent?: boolean;
 }
 
 export interface ScheduleAction {
   id: string;
-  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match' | 'post_signup' | 'distribute_assignments';
+  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match' | 'post_signup' | 'publish_schedule' | 'distribute_assignments';
   title?: string;
   message?: string;
   channelId?: string | null;
@@ -128,7 +132,12 @@ export function resolveScheduleAnchors(items: ScheduleItem[], dates: ScheduleDat
             ? dates.signupStartsAt ?? dates.startsAt ?? null
             : dates.signupEndsAt ?? dates.startsAt ?? null;
     if (anchorTime === null || !Number.isFinite(anchorTime)) return item;
-    return { ...item, time: startOfDay(anchorTime) + item.offsetMinutes * 60_000 };
+    let time = SYNTHETIC_ANCHORS[item.id] ? anchorTime : (item.offsetMode === 'elapsed' ? anchorTime : startOfDay(anchorTime)) + item.offsetMinutes * 60_000;
+    if (!SYNTHETIC_ANCHORS[item.id] && item.offsetMode === 'elapsed' && item.withinEvent) {
+      if (dates.startsAt != null) time = Math.max(time, dates.startsAt);
+      if (dates.endsAt != null) time = Math.min(time, dates.endsAt);
+    }
+    return { ...item, time };
   });
 }
 
@@ -158,6 +167,7 @@ export function toRelativeSchedule(items: ScheduleItem[], startsAt: number | nul
   return items.map((item) => {
     const synthetic = SYNTHETIC_ANCHORS[item.id];
     if (synthetic !== undefined) return { ...item, anchor: synthetic, offsetMinutes: 0 };
+    if (item.offsetMode === 'elapsed' && item.anchor !== undefined && item.offsetMinutes !== undefined) return item;
     if (startsAt == null || !Number.isFinite(startsAt)) return item;
     const offsetMinutes = Math.round((item.time - startOfDay(startsAt)) / 60_000);
     return { ...item, anchor: 'hackathon_start' as ScheduleAnchor, offsetMinutes };
@@ -170,15 +180,15 @@ export function toRelativeSchedule(items: ScheduleItem[], startsAt: number | nul
  *
  * The Start block is normally synthesised by the UI as schedule id `__start__`
  * (carrying only ops). If the caller passed a real schedule with no `__start__`
- * block but a `startsAt`, we add that block. If there's no start time at all we
- * leave the schedule alone — the assignments stay on the event and can be
- * distributed from a block later.
+ * block we add one. Without a start time the block remains pending at time 0;
+ * the scheduler skips it until the start anchor can be resolved.
  */
 export function withAssignmentDistribution(
   schedule: ScheduleItem[],
   strategy: AssignmentStrategy,
   startsAt: number | null | undefined,
 ): ScheduleItem[] {
+  if (schedule.some(block => block.id !== '__start__' && block.actions?.some(action => action.type === 'distribute_assignments'))) return schedule;
   const startIdx = schedule.findIndex((s) => s.id === '__start__');
   const action: ScheduleAction = { id: DISTRIBUTE_ACTION_ID, type: 'distribute_assignments', mode: strategy };
   if (startIdx !== -1) {
@@ -188,16 +198,23 @@ export function withAssignmentDistribution(
     const without = existing.filter((a) => a.type !== 'distribute_assignments');
     const next = [...without, action];
     const out = [...schedule];
-    out[startIdx] = { ...block, actions: next };
+    out[startIdx] = { ...block, actions: next, ...(startsAt == null && block.time === 0 ? { anchor: 'hackathon_start' as const, offsetMinutes: 0 } : {}) };
     return out;
   }
-  // No Start block yet. Without a start time there's nothing to hang the action
-  // on, so leave the schedule alone — the pool stays on the event.
-  if (startsAt == null) return schedule;
   return [
     ...schedule,
-    { id: '__start__', time: startsAt, title: 'Event starts', kind: 'custom', actions: [action] },
+    { id: '__start__', time: startsAt ?? 0, title: 'Event starts', kind: 'custom', actions: [action], anchor: 'hackathon_start', offsetMinutes: 0 },
   ];
+}
+
+/** An anchored placeholder must not be treated as an overdue Unix-epoch action. */
+export function scheduleTimeResolved(event: Pick<HackathonEvent, 'startsAt' | 'endsAt' | 'signupStartsAt' | 'signupEndsAt'>, item: ScheduleItem): boolean {
+  if (item.time !== 0 || item.anchor === undefined || item.offsetMinutes === undefined) return true;
+  const anchorTime = item.anchor === 'hackathon_start' ? event.startsAt
+    : item.anchor === 'hackathon_end' ? event.endsAt ?? event.startsAt
+    : item.anchor === 'signup_start' ? event.signupStartsAt ?? event.startsAt
+    : event.signupEndsAt ?? event.startsAt;
+  return anchorTime != null;
 }
 
 export interface AnnouncementTemplate {
@@ -342,9 +359,6 @@ export async function createEvent(db: Db, actor: string, guildId: string, input:
   if (input.signupStartsAt !== null && input.signupStartsAt !== undefined && input.signupEndsAt !== null && input.signupEndsAt !== undefined) {
     if (input.signupEndsAt <= input.signupStartsAt) return err('bad_dates', 'Signup must end after it starts.');
   }
-  if (input.signupEndsAt !== null && input.signupEndsAt !== undefined && input.startsAt !== null && input.startsAt !== undefined) {
-    if (input.signupEndsAt > input.startsAt) return err('bad_dates', 'Signup must end before the hackathon starts.');
-  }
 
   if (input.form?.customQuestions !== undefined) {
     const questions = validateCustomQuestions(input.form.customQuestions, { ...await getForm(db, guildId), ...input.form });
@@ -354,7 +368,7 @@ export async function createEvent(db: Db, actor: string, guildId: string, input:
       (input.form?.accentColor !== undefined && !/^#[0-9a-fA-F]{6}$/.test(input.form.accentColor))) return err('invalid_theme', 'Theme preset, banner URL, or accent color is invalid.');
 
   const id = newId('ev');
-  const form: FormConfig = normalizeFormUpdate({ ...await getForm(db, guildId), ...(input.form ?? {}) }, {});
+  const form: FormConfig = normalizeFormUpdate({ ...await getForm(db, guildId), ...(input.form ?? {}), enforceSignupWindow: input.form?.enforceSignupWindow ?? true }, {});
   // The pool is a snapshot of the assignment collection picked at creation.
   // No pool chosen → nothing is distributed (no silent defaults).
   const assignments = normalizeAssignments(input.assignments ?? []);
@@ -433,25 +447,25 @@ export async function updateEvent(
   // not interleave with a concurrent update (last-writer-wins per field would
   // otherwise mix two editors' changes).
   return db.transaction(async () => {
+    await db.get('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
     const event = await getEvent(db, eventId);
     if (event === null) return err('not_found', 'Event not found.');
 
     const name = update.name !== undefined ? update.name.trim().slice(0, 100) || event.name : event.name;
     const description = update.description !== undefined ? update.description.slice(0, 1000) : event.description;
     const startsAt = update.startsAt !== undefined ? update.startsAt : event.startsAt;
-    const endsAt = update.endsAt !== undefined ? update.endsAt : event.endsAt;
-    const signupStartsAt = update.signupStartsAt !== undefined ? update.signupStartsAt : event.signupStartsAt;
-    const signupEndsAt = update.signupEndsAt !== undefined ? update.signupEndsAt : event.signupEndsAt;
+    const delta = startsAt !== null && event.startsAt !== null ? startsAt - event.startsAt : 0;
+    const shift = (value: number | null) => value === null ? null : value + delta;
+    const endsAt = update.endsAt !== undefined ? update.endsAt : shift(event.endsAt);
+    const signupStartsAt = update.signupStartsAt !== undefined ? update.signupStartsAt : shift(event.signupStartsAt);
+    const signupEndsAt = update.signupEndsAt !== undefined ? update.signupEndsAt : shift(event.signupEndsAt);
     if (startsAt !== null && endsAt !== null && endsAt <= startsAt) {
       return err('bad_dates', 'The event must end after it starts.');
     }
     if (signupStartsAt !== null && signupEndsAt !== null && signupEndsAt <= signupStartsAt) {
       return err('bad_dates', 'Signup must end after it starts.');
     }
-    if (signupEndsAt !== null && startsAt !== null && signupEndsAt > startsAt) {
-      return err('bad_dates', 'Signup must end before the hackathon starts.');
-    }
-    if (update.startsAt !== undefined && startsAt !== null) {
+    if (update.startsAt !== undefined && startsAt !== null && startsAt !== event.startsAt) {
       const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
       if (startsAt < todayStart.getTime()) return err('bad_dates', 'Event cannot start in the past.');
     }
@@ -459,6 +473,22 @@ export async function updateEvent(
       update.cleanupDelayHours !== undefined
         ? Math.min(Math.max(Math.round(update.cleanupDelayHours), 0), 24 * 30)
         : event.cleanupDelayHours;
+
+    let nextSchedule = update.schedule !== undefined
+      ? resolveScheduleAnchors(normalizeSchedule(update.schedule), { startsAt, endsAt, signupStartsAt, signupEndsAt })
+      : resolveScheduleAnchors(event.schedule.map(item => {
+        if (item.anchor || !delta || startsAt === null || event.startsAt === null) return item;
+        const oldDate = new Date(event.startsAt), newDate = new Date(startsAt), date = new Date(item.time);
+        const days = Math.round((Date.UTC(newDate.getFullYear(), newDate.getMonth(), newDate.getDate()) - Date.UTC(oldDate.getFullYear(), oldDate.getMonth(), oldDate.getDate())) / 86400000);
+        date.setDate(date.getDate() + days);
+        return { ...item, time: date.getTime() };
+      }), { startsAt, endsAt, signupStartsAt, signupEndsAt });
+    const nextAssignments = update.assignments !== undefined ? normalizeAssignments(update.assignments) : event.assignments;
+    // Older undated events had no place to retain a handout. Only add a default
+    // on their first start-date assignment, and never override explicit actions.
+    if (event.startsAt === null && startsAt !== null && update.schedule === undefined && nextAssignments.length > 0 && !nextSchedule.some(item => item.actions?.some(action => action.type === 'distribute_assignments'))) {
+      nextSchedule = withAssignmentDistribution(nextSchedule, 'random', startsAt);
+    }
 
     await db.run(
       `UPDATE events SET name = ?, description = ?, starts_at = ?, ends_at = ?, signup_starts_at = ?, signup_ends_at = ?, panel_channel_id = ?, announcement_channel_id = ?, schedule_channel_id = ?, category_id = ?, cleanup_delay_hours = ?, match_at = ?, discord_event_ids = ?, schedule_json = ?, announcements_json = ?, assignments_json = ?, updated_at = ?
@@ -476,13 +506,9 @@ export async function updateEvent(
       cleanupDelayHours,
       update.matchAt !== undefined ? update.matchAt : event.matchAt,
       update.discordEventIds !== undefined ? JSON.stringify(update.discordEventIds) : JSON.stringify(event.discordEventIds),
-      update.schedule !== undefined
-        ? JSON.stringify(
-            resolveScheduleAnchors(normalizeSchedule(update.schedule), { startsAt, endsAt, signupStartsAt, signupEndsAt }),
-          )
-        : JSON.stringify(event.schedule),
+      JSON.stringify(nextSchedule),
       update.announcements !== undefined ? JSON.stringify(normalizeAnnouncements(update.announcements)) : JSON.stringify(event.announcements),
-      update.assignments !== undefined ? JSON.stringify(normalizeAssignments(update.assignments)) : JSON.stringify(event.assignments),
+      JSON.stringify(nextAssignments),
       Date.now(),
       eventId,
     );
@@ -539,6 +565,7 @@ export async function updateEventForm(db: Db, actor: string, eventId: string, up
   // Read current → merge → write: atomic so the stored form is the merge of one
   // editor's update, not an interleave of two.
   return db.transaction(async () => {
+    await db.get('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
     const event = await getEvent(db, eventId);
     if (event === null) return err('not_found', 'Event not found.');
     const current = getEventForm(db, event, DEFAULT_FORM);
@@ -614,9 +641,10 @@ export async function saveTemplate(
 }
 
 export async function listTemplates(db: Db, guildId: string, kind?: Template['kind']): Promise<Template[]> {
-  // Seeding is count-then-insert per kind: wrap the whole thing so two callers
-  // cannot both observe an empty kind and seed it twice.
+  // The handle's transaction queue only serializes this process. Coordinate
+  // separate workers as well before inspecting counts or starter markers.
   return db.transaction(async () => {
+    await db.get('SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ? , 0))', ':starter-templates:' + guildId);
     // Seed basic templates on first use for each kind
     const seedIfEmpty = async (k: Template['kind'], seeds: { name: string; json: string }[]): Promise<void> => {
       const c = await db.get<{ c: number }>(
@@ -624,7 +652,14 @@ export async function listTemplates(db: Db, guildId: string, kind?: Template['ki
         guildId,
         k,
       );
-      if ((c?.c ?? 0) === 0) {
+      const refreshable = k === 'event' || k === 'announcement';
+      const seedKey = 'starter_templates_v2:' + guildId + ':' + k;
+      const seeded = refreshable ? await db.get('SELECT value FROM meta WHERE key = ?', seedKey) : undefined;
+      if (refreshable ? !seeded : (c?.c ?? 0) === 0) {
+        if (refreshable) {
+          const marker = await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', seedKey, '1');
+          if (marker.changes === 0) return;
+        }
         for (const s of seeds) {
           const id = newId('tpl');
           await db.run('INSERT INTO event_templates (id, guild_id, name, kind, json, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, guildId, s.name, k, s.json, Date.now());
@@ -652,9 +687,10 @@ export async function listTemplates(db: Db, guildId: string, kind?: Template['ki
     }
     if (kind === undefined || kind === 'announcement') {
       await seedIfEmpty('announcement', [
-        { name: "Initial — signups open", json: JSON.stringify({ title: "{event} — signups open!", message: "Listen up {everyone} **{event}** is live! {event_description} Starts {start_date} {timer} — sign up in {panel}\n\nFull schedule:\n{schedule}", trigger: "manual", channelId: null }) },
-        { name: "Signup panel", json: JSON.stringify({ title: "Join {event}", message: "Hey {everyone}, the signup panel is ready in {panel} — hit Join! Starts {start_date} {timer}", trigger: "manual", channelId: null }) },
-        { name: "Schedule — next up", json: JSON.stringify({ title: "{schedule_title}", message: "⏰ **{schedule_title}** — {schedule_desc} at {schedule_time} {timer_schedule} {everyone}\n\n{schedule}", trigger: "schedule", channelId: null }) },
+        { name: 'EN · Registration opens', json: JSON.stringify({ title: '{event} · Join us', message: 'Registration is open for **{event}**.\n{event_description}\n\nWe start {startsAt}. Sign up in {panel}.', trigger: 'manual', channelId: null }) },
+        { name: 'SV · Anmälan öppnar', json: JSON.stringify({ title: '{event} · Var med', message: 'Anmälan till **{event}** är öppen.\n{event_description}\n\nVi börjar {startsAt}. Anmäl dig i {panel}.', trigger: 'manual', channelId: null }) },
+        { name: 'EN · Next activity', json: JSON.stringify({ title: '{schedule_title}', message: '**{schedule_title}** starts {schedule_time}.\n{schedule_desc}', trigger: 'schedule', channelId: null }) },
+        { name: 'SV · Nästa programpunkt', json: JSON.stringify({ title: '{schedule_title}', message: '**{schedule_title}** börjar {schedule_time}.\n{schedule_desc}', trigger: 'schedule', channelId: null }) },
       ]);
     }
     if (kind === undefined || kind === 'form') {
@@ -676,23 +712,28 @@ export async function listTemplates(db: Db, guildId: string, kind?: Template['ki
       ]);
     }
     if (kind === undefined || kind === 'event') {
-      // Default hackathon event: signup 7 days before, 48h hackathon, a few schedule blocks with signup + announcements via schedule
-      const now = Date.now();
-      const hackStarts = now + 14 * 24 * 3600 * 1000; // 2 weeks out so it passes past-date validation
-      const hackEnds = hackStarts + 2 * 24 * 3600 * 1000;
-      const signupStarts = hackStarts - 7 * 24 * 3600 * 1000;
-      const signupEnds = hackStarts;
-      const baseDay = new Date(hackStarts);
-      baseDay.setHours(12, 0, 0, 0);
-      const sched = [
-        { id: 'sch_signup', time: signupStarts, title: 'Signups open', description: 'Signup window opens — post signup panel', kind: 'custom', actions: [{ id: 'a1', type: 'post_signup' }] },
-        { id: 'sch_dinner', time: new Date(new Date(hackStarts).setHours(18, 0, 0, 0)).getTime(), title: 'Dinner', description: 'Pizza in the kitchen', kind: 'food', actions: [{ id: 'a2', type: 'announce', title: '{schedule_title}', message: '🍽️ {schedule_title} — {schedule_desc} at {schedule_time} {everyone}' }] },
-        { id: 'sch_fika', time: new Date(new Date(hackStarts).setHours(15, 0, 0, 0)).getTime(), title: 'Fika', description: 'Coffee & buns', kind: 'break' },
-        { id: 'sch_voting', time: new Date(new Date(hackEnds).setHours(14, 0, 0, 0)).getTime(), title: 'Voting', description: 'Vote for your favourite', kind: 'voting', actions: [{ id: 'a3', type: 'announce', title: 'Voting time!', message: '🗳️ {schedule_title} — {schedule_desc} {timer_schedule} {everyone}' }] },
-      ];
+      const starter = (sv: boolean, modern = true) => ({
+        name: 'ChasHack', description: sv ? 'En helg för att bygga tillsammans, lära av varandra och visa vad ni skapat.' : 'A weekend to build together, learn from each other, and show what you made.',
+        cleanupDelayHours: 48, form: { ...DEFAULT_FORM, title: sv ? 'Anmäl dig till ChasHack' : 'Join ChasHack', description: sv ? 'Berätta lite om dig själv så hjälper vi dig att hitta ett lag.' : 'Tell us a little about yourself and we’ll help you find a team.', signupMode: 'both', participantChannels: false }, assignmentStrategy: 'random',
+        schedule: [
+          { id: '__signup__', time: 0, anchor: 'signup_start', offsetMinutes: 0, title: sv ? 'Anmälan öppnar' : 'Registration opens', kind: 'custom', actions: [{ id: 'signup-panel', type: 'post_signup' }, { id: 'publish-schedule', type: 'publish_schedule' }] },
+          { id: 'welcome', time: 0, anchor: 'hackathon_start', offsetMinutes: modern ? 0 : 600, ...(modern ? { offsetMode: 'elapsed', withinEvent: true } : {}), title: sv ? 'Välkommen och introduktion' : 'Welcome and introductions', description: sv ? 'Träffa deltagarna och gå igenom helgens upplägg.' : 'Meet the community and get oriented for the weekend.', kind: 'talk' },
+          { id: 'fika', time: 0, anchor: 'hackathon_start', offsetMinutes: modern ? 180 : 900, ...(modern ? { offsetMode: 'elapsed', withinEvent: true } : {}), title: 'Fika', description: sv ? 'Kaffe, något gott och en paus tillsammans.' : 'Coffee, something sweet, and a break together.', kind: 'break' },
+          { id: 'dinner', time: 0, anchor: 'hackathon_start', offsetMinutes: modern ? 360 : 1080, ...(modern ? { offsetMode: 'elapsed', withinEvent: true } : {}), title: sv ? 'Middag' : 'Dinner', description: sv ? 'Ät tillsammans och byt idéer.' : 'Eat together and exchange ideas.', kind: 'food', actions: [{ id: 'dinner-note', type: 'announce', title: '{schedule_title}', message: '{schedule_desc} · {schedule_time}' }] },
+          { id: 'demos', time: 0, anchor: 'hackathon_end', offsetMinutes: modern ? -60 : 840, ...(modern ? { offsetMode: 'elapsed', withinEvent: true } : {}), title: sv ? 'Demo och avslutning' : 'Demos and wrap-up', description: sv ? 'Visa vad ni byggt och vad ni lärt er.' : 'Show what you built and share what you learned.', kind: 'talk' },
+        ],
+      });
       await seedIfEmpty('event', [
-        { name: 'Default Hackathon', json: JSON.stringify({ name: 'ChasHack', description: '48-hour hackathon — build, ship, demo!', cleanupDelayHours: 48, signupStartsAt: signupStarts, signupEndsAt: signupEnds, startsAt: hackStarts, endsAt: hackEnds, form: DEFAULT_FORM, schedule: sched, assignmentStrategy: 'random' }) },
+        { name: 'EN · Community build weekend', json: JSON.stringify(starter(false)) },
+        { name: 'SV · Bygghelg tillsammans', json: JSON.stringify(starter(true)) },
       ]);
+      // Upgrade only byte-for-byte unedited v2 starters. Never recreate deleted
+      // rows or rewrite custom templates or existing events.
+      const upgradeKey = 'starter_templates_v3:' + guildId + ':event';
+      const upgrade = await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', upgradeKey, '1');
+      if (upgrade.changes !== 0) for (const [name, sv] of [['EN · Community build weekend', false], ['SV · Bygghelg tillsammans', true]] as const) {
+        await db.run("UPDATE event_templates SET json = ? WHERE guild_id = ? AND kind = 'event' AND name = ? AND json = ?", JSON.stringify(starter(sv)), guildId, name, JSON.stringify(starter(sv, false)));
+      }
     }
     const rows =
       kind === undefined
@@ -719,8 +760,8 @@ export async function deleteTemplate(db: Db, actor: string, templateId: string):
 }
 
 /** Build CreateEventInput from an 'event' template. */
-export function templateToEventInput(json: string): Partial<CreateEventInput> {
-  const parsed = JSON.parse(json) as Partial<CreateEventInput & { form: Partial<FormConfig> }>;
+export function templateToEventInput(json: string): Partial<CreateEventInput> & { assignmentCollectionId?: string } {
+  const parsed = JSON.parse(json) as Partial<CreateEventInput & { form: Partial<FormConfig>; assignmentCollectionId: string }>;
   return {
     ...(parsed.name !== undefined ? { name: parsed.name } : {}),
     ...(parsed.description !== undefined ? { description: parsed.description } : {}),
@@ -728,6 +769,7 @@ export function templateToEventInput(json: string): Partial<CreateEventInput> {
     ...(parsed.form !== undefined ? { form: parsed.form } : {}),
     ...(parsed.schedule !== undefined ? { schedule: normalizeSchedule(parsed.schedule) } : {}),
     ...(parsed.assignments !== undefined ? { assignments: normalizeAssignments(parsed.assignments) } : {}),
+    ...(typeof parsed.assignmentCollectionId === 'string' && parsed.assignmentCollectionId.trim() ? { assignmentCollectionId: parsed.assignmentCollectionId.trim() } : {}),
     ...(parsed.assignmentStrategy !== undefined
       ? { assignmentStrategy: parsed.assignmentStrategy === 'same' ? 'same' : 'random' }
       : {}),
@@ -762,7 +804,7 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
         const ar = a as Record<string, unknown>
         if (!ar || typeof ar.type !== 'string') continue
         const atype = String(ar.type).trim() as ScheduleAction['type']
-        if (!['announce','lock_teams','assign_random','auto_match','post_signup','distribute_assignments'].includes(atype)) continue
+        if (!['announce','lock_teams','assign_random','auto_match','post_signup','publish_schedule','distribute_assignments'].includes(atype)) continue
         const aid = String(ar.id ?? '').trim() || newId('sact')
         if (atype === 'announce') {
           if (typeof ar.title !== 'string' || typeof ar.message !== 'string') continue
@@ -771,9 +813,9 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
           if (!atitle || !amsg) continue
           const chan = ar.channelId !== undefined && ar.channelId !== null ? String(ar.channelId).trim() || null : null
           norm.push({ id: aid, type: 'announce', title: atitle, message: amsg, ...(chan ? { channelId: chan } : {}) })
-        } else if (atype === 'post_signup') {
+        } else if (atype === 'post_signup' || atype === 'publish_schedule') {
           const chan = ar.channelId !== undefined && ar.channelId !== null ? String(ar.channelId).trim() || null : null
-          norm.push({ id: aid, type: 'post_signup', ...(chan ? { channelId: chan } : {}) })
+          norm.push({ id: aid, type: atype, ...(chan ? { channelId: chan } : {}) })
         } else if (atype === 'distribute_assignments') {
           const mode = String(ar.mode ?? 'random').trim() as ScheduleAction['mode']
           const m = mode === 'same' ? 'same' : 'random'
@@ -785,7 +827,7 @@ function normalizeSchedule(items: ScheduleItem[]): ScheduleItem[] {
       }
       if (norm.length > 0) actions = norm.slice(0, 10)
     }
-    out.push({ id, time: rawTime, title, ...(description ? { description } : {}), ...(kind ? { kind } : {}), ...(actions ? { actions } : {}), ...(hasAnchor ? { anchor: anchorRaw as ScheduleAnchor, offsetMinutes: Math.round(offsetRaw as number) } : {}) });
+    out.push({ id, time: rawTime, title, ...(description ? { description } : {}), ...(kind ? { kind } : {}), ...(actions ? { actions } : {}), ...(hasAnchor ? { anchor: anchorRaw as ScheduleAnchor, offsetMinutes: Math.round(offsetRaw as number), ...(rec.offsetMode === 'elapsed' ? { offsetMode: 'elapsed' as const, ...(rec.withinEvent === true ? { withinEvent: true } : {}) } : {}) } : {}) });
   }
   out.sort((a, b) => a.time - b.time);
   return out.slice(0, 50);
@@ -879,11 +921,12 @@ export function planMaintenance(events: HackathonEvent[], now: number): Maintena
       if (event.endsAt !== null && event.endsAt <= now) {
         actions.push({ type: 'end_event', eventId: event.id });
       }
-      // Schedule items: fire once when time is reached (within 10 min window to avoid backlog spam)
+      // Durable operations catch up after downtime; message delivery has its own persisted receipts.
       const announced = new Set(event.announcedScheduleIds ?? [])
       for (const item of event.schedule ?? []) {
+        if (!scheduleTimeResolved(event, item)) continue
         if (announced.has(item.id)) continue
-        if (item.time <= now && now - item.time <= 60*60*1000 && item.time > now - 24*3600*1000) {
+        if (item.time <= now) {
           actions.push({ type: 'schedule', eventId: event.id, scheduleId: item.id })
         }
       }
@@ -1000,7 +1043,9 @@ export function renderAnnouncementTags(template: string, event: HackathonEvent, 
     content = content.replaceAll('{end_date}', f2)
   } else { content = content.replaceAll('{endsAt}', 'TBA'); content = content.replaceAll('{end_date}', 'TBA') }
 
-  // schedule
+  // The full schedule is available in both global and per-block messages.
+  const schedList = (event.schedule ?? []).filter(s => scheduleTimeResolved(event, s)).map(s=> `• <t:${Math.floor(s.time/1000)}:t> ${s.title}`).join('\n') || 'No schedule yet'
+  content = content.replaceAll('{schedule}', schedList)
   if (ctx.scheduleItem) {
     content = content.replaceAll('{schedule_title}', ctx.scheduleItem.title)
     content = content.replaceAll('{schedule_desc}', ctx.scheduleItem.description ?? '')
@@ -1008,9 +1053,7 @@ export function renderAnnouncementTags(template: string, event: HackathonEvent, 
     content = content.replaceAll('{timer_schedule}', `<t:${Math.floor(ctx.scheduleItem.time/1000)}:R>`)
     content = content.replaceAll('{schedule_kind}', ctx.scheduleItem.kind ?? 'custom')
   } else {
-    // if no specific item, {schedule} = list, others empty
-    const schedList = (event.schedule ?? []).map(s=> `• <t:${Math.floor(s.time/1000)}:t> ${s.title}`).join('\n') || 'No schedule yet'
-    content = content.replaceAll('{schedule}', schedList)
+    // Without a specific item, block-specific values are empty.
     content = content.replaceAll('{schedule_title}', '')
     content = content.replaceAll('{schedule_desc}', '')
     content = content.replaceAll('{schedule_time}', '')

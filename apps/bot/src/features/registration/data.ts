@@ -40,6 +40,20 @@ export async function saveRegistrationAnswers(
   });
 }
 
+/** Participant saves preserve hidden and retired answers under the same event lock. */
+export async function saveParticipantAnswers(
+  db: Db, eventId: string, userId: string, formVersion: number,
+  answers: RegistrationAnswers['answers'], visibleQuestionIds: readonly string[],
+): Promise<Result<RegistrationAnswers>> {
+  return db.transaction(async () => {
+    await db.get('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
+    const existing = await getRegistrationAnswers(db, eventId, userId);
+    const visibleIds = new Set(visibleQuestionIds);
+    const retained = Object.fromEntries(Object.entries(existing?.answers ?? {}).filter(([id]) => !visibleIds.has(id)));
+    return saveRegistrationAnswers(db, eventId, userId, formVersion, { ...retained, ...answers });
+  });
+}
+
 export async function deleteRegistrationAnswers(db: Db, eventId: string, userId: string): Promise<void> {
   await db.run('DELETE FROM registration_answers WHERE event_id = ? AND user_id = ?', eventId, userId);
 }

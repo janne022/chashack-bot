@@ -22,6 +22,8 @@ export interface AsyncDb {
  * slice data module.
  */
 export interface Db extends AsyncDb {
+  /** Try a process-independent lock on a dedicated session; false means another worker holds it. */
+  tryAdvisoryLock(key: string, fn: () => Promise<void>): Promise<boolean>;
   close(): void | Promise<void>;
 }
 

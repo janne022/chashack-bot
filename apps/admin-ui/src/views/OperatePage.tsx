@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearch } from '@tanstack/react-router'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { Users, UsersRound, Sparkles } from 'lucide-react'
 import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
@@ -13,6 +13,7 @@ type Tab = 'participants' | 'teams' | 'matching'
 export function OperatePage() {
   const { state, refresh } = useAppContext()
   const t = useT()
+  const navigate = useNavigate()
   const search = useSearch({ from: '/operations' }) as { tab?: Tab }
   const initial: Tab = search?.tab && ['participants', 'teams', 'matching'].includes(search.tab) ? search.tab : 'participants'
   const [tab, setTab] = useState<Tab>(initial)
@@ -34,20 +35,20 @@ export function OperatePage() {
         <p className="text-sm text-muted-foreground">{t('operate.subtitle')}</p>
       </header>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+      <Tabs value={tab} onValueChange={(v) => { setTab(v as Tab); void navigate({ to: '/operations', search: { tab: v as Tab } }) }}>
         <TabsList className="w-full justify-start">
-          <TabsTrigger value="participants" className="gap-1.5">
-            <Users className="size-4" />
+          <TabsTrigger value="participants" className="min-w-0 gap-1 px-1 text-xs sm:gap-1.5 sm:px-3 sm:text-sm">
+            <Users className="hidden size-4 sm:block" />
             {t('nav.participants')}
             <span className="ml-1 rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">{counts.participants}</span>
           </TabsTrigger>
-          <TabsTrigger value="teams" className="gap-1.5">
-            <UsersRound className="size-4" />
+          <TabsTrigger value="teams" className="min-w-0 gap-1 px-1 text-xs sm:gap-1.5 sm:px-3 sm:text-sm">
+            <UsersRound className="hidden size-4 sm:block" />
             {t('nav.teams')}
             <span className="ml-1 rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">{counts.teams}</span>
           </TabsTrigger>
-          <TabsTrigger value="matching" className="gap-1.5">
-            <Sparkles className="size-4" />
+          <TabsTrigger value="matching" className="min-w-0 gap-1 px-1 text-xs sm:gap-1.5 sm:px-3 sm:text-sm">
+            <Sparkles className="hidden size-4 sm:block" />
             {t('nav.matching')}
             {counts.matching > 0 && <span className="ml-1 rounded-md bg-accent-soft px-1.5 py-0.5 text-xs font-medium text-accent">{counts.matching}</span>}
           </TabsTrigger>

@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { chromePath } from './chrome-path.mjs';
 
 export async function startChrome(profile, { executable = chromePath, args = [], timeoutMs = 10000 } = {}) {
-  const chrome = spawn(executable, [...args, '--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'pipe'] }); // g0:allow:secrets t_15e7ed4e — public Chromium launch flags, no credential.
+  const chrome = spawn(executable, [...args, '--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { detached: process.platform !== 'win32', windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] }); // g0:allow:secrets t_15e7ed4e — public Chromium launch flags, no credential.
   let stderr = '', spawnError, announcedUrl, lastEndpointError = 'no endpoint published';
   chrome.stderr.setEncoding('utf8');
   chrome.stderr.on('data', chunk => {
@@ -16,9 +16,9 @@ export async function startChrome(profile, { executable = chromePath, args = [],
   const closed = new Promise(resolve => chrome.once('close', resolve));
   const stop = async () => {
     if (chrome.pid) {
-      try { process.kill(-chrome.pid, 'SIGTERM'); } catch {}
+      try { if (process.platform === 'win32') chrome.kill(); else process.kill(-chrome.pid, 'SIGTERM'); } catch {}
       // The owned process group may outlive the launcher (e.g. a Chrome wrapper).
-      const timer = setTimeout(() => { try { process.kill(-chrome.pid, 'SIGKILL'); } catch {} }, 3000);
+      const timer = setTimeout(() => { try { if (process.platform === 'win32') chrome.kill('SIGKILL'); else process.kill(-chrome.pid, 'SIGKILL'); } catch {} }, 3000);
       try { await closed; } finally { clearTimeout(timer); }
     }
   };

@@ -95,6 +95,7 @@ export async function openPostgres(value: string, schema?: string, poolSize = 10
   // ponytail: per-handle queue preserves check/write semantics; relax only with explicit slice concurrency contracts.
   let queue: Promise<unknown> = Promise.resolve();
   let closed = false;
+  let lockPool: Pool | undefined;
   const enqueue = <T>(fn: () => Promise<T>): Promise<T> => {
     if (closed) return Promise.reject(new Error('Database is closed'));
     const result = queue.then(fn);
@@ -119,6 +120,38 @@ export async function openPostgres(value: string, schema?: string, poolSize = 10
     async run(sql, ...params) {
       const result = await query(sql, params);
       return { changes: result.rowCount ?? 0, lastInsertRowid: 0 };
+    },
+    async tryAdvisoryLock(key, fn) {
+      if (closed) throw new Error('Database is closed');
+      if (context.getStore()) throw new Error('Cannot acquire a session lock inside a transaction');
+      // A separate pool avoids holding the application queue or exhausting a
+      // single-connection application pool during external network calls.
+      if (!lockPool) {
+        lockPool = new Pool({ max: 4, connectionTimeoutMillis: 5000, ...parseDatabaseUrl(value),
+          ...(schema === undefined ? {} : { options: `-c search_path=${schema}` }) });
+        lockPool.on('error', () => console.error('PostgreSQL idle lock connection failed'));
+      }
+      const client = await lockPool.connect();
+      let broken = false, acquired = false;
+      const connectionError = () => { broken = true; };
+      client.on('error', connectionError);
+      try {
+        const lockKey = `chashack:${currentSchema}:${key}`;
+        acquired = (await client.query<{ acquired: boolean }>('SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired', [lockKey])).rows[0]?.acquired === true;
+        if (!acquired) return false;
+        await fn();
+        if (broken) throw new Error('PostgreSQL advisory lock connection was lost');
+        return true;
+      } finally {
+        if (acquired && !broken) {
+          try {
+            const result = await client.query<{ released: boolean }>('SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS released', [`chashack:${currentSchema}:${key}`]);
+            if (result.rows[0]?.released !== true) broken = true;
+          } catch { broken = true; }
+        }
+        client.removeListener('error', connectionError);
+        client.release(broken);
+      }
     },
     transaction<T>(fn: () => Promise<T>): Promise<T> {
       const parent = context.getStore();
@@ -168,6 +201,7 @@ export async function openPostgres(value: string, schema?: string, poolSize = 10
       closed = true;
       await closeChangeSource(db);
       await queue;
+      if (lockPool) await lockPool.end();
       await pool.end();
     },
   };

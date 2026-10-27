@@ -1,8 +1,9 @@
+import { PageSkeleton } from '@/components/ui/skeleton'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { api } from '@/api'
+import { api, ApiError } from '@/api'
 import type { FormConfig, ImportedSignup } from '@/types'
-import { useT } from '@/lib/i18n'
+import { useLocale, useT } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,6 +22,7 @@ const CORE_FIELDS = ['name', 'email', 'discordUsername', 'allergies', 'experienc
 
 export function ImportedSignups({ eventId, eventName, form }: { eventId: string; eventName: string; form: FormConfig }) {
   const t = useT()
+  const locale = useLocale()
   const [records, setRecords] = useState<ImportedSignup[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -46,11 +48,25 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   const [selectedMember, setSelectedMember] = useState<Member | null>(null)
   const [memberBusy, setMemberBusy] = useState(false)
   const [memberError, setMemberError] = useState('')
+  const [templates, setTemplates] = useState<{ id: string; label: { en: string; sv: string }; description: { en: string; sv: string } }[]>([])
+  const [templateId, setTemplateId] = useState('')
+  const [appliedTemplate, setAppliedTemplate] = useState<string | null>(null)
+  const [saveWarnings, setSaveWarnings] = useState<{ row: number; issues: string[] }[]>([])
+
+  function describeError(error: unknown, fallback: string) {
+    if (error instanceof ApiError) {
+      if (error.unauthorized) return t('imports.session_expired')
+      if (['access_refused', 'not_allowed', 'forbidden'].includes(error.code)) return t('imports.access_denied')
+      if (['csrf', 'bad_origin', 'origin_mismatch'].includes(error.code)) return t('imports.origin_error')
+    }
+    if (error instanceof TypeError) return t('imports.network_error')
+    return error instanceof Error ? error.message : t(fallback)
+  }
 
   async function reload() {
     setLoading(true); setLoadError('')
     try { setRecords((await api.importedSignups(eventId)).records) }
-    catch (e) { setLoadError(e instanceof Error ? e.message : t('imports.load_failed')) }
+    catch (e) { setLoadError(describeError(e, 'imports.load_failed')) }
     finally { setLoading(false) }
   }
   useEffect(() => { void reload() }, [eventId])
@@ -66,32 +82,46 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   async function chooseFile(next: File | undefined) {
     setError(''); setPreview([]); setSummary(null); setSelectedRow(null); setExcluded([])
     if (!next) { setFile(null); setCsv(''); return }
+    setCsv(''); setFile(null); setHeaders([]); setMapping({})
+    if (!/\.csv$/i.test(next.name)) { setError(t('imports.csv_only')); return }
+    if (next.size === 0) { setError(t('imports.file_empty')); return }
     if (next.size > 1_000_000) { setError(t('imports.file_too_large')); setFile(null); setCsv(''); return }
     setFile(next)
     try { setCsv(await next.text()) }
     catch { setError(t('imports.file_read_failed')) }
   }
 
-  async function runPreview(nextMapping = mapping) {
+  useEffect(() => {
+    if (!importOpen) return
+    let active = true
+    void api.signupImportTemplates(eventId)
+      .then(result => { if (active) setTemplates(result.templates) })
+      .catch(() => { if (active) setTemplates([]) })
+    return () => { active = false }
+  }, [importOpen, eventId])
+
+  async function runPreview(nextMapping = mapping, nextTemplate = templateId) {
     if (!csv || pending) return
     setPending(true); setError('')
     try {
-      const result = await api.previewSignupImport(eventId, csv, Object.keys(nextMapping).length ? nextMapping : undefined)
+      const result = await api.previewSignupImport(eventId, csv, Object.keys(nextMapping).length ? nextMapping : undefined, nextTemplate || null)
       setHeaders(result.headers); setMapping(result.suggestedMapping); setPreview(result.rows); setSummary(result.summary)
+      setAppliedTemplate(result.presetId)
       setSelectedRow(result.rows[0]?.rowNumber ?? null)
-    } catch (e) { setError(e instanceof Error ? e.message : t('imports.preview_failed')) }
+    } catch (e) { setError(describeError(e, 'imports.preview_failed')) }
     finally { setPending(false) }
   }
 
   async function confirmImport() {
     const rows = preview.filter(row => !excluded.includes(row.rowNumber) && row.duplicateStatus !== 'duplicate')
     if (!rows.length || pending) return
-    setPending(true); setError('')
+    setPending(true); setError(''); setSaveWarnings([])
     try {
       const result = await api.importSignups(eventId, rows.map(row => ({ sourceRow: row.rowNumber, values: row.values, answers: row.answers })))
       toast.success(t('imports.saved_summary', { saved: result.saved, skipped: result.skipped, conflicts: result.conflicts }))
+      setSaveWarnings(result.warnings ?? [])
       setImportOpen(false); setFile(null); setCsv(''); setPreview([]); setSummary(null); await reload()
-    } catch (e) { setError(e instanceof Error ? e.message : t('imports.save_failed')) }
+    } catch (e) { setError(describeError(e, 'imports.save_failed')) }
     finally { setPending(false) }
   }
 
@@ -103,7 +133,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   async function searchMembers() {
     setMemberBusy(true); setMemberError(''); setSelectedMember(null)
     try { setMembers((await api.searchGuildMembers(memberQuery)).members) }
-    catch (e) { setMembers([]); setMemberError(e instanceof Error ? e.message : t('imports.member_search_failed')) }
+    catch (e) { setMembers([]); setMemberError(describeError(e, 'imports.member_search_failed')) }
     finally { setMemberBusy(false) }
   }
 
@@ -116,7 +146,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
         ...(link && selectedMember ? { linkDiscordUserId: selectedMember.id } : {}),
       })
       setEditId(null); await reload()
-    } catch (e) { setMemberError(e instanceof Error ? e.message : t('imports.save_failed')) }
+    } catch (e) { setMemberError(describeError(e, 'imports.save_failed')) }
     finally { setPending(false) }
   }
 
@@ -138,11 +168,20 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
       <Button onClick={() => { setImportOpen(true); setError('') }}><Upload />{t('imports.action')}</Button>
     </header>
     <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">{t('imports.discord_limitation')}</p>
+    {saveWarnings.length > 0 && <div className="space-y-1 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-medium">{t('imports.saved_with_warnings', { count: saveWarnings.length })}</p>
+        <Button variant="ghost" size="sm" onClick={() => setSaveWarnings([])}>{t('common.clear')}</Button>
+      </div>
+      <ul className="list-disc space-y-1 pl-5 text-xs">
+        {saveWarnings.map(warning => <li key={warning.row}>{t('imports.saved_warning_row', { row: warning.row })}: {warning.issues.join(' · ')}</li>)}
+      </ul>
+    </div>}
     <div className="flex flex-wrap items-center gap-3">
       <div className="min-w-48 flex-1"><Label htmlFor="import-search">{t('common.search')}</Label><Input id="import-search" value={search} onChange={e => setSearch(e.target.value)} /></div>
       <Checkbox className="min-h-10" checked={attentionOnly} onCheckedChange={v => setAttentionOnly(Boolean(v))}>{t('imports.needs_attention')}</Checkbox>
     </div>
-    {loading ? <p aria-busy="true">{t('imports.loading')}</p> : loadError ? <div role="alert" className="space-y-2"><p>{loadError}</p><Button variant="outline" onClick={() => void reload()}>{t('common.retry')}</Button></div> : records.length === 0 ? <EmptyState icon={<Upload className="size-5" />} title={t('imports.empty')} description={t('imports.empty_desc')} action={<Button onClick={() => setImportOpen(true)}><Upload />{t('imports.action')}</Button>} /> : visibleRecords.length === 0 ? <Card><CardContent className="flex items-center justify-between py-4 text-sm"><span>{t('imports.no_matches')}</span><Button variant="ghost" onClick={() => { setSearch(''); setAttentionOnly(false) }}>{t('common.clear')}</Button></CardContent></Card> : <div className="grid gap-3 md:grid-cols-2">
+    {loading ? <PageSkeleton /> : loadError ? <div role="alert" className="space-y-2"><p>{loadError}</p><Button variant="outline" onClick={() => void reload()}>{t('common.retry')}</Button></div> : records.length === 0 ? <EmptyState icon={<Upload className="size-5" />} title={t('imports.empty')} description={t('imports.empty_desc')} action={<Button onClick={() => setImportOpen(true)}><Upload />{t('imports.action')}</Button>} /> : visibleRecords.length === 0 ? <Card><CardContent className="flex items-center justify-between py-4 text-sm"><span>{t('imports.no_matches')}</span><Button variant="ghost" onClick={() => { setSearch(''); setAttentionOnly(false) }}>{t('common.clear')}</Button></CardContent></Card> : <div className="grid gap-3 md:grid-cols-2">
       {visibleRecords.map(record => <Card key={record.id}>
         <CardHeader className="pb-2"><CardTitle className="text-base">{record.values.name || t('imports.unnamed')} <span className="text-xs font-normal text-muted-foreground">· {t(`imports.state_${record.state}`)}</span></CardTitle><CardDescription>{record.values.email || t('imports.no_email')} · {record.values.groupName || t('imports.no_group')}</CardDescription></CardHeader>
         <CardContent className="space-y-2 text-sm">
@@ -160,9 +199,21 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
         <DialogDescription>{t('imports.limits')}</DialogDescription>
         <div className="space-y-4">
           <div className="space-y-2"><Label htmlFor="signup-csv">{t('imports.csv_file')}</Label><Input id="signup-csv" type="file" accept=".csv,text/csv" disabled={pending} onChange={e => void chooseFile(e.currentTarget.files?.[0])} />{file && <p className="text-xs text-muted-foreground">{file.name} · {file.size.toLocaleString()} bytes</p>}</div>
+          {templates.length > 0 && <div className="space-y-1">
+            <Label htmlFor="import-template">{t('imports.template')}</Label>
+            <Select value={templateId || '__auto__'} onValueChange={value => { const next = value === '__auto__' ? '' : value; setTemplateId(next); if (preview.length > 0) void runPreview({}, next) }}>
+              <SelectTrigger id="import-template"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__auto__">{t('imports.template_auto')}</SelectItem>
+                {templates.map(tpl => <SelectItem key={tpl.id} value={tpl.id}>{tpl.label[locale]}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t('imports.template_help')}</p>
+          </div>}
           {!preview.length && <Button disabled={!csv || pending} onClick={() => void runPreview()}>{pending ? t('imports.previewing') : t('imports.preview')}</Button>}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           {preview.length > 0 && <>
+            {appliedTemplate && <p className="text-xs text-muted-foreground">{t('imports.template_applied', { name: templates.find(tpl => tpl.id === appliedTemplate)?.label[locale] ?? appliedTemplate })}</p>}
             <p className="rounded-lg border p-3 text-sm">{t('imports.summary', { create: summary?.create ?? 0, duplicate: summary?.duplicate ?? 0, conflict: summary?.conflict ?? 0 })}</p>
             <div className="space-y-2"><h3 className="font-medium">{t('imports.map_columns')}</h3><div className="grid gap-2 sm:grid-cols-2">{headers.map(header => <div key={header} className="grid min-w-0 grid-cols-1 items-start gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center sm:gap-2"><Label htmlFor={`map-${header}`} className="min-w-0 whitespace-normal break-words">{header}</Label><Select value={mapping[header] || '__source__'} onValueChange={value => setMapping(current => ({ ...current, [header]: value === '__source__' ? '' : value }))}><SelectTrigger id={`map-${header}`} aria-label={`${t('imports.map')} ${header}`} className="w-full min-w-0 [&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__source__">{t('imports.keep_source')}</SelectItem>{CORE_FIELDS.map(key => <SelectItem key={key} value={key}>{fixedLabels[key]}</SelectItem>)}{form.customQuestions?.filter(q => q.visibility !== 'organizer_only').map(q => <SelectItem key={q.id} value={q.id}>{questionLabel(q.label)}</SelectItem>)}</SelectContent></Select></div>)}</div><Button variant="outline" disabled={pending} onClick={() => void runPreview(mapping)}>{t('imports.apply_mapping')}</Button></div>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]">

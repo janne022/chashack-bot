@@ -1,3 +1,4 @@
+import { replyWithWebSignup } from './signup-entry.js';
 /**
  * Modal submit + button/select component handling.
  *
@@ -15,7 +16,7 @@ import {
   type StringSelectMenuInteraction,
 } from 'discord.js';
 import { randomBytes } from 'node:crypto';
-import { MODAL_IDS, validateSignupInput, validateCustomAnswers } from '../features/form/domain.js';
+import { MODAL_IDS, validateSignupInput, validateStoredParticipantAnswers } from '../features/form/domain.js';
 import { upsertParticipant, getParticipant, listTeamRoster } from '../features/signup/data.js';
 import {
   createTeam,
@@ -32,7 +33,7 @@ import { getEvent, getEventForm } from '../features/events/data.js';
 import { getForm } from '../features/form/data.js';
 import { getMessageRef } from '../features/events/data.js';
 import { getRegistrationAnswers } from '../features/registration/data.js';
-import { applyTeamJoin, applyTeamLeave } from './provision.js';
+import { applyTeamJoin, applyTeamLeave, grantTeamRole } from './provision.js';
 import { buildSignupModal, buildCreateTeamModal, buildTeamSettingsModal, buildTeamInviteModal, CREATE_TEAM_IDS, TEAM_SETTINGS_IDS, TEAM_INVITE_TARGET_ID } from './modal.js';
 import { isCurrentTeamPanel, refreshTeamPanel } from './team-panel.js';
 import { IDS, buildParticipantEmbed, displayErr, embedErr, embedOk, eph, type Ctx } from './shared.js';
@@ -223,6 +224,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
     return;
   }
 
+  if (await replyWithWebSignup(i, ctx)) return;
   const raw = {
     displayName: i.fields.getTextInputValue(MODAL_IDS.name),
     experience: i.fields.getStringSelectValues(MODAL_IDS.experience)[0] ?? '',
@@ -262,7 +264,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
   // create-team opens its modal, join/browse opens the team picker.
   const registration = await getRegistrationAnswers(ctx.db, ctx.eventId, i.user.id);
   const customAnswers = registration?.formVersion === ctx.config.version ? registration.answers : {};
-  const customValidation = validateCustomAnswers(ctx.config, customAnswers);
+  const customValidation = validateStoredParticipantAnswers(ctx.config, customAnswers);
   const incomplete = !customValidation.ok || customValidation.missingRequiredQuestionIds.length > 0;
   const actions = incomplete
     ? ctx.webCompletionUrl
@@ -281,7 +283,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
     embeds: [
       embedOk(t(locale, 'discord.join.saved_title'), incomplete
         ? `${t(locale, 'discord.join.incomplete_web')}${ctx.webCompletionUrl ? `\n\n${t(locale, 'discord.join.web_completion', { url: `<${ctx.webCompletionUrl}>` })}` : ''}`
-        : `${t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })}${ctx.webCompletionUrl ? `\n\n${t(locale, 'discord.join.web_completion', { url: `<${ctx.webCompletionUrl}>` })}` : ''}`),
+        : t(locale, 'discord.join.saved_thanks', { name: result.value.displayName, hint: prefHint })),
       await buildParticipantEmbed(ctx.db, ctx.config, saved.value, locale),
     ],
     components: actions === null ? [] : [actions],
@@ -422,6 +424,7 @@ export async function onComponent(
       await i.reply(eph(t(locale, 'errors.blocked')));
       return;
     }
+    if (i.isButton() && await replyWithWebSignup(i, ctx)) return;
     await i.showModal(buildSignupModal(ctx.config, locale, `hack:signup:event:${ctx.eventId}`));
     return;
   }
@@ -624,7 +627,11 @@ export async function onComponent(
     if (res.ok && res.value !== null) await applyTeamLeave({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value, userId);
     if (res.ok && value !== '__none__') {
       const destination = await getTeam(ctx.db, value);
-      if (destination !== null) await refreshTeamPanel({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, destination, locale);
+      if (destination !== null) {
+        const provisionDeps = { db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
+        await grantTeamRole(provisionDeps, destination, userId);
+        await refreshTeamPanel(provisionDeps, destination, locale);
+      }
     }
     await i.update({
       content: res.ok ? t(locale, 'discord.admin.moved_done', { user: userId }) : '',

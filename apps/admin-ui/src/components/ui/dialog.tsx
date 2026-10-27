@@ -63,6 +63,10 @@ function DialogContent({
           className
         )}
         {...props}
+        onEscapeKeyDown={event => {
+          if (document.querySelector('[data-tag-suggestions]')) event.preventDefault()
+          props.onEscapeKeyDown?.(event)
+        }}
       >
         {children}
         {showCloseButton && (

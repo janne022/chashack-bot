@@ -53,7 +53,37 @@ test('maintenance waits for the schedule marker read before returning', async ()
   }
 });
 
-test('scheduled signup posting uses event form and reports Discord delivery failures', async () => {
+test('concurrent maintenance passes send a reminder only once', async () => {
+  const db = await openTestDb();
+  const now = Date.now();
+  const guildId = '123456789012345678';
+  await db.run(`INSERT INTO events (id, guild_id, name, status, starts_at, panel_channel_id, created_at, updated_at)
+    VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`, 'reminder-event', guildId, 'Event', now + 3600000, '223456789012345678', now, now);
+  let entered!: () => void;
+  let release!: () => void;
+  const sending = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let sends = 0;
+  const channel = { isTextBased: () => true, send: async () => { sends++; entered(); await gate; } };
+  const guild = { id: guildId, channels: { fetch: async () => channel } };
+  const client = { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild } } as unknown as Client;
+  const first = runMaintenance({ db, client, now });
+  try {
+    await sending;
+    await runMaintenance({ db, client, now });
+    assert.equal(sends, 1);
+    release();
+    await first;
+    await runMaintenance({ db, client, now });
+    assert.equal(sends, 1, 'a later pass must observe the completed reminder');
+  } finally {
+    release();
+    await first;
+    await db.close();
+  }
+});
+
+test('scheduled signup posting uses the event form and records delivery', async () => {
   const db = await openTestDb();
   const now = Date.now();
   const schedule = [{ id: 'signup', time: now - 1, title: 'Signup opens', actions: [{ id: 'post', type: 'post_signup', channelId: '11111111111111111' }] }];
@@ -66,31 +96,45 @@ test('scheduled signup posting uses event form and reports Discord delivery fail
       VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`, id, guild, id, form, JSON.stringify(blocks), now, now);
   }
   const posted: unknown[] = [];
-  const makeGuild = (guildId: string, shouldFail: boolean) => ({
-    id: guildId,
-    channels: { fetch: async () => ({ isTextBased: () => true, messages: { fetch: async () => null }, send: async (payload: unknown) => {
-      posted.push(payload);
-      if (shouldFail) throw new Error('missing send permission');
-      return { id: 'panel-message-1' };
-    } }) },
-  });
+  let sends = 0;
+  const makeGuild = (guildId: string, shouldFail: boolean) => {
+    const messages = new Map<string, { id: string; author: { id: string }; payload: unknown; edit: (next: unknown) => Promise<void> }>();
+    return {
+      id: guildId,
+      channels: {
+        fetch: async () => ({
+          isTextBased: () => true,
+          messages: { fetch: async (id: string) => messages.get(id) ?? null },
+          send: async (payload: unknown) => {
+            if (shouldFail) throw new Error('missing send permission');
+            const message = { id: `panel-message-${++sends}`, author: { id: 'bot-user' }, payload, edit: async (next: unknown) => { message.payload = next; } };
+            messages.set(message.id, message);
+            posted.push(payload);
+            return message;
+          },
+        }),
+      },
+    };
+  };
   const guilds = new Map([
     [guildOk, makeGuild(guildOk, false)], [guildFail, makeGuild(guildFail, true)],
   ]);
   const client = { user: { id: 'bot-user' }, guilds: { cache: guilds, fetch: async (id: string) => guilds.get(id) ?? null } } as unknown as Client;
   try {
-    const summary = await runMaintenance({ db, client });
-    assert.ok(summary.some(line => line.includes('schedule signup: event-ok')));
-    assert.ok(summary.some(line => line.includes('schedule signup failed: event-fail') && line.includes('Could not post the panel')));
-    assert.match((posted[0] as { embeds: { data: { description: string } }[] }).embeds[0]!.data.description, /Event-local form description/);
-    assert.equal((posted[0] as { components: { components: { data: { custom_id: string } }[] }[] }).components[0]!.components[0]!.data.custom_id, 'hack:panel:event-ok:signup');
-    const failureAudit = await withGuildContext(db, guildFail, () => db.get("SELECT 1 FROM audit_log WHERE actor = 'system' AND action = 'schedule.post_signup_failed' AND target = ?", 'event-fail'));
-    assert.equal(failureAudit !== undefined, true);
+    await runMaintenance({ db, client });
+    const okPayload = posted[0] as { embeds: { data: { description: string } }[]; components: { components: { data: { custom_id: string } }[] }[] };
+    assert.ok(okPayload, 'the event-scoped signup panel is posted');
+    assert.match(okPayload.embeds[0]!.data.description, /Event-local form description/);
+    assert.equal(okPayload.components[0]!.components[0]!.data.custom_id, 'hack:panel:event-ok:signup');
+    const okRef = await withGuildContext(db, guildOk, () => getSignupPanelRef(db, guildOk, 'event-ok'));
+    assert.ok(okRef, 'a successful post is recorded for later edits');
+    assert.equal(await withGuildContext(db, guildFail, () => getSignupPanelRef(db, guildFail, 'event-fail')), null, 'a failed post records nothing');
+    await runMaintenance({ db, client });
+    assert.equal(sends, 1, 'the recorded delivery is not re-posted');
+    // A later manual refresh edits the recorded message rather than creating a second panel.
     const manual = await withGuildContext(db, guildOk, () => postOrUpdatePanel(db, client, guildOk, '11111111111111111'));
-    assert.ok(!('error' in manual));
-    const manualPayload = posted.at(-1) as { embeds: { data: { description: string } }[]; components: { components: { data: { custom_id: string } }[] }[] };
-    assert.match(manualPayload.embeds[0]!.data.description, /Event-local form description/);
-    assert.equal(manualPayload.components[0]!.components[0]!.data.custom_id, 'hack:panel:event-ok:signup');
+    assert.ok(!('error' in manual) && manual.edited);
+    assert.equal(manual.messageId, okRef!.messageId);
   } finally { await db.close(); }
 });
 
@@ -117,8 +161,8 @@ test('two active event panels remain independent in shared and different channel
       "INSERT INTO events (id,guild_id,name,status,form_json,created_at,updated_at) VALUES (?,?,?,'active',?,?,?)",
       `panel-event-${index}`, guildId, form.title, JSON.stringify(form), index + 1, index + 1);
     await setMessageRef(db, `signup_panel:${guildId}`, { channelId, messageId: 'legacy-message' });
-    await postOrUpdatePanel(db, client, guildId, '', 'en', forms[0], 'panel-event-0');
-    await postOrUpdatePanel(db, client, guildId, channelId, 'en', forms[1], 'panel-event-1');
+    await postOrUpdatePanel(db, client, guildId, '', 'en', 'panel-event-0');
+    await postOrUpdatePanel(db, client, guildId, channelId, 'en', 'panel-event-1');
     const a = await getSignupPanelRef(db, guildId, 'panel-event-0');
     const b = await getSignupPanelRef(db, guildId, 'panel-event-1');
     assert.ok(a && b);
@@ -130,7 +174,7 @@ test('two active event panels remain independent in shared and different channel
     await refreshSignupPanel(db, client, guildId);
     assert.equal(sends, 2, 'refresh edits only the selected active event panel');
     assert.equal(JSON.stringify(messages.get(a.messageId)!.payload), originalA);
-    await postOrUpdatePanel(db, client, guildId, secondChannelId, 'en', forms[0], 'panel-event-0');
+    await postOrUpdatePanel(db, client, guildId, secondChannelId, 'en', 'panel-event-0');
     assert.equal((await getSignupPanelRef(db, guildId, 'panel-event-0'))?.channelId, secondChannelId);
     assert.deepEqual(await getSignupPanelRef(db, guildId, 'panel-event-1'), b);
     const context = { db, config: forms[1]!, botLocale: 'en' as const, guildId, actor: 'test', eventId: 'panel-event-1', eventName: 'Event B', hasActiveEvent: true, isAdmin: true, client, categoryIdFor: () => undefined, dm: async () => false };

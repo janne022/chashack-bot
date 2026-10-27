@@ -5,6 +5,7 @@ import { openTestDb } from './test-db.js';
 import { migratePostgres, openPostgres, withGuildContext } from './postgres.js';
 import { openDatabase } from './db.js';
 import { createKysely } from './kysely.js';
+import { clearEventTeamProvisionMarkers, listPendingTeamProvisionIds, markTeamProvisionPending } from '../features/teams/provision-data.js';
 
 test('RLS hides tenant rows without context and rejects cross-tenant writes as app role', async (t) => {
   const db = await openTestDb(1);
@@ -49,6 +50,8 @@ test('RLS hides tenant rows without context and rejects cross-tenant writes as a
         teams: { id: 'team-a', event_id: 'a', guild_id: 'guild-a', name: 'A', kind: 'public', created_at: 1 },
         participants: { event_id: 'a', user_id: 'user', guild_id: 'guild-a', display_name: 'A', experience: '', role_track: '', skills: '[]', team_pref: '', teammates: '[]', created_at: 1, updated_at: 1 },
         registration_answers: { event_id: 'a', user_id: 'user', form_version: 1, answers_json: '{}', updated_at: 1 },
+        submission_forms: { event_id: 'a', version: 1, enabled: 1, allow_edits: 1, questions_json: '[]', updated_at: 1 },
+        submission_answers: { event_id: 'a', user_id: 'user', form_version: 1, answers_json: '{}', created_at: 1, updated_at: 1 },
         imported_signups: { id: 'import-a', event_id: 'a', guild_id: 'guild-a', source_row: 2, source_timestamp: 'unknown', form_version: 1, values_json: '{}', answers_json: '{}', created_at: 1, updated_at: 1 },
         team_requests: { event_id: 'a', guild_id: 'guild-a', team_id: 'team-a', requester_id: 'user', target_id: 'other', kind: 'invite', created_at: 1 },
         member_deletions: { guild_id: 'guild-a', user_id: 'deleted', deleted_at: 1 },
@@ -74,6 +77,15 @@ test('RLS hides tenant rows without context and rejects cross-tenant writes as a
           await withGuildContext(appDb, 'guild-a', () => assert.rejects(insert(appDb!, table, missingGuild), /row-level security|not-null/i, `${table}: omitted guild`));
         }
       }
+      await markTeamProvisionPending(db, 'guild-a', 'a', 'team-a');
+      await markTeamProvisionPending(db, 'guild-b', 'b', 'team-b');
+      assert.deepEqual(await listPendingTeamProvisionIds(appDb, 'a'), []);
+      await withGuildContext(appDb, 'guild-a', async () => {
+        assert.deepEqual(await listPendingTeamProvisionIds(appDb!, 'a'), ['team-a']);
+        assert.deepEqual(await listPendingTeamProvisionIds(appDb!, 'b'), []);
+        await clearEventTeamProvisionMarkers(appDb!, 'b');
+      });
+      await withGuildContext(appDb, 'guild-b', async () => assert.deepEqual(await listPendingTeamProvisionIds(appDb!, 'b'), ['team-b']));
       await assert.rejects(appDb.transaction(() => withGuildContext(appDb!, 'guild-a', () => appDb!.all('SELECT * FROM events'))), /guild.*transaction/i);
       await withGuildContext(appDb, 'guild-a', async () => {
         await assert.rejects(insert(appDb!, 'participants', { ...fixtures.participants, event_id: 'b', user_id: 'forged' }), /row-level security/i);
@@ -145,6 +157,10 @@ test('RLS hides tenant rows without context and rejects cross-tenant writes as a
       });
       const peer = await openPostgres(appUrl.toString(), schema, 1);
       try {
+        assert.equal(await withGuildContext(appDb, 'guild-a', () => appDb!.tryAdvisoryLock('event-delivery:guild-a:a', async () => {
+          assert.equal((await appDb!.get<{ id: string }>('SELECT id FROM events'))?.id, 'a');
+          assert.equal(await peer.tryAdvisoryLock('event-delivery:guild-a:a', async () => assert.fail('lock should be held')), false);
+        })), true);
         let entered = 0;
         let release!: () => void;
         const both = new Promise<void>((resolve) => { release = resolve; });

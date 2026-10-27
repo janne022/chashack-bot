@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { test } from 'node:test';
 import Fastify from 'fastify';
 import type { Env } from '../shared/env.js';
@@ -8,12 +9,14 @@ import { makeDiscordToken } from '../features/auth/domain.js';
 import { registerRoutes } from '../adminweb/routes.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
 import { getMessageRef } from '../features/events/data.js';
-import { adminAssign, createTeam, getTeam, getTeamForUser, type Team } from '../features/teams/data.js';
+import { adminAssign, createTeam, deleteTeam, getTeam, getTeamForUser, joinTeam, type Team } from '../features/teams/data.js';
+import { listPendingTeamProvisionIds } from '../features/teams/provision-data.js';
 import { openTestDb } from '../shared/test-db.js';
 import { openPostgres } from '../shared/postgres.js';
 import { setMembershipLookup } from '../features/signup/eligibility.js';
 import { registerInteractionHandlers } from './dispatch.js';
 import { provisionTeamSpace } from './provision.js';
+import { runMaintenance } from './notify.js';
 import { refreshTeamPanel } from './team-panel.js';
 import { IDS } from './shared.js';
 import { t } from '../shared/i18n.js';
@@ -38,9 +41,12 @@ async function fixture(locale: 'en' | 'sv' = 'en', appRole = false) {
   const messages = new Map<string, { id: string; author: { id: string }; pinned: boolean; payload: Payload; edit: (value: unknown) => Promise<void>; pin: () => Promise<void> }>();
   const dms: { user: string; payload: Payload }[] = [];
   const edits: Payload[] = [];
+  const sentPayloads: Payload[] = [];
   let sends = 0;
   let pinDenied = false;
   let transportDown = false;
+  let channelCreateDown = false;
+  let roleGrantDown = false;
   let handler!: (interaction: unknown) => void;
   let sequence = 0;
   const channel = {
@@ -48,6 +54,7 @@ async function fixture(locale: 'en' | 'sv' = 'en', appRole = false) {
     messages: { fetch: async (id: string) => { const message = messages.get(id); if (!message) throw new Error('Unknown Message'); return message; } },
     send: async (value: unknown) => {
       const payload = plain(value);
+      sentPayloads.push(payload);
       const id = `message-${++sequence}`;
       const message = { id, author: { id: 'bot' }, pinned: false, payload,
         edit: async (next: unknown) => { message.payload = plain(next); edits.push(message.payload); },
@@ -57,13 +64,13 @@ async function fixture(locale: 'en' | 'sv' = 'en', appRole = false) {
       return message;
     },
   };
-  const member = { permissions: { bitfield: 0n }, roles: { cache: new Map<string, unknown>(), add: async () => undefined, remove: async () => undefined } };
+  const member = { permissions: { bitfield: 0n }, roles: { cache: new Map<string, unknown>(), add: async () => { if (roleGrantDown) throw new Error('Missing permissions'); }, remove: async () => undefined } };
   const guild = (id: string) => ({ id, ownerId: 'organizer', members: { me: { id: 'bot' }, fetch: async (input?: string | { user: string }) => {
     if (!input) return new Map();
     if (!members.has(typeof input === 'string' ? input : input.user)) throw new Error('departed');
     return member;
   } }, roles: { everyone: { id }, create: async () => ({ id: 'role' }), fetch: async () => ({ setColor: async () => undefined, setName: async () => undefined }) },
-  channels: { create: async (value: { type: number }) => ({ id: value.type === 0 ? 'text' : 'voice' }), fetch: async () => { if (transportDown) throw new Error('Discord unavailable'); return channel; } } });
+  channels: { create: async (value: { type: number }) => { if (channelCreateDown) throw new Error('Missing permissions'); return { id: value.type === 0 ? 'text' : 'voice' }; }, fetch: async () => { if (transportDown) throw new Error('Discord unavailable'); return channel; } } });
   const guilds = new Map([[GUILD, guild(GUILD)], [OTHER, guild(OTHER)]]);
   const client = { user: { id: 'bot' }, on: (_name: string, callback: typeof handler) => { handler = callback; },
     guilds: { cache: guilds, fetch: async (id: string) => guilds.get(id)! },
@@ -107,8 +114,10 @@ async function fixture(locale: 'en' | 'sv' = 'en', appRole = false) {
     assert.ok(ref);
     return { ref, message: messages.get(ref.messageId)! };
   };
-  return { db, client, deps, members, dms, edits, messages, dispatch, signup, panel,
+  return { db, client, deps, members, dms, edits, messages, sentPayloads, dispatch, signup, panel,
     sends: () => sends, pinDenied: () => { pinDenied = true; }, transportDown: () => { transportDown = true; },
+    failChannelCreate: (value: boolean) => { channelCreateDown = value; },
+    failRoleGrant: (value: boolean) => { roleGrantDown = value; },
     close: async () => { await restricted?.close(); if (roleCreated) { const schema = (await db.get<{ name: string }>('SELECT current_schema() AS name'))!.name; await db.run(`DROP OWNED BY ${role}`); await db.run(`REVOKE ALL ON SCHEMA ${schema} FROM ${role}`); await db.run(`DROP ROLE ${role}`); } await db.close(); },
   };
 }
@@ -182,6 +191,198 @@ for (const locale of ['en', 'sv'] as const) test(`button journey ${locale}: sign
   } finally { await f.close(); }
 });
 
+test('organizer creates a team for an eligible owner and delivers an overdue handout', { timeout: 15000 }, async () => {
+  const f = await fixture();
+  const app = Fastify();
+  try {
+    await f.signup(OWNER);
+    await f.signup(JOINER);
+    f.members.add('organizer');
+    const key = 'organizer-team-http-signing-key-32-characters';
+    registerRoutes(app, { db: f.db, config: { adminSessionSecret: key, adminIds: [], botLanguage: 'en', skipDiscord: false } as unknown as Env, client: f.client as never, announce: async () => undefined });
+    const session = await createSession(f.db, { userId: 'organizer', username: 'Organizer', avatar: null, guilds: [{ id: GUILD, name: 'Guild', icon: null }] });
+    const headers = { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(key, session.id))}` };
+    const schedule = [{ id: 'kickoff', time: Date.now() - 60000, title: 'Start', actions: [{ id: 'brief', type: 'distribute_assignments', mode: 'same' }] }];
+    await f.db.run('UPDATE events SET schedule_json=?, assignments_json=? WHERE id=?', JSON.stringify(schedule), JSON.stringify([{ id: 'one', title: 'Build a demo', instructions: 'Hello {team}' }]), 'old');
+    const missing = await app.inject({ method: 'POST', url: '/api/teams', headers, payload: { eventId: 'old', name: 'Alpha', kind: 'public' } });
+    assert.equal(missing.statusCode, 400);
+    assert.equal(missing.json().code, 'owner_required');
+    const created = await app.inject({ method: 'POST', url: '/api/teams', headers, payload: { eventId: 'old', name: 'Alpha', kind: 'public', ownerId: OWNER } });
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(created.json().provisioning, 'complete');
+    assert.equal(created.json().team.textChannelId, 'text');
+    assert.equal((await getTeamForUser(f.db, 'old', OWNER))?.ownerId, OWNER);
+    assert.ok(f.sentPayloads.some(payload => payload.embeds?.some(embed => embed.title === 'Build a demo' && embed.description === 'Hello Alpha')));
+    const again = await app.inject({ method: 'POST', url: '/api/teams', headers, payload: { eventId: 'old', name: 'Another', kind: 'public', ownerId: OWNER } });
+    assert.equal(again.statusCode, 400);
+    assert.equal(again.json().code, 'already_in_team');
+    assert.equal(f.sentPayloads.filter(payload => payload.embeds?.some(embed => embed.title === 'Build a demo')).length, 1);
+    f.failChannelCreate(true);
+    const partial = await app.inject({ method: 'POST', url: '/api/teams', headers, payload: { eventId: 'old', name: 'Beta', kind: 'public', ownerId: JOINER } });
+    assert.equal(partial.statusCode, 200, partial.body);
+    assert.equal(partial.json().provisioning, 'pending');
+    assert.ok(await getTeamForUser(f.db, 'old', JOINER), 'a committed team remains visible after setup fails');
+    f.failChannelCreate(false);
+    await f.db.run('DELETE FROM rate_limit_buckets'); // Isolated fixture; exercise recovery without waiting for the request quota window.
+    const retry = await app.inject({ method: 'POST', url: `/api/teams/${partial.json().team.id}/provision`, headers });
+    assert.equal(retry.statusCode, 200, retry.body);
+    assert.equal(retry.json().provisioning, 'complete');
+    assert.ok(f.sentPayloads.some(payload => payload.embeds?.some(embed => embed.title === 'Build a demo' && embed.description === 'Hello Beta')));
+    const repeated = await app.inject({ method: 'POST', url: `/api/teams/${partial.json().team.id}/provision`, headers });
+    assert.equal(repeated.statusCode, 200, repeated.body);
+    assert.equal(f.sentPayloads.filter(payload => payload.embeds?.some(embed => embed.title === 'Build a demo' && embed.description === 'Hello Beta')).length, 1);
+    f.failRoleGrant(true);
+    const missingGrant = await app.inject({ method: 'POST', url: `/api/teams/${partial.json().team.id}/provision`, headers });
+    assert.equal(missingGrant.statusCode, 200, missingGrant.body);
+    assert.equal(missingGrant.json().provisioning, 'pending', 'a failed role grant is not reported as complete');
+    f.failRoleGrant(false);
+    const restored = await app.inject({ method: 'POST', url: `/api/teams/${partial.json().team.id}/provision`, headers });
+    assert.equal(restored.json().provisioning, 'complete');
+  } finally { await app.close(); await f.close(); }
+});
+
+test('independent workers do not provision the same team twice', { timeout: 15000 }, async () => {
+  const f = await fixture();
+  const schema = (await f.db.get<{ name: string }>('SELECT current_schema() AS name'))!.name;
+  const peer = await openPostgres(process.env.DATABASE_URL!, schema, 1);
+  let release!: () => void;
+  try {
+    await f.signup(OWNER);
+    const created = await createTeam(f.db, 'test', 'old', GUILD, 'Concurrent', 'public', OWNER);
+    assert.ok(created.ok);
+    if (!created.ok) return;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let roles = 0;
+    f.client.guilds.cache.get(GUILD)!.roles.create = async () => { roles++; entered(); await gate; return { id: 'role' }; };
+    const first = provisionTeamSpace(f.deps, created.value);
+    try {
+      await started;
+      await provisionTeamSpace({ ...f.deps, db: peer }, created.value);
+      assert.equal(roles, 1);
+      release();
+      await first;
+      const completed = await provisionTeamSpace({ ...f.deps, db: peer }, created.value);
+      assert.equal(roles, 1);
+      assert.equal(completed.textChannelId, 'text');
+      assert.equal(completed.voiceChannelId, 'voice');
+    } finally { release(); await first; }
+  } finally { await peer.close(); await f.close(); }
+});
+
+test('maintenance recovers marked team setup and late handout without provisioning legacy teams', { timeout: 15000 }, async () => {
+  const f = await fixture();
+  const schema = (await f.db.get<{ name: string }>('SELECT current_schema() AS name'))!.name;
+  const peer = await openPostgres(process.env.DATABASE_URL!, schema, 1);
+  try {
+    await f.signup(OWNER);
+    const created = await createTeam(f.db, 'test', 'old', GUILD, 'Recovery', 'public', OWNER);
+    assert.ok(created.ok);
+    if (!created.ok) return;
+    await f.db.run("INSERT INTO teams(id,event_id,guild_id,name,kind,created_at) VALUES ('legacy-team','old',?,'Legacy','public',1)", GUILD);
+    const schedule = [{ id: 'kickoff', time: Date.now() - 60000, title: 'Start', actions: [{ id: 'brief', type: 'distribute_assignments', mode: 'same' }] }];
+    await f.db.run('UPDATE events SET schedule_json=?, assignments_json=? WHERE id=?', JSON.stringify(schedule), JSON.stringify([{ id: 'one', title: 'Recovery brief', instructions: 'Hello {team}' }]), 'old');
+    f.failChannelCreate(true);
+    await provisionTeamSpace(f.deps, created.value);
+    assert.deepEqual(await listPendingTeamProvisionIds(f.db, 'old'), [created.value.id]);
+    assert.equal((await getTeam(f.db, created.value.id))?.textChannelId, null);
+    f.failChannelCreate(false);
+    await runMaintenance({ db: peer, client: f.client as never });
+    assert.equal((await getTeam(f.db, created.value.id))?.textChannelId, 'text');
+    assert.deepEqual(await listPendingTeamProvisionIds(f.db, 'old'), []);
+    assert.equal((await getTeam(f.db, 'legacy-team'))?.textChannelId, null);
+    assert.equal(f.sentPayloads.filter(payload => payload.embeds?.some(embed => embed.title === 'Recovery brief' && embed.description === 'Hello Recovery')).length, 1);
+    await runMaintenance({ db: peer, client: f.client as never });
+    assert.equal(f.sentPayloads.filter(payload => payload.embeds?.some(embed => embed.title === 'Recovery brief')).length, 1);
+    await f.signup(JOINER);
+    const deleted = await createTeam(f.db, 'test', 'old', GUILD, 'Deleted', 'public', JOINER);
+    assert.ok(deleted.ok);
+    if (deleted.ok) {
+      assert.ok((await listPendingTeamProvisionIds(f.db, 'old')).includes(deleted.value.id));
+      await f.db.run('UPDATE events SET ends_at=? WHERE id=?', Date.now() - 1000, 'old');
+      await runMaintenance({ db: peer, client: f.client as never });
+      assert.equal((await getTeam(f.db, deleted.value.id))?.textChannelId, null, 'an expired event does not provision pending spaces');
+      await deleteTeam(f.db, 'test', deleted.value.id);
+      assert.deepEqual(await listPendingTeamProvisionIds(f.db, 'old'), []);
+    }
+  } finally { await peer.close(); await f.close(); }
+});
+
+test('a join during provisioning leaves a marker for a follow-up pass', { timeout: 15000 }, async () => {
+  const f = await fixture();
+  const schema = (await f.db.get<{ name: string }>('SELECT current_schema() AS name'))!.name;
+  const peer = await openPostgres(process.env.DATABASE_URL!, schema, 1);
+  setMembershipLookup(peer, async (_guild, user) => f.members.has(user));
+  let release!: () => void;
+  try {
+    await f.signup(OWNER);
+    await f.signup(JOINER);
+    const created = await createTeam(f.db, 'test', 'old', GUILD, 'Racing', 'public', OWNER);
+    assert.ok(created.ok);
+    if (!created.ok) return;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const member = await f.client.guilds.cache.get(GUILD)!.members.fetch(OWNER);
+    assert.ok(!(member instanceof Map));
+    let firstGrant = true;
+    member.roles.add = async () => { if (firstGrant) { firstGrant = false; entered(); await gate; } };
+    const first = provisionTeamSpace(f.deps, created.value);
+    try {
+      await started;
+      const joined = await joinTeam(peer, 'test', 'old', JOINER, created.value.id, 3);
+      assert.ok(joined.ok);
+      release();
+      await first;
+      assert.deepEqual(await listPendingTeamProvisionIds(f.db, 'old'), [created.value.id]);
+      await provisionTeamSpace(f.deps, created.value);
+      assert.deepEqual(await listPendingTeamProvisionIds(f.db, 'old'), []);
+    } finally { release(); await first; }
+  } finally { await peer.close(); await f.close(); }
+});
+
+test('scheduled matching provisions teams without nesting advisory locks', { timeout: 15000 }, async () => {
+  const f = await fixture();
+  try {
+    await f.signup(OWNER);
+    await f.signup(JOINER);
+    const now = Date.now();
+    await f.db.run('UPDATE events SET match_at=? WHERE id=?', now - 1000, 'old');
+    const context = new AsyncLocalStorage<boolean>();
+    const lock = f.db.tryAdvisoryLock.bind(f.db);
+    f.db.tryAdvisoryLock = async (key, fn) => {
+      assert.equal(context.getStore(), undefined, `nested advisory lock: ${key}`);
+      return lock(key, () => context.run(true, fn));
+    };
+    await runMaintenance({ db: f.db, client: f.client as never, now });
+    const team = await getTeamForUser(f.db, 'old', OWNER);
+    assert.ok(team?.textChannelId, 'the matched team is provisioned');
+    assert.deepEqual(await listPendingTeamProvisionIds(f.db, 'old'), []);
+  } finally { await f.close(); }
+});
+
+test('one failed recovery does not block other pending teams', { timeout: 15000 }, async () => {
+  const f = await fixture();
+  try {
+    await f.signup(OWNER);
+    await f.signup(JOINER);
+    const first = await createTeam(f.db, 'test', 'old', GUILD, 'First', 'public', OWNER);
+    const second = await createTeam(f.db, 'test', 'old', GUILD, 'Second', 'public', JOINER);
+    assert.ok(first.ok && second.ok);
+    if (!first.ok || !second.ok) return;
+    const lock = f.db.tryAdvisoryLock.bind(f.db);
+    f.db.tryAdvisoryLock = async (key, fn) => {
+      if (key === `team-provision:${GUILD}:${first.value.id}`) throw new Error('Synthetic lock failure');
+      return lock(key, fn);
+    };
+    await runMaintenance({ db: f.db, client: f.client as never });
+    assert.equal((await getTeam(f.db, first.value.id))?.textChannelId, null);
+    assert.equal((await getTeam(f.db, second.value.id))?.textChannelId, 'text');
+    assert.deepEqual(await listPendingTeamProvisionIds(f.db, 'old'), [first.value.id]);
+  } finally { await f.close(); }
+});
+
 test('non-current signup completion links to its originating event, not newest event', { timeout: 10000 }, async () => {
   const f = await fixture();
   try {
@@ -189,6 +390,35 @@ test('non-current signup completion links to its originating event, not newest e
     await f.db.run('UPDATE events SET form_json=? WHERE id=?', JSON.stringify(config), 'old');
     const result = await f.signup(OWNER);
     assert.equal(result.data.components![0]!.components[0]!.url, 'https://example.test/events/old/signup');
+  } finally { await f.close(); }
+});
+
+test('Discord signup does not request website completion for already-complete current answers with retired values', { timeout: 10000 }, async () => {
+  const f = await fixture();
+  try {
+    const config = { ...DEFAULT_FORM, customQuestions: [{ id: 'goal', kind: 'text', label: { en: 'Goal' }, help: { en: '' }, required: true, presentation: 'web', visibility: 'self_and_organizer' }] };
+    await f.db.run('UPDATE events SET form_json=? WHERE id=?', JSON.stringify(config), 'old');
+    await f.db.run('INSERT INTO registration_answers(event_id,user_id,form_version,answers_json,updated_at) VALUES (?,?,?,?,?)', 'old', OWNER, config.version, JSON.stringify({ goal: 'Ready', retired: 'Old answer' }), Date.now());
+    const result = await f.signup(OWNER);
+    assert.equal(result.data.components![0]!.components[0]!.label, t('en', 'discord.join.actions_create'));
+    assert.doesNotMatch(JSON.stringify(result.data), /Complete your remaining signup/);
+  } finally { await f.close(); }
+});
+
+test('Discord signup enforces the event window but permits an existing participant to edit', { timeout: 10000 }, async () => {
+  const f = await fixture();
+  try {
+    const form = { ...DEFAULT_FORM, enforceSignupWindow: true };
+    await f.db.run('UPDATE events SET form_json=?,signup_starts_at=?,signup_ends_at=? WHERE id=?', JSON.stringify(form), Date.now() + 60000, Date.now() + 120000, 'old');
+    const early = await f.signup(OWNER);
+    assert.match(JSON.stringify(early.data), /Signup has not opened yet/);
+    assert.equal(await f.db.get('SELECT user_id FROM participants WHERE event_id=? AND user_id=?', 'old', OWNER), undefined);
+    await f.db.run('UPDATE events SET signup_starts_at=?,signup_ends_at=? WHERE id=?', Date.now() - 60000, Date.now() + 60000, 'old');
+    assert.equal((await f.signup(OWNER)).data.components![0]!.components[0]!.label, t('en', 'discord.join.actions_create'));
+    await f.db.run('UPDATE events SET signup_ends_at=? WHERE id=?', Date.now() - 1, 'old');
+    assert.equal((await f.signup(OWNER)).data.components![0]!.components[0]!.label, t('en', 'discord.join.actions_create'));
+    const late = await f.signup(JOINER);
+    assert.match(JSON.stringify(late.data), /Signup has closed/);
   } finally { await f.close(); }
 });
 

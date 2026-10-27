@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react"
-import { LayoutTemplate, BookCopy, Megaphone, Plus, Trash2, Pencil, Copy, ListChecks, Palette } from "lucide-react"
+import { LayoutTemplate, BookCopy, Megaphone, Plus, Trash2, Pencil, Copy, ClipboardCopy, ListChecks, Palette } from "lucide-react"
 import { toast } from "sonner"
 import { useAppContext } from "@/lib/app-context"
 import { useT } from "@/lib/i18n"
 import { api } from "@/api"
+import { copyText } from "@/lib/clipboard"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OtterIllustration } from "@/components/OtterIllustration"
 import { Button } from "@/components/ui/button"
@@ -15,7 +16,8 @@ import { AppearanceControls } from "@/components/appearance-controls"
 import { EventTemplateEditor, type EventTemplateDraft } from "@/components/EventTemplateEditor"
 import { AssignmentsEditor } from "@/components/AssignmentsEditor"
 import { TagAutocompleteInput, TagAutocompleteTextarea } from "@/components/TagAutocomplete"
-import type { Assignment, FormConfig, FormAppearance } from "@/types"
+import { TagHelpButton } from "@/components/TagHelp"
+import type { Assignment, FormConfig, FormAppearance, EventTemplate } from "@/types"
 import { dateTime } from "@/lib/format"
 import { DEFAULT_FORM } from "@/lib/default-form"
 import { validateQuestions } from "@/lib/question-validation"
@@ -42,6 +44,7 @@ export function TemplatesPage() {
   const [creatingCollection, setCreatingCollection] = useState(false)
   const [editingThemeId, setEditingThemeId] = useState<string | null>(null)
   const [creatingTheme, setCreatingTheme] = useState(false)
+  const [deletingTemplate, setDeletingTemplate] = useState<{ id: string; name: string } | null>(null)
   const [deletingThemeId, setDeletingThemeId] = useState<string | null>(null)
 
   return (
@@ -53,17 +56,18 @@ export function TemplatesPage() {
         </div>
       </header>
 
+      <AlertDialog open={!!deletingTemplate} onOpenChange={open => { if (!open) setDeletingTemplate(null) }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t('templates.delete_title', { name: deletingTemplate?.name ?? '' })}</AlertDialogTitle><AlertDialogDescription>{t('templates.delete_desc')}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel><AlertDialogAction onClick={async () => { const item = deletingTemplate; setDeletingTemplate(null); if (!item) return; try { await api.deleteTemplate(item.id); await refresh() } catch (error) { toast.error(error instanceof Error ? error.message : t('common.load_failed')) } }}>{t('common.delete')}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       <Tabs value={tab} onValueChange={v=>setTab(v as never)} className="w-full">
         <TabsList className="w-full max-w-full justify-start overflow-x-auto">
-          <TabsTrigger value="event" className="gap-2"><LayoutTemplate className="size-4" /> Event templates ({eventTemplates.length})</TabsTrigger>
-          <TabsTrigger value="form" className="gap-2"><BookCopy className="size-4" /> Form templates ({formTemplates.length})</TabsTrigger>
-          <TabsTrigger value="announcement" className="gap-2"><Megaphone className="size-4" /> Announcements ({announcementTemplates.length})</TabsTrigger>
-          <TabsTrigger value="assignments" className="gap-2"><ListChecks className="size-4" /> Assignment collections ({assignmentCollections.length})</TabsTrigger>
-          <TabsTrigger value="theme" className="gap-2"><Palette className="size-4" /> Themes ({themes.length})</TabsTrigger>
+          <TabsTrigger value="event" className="gap-2"><LayoutTemplate className="size-4" /> {t("templates.library_events")} ({eventTemplates.length})</TabsTrigger>
+          <TabsTrigger value="form" className="gap-2"><BookCopy className="size-4" /> {t("templates.library_forms")} ({formTemplates.length})</TabsTrigger>
+          <TabsTrigger value="announcement" className="gap-2"><Megaphone className="size-4" /> {t("templates.library_announcements")} ({announcementTemplates.length})</TabsTrigger>
+          <TabsTrigger value="assignments" className="gap-2"><ListChecks className="size-4" /> {t("templates.library_assignments")} ({assignmentCollections.length})</TabsTrigger>
+          <TabsTrigger value="theme" className="gap-2"><Palette className="size-4" /> {t("templates.library_themes")} ({themes.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="event" className="flex flex-col gap-4 mt-4">
-          <div className="flex justify-end"><Button onClick={()=>setCreatingEvent(true)}><Plus className="size-4" /> New event template</Button></div>
+          <div className="flex justify-end"><Button onClick={()=>setCreatingEvent(true)}><Plus className="size-4" /> {t("templates.new_event")}</Button></div>
           {eventTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="A2" className="mb-2" />{t("templates.no_event_templates")}</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {eventTemplates.map(tpl=>(
@@ -76,12 +80,11 @@ export function TemplatesPage() {
                 >
                   <CardHeader className="pb-3">
                     <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
-                    <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
+                    <CardDescription className="flex items-center gap-2 text-xs"><span>{dateTime(tpl.createdAt)}</span></CardDescription>
                   </CardHeader>
-                  <CardContent className="mt-auto flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={()=>setEditingEventId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                    <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                    <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                  <CardContent className="mt-auto flex flex-wrap gap-2">
+                    <Button size="sm" variant="secondary" onClick={()=>setEditingEventId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
+                    <TemplateCardActions template={tpl} onSaved={refresh} onDelete={()=>setDeletingTemplate({id:tpl.id,name:tpl.name})} />
                   </CardContent>
                 </Card>
               ))}
@@ -101,7 +104,7 @@ export function TemplatesPage() {
         <TabsContent value="form" className="flex flex-col gap-4 mt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">Forms define the /hackathon join modal. Set the default in <span className="font-medium text-foreground">Config → Default form</span>.</p>
-            <Button onClick={()=>setCreatingForm(true)}><Plus className="size-4" /> New form template</Button>
+            <Button onClick={()=>setCreatingForm(true)}><Plus className="size-4" /> {t("templates.new_form")}</Button>
           </div>
           {formTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="B2" className="mb-2" />{t("templates.no_form_templates")}</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -115,12 +118,11 @@ export function TemplatesPage() {
                 >
                   <CardHeader className="pb-3">
                     <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
-                    <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
+                    <CardDescription className="flex items-center gap-2 text-xs"><span>{dateTime(tpl.createdAt)}</span></CardDescription>
                   </CardHeader>
-                  <CardContent className="mt-auto flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={()=>setEditingFormId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                    <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                    <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                  <CardContent className="mt-auto flex flex-wrap gap-2">
+                    <Button size="sm" variant="secondary" onClick={()=>setEditingFormId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
+                    <TemplateCardActions template={tpl} onSaved={refresh} onDelete={()=>setDeletingTemplate({id:tpl.id,name:tpl.name})} />
                   </CardContent>
                 </Card>
               ))}
@@ -137,10 +139,10 @@ export function TemplatesPage() {
 
         <TabsContent value="announcement" className="flex flex-col gap-4 mt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-muted-foreground">Reusable Discord messages — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in the message to see tag suggestions.</p>
-            <Button onClick={()=>setCreatingAnnouncement(true)}><Plus className="size-4" /> New announcement</Button>
+            <p className="text-sm text-muted-foreground">{t('templates.message_list_help')}</p>
+            <Button onClick={()=>setCreatingAnnouncement(true)}><Plus className="size-4" /> {t('templates.new_announcement')}</Button>
           </div>
-          {announcementTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="C1" className="mb-2" />No announcement templates yet — create one.</CardContent></Card> : (
+          {announcementTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="C1" className="mb-2" />{t('templates.message_empty')}</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {announcementTemplates.map(tpl=>{
                 let parsed: { title?: string; message?: string; trigger?: string } = {}
@@ -154,12 +156,11 @@ export function TemplatesPage() {
                     <CardHeader className="pb-2">
                       <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
                       <CardDescription className="line-clamp-2 whitespace-pre-wrap break-words text-xs">{parsed.title ?? ""} — {(parsed.message ?? "").slice(0,120)}</CardDescription>
-                      <span className="mt-1 w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium">{parsed.trigger ?? "manual"}</span>
+                      <span className="mt-1 w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium">{t(({ manual: 'templates.trigger_manual', on_activate: 'templates.trigger_activate', on_start: 'templates.trigger_start', schedule: 'templates.trigger_schedule', teams_locked: 'templates.trigger_locked', teams_assigned: 'templates.trigger_assigned' } as Record<string, string>)[parsed.trigger ?? 'manual'] ?? 'templates.trigger_manual')}</span>
                     </CardHeader>
-                    <CardContent className="mt-auto flex gap-2">
-                      <Button size="sm" variant="secondary" onClick={()=>setEditingAnnouncementId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                      <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                      <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                    <CardContent className="mt-auto flex flex-wrap gap-2">
+                      <Button size="sm" variant="secondary" onClick={()=>setEditingAnnouncementId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
+                      <TemplateCardActions template={tpl} onSaved={refresh} onDelete={()=>setDeletingTemplate({id:tpl.id,name:tpl.name})} />
                     </CardContent>
                   </Card>
                 )
@@ -178,7 +179,7 @@ export function TemplatesPage() {
         <TabsContent value="assignments" className="flex flex-col gap-4 mt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">Reusable pools of team assignments — name, instructions and an optional image each. Pick a collection when creating an event and choose how it’s dealt out.</p>
-            <Button onClick={()=>setCreatingCollection(true)}><Plus className="size-4" /> New collection</Button>
+            <Button onClick={()=>setCreatingCollection(true)}><Plus className="size-4" /> {t("templates.new_collection")}</Button>
           </div>
           {assignmentCollections.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="C2" className="mb-2" />No collections yet — create one to use assignments at your events.</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -194,7 +195,7 @@ export function TemplatesPage() {
                   >
                     <CardHeader className="pb-2">
                       <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
-                      <CardDescription className="flex items-center gap-2 font-mono text-xs"><span>{tpl.id}</span><span>·</span><span>{dateTime(tpl.createdAt)}</span></CardDescription>
+                      <CardDescription className="flex items-center gap-2 text-xs"><span>{dateTime(tpl.createdAt)}</span></CardDescription>
                       <span className="mt-1 w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium">{items.length} assignment{items.length===1?"":"s"}</span>
                     </CardHeader>
                     <CardContent className="mt-auto">
@@ -209,10 +210,9 @@ export function TemplatesPage() {
                           {items.length > 4 && <li className="text-xs text-muted-foreground">+ {items.length - 4} more</li>}
                         </ul>
                       )}
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="secondary" onClick={()=>setEditingCollectionId(tpl.id)}><Pencil className="size-3.5" /> Edit</Button>
-                        <Button size="sm" variant="ghost" onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                        <Button size="sm" variant="ghost" onClick={async(e)=>{ e.stopPropagation(); try{ await api.deleteTemplate(tpl.id); toast.success(t("templates.deleted")); await refresh() } catch(e){ toast.error(e instanceof Error ? e.message : "Delete failed") } }}><Trash2 className="size-3.5" /></Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="secondary" onClick={()=>setEditingCollectionId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
+                        <TemplateCardActions template={tpl} onSaved={refresh} onDelete={()=>setDeletingTemplate({id:tpl.id,name:tpl.name})} />
                       </div>
                     </CardContent>
                   </Card>
@@ -237,6 +237,41 @@ export function TemplatesPage() {
       </Tabs>
     </div>
   )
+}
+
+/**
+ * Duplicate / copy-reference / delete controls shared by every template list.
+ * Duplicating is a real copy (new template, same JSON) — the previous icon only
+ * put the template id on the clipboard and did nothing at all on plain-HTTP
+ * origins, where `navigator.clipboard` does not exist.
+ */
+function TemplateCardActions({ template, onSaved, onDelete }: { template: EventTemplate; onSaved: ()=>Promise<void>; onDelete: ()=>void }) {
+  const t = useT()
+  const [busy, setBusy] = useState(false)
+  async function duplicate(event: React.MouseEvent) {
+    event.stopPropagation()
+    if (busy) return
+    setBusy(true)
+    try {
+      const name = t('templates.duplicate_name', { name: template.name }).slice(0, 80)
+      await api.createTemplateRaw(name, template.kind, template.json)
+      toast.success(t('templates.duplicated', { name }))
+      await onSaved()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('common.load_failed'))
+    } finally { setBusy(false) }
+  }
+  async function copyReference(event: React.MouseEvent) {
+    event.stopPropagation()
+    const copied = await copyText(template.id)
+    if (copied) toast.success(t('templates.reference_copied'))
+    else toast.error(t('templates.copy_failed'))
+  }
+  return <>
+    <Button size="sm" variant="outline" disabled={busy} aria-label={t('templates.duplicate')} onClick={e=>void duplicate(e)}><Copy className="size-3.5" /> {t('templates.duplicate')}</Button>
+    <Button size="sm" variant="ghost" aria-label={t('templates.copy_reference')} onClick={e=>void copyReference(e)}><ClipboardCopy className="size-3.5" /></Button>
+    <Button size="sm" variant="ghost" aria-label={t("common.delete") + ": " + template.name} onClick={e=>{ e.stopPropagation(); onDelete() }}><Trash2 className="size-3.5" /></Button>
+  </>
 }
 
 function ThemeDialog({ template, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; onClose: ()=>void; onSaved: ()=>Promise<void> }) {
@@ -329,6 +364,7 @@ function EventTemplateDialog({ template, formTemplates, assignmentCollections, o
           form: (p.form as FormConfig) ?? DEFAULT_FORM,
           schedule: (p.schedule as EventTemplateDraft["schedule"]) ?? [],
           assignmentCollectionId: (p.assignmentCollectionId as string) ?? "",
+          assignments: Array.isArray(p.assignments) ? p.assignments : [],
           assignmentStrategy: (p.assignmentStrategy as EventTemplateDraft["assignmentStrategy"]) ?? "random",
         }
       } catch {
@@ -345,7 +381,7 @@ function EventTemplateDialog({ template, formTemplates, assignmentCollections, o
     if (!validateQuestions(draft.form)) return
     setBusy(true)
     try {
-      const payload = { name: draft.name.trim(), description: draft.description, cleanupDelayHours: draft.cleanupDelayHours, form: draft.form, schedule: draft.schedule, assignmentCollectionId: draft.assignmentCollectionId || undefined, assignmentStrategy: draft.assignmentStrategy }
+      const payload = { name: draft.name.trim(), description: draft.description, cleanupDelayHours: draft.cleanupDelayHours, form: draft.form, schedule: draft.schedule, ...(draft.assignments?.length ? { assignments: draft.assignments } : {}), assignmentCollectionId: draft.assignmentCollectionId || undefined, assignmentStrategy: draft.assignmentStrategy }
       const json = JSON.stringify(payload)
       if (isEdit) await api.updateTemplate(template.id, { name: draft.name.trim(), json })
       else await api.createTemplateRaw(draft.name.trim(), "event", json)
@@ -377,82 +413,88 @@ function EventTemplateDialog({ template, formTemplates, assignmentCollections, o
 function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; onClose: ()=>void; onSaved: ()=>Promise<void> }) {
   const t = useT()
   const [name, setName] = useState(template?.name ?? "")
-  const [data, setData] = useState<{ title: string; message: string; trigger: "manual"|"on_activate"|"on_start"|"schedule"; channelId: string | null }>(()=>{
+  const [data, setData] = useState<{ title: string; message: string; trigger: "manual"|"on_activate"|"on_start"|"schedule"|"teams_locked"|"teams_assigned"; channelId: string | null }>(()=>{
     if (template) { try { const p = JSON.parse(template.json) as { title?: string; message?: string; trigger?: string; channelId?: string | null }; return { title: p.title ?? "", message: p.message ?? "", trigger: (p.trigger as never) ?? "manual", channelId: p.channelId ?? null } } catch { return { title: "", message: "", trigger: "manual", channelId: null } } }
-    return { title: "Heads up!", message: "Hey {everyone}, quick update for **{event}** — {panel}", trigger: "manual", channelId: null }
+    return { title: t('templates.message_default_title'), message: t('templates.message_default_body'), trigger: "manual", channelId: null }
   })
   const [channels, setChannels] = useState<{ id: string; name: string }[]>([])
-  useEffect(()=>{ api.getGuildChannels().then(r=>setChannels(r.channels ?? [])).catch(()=>undefined) }, [])
+  const [channelsFailed, setChannelsFailed] = useState(false)
+  useEffect(()=>{ api.getGuildChannels().then(r=>setChannels(r.channels ?? [])).catch(()=>setChannelsFailed(true)) }, [])
   const [busy, setBusy] = useState(false)
   const isEdit = template !== null
   async function save() {
-    if (name.trim().length < 2 || data.title.trim().length < 2 || data.message.trim().length < 2) { toast.error("Name, title and message required"); return }
+    if (name.trim().length < 2 || data.title.trim().length < 2 || data.message.trim().length < 2) { toast.error(t('templates.message_validation')); return }
     setBusy(true)
     try {
       const json = JSON.stringify({ title: data.title.trim(), message: data.message.trim(), trigger: data.trigger, channelId: data.channelId ?? null })
       if (isEdit) await api.updateTemplate(template.id, { name: name.trim(), json })
       else await api.createTemplateRaw(name.trim(), "announcement", json)
-      toast.success(isEdit ? "Announcement updated" : t("templates.created", { name: name.trim() }))
+      toast.success(isEdit ? t('templates.message_updated') : t("templates.created", { name: name.trim() }))
       onClose(); await onSaved()
-    } catch(e){ toast.error(e instanceof Error ? e.message : "Save failed") } finally{ setBusy(false) }
+    } catch(e){ toast.error(e instanceof Error ? e.message : t('templates.message_save_failed')) } finally{ setBusy(false) }
   }
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
-      <Card className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-pop-in" onClick={e=>e.stopPropagation()}>
-        <CardHeader className="shrink-0">
-          <CardTitle>{isEdit ? "Edit announcement" : "New announcement template"}</CardTitle>
-          <CardDescription>Reusable Discord message — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in title or message for tag suggestions like {"{event}"} {"{everyone}"} {"{timer}"}.</CardDescription>
-        </CardHeader>
-        <div className="flex-1 overflow-y-auto px-6 pb-4 flex flex-col gap-4">
+    <Dialog open onOpenChange={open => { if (!open && !busy) onClose() }}>
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+        <div className="space-y-2 pr-8">
+          <DialogTitle>{t(isEdit ? "templates.edit_message" : "templates.new_message")}</DialogTitle>
+          <DialogDescription>{t("templates.message_help")}</DialogDescription>
+        </div>
+        <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Template name (for picker)</label>
-            <Input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Dinner reminder" maxLength={80} />
+            <label htmlFor="message-template-name" className="text-sm font-medium">{t("templates.name")}</label>
+            <Input id="message-template-name" value={name} onChange={e=>setName(e.target.value)} placeholder={t('templates.message_name_placeholder')} maxLength={80} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Trigger hint</label>
+              <label className="text-sm font-medium">{t('templates.suggested_use')}</label>
               <Select value={data.trigger} onValueChange={v=>setData({ ...data, trigger: v as never })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label={t('templates.suggested_use')}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="manual">Manual only</SelectItem>
-                  <SelectItem value="on_activate">On activate</SelectItem>
-                  <SelectItem value="schedule">For each schedule item</SelectItem>
-                  <SelectItem value="on_start">At event start</SelectItem>
+                  <SelectItem value="manual">{t('templates.trigger_manual')}</SelectItem>
+                  <SelectItem value="on_activate">{t('templates.trigger_activate')}</SelectItem>
+                  <SelectItem value="schedule">{t('templates.trigger_schedule')}</SelectItem>
+                  <SelectItem value="on_start">{t('templates.trigger_start')}</SelectItem>
+                  <SelectItem value="teams_locked">{t('templates.trigger_locked')}</SelectItem>
+                  <SelectItem value="teams_assigned">{t('templates.trigger_assigned')}</SelectItem>
                 </SelectContent>
               </Select>
+              <span className="text-[11px] text-muted-foreground">{t('templates.suggested_help')}</span>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Channel</label>
+              <label className="text-sm font-medium">{t("templates.channel")}</label>
               {channels.length > 0 ? (
                 <Select value={data.channelId ?? "__none"} onValueChange={v=>setData({ ...data, channelId: v==="__none" ? null : v })}>
-                  <SelectTrigger><SelectValue placeholder="Default announcement channel" /></SelectTrigger>
+                  <SelectTrigger aria-label={t("templates.channel")}><SelectValue placeholder={t("templates.channel")} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none">Default (announcement/panel)</SelectItem>
+                    <SelectItem value="__none">{t('events.channel_default_announcement')}</SelectItem>
                     {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               ) : (
-                <Input value={data.channelId ?? ""} onChange={e=>setData({ ...data, channelId: e.target.value.trim() || null })} placeholder="channel id (optional)" />
+                <Input aria-label={t("templates.channel")} value={data.channelId ?? ""} onChange={e=>setData({ ...data, channelId: e.target.value.trim() || null })} placeholder={t('templates.channel_id_placeholder')} />
               )}
-              <span className="text-[11px] text-muted-foreground">Where this announcement is sent by default. Actions can override per-block.</span>
+              <span className="text-[11px] text-muted-foreground">{t(channelsFailed ? 'templates.channel_fallback' : 'templates.channel_help')}</span>
             </div>
           </div>
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Title</label>
-            <TagAutocompleteInput value={data.title} onChange={v=>setData({ ...data, title: v })} placeholder="e.g. {schedule_title} — update" maxLength={100} />
+            <label className="text-sm font-medium">{t("templates.message_title")}</label>
+            <TagAutocompleteInput value={data.title} onChange={v=>setData({ ...data, title: v })} placeholder={t('templates.message_title_placeholder')} maxLength={100} />
           </div>
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Message</label>
+            <label className="text-sm font-medium">{t("templates.message_body")}</label>
             <TagAutocompleteTextarea value={data.message} onChange={v=>setData({ ...data, message: v })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
-            <span className="text-[11px] text-muted-foreground">Tip: type <code className="rounded bg-muted px-1 font-mono text-[11px]">{"{"}</code> to autocomplete — e.g. <code className="font-mono">{"{eve"}</code> → <code className="font-mono">{"{event}"}</code> · <code className="font-mono">{"{timer"}</code> etc.</span>
+            <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-muted-foreground">
+              <span>{t('tags.type_hint')}</span><TagHelpButton />
+            </div>
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-border p-4 shrink-0 bg-card">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button disabled={busy || name.trim().length<2 || data.title.trim().length<2} onClick={()=>void save()}>{isEdit ? "Save changes" : "Create"}</Button>
+          <Button variant="outline" onClick={onClose}>{t("common.cancel")}</Button>
+          <Button disabled={busy || name.trim().length<2 || data.title.trim().length<2 || data.message.trim().length<2} onClick={()=>void save()}>{t("common.save")}</Button>
         </div>
-      </Card>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

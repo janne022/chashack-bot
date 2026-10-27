@@ -54,7 +54,9 @@ independent handles have independent leased clients.
 - Restore replay: operator-supplied durable deletion identifiers (not an HTTP
   endpoint) are applied one guild at a time with ordinary RLS. Tombstones contain
   identifiers/timestamps only, never removed values. Cross-guild invocation from
-  an already-active tenant context is refused.
+  an already-active tenant context is refused. If a member has since rejoined,
+  replay removes older restored registration and submission answers while retaining
+  answers newer than the deletion.
 - Host authentication audit: the only no-context write exception is append-only
   NULL-guild audit for actor `web` / action `web.oauth_start`, or actor `discord`
   / actions `web.login`, `web.logout`. The INSERT-only policy does not allow host
@@ -143,6 +145,8 @@ form-versions table. `selected_guild_id` is not a tenant-key column.
 | teams | tenant, guild_id; write checks event_id parent when non-NULL | postgres-rls: unfiltered CRUD + forged parent |
 | participants | tenant, guild_id; write checks event_id and optional team_id parents | postgres-rls: unfiltered CRUD + forged parent |
 | registration_answers | indirect: event_id → events.id, RLS-filtered parent | postgres-rls: unfiltered CRUD; routes-rls: subject answers |
+| submission_forms | indirect: event_id → events.id, RLS-filtered parent | postgres-rls inventory and submission isolation tests |
+| submission_answers | indirect: event_id → events.id, RLS-filtered parent | postgres-rls inventory and submission isolation tests |
 | team_requests | tenant, guild_id; write checks team_id and event_id | postgres-rls: unfiltered CRUD + forged parent |
 | event_templates | tenant guild_id; NULL is global read-only | postgres-rls: NULL/foreign read and protected global delete |
 | form_config | tenant, guild_id | postgres-rls: unfiltered CRUD |
@@ -169,6 +173,12 @@ uncommitted failed migration, fix forward and rerun; for a committed deployment
 incident, restore through the operator's established backup procedure and replay
 durable deletion identifiers before serving. The tests are not production
 backup-retention evidence.
+
+The guarded fake-fixture recovery rehearsal copies submission forms, submission
+answers, imported signups and existing Discord references alongside event data.
+A separate synthetic legacy fixture verifies populated event, team, registration,
+assignment and Discord reference rows survive two additive migrations. Neither
+fixture replaces the operator's production backup and restore procedure.
 
 ```sh
 pnpm install --frozen-lockfile

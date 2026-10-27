@@ -1,6 +1,7 @@
 import type { FormConfig } from "@/types"
 
 export const DEFAULT_FORM: FormConfig = {
+  enforceSignupWindow: true,
   version: 1,
   title: "Hackathon Signup",
   description: "Tell us how you work and we will build a team around you.",

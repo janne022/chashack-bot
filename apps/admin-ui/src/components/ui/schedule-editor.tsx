@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react"
 import { Plus, Trash2, Copy, Utensils, Coffee, Vote, Trophy, Mic, Clock, Megaphone, ChevronDown, ChevronUp, Zap, HelpCircle, UsersRound, ClipboardList, Lock, Shuffle, CalendarRange, CalendarPlus } from "lucide-react"
 import { format } from "date-fns"
+import { enUS, sv } from "date-fns/locale"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu"
@@ -14,19 +15,20 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { TagAutocompleteInput, TagAutocompleteTextarea } from "@/components/TagAutocomplete"
+import { useTagDefinitions } from "@/components/TagHelp"
 import type { ScheduleItem, ScheduleAction, ScheduleAnchor } from "@/types"
 import { STRATEGY_OPTIONS } from "@/lib/assignment-strategy"
-import { ANCHOR_OPTIONS, TIME_MINUTES, offsetDay, offsetFromDayTime, offsetHourMinute } from "@/lib/schedule-anchor"
-import { useT } from "@/lib/i18n"
+import { ANCHOR_OPTIONS, TIME_MINUTES, anchorDate, offsetDay, offsetFromDayTime, offsetHourMinute } from "@/lib/schedule-anchor"
+import { useLocale, useT } from "@/lib/i18n"
 import { api } from "@/api"
 
-const KINDS: { id: ScheduleItem["kind"]; label: string; icon: typeof Clock }[] = [
-  { id: "food", label: "Food", icon: Utensils },
-  { id: "break", label: "Fika / Break", icon: Coffee },
-  { id: "voting", label: "Voting", icon: Vote },
-  { id: "prize", label: "Prize", icon: Trophy },
-  { id: "talk", label: "Talk", icon: Mic },
-  { id: "custom", label: "Custom", icon: Clock },
+const KINDS: { id: ScheduleItem["kind"]; labelKey: string; icon: typeof Clock }[] = [
+  { id: "food", labelKey: "schedule.kind_food", icon: Utensils },
+  { id: "break", labelKey: "schedule.kind_break", icon: Coffee },
+  { id: "voting", labelKey: "schedule.kind_voting", icon: Vote },
+  { id: "prize", labelKey: "schedule.kind_prize", icon: Trophy },
+  { id: "talk", labelKey: "schedule.kind_talk", icon: Mic },
+  { id: "custom", labelKey: "schedule.kind_custom", icon: Clock },
 ]
 function toLocalIso(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
@@ -40,7 +42,7 @@ function toLocalIso(date: Date): string {
 // ---------------------------------------------------------------------------
 
 type ActionChannel = { id: string; name: string }
-type AnnounceTemplate = { id: string; name: string; title: string; message: string }
+type AnnounceTemplate = { id: string; name: string; title: string; message: string; channelId?: string }
 
 /** Fetch the Discord channels + announcement templates an action editor needs. */
 function useActionResources(enabled: boolean) {
@@ -52,8 +54,8 @@ function useActionResources(enabled: boolean) {
     api.listTemplates('announcement').then(r => {
       const list = (r.templates ?? []).map((tp) => {
         try {
-          const p = JSON.parse((tp as unknown as { json: string }).json ?? '{}') as { title?: string; message?: string }
-          return { id: tp.id, name: tp.name, title: p.title ?? tp.name, message: p.message ?? '' }
+          const p = JSON.parse((tp as unknown as { json: string }).json ?? '{}') as { title?: string; message?: string; channelId?: string | null }
+          return { id: tp.id, name: tp.name, title: p.title ?? tp.name, message: p.message ?? '', ...(p.channelId ? { channelId: p.channelId } : {}) }
         } catch {
           return { id: tp.id, name: tp.name, title: tp.name, message: '' }
         }
@@ -87,11 +89,13 @@ function ActionCard({ action, channels, templates, announceTitlePlaceholder, ann
   const type = displayType(action)
   const isAnnounce = type === "announce"
   const isSignup = type === "post_signup"
+  const isSchedule = type === "publish_schedule"
   const isDistribute = type === "distribute_assignments"
-  const Icon = type === "announce" ? Megaphone : type === "post_signup" ? ClipboardList : type === "lock_teams" ? Lock : type === "auto_match" ? UsersRound : Shuffle
+  const Icon = type === "announce" ? Megaphone : type === "post_signup" ? ClipboardList : isSchedule ? CalendarRange : type === "lock_teams" ? Lock : type === "auto_match" ? UsersRound : Shuffle
   const accent = type === "announce" ? "text-accent" : type === "post_signup" ? "text-blue-600" : type === "lock_teams" ? "text-amber-600" : "text-emerald-600"
   const label = type === "announce" ? t('events.schedule_action_announcement')
     : type === "post_signup" ? t('events.schedule_action_signup')
+    : isSchedule ? t('events.schedule_action_publish')
     : type === "lock_teams" ? t('events.schedule_action_lock')
     : type === "auto_match" ? t('events.schedule_action_auto')
     : t('events.schedule_action_distribute')
@@ -101,26 +105,27 @@ function ActionCard({ action, channels, templates, announceTitlePlaceholder, ann
         <div className="flex items-center gap-2">
           <Icon className={`size-3.5 shrink-0 ${accent}`} />
           <span className="text-xs font-semibold">{label}</span>
-          {isAnnounce && <span className="ml-auto hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex"><HelpTag /> type {"{"} for tags</span>}
+          {isAnnounce && <span className="ml-auto hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex"><HelpTag /> {t('tags.type_hint')}</span>}
           {!isDistribute && (
-            <Select value={type} onValueChange={v => onUpdate(action.id, { type: v as ScheduleAction["type"], ...(v !== "announce" && v !== "post_signup" ? { title: undefined, message: undefined, channelId: undefined } as never : {}) })}>
+            <Select value={type} onValueChange={v => onUpdate(action.id, { type: v as ScheduleAction["type"], ...(v !== "announce" && v !== "post_signup" && v !== "publish_schedule" ? { title: undefined, message: undefined, channelId: undefined } as never : {}) })}>
               <SelectTrigger className="ml-auto h-6 w-32 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="announce">{t('events.schedule_action_announcement')}</SelectItem>
-                <SelectItem value="post_signup">{t('events.schedule_action_signup')}</SelectItem>
+                {isSignup && <SelectItem value="post_signup">{t('events.schedule_action_signup')}</SelectItem>}
+                <SelectItem value="publish_schedule">{t('events.schedule_action_publish')}</SelectItem>
                 <SelectItem value="lock_teams">{t('events.schedule_action_lock')}</SelectItem>
                 <SelectItem value="auto_match">{t('events.schedule_action_auto')}</SelectItem>
               </SelectContent>
             </Select>
           )}
-          <Button variant="ghost" size="icon" className="size-6" onClick={() => onRemove(action.id)}><Trash2 className="size-3" /></Button>
+          <Button variant="ghost" size="icon" className="size-6" aria-label={t('schedule.remove_action', { action: label })} onClick={() => onRemove(action.id)}><Trash2 className="size-3" /></Button>
         </div>
         {isAnnounce ? (
           <>
             {templates.length > 0 && (
               <div className="flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
                 <span className="shrink-0 text-[11px] text-muted-foreground">{t('events.from_template')}</span>
-                <Select onValueChange={v => { const tpl = templates.find(x => x.id === v); if (tpl) onUpdate(action.id, { title: tpl.title, message: tpl.message }) }}>
+                <Select onValueChange={v => { const tpl = templates.find(x => x.id === v); if (tpl) onUpdate(action.id, { title: tpl.title, message: tpl.message, ...(tpl.channelId ? { channelId: tpl.channelId } : {}) }) }}>
                   <SelectTrigger className="h-7 min-w-0 flex-1 text-xs [&>span]:truncate"><SelectValue placeholder={t('events.pick_announcement_template')} /></SelectTrigger>
                   <SelectContent position="popper" align="start" className="max-h-72 w-[22rem] max-w-[90vw]">
                     {templates.map(tp => (
@@ -151,7 +156,7 @@ function ActionCard({ action, channels, templates, announceTitlePlaceholder, ann
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input value={action.channelId ?? ""} onChange={e => onUpdate(action.id, { channelId: e.target.value.trim() || null })} placeholder="defaults to announcement channel" className="h-7 text-xs font-mono" />
+                  <Input value={action.channelId ?? ""} onChange={e => onUpdate(action.id, { channelId: e.target.value.trim() || null })} placeholder={t('events.channel_default_announcement')} aria-label={t('events.channel_label')} className="h-7 text-xs font-mono" />
                 )}
               </div>
             </div>
@@ -160,21 +165,21 @@ function ActionCard({ action, channels, templates, announceTitlePlaceholder, ann
               <TagAutocompleteTextarea value={action.message ?? ""} onChange={v => onUpdate(action.id, { message: v })} placeholder={announceMessagePlaceholder} maxLength={2000} />
             </div>
           </>
-        ) : isSignup ? (
+        ) : isSignup || isSchedule ? (
           <div className="flex flex-col gap-2">
-            <p className="text-xs text-muted-foreground">{t('events.schedule_signup_desc')}</p>
+            <p className="text-xs text-muted-foreground">{t(isSchedule ? 'events.schedule_publish_desc' : 'events.schedule_signup_desc')}</p>
             <div className="flex flex-col gap-1">
-              <Label className="text-[11px]">{t('events.panel_channel_label')}</Label>
+              <Label className="text-[11px]">{t(isSchedule ? 'events.schedule_channel_action' : 'events.panel_channel_label')}</Label>
               {channels.length > 0 ? (
                 <Select value={action.channelId ?? "__none"} onValueChange={v => onUpdate(action.id, { channelId: v === "__none" ? null : v })}>
-                  <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={t('events.panel_channel_label')} /></SelectTrigger>
+                  <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={t(isSchedule ? 'events.schedule_channel_action' : 'events.panel_channel_label')} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none">{t('events.channel_default_panel')}</SelectItem>
+                    <SelectItem value="__none">{t(isSchedule ? 'events.channel_default_schedule' : 'events.channel_default_panel')}</SelectItem>
                     {channels.map(c => <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               ) : (
-                <Input value={action.channelId ?? ""} onChange={e => onUpdate(action.id, { channelId: e.target.value.trim() || null })} placeholder="panel channel id" className="h-7 text-xs font-mono" />
+                <Input value={action.channelId ?? ""} onChange={e => onUpdate(action.id, { channelId: e.target.value.trim() || null })} placeholder={t(isSchedule ? 'events.schedule_channel_action' : 'events.panel_channel_label')} className="h-7 text-xs font-mono" />
               )}
             </div>
           </div>
@@ -184,7 +189,7 @@ function ActionCard({ action, channels, templates, announceTitlePlaceholder, ann
             <Select value={action.mode ?? 'random'} onValueChange={v => onUpdate(action.id, { mode: v as 'random' | 'same' })}>
               <SelectTrigger className="h-7 w-40 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {STRATEGY_OPTIONS.map(opt => <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>)}
+                {STRATEGY_OPTIONS.map(opt => <SelectItem key={opt.id} value={opt.id}>{t(opt.labelKey)}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -224,13 +229,14 @@ function ActionList({ actions, channels, templates, announceTitlePlaceholder, an
   )
 }
 
-/** Add-buttons shared by both editors. Distribution is not offered here — it is configured by the event's assignment pool (collection + strategy). */
+/** Add-buttons shared by both editors. Assignment distribution is a first-class schedule action backed by the event’s assignment pool. */
 function AddActionButtons({ onAdd }: { onAdd: (type: ScheduleAction["type"]) => void }) {
   const t = useT()
   return (
     <div className="flex flex-wrap gap-1">
       <Button variant="secondary" size="sm" className="h-6 text-xs" onClick={() => onAdd("announce")}><Megaphone className="size-3" /> {t('events.schedule_action_announcement')}</Button>
-      <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => onAdd("post_signup")}><ClipboardList className="size-3" /> {t('events.schedule_action_signup')}</Button>
+      <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => onAdd("publish_schedule")}><CalendarRange className="size-3" /> {t('events.schedule_action_publish')}</Button>
+      <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => onAdd("distribute_assignments")}><Shuffle className="size-3" /> {t("events.schedule_action_assignments")}</Button>
       <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => onAdd("lock_teams")}><Lock className="size-3" /> {t('events.schedule_action_lock')}</Button>
       <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => onAdd("auto_match")}><UsersRound className="size-3" /> {t('events.schedule_action_auto')}</Button>
     </div>
@@ -238,9 +244,21 @@ function AddActionButtons({ onAdd }: { onAdd: (type: ScheduleAction["type"]) => 
 }
 
 /** "Day 2, 18:00" for an anchor offset. */
-function offsetLabel(offsetMinutes: number): string {
+function offsetLabel(offsetMinutes: number, t: ReturnType<typeof useT>): string {
   const { hour, minute } = offsetHourMinute(offsetMinutes)
-  return `Day ${offsetDay(offsetMinutes)}, ${hour}:${minute}`
+  return t('schedule.day_time', { day: offsetDay(offsetMinutes), time: `${hour}:${minute}` })
+}
+
+function ElapsedOffsetInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const t = useT()
+  const [draft, setDraft] = useState(String(value))
+  useEffect(() => { setDraft(String(value)) }, [value])
+  return <Input type="text" inputMode="numeric" value={draft} onChange={e => {
+    const next = e.target.value
+    if (!/^-?\d*$/.test(next)) return
+    setDraft(next)
+    if (next !== '' && next !== '-' && Number.isSafeInteger(Number(next))) onChange(Number(next))
+  }} onBlur={() => setDraft(String(value))} className="h-8 w-28 text-xs" aria-label={t('events.schedule_elapsed_minutes')} />
 }
 
 /** Relative (anchor-based) placement of one block — the template editor's time control. */
@@ -257,6 +275,10 @@ function RelativeTimeEditor({ item, onChange }: { item: ScheduleItem; onChange: 
 
   return (
     <div className="flex flex-col gap-1.5">
+      <Select value={item.offsetMode === 'elapsed' ? 'elapsed' : 'clock'} onValueChange={mode => onChange({ offsetMode: mode === 'elapsed' ? 'elapsed' : undefined, withinEvent: undefined, offsetMinutes: 0 })}>
+        <SelectTrigger aria-label={t('events.schedule_offset_mode')} className="h-8 w-56 text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent><SelectItem value="clock">{t('events.schedule_offset_clock')}</SelectItem><SelectItem value="elapsed">{t('events.schedule_offset_elapsed')}</SelectItem></SelectContent>
+      </Select>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium text-muted-foreground">{t('events.schedule_anchor_label')}</span>
         <Select value={anchor} onValueChange={(v) => onChange({ anchor: v as ScheduleAnchor })}>
@@ -265,6 +287,7 @@ function RelativeTimeEditor({ item, onChange }: { item: ScheduleItem; onChange: 
             {ANCHOR_OPTIONS.map(opt => <SelectItem key={opt.id} value={opt.id}>{t(opt.labelKey)}</SelectItem>)}
           </SelectContent>
         </Select>
+        {item.offsetMode === 'elapsed' ? <ElapsedOffsetInput value={offset} onChange={offsetMinutes => onChange({ offsetMinutes })} /> : <>
         <Input
           type="number"
           value={String(day)}
@@ -280,9 +303,10 @@ function RelativeTimeEditor({ item, onChange }: { item: ScheduleItem; onChange: 
         <Select value={TIME_MINUTES.includes(minute) ? minute : '00'} onValueChange={(v) => set(day, hour, v)}>
           <SelectTrigger className="h-8 w-20 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>{TIME_MINUTES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
-        </Select>
+        </Select></>}
       </div>
-      <span className="text-xs text-muted-foreground">{t('events.schedule_offset_hint')}</span>
+      {item.offsetMode === 'elapsed' && <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={item.withinEvent === true} onChange={e => onChange({ withinEvent: e.target.checked })} />{t('events.schedule_within_event')}</label>}
+      <span className="text-xs text-muted-foreground">{t(item.offsetMode === 'elapsed' ? 'events.schedule_elapsed_hint' : 'events.schedule_offset_hint')}</span>
     </div>
   )
 }
@@ -328,6 +352,7 @@ export function ScheduleEditor({
   timeMode?: 'absolute' | 'relative'
 }) {
   const t = useT()
+  const dateLocale = useLocale() === 'sv' ? sv : enUS
   const relative = timeMode === 'relative'
   const sorted = [...value].sort((a, b) => a.time - b.time)
   const hasRange = !relative && onStartChange !== undefined && onEndChange !== undefined && startValue !== undefined && endValue !== undefined
@@ -346,7 +371,7 @@ export function ScheduleEditor({
     const kind = preset?.kind ?? "custom"
     const id = `sch_${Math.random().toString(36).slice(2, 8)}`
     const placement = relative ? { anchor: 'hackathon_start' as ScheduleAnchor, offsetMinutes: 0 } : {}
-    onChange([...value, { id, time, title, kind, actions: [], ...placement }])
+    onChange([...value, { ...placement, ...preset, id, time, title, kind, actions: [] }])
     setExpanded(prev=>new Set(prev).add(id))
   }
 
@@ -370,10 +395,10 @@ export function ScheduleEditor({
   }
 
   const quickAdds = [
-    { title: "Dinner", kind: "food" as const, hour: 18 },
-    { title: "Fika / Break", kind: "break" as const, hour: 12 },
-    { title: "Voting", kind: "voting" as const, hour: 14 },
-    { title: "Prize ceremony", kind: "prize" as const, hour: 16 },
+    { title: t('schedule.quick_dinner'), kind: "food" as const, hour: 18 },
+    { title: t('schedule.quick_break'), kind: "break" as const, hour: 12 },
+    { title: t('schedule.quick_voting'), kind: "voting" as const, hour: 14 },
+    { title: t('schedule.quick_prize'), kind: "prize" as const, hour: 16 },
   ]
 
   /** Quick-adds land on the hackathon start day at a fixed hour. */
@@ -388,7 +413,7 @@ export function ScheduleEditor({
     add({ title: q.title, kind: q.kind, time: d.getTime() })
   }
 
-  const quickLabel = (q: (typeof quickAdds)[number]) => `${relative ? `Day 1 ${q.hour}:00` : `${q.hour}:00`} · ${q.title}`
+  const quickLabel = (q: (typeof quickAdds)[number]) => `${relative ? t('schedule.day_time', { day: 1, time: `${q.hour}:00` }) : `${q.hour}:00`} · ${q.title}`
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-2/40 p-3">
@@ -426,13 +451,15 @@ export function ScheduleEditor({
         <PinnedBlock
           label={t('events.signup_window')}
           hint={t('events.signup_hint')}
+          value={signupStartValue}
           displayValue={
             signupStartValue && signupEndValue
-              ? `${(() => { try { return format(new Date(signupStartValue), "MMM d, HH:mm") } catch { return "" } })()} → ${(() => { try { return format(new Date(signupEndValue), "MMM d, HH:mm") } catch { return "" } })()}`
+              ? `${(() => { try { return format(new Date(signupStartValue), "MMM d, HH:mm", { locale: dateLocale }) } catch { return "" } })()} → ${(() => { try { return format(new Date(signupEndValue), "MMM d, HH:mm", { locale: dateLocale }) } catch { return "" } })()}`
               : t('events.signup_before_hackathon')
           }
           actions={signupActions ?? []}
           onActionsChange={onSignupActionsChange}
+          signupBlock
           includePanelTag
           iconBg="bg-primary"
           border="border-primary/30"
@@ -465,7 +492,6 @@ export function ScheduleEditor({
           onActionsChange={onStartActionsChange}
           includePanelTag
           disablePast={disablePast}
-          minDate={hasSignup && signupEndValue ? new Date(signupEndValue) : undefined}
           iconBg="bg-accent"
           border="border-accent/40"
           bg="bg-accent-soft"
@@ -499,9 +525,11 @@ export function ScheduleEditor({
             const KindIcon = KINDS.find((k) => k.id === item.kind)?.icon ?? Clock
             const dt = new Date(item.time)
             const anchored = item.anchor !== undefined && item.offsetMinutes !== undefined
+            const dateValue = (value?: string) => { const parsed = value ? Date.parse(value) : NaN; return Number.isFinite(parsed) ? parsed : null }
+            const awaitingAnchor = !relative && anchored && item.time === 0 && anchorDate(item.anchor!, { startsAt: dateValue(startValue), endsAt: dateValue(endValue), signupStartsAt: dateValue(signupStartValue), signupEndsAt: dateValue(signupEndValue) }) === null
             const isSynthetic = item.id.startsWith('__')
-            const timeBadge = format(dt, "MMM d, HH:mm")
-            const dayBadge = format(dt, "EEE")
+            const timeBadge = format(dt, "MMM d, HH:mm", { locale: dateLocale })
+            const dayBadge = format(dt, "EEE", { locale: dateLocale })
             return (
               <ContextMenu key={item.id}>
                 <ContextMenuTrigger asChild>
@@ -514,10 +542,10 @@ export function ScheduleEditor({
                     <KindIcon className="size-4 shrink-0 text-accent" />
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/20 bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent">
                       <Clock className="size-3" />
-                      {relative || anchored || isSynthetic ? (
-                        <span className="hidden sm:inline">{offsetLabel(item.offsetMinutes ?? 0)}</span>
+                      {relative ? (
+                        <span className="hidden sm:inline">{item.offsetMode === 'elapsed' ? t('events.schedule_elapsed_badge', { minutes: item.offsetMinutes ?? 0 }) : offsetLabel(item.offsetMinutes ?? 0, t)}</span>
                       ) : (
-                        <span className="hidden sm:inline">{timeBadge}</span>
+                        <span className="hidden sm:inline">{awaitingAnchor ? t('events.schedule_awaiting_date') : timeBadge}</span>
                       )}
                       {!relative && !anchored && !isSynthetic && <span className="rounded bg-accent px-1 py-0 text-[10px] font-bold text-accent-foreground">{dayBadge}</span>}
                     </span>
@@ -526,11 +554,11 @@ export function ScheduleEditor({
                         <CalendarRange className="size-3" />{t(ANCHOR_OPTIONS.find(o => o.id === item.anchor)?.labelKey ?? 'anchor.hackathon_start')}
                       </Badge>
                     )}
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title || <span className="text-muted-foreground italic">Untitled</span>}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title || <span className="text-muted-foreground italic">{t('schedule.untitled')}</span>}</span>{/* db-guard:allow:db-name-guard #63 — Tailwind `truncate` utility class, not SQL. */}
                     {item.actions && item.actions.length > 0 && (
                       <Badge variant="secondary" className="shrink-0 gap-1 text-[10px]"><Zap className="size-3" />{item.actions.length}</Badge>
                     )}
-                    <Badge variant="secondary" className="hidden shrink-0 text-[10px] sm:inline-flex">{item.kind ?? "custom"}</Badge>
+                    <Badge variant="secondary" className="hidden shrink-0 text-[10px] sm:inline-flex">{t(KINDS.find(k => k.id === (item.kind ?? 'custom'))?.labelKey ?? 'schedule.kind_custom')}</Badge>
                     {isExp ? <ChevronUp className="size-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="size-4 shrink-0 text-muted-foreground" />}
                   </button>
                   {isExp && (
@@ -540,21 +568,17 @@ export function ScheduleEditor({
                       ) : (
                         <div className="grid gap-2 sm:grid-cols-[auto_1fr_auto]">
                           <DateTimePicker
-                            value={toLocalIso(dt)}
-                            onChange={(v) => update(item.id, { time: v ? Date.parse(v) : item.time, anchor: undefined, offsetMinutes: undefined })}
+                            value={awaitingAnchor ? '' : toLocalIso(dt)}
+                            onChange={(v) => update(item.id, { time: v ? Date.parse(v) : item.time, anchor: undefined, offsetMinutes: undefined, offsetMode: undefined, withinEvent: undefined })}
                             disablePast={disablePast}
-                            minDate={(() => {
-                              const signupMin = hasSignup && signupEndValue ? new Date(signupEndValue) : null
-                              const hackMin = disablePast && startValue ? (() => { const d = new Date(startValue); d.setHours(0,0,0,0); return d })() : null
-                              if (signupMin && hackMin) return signupMin > hackMin ? signupMin : hackMin
-                              return signupMin ?? hackMin ?? undefined
-                            })()}
+                            minDate={disablePast && startValue ? (() => { const d = new Date(startValue); d.setHours(0,0,0,0); return d })() : undefined}
                             className="h-8 w-44"
                           />
                           <Input
                             value={item.title}
                             onChange={(e) => update(item.id, { title: e.target.value })}
-                            placeholder="Dinner, Fika, Voting…"
+                            placeholder={t('schedule.title_placeholder')}
+                            aria-label={t('events.title_label')}
                             className="h-8 text-sm"
                             maxLength={80}
                           />
@@ -562,7 +586,7 @@ export function ScheduleEditor({
                             <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               {KINDS.map((k) => (
-                                <SelectItem key={k.id} value={k.id!}>{k.label}</SelectItem>
+                                <SelectItem key={k.id} value={k.id!}>{t(k.labelKey)}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -573,7 +597,8 @@ export function ScheduleEditor({
                           <Input
                             value={item.title}
                             onChange={(e) => update(item.id, { title: e.target.value })}
-                            placeholder="Dinner, Fika, Voting…"
+                            placeholder={t('schedule.title_placeholder')}
+                            aria-label={t('events.title_label')}
                             className="h-8 text-sm"
                             maxLength={80}
                           />
@@ -581,24 +606,28 @@ export function ScheduleEditor({
                             <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               {KINDS.map((k) => (
-                                <SelectItem key={k.id} value={k.id!}>{k.label}</SelectItem>
+                                <SelectItem key={k.id} value={k.id!}>{t(k.labelKey)}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                         </div>
                       )}
+                      <label className="space-y-2 text-sm">
+                        <span>{t("schedule.description_label")}</span>
                       <Input
                         value={item.description ?? ""}
                         onChange={(e) => update(item.id, { description: e.target.value || undefined })}
-                        placeholder="Details (optional) — e.g. Pizza in the kitchen"
+                        placeholder={t("schedule.description_label")}
                         className="h-8 text-xs"
                         maxLength={200}
                       />
+                        <span className="block text-xs text-muted-foreground">{t("schedule.description_help")}</span>
+                      </label>
                       <ScheduleItemActions item={item} onChange={(actions)=>update(item.id, { actions })} />
 
                       <div className="flex justify-end">
                         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => remove(item.id)}>
-                          <Trash2 className="size-3.5" /> Remove block
+                          <Trash2 className="size-3.5" /> {t('events.remove_block')}
                         </Button>
                       </div>
                     </div>
@@ -639,7 +668,7 @@ export function ScheduleEditor({
           actions={endActions ?? []}
           onActionsChange={onEndActionsChange}
           disablePast={disablePast}
-          minDate={hasSignup && signupEndValue ? new Date(signupEndValue) : disablePast && startValue ? new Date(startValue) : undefined}
+          minDate={disablePast && startValue ? new Date(startValue) : undefined}
           iconBg="bg-danger"
           border="border-danger/30"
           bg="bg-danger/5"
@@ -653,7 +682,7 @@ export function ScheduleEditor({
 }
 
 function PinnedBlock({
-  label, hint, value, displayValue, onChange, renderTime, actions, onActionsChange, includePanelTag, disablePast, minDate, iconBg, border, bg, expanded, onToggle, emptyHint,
+  label, hint, value, displayValue, onChange, renderTime, actions, onActionsChange, includePanelTag, signupBlock, disablePast, minDate, iconBg, border, bg, expanded, onToggle, emptyHint,
 }: {
   label: string
   hint: string
@@ -667,6 +696,7 @@ function PinnedBlock({
   onActionsChange?: (a: ScheduleAction[])=>void
   /** Announce defaults mention {panel} when the block is about opening/posting signups. */
   includePanelTag?: boolean
+  signupBlock?: boolean
   disablePast?: boolean
   minDate?: Date
   iconBg: string
@@ -676,8 +706,10 @@ function PinnedBlock({
   onToggle: ()=>void
   emptyHint: string
 }) {
+  const t = useT()
+  const dateLocale = useLocale() === 'sv' ? sv : enUS
   const hasActions = actions.length > 0
-  const headerValue = displayValue ?? (value ? (() => { try { return format(new Date(value), "MMM d, HH:mm EEE") } catch { return hint } })() : hint)
+  const headerValue = displayValue ?? (value ? (() => { try { return format(new Date(value), "MMM d, HH:mm EEE", { locale: dateLocale }) } catch { return hint } })() : hint)
   return (
     <div className={`rounded-lg border ${border} ${bg}`}>
       <button type="button" onClick={onToggle} className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
@@ -688,7 +720,7 @@ function PinnedBlock({
         <span className="ml-2 hidden text-xs text-muted-foreground sm:inline">{headerValue}</span>
         {hasActions && <Badge variant="secondary" className="ml-2 gap-1 text-[10px]"><Zap className="size-3" />{actions.length}</Badge>}
         <span className="ml-auto flex items-center gap-2">
-          <span className="hidden text-xs text-muted-foreground sm:inline">{expanded ? "Hide" : hasActions ? `${actions.length} actions` : "Add actions"}</span>
+          <span className="hidden text-xs text-muted-foreground sm:inline">{expanded ? t('schedule.hide') : hasActions ? t(actions.length === 1 ? 'schedule.action_one' : 'schedule.action_count', { count: actions.length }) : t('schedule.add_actions')}</span>
           {expanded ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
         </span>
       </button>
@@ -698,9 +730,8 @@ function PinnedBlock({
             renderTime()
           ) : (
             <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xs font-medium text-muted-foreground">Time</span>
+              <span className="text-xs font-medium text-muted-foreground">{t('schedule.time')}</span>
               <DateTimePicker value={value ?? ''} onChange={(v) => onChange?.(v)} disablePast={disablePast} minDate={minDate} className="h-8 w-48" />
-              <span className="text-xs text-muted-foreground">This is the event {label.toLowerCase()} time.</span>
             </div>
           )}
           {onActionsChange ? (
@@ -711,6 +742,7 @@ function PinnedBlock({
               onChange={onActionsChange}
               emptyHint={emptyHint}
               includePanelTag={includePanelTag}
+              signupBlock={signupBlock}
             />
           ) : (
             <p className="text-xs text-muted-foreground">{emptyHint}</p>
@@ -722,7 +754,8 @@ function PinnedBlock({
 }
 
 /** Action editor for the pinned blocks — add buttons always visible in the header. */
-function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint, includePanelTag }: { timeLabel: string; timeValue: string; actions: ScheduleAction[]; onChange: (a: ScheduleAction[])=>void; emptyHint: string; includePanelTag?: boolean }) {
+function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint, includePanelTag, signupBlock }: { timeLabel: string; timeValue: string; actions: ScheduleAction[]; onChange: (a: ScheduleAction[])=>void; emptyHint: string; includePanelTag?: boolean; signupBlock?: boolean }) {
+  const t = useT()
   const hasActions = actions.length > 0
   const { channels, templates } = useActionResources(true)
 
@@ -742,8 +775,9 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint, inc
 
   return (
     <div className="rounded-lg border border-dashed border-border bg-surface-2/20">
+      {signupBlock && <SignupPanelOption actions={actions} onChange={onChange} />}
       <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
-        <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Zap className="size-3 text-accent" /> {hasActions ? `${actions.length} action${actions.length>1?'s':''} — will run at ${(() => { try { return format(new Date(timeValue), "HH:mm") } catch { return "the block time" } })()}` : `No actions yet — ${emptyHint}`}</span>
+        <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Zap className="size-3 text-accent" /> {hasActions ? t(actions.length === 1 ? 'schedule.action_one' : 'schedule.action_count', { count: actions.length }) : emptyHint}</span>
         <AddActionButtons onAdd={addAction} />
       </div>
       {hasActions && (
@@ -752,8 +786,8 @@ function InlineActions({ timeLabel, timeValue, actions, onChange, emptyHint, inc
             actions={actions}
             channels={channels}
             templates={templates}
-            announceTitlePlaceholder={`${timeLabel} — live!`}
-            announceMessagePlaceholder="🚀 {event} is live! {everyone} → {panel}"
+            announceTitlePlaceholder={t('events.headline_placeholder')}
+            announceMessagePlaceholder={t('events.message_placeholder')}
             onUpdate={updateAction}
             onRemove={removeAction}
           />
@@ -792,12 +826,13 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
         onClick={()=>setOpen(v=>!v)}
         className="flex w-full items-center justify-between px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
       >
-        <span className="flex items-center gap-1.5"><Zap className="size-3 text-accent" /> {hasActions ? `${actions.length} action${actions.length>1?'s':''} — will run at ${format(new Date(item.time), "HH:mm")}` : t('events.schedule_actions_add_hint')}</span>
+        <span className="flex items-center gap-1.5"><Zap className="size-3 text-accent" /> {hasActions ? t(actions.length === 1 ? 'schedule.action_one' : 'schedule.action_count', { count: actions.length }) : t('events.schedule_actions_add_hint')}</span>
         {open ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-        {!hasActions && <Badge variant="secondary" className="ml-auto mr-2 text-[10px]">optional</Badge>}
+        {!hasActions && <Badge variant="secondary" className="ml-auto mr-2 text-[10px]">{t('schedule.optional')}</Badge>}
       </button>
       {open && (
         <div className="flex flex-col gap-2 border-t border-border p-2">
+          {(item.id === '__signup__' || item.id === 'sch_signup') && <SignupPanelOption actions={actions} onChange={onChange} />}
           {actions.length === 0 && <p className="px-1 text-xs text-muted-foreground">{t('events.schedule_actions_empty')}</p>}
           <ActionList
             actions={actions}
@@ -815,21 +850,28 @@ function ScheduleItemActions({ item, onChange }: { item: ScheduleItem; onChange:
   )
 }
 
+function SignupPanelOption({ actions, onChange }: { actions: ScheduleAction[]; onChange: (actions: ScheduleAction[]) => void }) {
+  const t = useT()
+  const enabled = actions.some(action => action.type === 'post_signup')
+  return <label className="flex min-h-10 items-center gap-2 px-3 text-sm">
+    <input type="checkbox" checked={enabled} onChange={event => onChange(event.target.checked
+      ? [...actions, { id: `sact_${Math.random().toString(36).slice(2, 8)}`, type: 'post_signup', channelId: null }]
+      : actions.filter(action => action.type !== 'post_signup'))} />
+    {t('events.signup_post_panel')}
+  </label>
+}
+
 function HelpTag() {
+  const t = useT()
+  const definitions = useTagDefinitions()
+  const shown = new Set(['{event}', '{panel}', '{everyone}', '{schedule_title}', '{timer_schedule}', '{start_date}', '{end_date}', '{schedule}'])
   return (
     <Popover>
-      <PopoverTrigger asChild><button className="inline-flex size-4 items-center justify-center rounded-full bg-muted text-muted-foreground"><HelpCircle className="size-3" /></button></PopoverTrigger>
+      <PopoverTrigger asChild><button type="button" aria-label={t('tags.help_title')} className="inline-flex size-4 items-center justify-center rounded-full bg-muted text-muted-foreground"><HelpCircle className="size-3" /></button></PopoverTrigger>
       <PopoverContent className="w-64 text-xs leading-relaxed" align="end">
-        <div className="font-semibold mb-1">Tags</div>
+        <div className="font-semibold mb-1">{t('tags.title')}</div>
         <div className="grid gap-1 font-mono text-[11px]">
-          <span>{"{event}"} — event name</span>
-          <span>{"{panel}"} — &lt;#panel&gt;</span>
-          <span>{"{everyone}"} — @everyone ping</span>
-          <span>{"{schedule_title}"} — this block's title</span>
-          <span>{"{timer_schedule}"} — relative time</span>
-          <span>{"{start_date}"} — event start</span>
-          <span>{"{end_date}"} — event end</span>
-          <span>{"{schedule}"} — full itinerary</span>
+          {definitions.filter(def => shown.has(def.tag)).map(def => <span key={def.tag}>{def.tag} — {def.label}</span>)}
         </div>
       </PopoverContent>
     </Popover>

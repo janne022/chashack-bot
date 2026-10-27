@@ -104,6 +104,25 @@ CREATE TABLE IF NOT EXISTS registration_answers (
       FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
     );
 
+CREATE TABLE IF NOT EXISTS submission_forms (
+      event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+      version BIGINT NOT NULL,
+      enabled BIGINT NOT NULL DEFAULT 0,
+      allow_edits BIGINT NOT NULL DEFAULT 1,
+      questions_json TEXT NOT NULL DEFAULT '[]',
+      updated_at BIGINT NOT NULL
+    );
+
+CREATE TABLE IF NOT EXISTS submission_answers (
+      event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      form_version BIGINT NOT NULL,
+      answers_json TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      PRIMARY KEY (event_id, user_id)
+    );
+
 CREATE TABLE IF NOT EXISTS imported_signups (
       id TEXT PRIMARY KEY,
       event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -260,6 +279,16 @@ ALTER TABLE registration_answers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE registration_answers FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON registration_answers;
 CREATE POLICY tenant_isolation ON registration_answers USING (EXISTS (SELECT 1 FROM events WHERE events.id = registration_answers.event_id)) WITH CHECK (EXISTS (SELECT 1 FROM events WHERE events.id = registration_answers.event_id));
+
+ALTER TABLE submission_forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE submission_forms FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON submission_forms;
+CREATE POLICY tenant_isolation ON submission_forms USING (EXISTS (SELECT 1 FROM events WHERE events.id = submission_forms.event_id)) WITH CHECK (EXISTS (SELECT 1 FROM events WHERE events.id = submission_forms.event_id));
+
+ALTER TABLE submission_answers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE submission_answers FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON submission_answers;
+CREATE POLICY tenant_isolation ON submission_answers USING (EXISTS (SELECT 1 FROM events WHERE events.id = submission_answers.event_id)) WITH CHECK (EXISTS (SELECT 1 FROM events WHERE events.id = submission_answers.event_id));
 
 ALTER TABLE imported_signups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE imported_signups FORCE ROW LEVEL SECURITY;

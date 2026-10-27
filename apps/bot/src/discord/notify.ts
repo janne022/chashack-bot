@@ -1,3 +1,5 @@
+import { reconcileEventDelivery } from './event-delivery.js';
+import { syncEventAccess } from './event-access.js';
 /**
  * Notifications: post announcements to the event panel channel and optionally
  * DM all active participants. Also manages Discord scheduled events for the
@@ -10,6 +12,7 @@ import { withGuildContext } from '../shared/postgres.js';
 import { audit } from '../shared/audit.js';
 import {
   getActiveEvent,
+  getEvent,
   getEventForm,
   listEvents,
   planMaintenance,
@@ -19,15 +22,17 @@ import {
   markMatchLocked,
   markScheduleAnnounced,
   renderAnnouncementTags,
+  scheduleTimeResolved,
   type HackathonEvent,
   type ScheduleItem,
 } from '../features/events/data.js';
 import type { KyselyDb } from '../shared/kysely.js';
 import { listParticipants } from '../features/signup/data.js';
-import { listTeams, deleteEventTeams } from '../features/teams/data.js';
+import { listTeams, getTeam, getGuildSettings, deleteEventTeams } from '../features/teams/data.js';
+import { listPendingTeamProvisionIds } from '../features/teams/provision-data.js';
 import { previewMatch, commitMatch } from '../features/matching/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
-import { destroyTeamSpace, botLocale } from './provision.js';
+import { destroyTeamSpace, botLocale, provisionTeamSpace, grantTeamRole } from './provision.js';
 import { getSignupPanelRef, postOrUpdatePanel } from './signup-panel.js';
 import { t } from '../shared/i18n.js';
 import { purgeEventPrivateAnswers, purgeExpiredPrivateAnswers } from '../features/registration/retention.js';
@@ -61,7 +66,7 @@ function buildAnnouncementEmbed(event: HackathonEvent, title: string, message: s
   if (event.endsAt !== null) lines.push(`🏁 **${t(locale, 'discord.events.ends')}:** <t:${Math.floor(event.endsAt / 1000)}:F>`);
   // If schedule exists, include next 3 items in embed footer for context
   if (event.schedule && event.schedule.length > 0) {
-    const next = [...event.schedule].sort((a,b)=>a.time-b.time).slice(0,3).map(s=> `• <t:${Math.floor(s.time/1000)}:t> ${s.title}`).join('\n')
+    const next = event.schedule.filter(item => scheduleTimeResolved(event, item)).sort((a,b)=>a.time-b.time).slice(0,3).map(s=> `• <t:${Math.floor(s.time/1000)}:t> ${s.title}`).join('\n')
     if (next) lines.push('', '**Schedule:**', next)
   }
   lines.push('', t(locale, 'discord.notify.sign_up_in', { channel: event.panelChannelId ?? '' }));
@@ -262,17 +267,51 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
   }
   const allEvents: HackathonEvent[] = [];
   for (const guildId of guildIds) allEvents.push(...await withGuildContext(db, guildId, () => listEvents(db, guildId)));
+  for (const event of allEvents) {
+    await withGuildContext(db, event.guildId, async () => {
+      try { await reconcileEventDelivery(db, client, event, now); }
+      catch (error) { console.warn(`Event delivery sync failed for ${event.id}:`, error); }
+      try { await syncEventAccess(db, client, event.guildId, event.id, now); }
+      catch (error) { console.warn(`Event access sync failed for ${event.id}:`, error); }
+      try {
+        const current = await getEvent(db, event.id);
+        if (current?.status === 'active' && (current.endsAt === null || current.endsAt > now)) {
+          const pending = await listPendingTeamProvisionIds(db, current.id);
+          if (pending.length > 0) {
+            let fallback: string | undefined;
+            try { fallback = (await import('../shared/env.js')).env().teamCategoryId; } catch { /* no runtime environment in fixtures */ }
+            const category = current.categoryId ?? (await getGuildSettings(db, current.guildId)).teamCategoryId ?? fallback;
+            const provisionDeps = { db, client, categoryIdFor: () => category ?? undefined };
+            for (const id of pending) {
+              try {
+                const team = await getTeam(db, id);
+                if (team && team.eventId === current.id && team.guildId === current.guildId) await provisionTeamSpace(provisionDeps, team);
+              } catch (error) { console.warn(`Team provisioning recovery failed for ${id}:`, error); }
+            }
+          }
+        }
+      } catch (error) { console.warn(`Team provisioning recovery failed for ${event.id}:`, error); }
+    });
+  }
   const actions = planMaintenance(allEvents, now);
   for (const guildId of guildIds) {
     for (const eventId of await withGuildContext(db, guildId, () => purgeExpiredPrivateAnswers(db, now))) summary.push(`purged private answers: ${eventId}`);
   }
   if (actions.length === 0) return summary;
 
-  for (const action of actions) {
-    const event = allEvents.find((candidate) => candidate.id === action.eventId) ?? null;
-    if (event === null) continue;
-    await withGuildContext(db, event.guildId, async () => {
+  for (const planned of actions) {
+    const snapshot = allEvents.find((candidate) => candidate.id === planned.eventId) ?? null;
+    if (snapshot === null) continue;
+    await withGuildContext(db, snapshot.guildId, async () => {
+    let needsProvisioning = false;
+    await db.tryAdvisoryLock(`event-maintenance:${snapshot.guildId}:${snapshot.id}`, async () => {
     try {
+      const event = await getEvent(db, snapshot.id);
+      if (!event || event.guildId !== snapshot.guildId) return;
+      const action = planMaintenance([event], now).find(candidate =>
+        candidate.type === planned.type && (candidate.type !== 'schedule' ||
+          (planned.type === 'schedule' && candidate.scheduleId === planned.scheduleId)));
+      if (!action) return;
       switch (action.type) {
         case 'remind_24h': {
           const embed = new EmbedBuilder()
@@ -415,7 +454,8 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             console.warn(`auto_match for ${event.name} failed: ${preview.code} — ${preview.message} (marking locked anyway)`);
             summary.push(`auto-match failed (${preview.code}), locked anyway: ${event.name}`);
           } else {
-            await commitMatch(db, 'system', event.id, event.guildId, config);
+            const committed = await commitMatch(db, 'system', event.id, event.guildId, config);
+            if (committed.ok) needsProvisioning = true;
             summary.push(`auto-matched: ${event.name} (${preview.value.teams.length} teams)`);
           }
           await markMatchLocked(db, event.id);
@@ -455,137 +495,35 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           break;
         }
         case 'schedule': {
-          const scheduleId = (action as { type: 'schedule'; eventId: string; scheduleId: string }).scheduleId
-          const item = event.schedule.find(s => s.id === scheduleId)
-          if (!item) { await markScheduleAnnounced(db, event.id, scheduleId); break }
-          // Split per-block actions by type
-          const perBlock = item.actions ?? []
-          const announceActions = perBlock.filter(a=>a.type==='announce') as { id: string; type: 'announce'; title: string; message: string; channelId?: string | null }[]
-          const opActions = perBlock.filter(a=>a.type!=='announce')
-          // Action-driven: only per-block announce actions send messages. A block with
-          // no announce action sends nothing (it may still run ops).
-          const toSend: { title: string; message: string; channelId?: string | null }[] =
-            announceActions.map(a=>({ title: a.title!, message: a.message!, channelId: a.channelId ?? null }))
-
-          // 1) Run ops first (lock / assign / signup) so announcements that follow can reference final teams
-          let retrySchedule = false
-          for (const op of opActions) {
-            try {
-              if (op.type === 'lock_teams') {
-                const { markMatchLocked } = await import('../features/events/data.js')
-                await markMatchLocked(db, event.id)
-                audit(db, 'system', 'schedule.lock_teams', event.id, { scheduleId }, event.guildId)
-                summary.push(`schedule lock: ${event.name} — ${item.title}`)
-              } else if (op.type === 'post_signup') {
-                const chan = op.channelId ?? event.panelChannelId ?? await readGuildPanel(db, event.guildId, event.id)
-                if (chan && isSnowflake(chan) && isSnowflake(event.guildId)) {
-                  const { postOrUpdatePanel } = await import('./signup-panel.js')
-                  const posted = await postOrUpdatePanel(db, client, event.guildId, chan, botLocale(), getEventFormLocal(db, event), event.id)
-                  if ('error' in posted) {
-                    audit(db, 'system', 'schedule.post_signup_failed', event.id, { scheduleId, channelId: chan, error: posted.error }, event.guildId)
-                    summary.push(`schedule signup failed: ${event.name} — ${item.title} → #${chan}: ${posted.error}`)
-                  } else {
-                    audit(db, 'system', 'schedule.post_signup', event.id, { scheduleId, channelId: chan, edited: posted.edited }, event.guildId)
-                    summary.push(`schedule signup: ${event.name} — ${item.title} → #${chan}`)
-                  }
-                } else {
-                  audit(db, 'system', 'schedule.post_signup_skipped', event.id, { scheduleId, reason: 'no_channel' }, event.guildId)
-                  summary.push(`schedule signup skipped: ${event.name} — ${item.title} (no channel configured)`)
-                }
-              } else if (op.type === 'assign_random' || op.type === 'auto_match') {
-                const config = getEventFormLocal(db, event)
-                const preview = await previewMatch(db, event.id, config)
-                if (!preview.ok) {
-                  console.warn(`schedule ${op.type} for ${event.name} failed: ${preview.code} — ${preview.message}`)
-                  summary.push(`schedule ${op.type} failed (${preview.code}): ${event.name}`)
-                } else {
-                  await commitMatch(db, 'system', event.id, event.guildId, config)
-                  await markMatchLocked(db, event.id)
-                  summary.push(`schedule ${op.type}: ${event.name} (${preview.value.teams.length} teams)`)
-                }
-                audit(db, 'system', `schedule.${op.type}`, event.id, { scheduleId, ok: preview.ok, code: (preview as unknown as { code?: string }).code }, event.guildId)
-              } else if (op.type === 'distribute_assignments') {
-                const assigns = (event.assignments ?? []) as { id:string; title:string; instructions:string; imageUrl?:string }[]
-                if (assigns.length > 0) {
-                  const { listTeams } = await import('../features/teams/data.js')
-                  const teams = await listTeams(db, event.id)
-                  if (teams.length > 0) {
-                    const mode = op.mode === 'same' ? 'same' : 'random'
-                    const perTeam = mode === 'same'
-                      ? teams.map((team)=>({ team, assign: (op.assignmentId ? assigns.find(x=>x.id===op.assignmentId) ?? assigns[0]! : assigns[0]!) }))
-                      : (()=>{ const sh=[...assigns].sort(()=>Math.random()-0.5); return teams.map((team,i)=>({ team, assign: sh[i % sh.length]! })) })()
-                    const priorDeliveries = await db.all<{ details: string | null }>("SELECT details FROM audit_log WHERE guild_id=? AND target=? AND action='schedule.assignment_team_delivered'", event.guildId, event.id)
-                    const deliveredTeams = new Set<string>()
-                    for (const row of priorDeliveries) {
-                      try {
-                        const details = JSON.parse(row.details ?? '{}') as { scheduleId?: string; teamId?: string }
-                        if (details.scheduleId === scheduleId && details.teamId) deliveredTeams.add(details.teamId)
-                      } catch { /* Ignore malformed historical audit details. */ }
-                    }
-                    let delivered = 0
-                    let failed = 0
-                    for (const { team, assign } of perTeam) {
-                      if (deliveredTeams.has(team.id)) { delivered++; continue }
-                      const chanId = team.textChannelId
-                      if (!chanId || !isSnowflake(chanId)) { failed++; continue }
-                      const text = `**${assign.title}**\n${assign.instructions.replaceAll('{team}', team.name).replaceAll('{event}', event.name)}`.slice(0, 2000)
-                      try {
-                        const guild = await client.guilds.fetch(event.guildId)
-                        const ch = await guild.channels.fetch(chanId).catch(() => null) as import('discord.js').TextChannel | null
-                        if (!ch || !ch.isTextBased() || !('guildId' in ch) || ch.guildId !== event.guildId) { failed++; continue }
-                        await ch.send({ content: text, allowedMentions: { parse: [] } })
-                        await audit(db, 'system', 'schedule.assignment_team_delivered', event.id, { scheduleId, teamId: team.id }, event.guildId)
-                        delivered++
-                      } catch (error) { failed++; console.warn(`scheduled assignment delivery failed for team ${team.id}:`, error) }
-                    }
-                    await audit(db, 'system', 'schedule.distribute_assignments', event.id, { scheduleId, mode, teams: teams.length, assignments: assigns.length, delivered, failed, attachmentPolicy: 'remote_images_omitted' }, event.guildId)
-                    if (failed > 0) retrySchedule = true
-                    summary.push(`schedule assignments (${mode}): ${event.name} — ${delivered}/${teams.length} delivered${failed ? `, ${failed} failed` : ''}`)
-                  }
-                }
-              }
-            } catch (e) { console.warn(`schedule op ${op.type} failed`, e) }
-          }
-
-          if (toSend.length === 0) {
-            // no announcements, just ops
-            audit(db, 'system', 'schedule.ops', event.id, { scheduleId, title: item.title, ops: opActions.map(o=>o.type) }, event.guildId)
-            if (opActions.length > 0) summary.push(`schedule ops: ${event.name} — ${item.title} (${opActions.map(o=>o.type).join(', ')})`)
-            if (!retrySchedule) await markScheduleAnnounced(db, event.id, scheduleId)
-            break
-          }
-
-          const channelId = event.announcementChannelId ?? event.panelChannelId ?? await readGuildPanel(db, event.guildId, event.id)
-          if (channelId === null || !isSnowflake(event.guildId) || !isSnowflake(channelId)) {
-            if (channelId !== null) warnInvalidGuild(event.guildId, 'schedule')
-            await markScheduleAnnounced(db, event.id, scheduleId)
-            audit(db, 'system', 'schedule.skipped', event.id, { scheduleId, reason: 'no_channel' }, event.guildId)
-            break
-          }
-          try {
-            const guild = await client.guilds.fetch(event.guildId)
-            const baseChannel = await guild.channels.fetch(channelId).catch(()=>null)
-            if (baseChannel === null || !baseChannel.isTextBased()) { await markScheduleAnnounced(db, event.id, scheduleId); break }
-            for (const tpl of toSend.slice(0,5)) {
-              const targetId = tpl.channelId && isSnowflake(tpl.channelId) ? tpl.channelId : channelId
-              const target = targetId === channelId ? baseChannel : await guild.channels.fetch(targetId).catch(()=>null)
-              if (target === null || !target.isTextBased()) continue
-              const rendered = renderTags(event, tpl.title, tpl.message, item)
-              const embed = new EmbedBuilder().setTitle(rendered.title).setDescription(rendered.message).setColor(item.kind==='food' ? 0x57f287 : item.kind==='break' ? 0xfaa61a : item.kind==='voting' ? 0x5865f2 : item.kind==='prize' ? 0xf0b429 : 0x5865f2)
-                .setFooter({ text: `${event.name} · <t:${Math.floor(item.time/1000)}:F>` })
-              const payload: { embeds: EmbedBuilder[]; content?: string; allowedMentions?: { parse: ("everyone" | "users" | "roles")[] } } = { embeds: [embed] }
-              if (rendered.hasEveryone || rendered.hasHere) { payload.content = rendered.message; payload.allowedMentions = { parse: ["everyone"] } }
-              await target.send(payload as never)
+          const item = event.schedule.find(item => item.id === action.scheduleId);
+          if (!item) break;
+          // Repeatable messages and handouts are reconciled separately, with persisted delivery IDs.
+          for (const op of item.actions ?? []) {
+            if (op.type === 'lock_teams') await markMatchLocked(db, event.id);
+            else if (op.type === 'auto_match' || op.type === 'assign_random') {
+              const config = getEventFormLocal(db, event);
+              const preview = await previewMatch(db, event.id, config);
+              if (!preview.ok) throw new Error(preview.message);
+              const result = await commitMatch(db, 'system', event.id, event.guildId, config);
+              if (!result.ok) throw new Error(result.message);
+              needsProvisioning = true;
+              await markMatchLocked(db, event.id);
             }
-            audit(db, 'system', 'schedule.announce', event.id, { scheduleId, title: item.title, count: toSend.length }, event.guildId)
-            summary.push(`schedule: ${event.name} — ${item.title}`)
-          } catch (e) { console.warn('schedule announce failed', e) }
-          if (!retrySchedule) await markScheduleAnnounced(db, event.id, scheduleId)
+          }
+          await markScheduleAnnounced(db, event.id, item.id);
           break;
         }
       }
     } catch (error) {
-      console.error(`maintenance ${action.type} failed for ${action.eventId}:`, error);
+      console.error(`maintenance ${planned.type} failed for ${planned.eventId}:`, error);
+    }
+    });
+    if (needsProvisioning) {
+      const current = await getEvent(db, snapshot.id);
+      if (current?.status === 'active' && (current.endsAt === null || current.endsAt > now)) {
+        try { await provisionMatchedTeams(db, client, current); }
+        catch (error) { console.warn(`Matched-team provisioning failed for ${current.id}; maintenance will retry:`, error); }
+      }
     }
     });
   }
@@ -600,3 +538,11 @@ function getEventFormLocal(db: Db, event: { id: string; formJson: string | null 
 
 /** Panel helper re-export for index.ts wiring. */
 export { postOrUpdatePanel, getActiveEvent };
+
+async function provisionMatchedTeams(db: Db, client: Client, event: HackathonEvent): Promise<void> {
+  const deps = { db, client, categoryIdFor: () => event.categoryId ?? undefined };
+  for (const team of (await listTeams(db, event.id)).filter(team => team.kind === 'matched')) {
+    const provisioned = await provisionTeamSpace(deps, team);
+    for (const member of team.members) await grantTeamRole(deps, provisioned, member.userId);
+  }
+}

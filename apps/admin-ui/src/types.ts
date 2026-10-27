@@ -46,6 +46,9 @@ export interface SkillOption {
 }
 
 export interface FormConfig {
+  signupMode?: 'web' | 'both';
+  enforceSignupWindow?: boolean;
+  participantChannels?: boolean;
   version: number
   title: string
   description: string
@@ -74,7 +77,7 @@ export interface FormAppearance {
 
 export interface CustomQuestion {
   id: string
-  kind: 'text' | 'single_choice' | 'multi_choice'
+  kind: 'text' | 'single_choice' | 'multi_choice' | 'slider' | 'toggle'
   label: { en: string; sv?: string }
   help: { en: string; sv?: string }
   required: boolean
@@ -82,6 +85,20 @@ export interface CustomQuestion {
   visibility: 'self_and_organizer' | 'organizer_only'
   choices?: { id: string; label: { en: string; sv?: string } }[]
   mapping?: { field: 'experience' | 'role' | 'skills'; importance: 'low' | 'normal' | 'high'; choiceValues: Record<string, string> }
+}
+
+export interface SubmissionForm {
+  version: number
+  enabled: boolean
+  allowEdits: boolean
+  questions: CustomQuestion[]
+}
+
+export interface SubmissionRecord {
+  formVersion: number
+  answers: Record<string, string | string[]>
+  createdAt: number
+  updatedAt: number
 }
 
 export interface AuditEntry {
@@ -187,13 +204,15 @@ export interface ScheduleItem {
   anchor?: ScheduleAnchor
   /** Minutes from the anchor date's 00:00; negative = earlier. */
   offsetMinutes?: number
+  offsetMode?: 'elapsed'
+  withinEvent?: boolean
 }
 
 export type ScheduleAnchor = 'hackathon_start' | 'signup_start' | 'signup_end' | 'hackathon_end'
 
 export interface ScheduleAction {
   id: string
-  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match' | 'post_signup' | 'distribute_assignments'
+  type: 'announce' | 'lock_teams' | 'assign_random' | 'auto_match' | 'post_signup' | 'publish_schedule' | 'distribute_assignments'
   title?: string
   message?: string
   channelId?: string | null

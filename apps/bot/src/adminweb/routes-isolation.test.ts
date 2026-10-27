@@ -108,7 +108,7 @@ test('two guild handlers isolate default form and audit IDs', async (t) => {
       await denied('POST', `/api/events/${eventA.value.id}/${suffix}`, { channelId: 'channel-a', formJson: '{}' });
     }
     await denied('PATCH', `/api/events/${eventA.value.id}`, { name: 'forged event' });
-    for (const suffix of ['delete', 'settings', 'rotate-code', 'remove-member']) {
+    for (const suffix of ['delete', 'settings', 'rotate-code', 'remove-member', 'provision']) {
       await denied('POST', `/api/teams/team-a/${suffix}`, { name: 'forged team', userId: 'participant-a' });
     }
     await denied('PATCH', '/api/templates/template-a', { name: 'forged template' });

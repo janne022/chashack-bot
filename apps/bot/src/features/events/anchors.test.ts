@@ -13,9 +13,26 @@ const signupOpenDay = new Date(2026, 2, 7, 0, 0).getTime();
 const signupClose = new Date(2026, 2, 14, 8, 0).getTime(); // Sat 14 Mar, 08:00
 const signupCloseDay = startDay;
 
+test('schedule publishing action survives normalization with its channel', () => {
+  const [block] = templateToEventInput(JSON.stringify({ schedule: [{ id: 'publish', title: 'Publish', time: start, actions: [{ id: 'itinerary', type: 'publish_schedule', channelId: 'channel-1' }] }] })).schedule ?? [];
+  assert.deepEqual(block?.actions, [{ id: 'itinerary', type: 'publish_schedule', channelId: 'channel-1' }]);
+});
+
 function item(overrides: Partial<ScheduleItem>): ScheduleItem {
   return { id: 'i1', time: 0, title: 'Block', kind: 'custom', ...overrides };
 }
+
+test('elapsed anchors follow exact event times and optionally stay in the event window', () => {
+  const blocks = [item({ id: 'welcome', anchor: 'hackathon_start', offsetMode: 'elapsed', offsetMinutes: 60, withinEvent: true }), item({ id: 'demo', anchor: 'hackathon_end', offsetMode: 'elapsed', offsetMinutes: -60, withinEvent: true }), item({ id: 'legacy', anchor: 'hackathon_start', offsetMinutes: 12 * 60 })];
+  const result = resolveScheduleAnchors(blocks, { startsAt: start, endsAt: start + 30 * 60_000 });
+  assert.equal(result[0]!.time, start + 30 * 60_000);
+  assert.equal(result[1]!.time, start);
+  assert.equal(result[2]!.time, startDay + 12 * H, 'legacy clock anchors stay unchanged');
+  const normalized = templateToEventInput(JSON.stringify({ schedule: blocks })).schedule!;
+  assert.equal(normalized.find(s => s.id === 'welcome')?.offsetMode, 'elapsed');
+  assert.equal(normalized.find(s => s.id === 'welcome')?.withinEvent, true);
+  assert.equal(toRelativeSchedule(normalized, start).find(s => s.id === 'demo')?.offsetMinutes, -60);
+});
 
 test('anchors: items resolve onto their anchor day + offset', () => {
   const out = resolveScheduleAnchors(
@@ -110,4 +127,13 @@ test('templateToEventInput: keeps anchors through normalization (time optional)'
   );
   assert.equal(schedule[1]!.time, 0, 'anchor-only item keeps the placeholder time until resolution');
   assert.equal(schedule[1]!.anchor, 'signup_end');
+});
+
+
+test('pinned actions follow the exact kickoff/signup time, not midnight', () => {
+  const schedule = toRelativeSchedule([
+    item({ id: '__start__', time: start }), item({ id: '__signup__', time: signupOpen }), item({ id: '__end__', time: end }),
+  ], start);
+  const resolved = resolveScheduleAnchors(schedule, { startsAt: start, signupStartsAt: signupOpen, endsAt: end });
+  assert.deepEqual(resolved.map(block => block.time), [start, signupOpen, end]);
 });

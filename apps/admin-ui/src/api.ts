@@ -1,4 +1,4 @@
-import type { AppState, AuthMe, FormConfig, HackathonEvent, ImportedSignup, MatchResult, Team, TeamSuggestion } from './types'
+import type { AppState, AuthMe, FormConfig, HackathonEvent, ImportedSignup, MatchResult, SubmissionForm, SubmissionRecord, Team, TeamSuggestion } from './types'
 
 class ApiError extends Error {
   constructor(
@@ -31,7 +31,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       res.status === 429 && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
         ? `${message} (retry in ${retryAfterSeconds}s)`
         : message,
-      (body.code as string) ?? 'error',
+      (body.code as string) ?? (body.error as string) ?? 'error',
       false,
       Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? retryAfterSeconds : undefined,
     )
@@ -40,6 +40,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+
+  async submissionForm(eventId: string): Promise<{ form: SubmissionForm }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/submission-form`)
+  },
+  async saveSubmissionForm(eventId: string, form: SubmissionForm): Promise<{ form: SubmissionForm }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/submission-form`, { method: 'PUT', body: JSON.stringify({ version: form.version, form: { enabled: form.enabled, allowEdits: form.allowEdits, questions: form.questions } }) })
+  },
+  async submissions(eventId: string, signal?: AbortSignal): Promise<{ form: SubmissionForm; submissions: (SubmissionRecord & { userId: string })[] }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/submissions`, { signal })
+  },
 
   /**
    * Load app state. Pass an eventId to scope participants/teams/matching to a
@@ -65,12 +75,15 @@ export const api = {
     })
   },
 
-  async createTeam(name: string, kind: 'public' | 'private', ownerId?: string, eventId?: string): Promise<Team> {
-    const res = await request<{ team: Team }>('/api/teams', {
+  async createTeam(name: string, kind: 'public' | 'private', ownerId: string, eventId?: string): Promise<{ team: Team; provisioning: 'complete' | 'pending' | 'disabled' }> {
+    return request('/api/teams', {
       method: 'POST',
       body: JSON.stringify({ name, kind, ownerId, ...(eventId ? { eventId } : {}) }),
     })
-    return res.team
+  },
+
+  async provisionTeam(teamId: string): Promise<{ team: Team; provisioning: 'complete' | 'pending' }> {
+    return request(`/api/teams/${encodeURIComponent(teamId)}/provision`, { method: 'POST' })
   },
 
   async deleteTeam(teamId: string): Promise<void> {
@@ -274,11 +287,15 @@ export const api = {
     return request('/api/guild/channels')
   },
 
-  async previewSignupImport(eventId: string, csv: string, mapping?: Record<string, string>): Promise<{ headers: string[]; suggestedMapping: Record<string, string>; rows: { rowNumber: number; values: Record<string, string>; answers: Record<string, string | string[]>; issues: string[]; duplicateStatus: 'create' | 'duplicate' | 'conflict' }[]; summary: { create: number; duplicate: number; conflict: number } }> {
-    return request(`/api/events/${encodeURIComponent(eventId)}/signup-import/preview`, { method: 'POST', body: JSON.stringify({ csv, ...(mapping ? { mapping } : {}) }) })
+  async previewSignupImport(eventId: string, csv: string, mapping?: Record<string, string>, templateId?: string | null): Promise<{ headers: string[]; suggestedMapping: Record<string, string>; presetId: string | null; rows: { rowNumber: number; values: Record<string, string>; answers: Record<string, string | string[]>; issues: string[]; duplicateStatus: 'create' | 'duplicate' | 'conflict' }[]; summary: { create: number; duplicate: number; conflict: number } }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/signup-import/preview`, { method: 'POST', body: JSON.stringify({ csv, ...(mapping ? { mapping } : {}), ...(templateId ? { templateId } : {}) }) })
   },
 
-  async importSignups(eventId: string, rows: { sourceRow: number; values: Record<string, string>; answers: Record<string, string | string[]> }[]): Promise<{ saved: number; skipped: number; conflicts: number }> {
+  async signupImportTemplates(eventId: string): Promise<{ templates: { id: string; label: { en: string; sv: string }; description: { en: string; sv: string }; columns: { header: string; target: string }[] }[] }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/signup-import/templates`)
+  },
+
+  async importSignups(eventId: string, rows: { sourceRow: number; values: Record<string, string>; answers: Record<string, string | string[]> }[]): Promise<{ saved: number; skipped: number; conflicts: number; warnings?: { row: number; issues: string[] }[] }> {
     return request(`/api/events/${encodeURIComponent(eventId)}/signup-import`, { method: 'POST', body: JSON.stringify({ rows }) })
   },
 

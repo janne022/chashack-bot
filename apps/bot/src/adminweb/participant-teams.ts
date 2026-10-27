@@ -7,7 +7,7 @@ import { getForm } from '../features/form/data.js';
 import { eligibleParticipant } from '../features/signup/eligibility.js';
 import { createTeam, getTeam, getTeamForUser, getGuildSettings, joinTeam, leaveTeam, listTeams, type Team } from '../features/teams/data.js';
 import { createInvite, decideRequest, listRequestsForUser } from '../features/teams/requests-data.js';
-import { destroyTeamSpace, grantTeamRole, provisionTeamSpace, revokeTeamRole } from '../discord/provision.js';
+import { applyTeamLeave, grantTeamRole, provisionTeamSpace } from '../discord/provision.js';
 import { refreshTeamPanel } from '../discord/team-panel.js';
 
 export function registerParticipantTeamRoutes(app: FastifyInstance, deps: WebDeps,
@@ -91,10 +91,7 @@ export function registerParticipantTeamRoutes(app: FastifyInstance, deps: WebDep
     if (!res.ok) return reply.code(409).send({ error: res.code });
     if (team && deps.client && !deps.config.skipDiscord) {
       const pd = { db, client: deps.client, categoryIdFor: () => undefined };
-      await revokeTeamRole(pd, team, session.userId);
-      const remaining = await getTeam(db, team.id);
-      if (remaining === null) await destroyTeamSpace(pd, team);
-      else await refreshTeamPanel(pd, remaining);
+      await applyTeamLeave(pd, team, session.userId);
     }
     return { ok: true };
   });
