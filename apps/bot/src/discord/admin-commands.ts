@@ -65,6 +65,7 @@ export async function handleAdminCommand(
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
+      if (res.value) await applyTeamLeave({ db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value, user.id);
       await i.reply({
         content: `<@${user.id}>`,
         embeds: [embedOk(t(locale, 'discord.admin.blocked_title'), t(locale, 'discord.admin.blocked_body', { name: user.username, reason }))],
@@ -90,7 +91,12 @@ export async function handleAdminCommand(
         await i.reply(eph(t(locale, 'discord.admin.they_have_no_signup')));
         return;
       }
-      await withdrawParticipant(db, actor, ctx.eventId, user.id);
+      const removed = await withdrawParticipant(db, actor, ctx.eventId, user.id);
+      if (!removed.ok) {
+        await i.reply({ embeds: [displayErr(locale, removed.code, removed.message)], flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (removed.value) await applyTeamLeave({ db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, removed.value, user.id);
       await i.reply({
         embeds: [embedOk(t(locale, 'discord.admin.removed_title'), t(locale, 'discord.admin.removed_body', { name: p.displayName }))],
         flags: MessageFlags.Ephemeral,
@@ -122,7 +128,7 @@ export async function handleAdminCommand(
         return;
       }
       const teams = await listTeams(db, ctx.eventId);
-      const found = teams.find(async (team) => team.id === teamArg || team.name.toLowerCase() === teamArg.toLowerCase());
+      const found = teams.find((team) => team.id === teamArg || team.name.toLowerCase() === teamArg.toLowerCase());
       if (found === undefined) {
         await i.reply(eph(t(locale, 'discord.admin.no_such_team', { arg: teamArg })));
         return;

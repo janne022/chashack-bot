@@ -104,7 +104,9 @@ for (const state of ['blocked', 'incomplete', 'absent', 'lookup-error', 'detache
     const before = await db.all('SELECT * FROM audit_log ORDER BY id');
     const result = await decideRequest(db, 'discord:owner', request.value.id, 'accept', 2);
     assert.equal(result.ok, false);
-    assert.equal((await db.get<{ status: string }>('SELECT status FROM team_requests WHERE id=?', request.value.id))!.status, 'pending');
+    const pendingRequest = await db.get<{ status: string }>('SELECT status FROM team_requests WHERE id=?', request.value.id);
+    if (state === 'blocked') assert.equal(pendingRequest, undefined, 'blocking the sole owner deletes the empty team and its pending requests');
+    else assert.equal(pendingRequest!.status, 'pending');
     assert.equal((await db.get<{ team_id: string | null }>("SELECT team_id FROM participants WHERE user_id='member'"))!.team_id, null);
     assert.deepEqual(await db.all('SELECT * FROM audit_log ORDER BY id'), before);
   } finally { await db.close(); }

@@ -148,6 +148,11 @@ Organizers choose web-only signup or Discord profile signup with remaining quest
 web. Extra custom questions are explicitly identified as web steps. Web custom fields
 include text, choices, a 1–10 slider and yes/no choices. Saved answers have an explicit
 edit state; participants can choose light or dark independent of custom event branding.
+New events enforce their configured signup window for new and returning participants;
+active participants may still edit or withdraw. Legacy events remain unrestricted
+unless organizers enable enforcement. Signup can stay open after kickoff.
+Organizers can enable a separate participant submission form, review its answers and
+choose whether completed submissions remain editable.
 
 The signup panel retains team creation and invitation controls. Team departure posts a
 notice to the team channel. Team roles are displayed separately. Optional member-only
@@ -162,6 +167,8 @@ schedules, with signup-panel posting attached to the signup window.
 
 Assignment handout is an explicit schedule action, defaulting to kickoff when a collection
 is chosen. Existing events can replace their assignment pool from a saved collection.
+Event templates may reference a collection or retain an embedded pool; event creation
+snapshots the selected assignments, and an explicit empty selection removes the default.
 Overdue signup and handout actions catch up; late teams receive their assignment after
 provisioning. Managed scheduled announcements, handouts and itineraries retain Discord
 message references so edits update the existing post. New actions on completed blocks

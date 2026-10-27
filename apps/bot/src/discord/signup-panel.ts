@@ -23,6 +23,7 @@ import { IDS } from './shared.js';
 import { env } from '../shared/env.js';
 import { needsWebSignup } from './signup-entry.js';
 import { t, type BotLocale } from '../shared/i18n.js';
+import { createHash } from 'node:crypto';
 
 interface PanelRef {
   channelId: string;
@@ -90,6 +91,7 @@ export async function postOrUpdatePanel(
   channelId: string,
   locale: BotLocale = 'en',
   eventId?: string,
+  actionRef?: PanelRef,
 ): Promise<{ channelId: string; messageId: string; edited: boolean } | { error: string }> {
   if (channelId === '') {
     const ref = await getPanelRef(db, guildId);
@@ -111,7 +113,11 @@ export async function postOrUpdatePanel(
   try { const base = env().publicUrl; if (base) webUrl = base.replace(/\/$/, '') + '/events/' + encodeURIComponent(event.id) + '/signup'; } catch { /* missing runtime config */ }
   const payload = buildPanelPayload(config, locale, event.id, webUrl);
   const eventKey = `signup_panel_event:${guildId}:${event.id}`;
-  const existing = await getMessageRef(db, eventKey);
+  // Legacy scheduled actions can target different channels for the same event.
+  // Prefer the action's own tracked message so that refreshing one action does
+  // not replace the reference used by another. Old records without a reference
+  // can still adopt the existing event panel.
+  const existing = actionRef?.channelId === channelId ? actionRef : await getMessageRef(db, eventKey);
 
   try {
     if (existing !== null && existing.channelId === channelId) {
@@ -120,8 +126,10 @@ export async function postOrUpdatePanel(
         await message.edit(payload);
         return { channelId, messageId: existing.messageId, edited: true };
       }
+      if (message !== null) return { error: t(locale, 'discord.events.panel_post_failed') };
     }
-    const sent = await (channel as TextChannel).send(payload);
+    const nonce = createHash('sha256').update(JSON.stringify([eventKey, channelId, payload])).digest('hex').slice(0, 24);
+    const sent = await (channel as TextChannel).send({ ...payload, nonce, enforceNonce: true });
     await setMessageRef(db, eventKey, { channelId, messageId: sent.id });
     await setPanelRef(db, guildId, { channelId, messageId: sent.id });
     return { channelId, messageId: sent.id, edited: false };

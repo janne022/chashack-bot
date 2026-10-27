@@ -4,16 +4,18 @@ import { toast } from 'sonner'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
-import { api } from '@/api'
+import { api, ApiError } from '@/api'
 import { createEventSchema, announceSchema } from '@/lib/schemas'
 import type { Assignment, AssignmentStrategy, FormConfig, FormAppearance, HackathonEvent, Participant } from '@/types'
 import { STRATEGY_OPTIONS } from '@/lib/assignment-strategy'
 import { DEFAULT_FORM } from '@/lib/default-form'
 import { SYNTHETIC_BLOCK_IDS, resolveScheduleAnchors, consolidateSignupBlock, moveScheduleDates } from '@/lib/schedule-anchor'
 import { FormConfigEditor } from '@/components/FormConfigEditor'
+import { SubmissionManager } from '@/components/SubmissionManager'
 import { AppearanceControls } from '@/components/appearance-controls'
 import { resolveAppearance } from '@/components/participant-appearance'
 import { validateQuestions } from '@/lib/question-validation'
+import { announcementFailureKey } from '@/lib/announcement-result'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -23,7 +25,7 @@ import { Input } from '@/components/ui/input'
 import { Label, Textarea } from '@/components/ui/textarea-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog'
 import { ScheduleEditor } from '@/components/ui/schedule-editor'
 import { AssignmentsEditor } from '@/components/AssignmentsEditor'
 import { ImportedSignups } from '@/components/ImportedSignups'
@@ -320,6 +322,7 @@ function NewEventButton() {
   const [formTemplateId, setFormTemplateId] = useState<string>('')
   const [customForm, setCustomForm] = useState<FormConfig>(() => JSON.parse(JSON.stringify(DEFAULT_FORM)) as FormConfig)
   const [assignmentCollectionId, setAssignmentCollectionId] = useState<string>('')
+  const [embeddedAssignments, setEmbeddedAssignments] = useState<Assignment[]>([])
   const [assignmentStrategy, setAssignmentStrategy] = useState<AssignmentStrategy>('random')
   const [cleanupDelayHours, setCleanupDelayHours] = useState<number>(48)
   const [name, setName] = useState('')
@@ -394,14 +397,14 @@ function NewEventButton() {
       return { id: tpl.id, name: tpl.name, count }
     })
   useEffect(() => {
-    if (!assignmentCollectionId) { setStartActions(actions => actions.filter(action => action.id !== DISTRIBUTE_ACTION_ID)); return }
     const elsewhere = [...signupActions, ...endActions, ...schedule.flatMap(item => item.actions ?? [])].some(action => action.type === 'distribute_assignments')
-    if (!elsewhere) setStartActions(actions => {
+    if (!assignmentCollectionId || elsewhere) { setStartActions(actions => actions.filter(action => action.id !== DISTRIBUTE_ACTION_ID)); return }
+    setStartActions(actions => {
       const existing = actions.find(action => action.type === 'distribute_assignments')
       return existing ? actions.map(action => action.id === DISTRIBUTE_ACTION_ID ? { ...action, mode: assignmentStrategy } : action)
         : [...actions, { id: DISTRIBUTE_ACTION_ID, type: 'distribute_assignments', mode: assignmentStrategy }]
     })
-  }, [assignmentCollectionId, assignmentStrategy])
+  }, [assignmentCollectionId, assignmentStrategy, signupActions, endActions, schedule])
   const defaults = state.guildSettings
 
   function onOpenChooser() {
@@ -411,6 +414,19 @@ function NewEventButton() {
   function openBlank() {
     setTemplateId('')
     setChooserTemplateId('')
+    setAssignmentCollectionId('')
+    setEmbeddedAssignments([])
+    setAssignmentStrategy('random')
+    setName('')
+    setDescription('')
+    setCleanupDelayHours(48)
+    setSchedule([])
+    setStartActions([])
+    setSignupActions([])
+    setEndActions([])
+    setFormMode('default')
+    setFormTemplateId('')
+    setCustomForm(JSON.parse(JSON.stringify(DEFAULT_FORM)) as FormConfig)
     setChooserOpen(false)
     setOpen(true)
     if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
@@ -443,15 +459,18 @@ function NewEventButton() {
         assignmentCollectionId?: string;
         assignmentStrategy?: AssignmentStrategy;
       }
-      if (parsed.name) setName(parsed.name)
-      if (parsed.description) setDescription(parsed.description)
-      if (typeof parsed.cleanupDelayHours === 'number') setCleanupDelayHours(parsed.cleanupDelayHours)
-      if (Array.isArray(parsed.schedule)) {
+      setName(typeof parsed.name === 'string' ? parsed.name : tpl.name)
+      setDescription(typeof parsed.description === 'string' ? parsed.description : '')
+      setCleanupDelayHours(typeof parsed.cleanupDelayHours === 'number' ? parsed.cleanupDelayHours : 48)
+      setFormMode('default')
+      setFormTemplateId('')
+      setCustomForm(JSON.parse(JSON.stringify(DEFAULT_FORM)) as FormConfig)
+      {
         // Templates carry block actions on synthetic items (__start__/__signup__/
         // __end__) and real blocks with anchors — split them so the block actions
         // land in the pinned blocks the user can see, and the itinerary resolves
         // onto this event's dates.
-        const normalized = consolidateSignupBlock(parsed.schedule)
+        const normalized = consolidateSignupBlock(Array.isArray(parsed.schedule) ? parsed.schedule : [])
         const blocks = normalized.filter(s => SYNTHETIC_BLOCK_IDS.includes(s.id))
         const items = normalized.filter(s => !SYNTHETIC_BLOCK_IDS.includes(s.id))
         const pickActions = (blockId: string) => blocks.find(b => b.id === blockId)?.actions ?? []
@@ -466,13 +485,13 @@ function NewEventButton() {
         }))
       }
       // Prefer a collection reference; fall back to legacy embedded pools (pre-collections templates).
+      setEmbeddedAssignments(Array.isArray(parsed.assignments) ? parsed.assignments : [])
       if (typeof parsed.assignmentCollectionId === 'string' && parsed.assignmentCollectionId !== '') {
         setAssignmentCollectionId(parsed.assignmentCollectionId)
       } else if (Array.isArray(parsed.assignments) && parsed.assignments.length > 0) {
-        // Legacy template with an embedded pool — keep the strategy it carried.
-        setAssignmentStrategy(parsed.assignmentStrategy === 'same' ? 'same' : 'random')
-      }
-      if (parsed.assignmentStrategy === 'same' || parsed.assignmentStrategy === 'random') setAssignmentStrategy(parsed.assignmentStrategy)
+        setAssignmentCollectionId('__embedded')
+      } else setAssignmentCollectionId('')
+      setAssignmentStrategy(parsed.assignmentStrategy === 'same' ? 'same' : 'random')
       toast.info(t('events.template_applied', { name: tpl.name }))
     } catch {
       // ignore parse errors, still send templateId to server
@@ -524,9 +543,10 @@ function NewEventButton() {
       // Resolve the assignment pool from the picked collection (snapshot semantics —
       // later edits to the collection don't retroactively change this event).
       const pickedCollection = state.templates.find((tpl) => tpl.id === assignmentCollectionId && tpl.kind === 'assignments')
-      let pool: Assignment[] = []
+      let pool: Assignment[] = assignmentCollectionId === '__embedded' ? embeddedAssignments : []
+      if (assignmentCollectionId && assignmentCollectionId !== '__embedded' && !pickedCollection) throw new Error(t('templates.assignment_collection_missing'))
       if (pickedCollection) {
-        try { const p = JSON.parse(pickedCollection.json) as { assignments?: Assignment[] }; if (Array.isArray(p.assignments)) pool = p.assignments } catch { pool = [] }
+        try { const p = JSON.parse(pickedCollection.json) as { assignments?: Assignment[] }; if (!Array.isArray(p.assignments) || p.assignments.length > 50 || p.assignments.some(item => !item || typeof item.title !== 'string' || !item.title.trim() || typeof item.instructions !== 'string' || !item.instructions.trim())) throw new Error(); pool = p.assignments } catch { throw new Error(t('templates.assignment_collection_invalid')) }
       }
 
       await api.createEvent({
@@ -539,7 +559,8 @@ function NewEventButton() {
         announcementChannelId: announceChannelId || null,
         scheduleChannelId: scheduleChannelId || null,
         ...(mergedSchedule.length > 0 ? { schedule: mergedSchedule } : {}),
-        ...(pool.length > 0 ? { assignments: pool, assignmentStrategy } : {}),
+        assignments: pool,
+        assignmentStrategy,
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
       const created = saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() })
@@ -567,10 +588,12 @@ function NewEventButton() {
       setSaveAsTemplate(false)
       setCleanupDelayHours(48)
       setAssignmentCollectionId('')
+      setEmbeddedAssignments([])
       setAssignmentStrategy('random')
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('events.create_failed'))
+      const message = e instanceof ApiError && (e.code === 'assignment_collection_missing' || e.code === 'assignment_collection_invalid') ? t(`templates.${e.code}`) : e instanceof Error ? e.message : t('events.create_failed')
+      toast.error(message)
     } finally {
       setBusy(false)
     }
@@ -684,11 +707,13 @@ function NewEventButton() {
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
                 <span className="text-sm font-medium">Assignments</span>
                 <span className="text-xs text-muted-foreground">Pick a collection — its assignments go out to each team when the hackathon starts. Manage collections under Templates → Assignment collections.</span>
-                {assignmentCollections.length > 0 ? (
+                {assignmentCollections.length > 0 || embeddedAssignments.length > 0 || !!assignmentCollectionId ? (
                   <Select value={assignmentCollectionId || '__none'} onValueChange={(v)=>setAssignmentCollectionId(v==='__none'?'':v)}>
                     <SelectTrigger className="w-72"><SelectValue placeholder="Pick a collection" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none">No assignments</SelectItem>
+                      {embeddedAssignments.length > 0 && <SelectItem value="__embedded">{t('templates.embedded_assignments', { count: embeddedAssignments.length })}</SelectItem>}
+                      {assignmentCollectionId && assignmentCollectionId !== '__embedded' && !assignmentCollections.some(c => c.id === assignmentCollectionId) && <SelectItem value={assignmentCollectionId} disabled>{t('templates.assignment_collection_unavailable')}</SelectItem>}
                       {assignmentCollections.map(c => <SelectItem key={c.id} value={c.id}>{c.name} ({c.count})</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -714,8 +739,8 @@ function NewEventButton() {
                           >
                             <Icon className={cn("mt-0.5 size-4 shrink-0", selected ? "text-accent" : "text-muted-foreground")} />
                             <span>
-                              <span className="block text-sm font-medium">{opt.label}</span>
-                              <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                              <span className="block text-sm font-medium">{t(opt.labelKey)}</span>
+                              <span className="block text-xs text-muted-foreground">{t(opt.hintKey)}</span>
                             </span>
                           </button>
                         )
@@ -900,6 +925,7 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
   const t = useT()
   const [editOpen, setEditOpen] = useState(false)
   const [showImports, setShowImports] = useState(false)
+  const [showSubmissions, setShowSubmissions] = useState(false)
   const [busy, setBusy] = useState<'match' | 'lock' | null>(null)
   const sorted = [...(event.schedule ?? [])]
     .filter((s) => !SYNTHETIC_BLOCK_IDS.includes(s.id))
@@ -991,6 +1017,7 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
             <FileCheck />
             {showImports ? t('imports.back_to_event') : t('imports.action')}
           </Button>
+          <Button variant={showSubmissions ? 'secondary' : 'outline'} size="sm" className="!h-11 sm:!h-7" onClick={() => setShowSubmissions(value => !value)}><ClipboardList />{t('submission.manage')}</Button>
           {!ended && (
             <>
               <Button variant="outline" size="sm" className="!h-11 sm:!h-7" disabled={busy !== null} onClick={() => void matchNow()}>
@@ -1021,6 +1048,7 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
         </div>
 
         {showImports && <ImportedSignups eventId={event.id} eventName={event.name} form={importForm} />}
+        {showSubmissions && <SubmissionManager key={event.id} eventId={event.id} baseForm={importForm} readOnly={ended} />}
 
         {sorted.length > 0 && (
           <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
@@ -1127,7 +1155,8 @@ const DISTRIBUTE_ACTION_ID = '__distribute_assignments__'
 /**
  * Synthetic schedule blocks are the carriers of block actions: the planner
  * fires their actions at the block's time. Returns [] when the block has no
- * time or no actions, so an empty block never lands in the event.
+ * time or no actions, except an undated start block retains its actions as a
+ * pending anchor until the event gets a start date.
  */
 function syntheticBlock(
   id: string,
@@ -1135,8 +1164,8 @@ function syntheticBlock(
   title: string,
   actions: import('@/types').ScheduleAction[],
 ): import('@/types').ScheduleItem[] {
-  if (time === null || actions.length === 0) return []
-  return [{ id, time, title, kind: 'custom', actions }]
+  if (actions.length === 0 || (time === null && id !== '__start__')) return []
+  return [{ id, time: time ?? 0, title, kind: 'custom', actions, ...(id === '__start__' ? { anchor: 'hackathon_start' as const, offsetMinutes: 0 } : {}) }]
 }
 
 function dateInputToMs(v: string): number | null {
@@ -1169,19 +1198,15 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const { state } = useAppContext()
   const t = useT()
   const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
-  // Block actions live on the synthetic schedule items (__start__/__signup__/
-  // __end__) — announcements included. Legacy on_activate/on_start announcement
-  // rows are still read so events created before the migration load correctly.
+  // Legacy announcement records have no delivery receipts. Preserve them as
+  // presets rather than silently turning them into potentially repeated sends.
   const deriveStart = (ev: HackathonEvent) => {
-    const ann = (ev.announcements ?? []).filter(a=>a.trigger==='on_activate').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null } as import('@/types').ScheduleAction))
-    const syn = consolidateSignupBlock(ev.schedule ?? []).find(s=>s.id==='__start__')
-    return [...ann, ...((syn?.actions ?? []) as import('@/types').ScheduleAction[])]
+    const actions = consolidateSignupBlock(ev.schedule ?? []).find(s=>s.id==='__start__')?.actions ?? []
+    const alreadyScheduled = (ev.schedule ?? []).some(item => item.actions?.some(action => action.type === 'distribute_assignments'))
+    return ev.startsAt === null && !alreadyScheduled ? syncDistribute(actions, ev.assignments ?? []) : actions
   }
-  const deriveEnd = (ev: HackathonEvent) => {
-    const ann = (ev.announcements ?? []).filter(a=>a.trigger==='on_start').map(a=>({ id: a.id, type: 'announce' as const, title: a.title, message: a.message, channelId: a.channelId ?? null } as import('@/types').ScheduleAction))
-    const syn = consolidateSignupBlock(ev.schedule ?? []).find(s=>s.id==='__end__')
-    return [...ann, ...((syn?.actions ?? []) as import('@/types').ScheduleAction[])]
-  }
+  const deriveEnd = (ev: HackathonEvent) => consolidateSignupBlock(ev.schedule ?? []).find(s=>s.id==='__end__')?.actions ?? []
+  const hasLegacyAnnouncements = (event.announcements ?? []).some(a => a.trigger === 'on_activate' || a.trigger === 'on_start')
   const deriveSignup = (ev: HackathonEvent) =>
     (consolidateSignupBlock(ev.schedule ?? []).find(s=>s.id==='__signup__')?.actions ?? []) as import('@/types').ScheduleAction[]
   const deriveItems = (ev: HackathonEvent) => consolidateSignupBlock(ev.schedule ?? []).filter(s=>!SYNTHETIC_BLOCK_IDS.includes(s.id))
@@ -1191,6 +1216,8 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [end, setEnd] = useState(event.endsAt ? toLocalIso(new Date(event.endsAt)) : "")
   const [signupStart, setSignupStart] = useState(event.signupStartsAt ? toLocalIso(new Date(event.signupStartsAt)) : "")
   const [signupEnd, setSignupEnd] = useState(event.signupEndsAt ? toLocalIso(new Date(event.signupEndsAt)) : "")
+  const [enforceSignupWindow, setEnforceSignupWindow] = useState(() => { try { return !!event.formJson && (JSON.parse(event.formJson) as FormConfig).enforceSignupWindow === true } catch { return false } })
+  const [signupPolicyDirty, setSignupPolicyDirty] = useState(false)
   const [editAssignments, setEditAssignments] = useState<Assignment[]>(()=> (event.assignments ?? []))
   const [editCleanup, setEditCleanup] = useState<number>(event.cleanupDelayHours)
   const [editName, setEditName] = useState(event.name)
@@ -1241,9 +1268,8 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
     setBusy(true)
     setSaveError('')
     try {
-      // Block actions ride the synthetic blocks. The legacy on_activate/on_start
-      // announcement rows are dropped here — nothing sends them, their content
-      // lives in the block actions now.
+      // Keep legacy announcement records untouched: they do not carry receipts
+      // that would tell us whether converting them is safe to send again.
       const elsewhere = [...signupActions, ...endActions, ...items.flatMap(item => item.actions ?? [])].some(action => action.type === 'distribute_assignments')
       if (editAssignments.length && !elsewhere && !startActions.some(action => action.type === 'distribute_assignments')) throw new Error(t('events.assignment_action_required'))
       const startOps = startActions
@@ -1253,7 +1279,6 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
         ...syntheticBlock('__end__', end ? Date.parse(end) : null, 'Event ends', endActions),
       ]
       const merged = [...items.filter(s => !SYNTHETIC_BLOCK_IDS.includes(s.id)), ...extra]
-      const nextAnnouncements = (event.announcements ?? []).filter(a=>a.trigger !== 'on_activate' && a.trigger !== 'on_start')
       await api.updateEvent(event.id, {
         name: editName.trim(),
         description: editDescription,
@@ -1262,16 +1287,15 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
         endsAt: end ? Date.parse(end) : null,
         signupStartsAt: signupStart ? Date.parse(signupStart) : null,
         signupEndsAt: signupEnd ? Date.parse(signupEnd) : null,
-        announcements: nextAnnouncements as never,
         assignments: editAssignments as never,
         cleanupDelayHours: editCleanup,
       })
       // Form change is a separate endpoint — only call it when the user picked one.
-      if (editFormTemplateId || appearanceDirty) {
-        if (appearanceDirty) {
+      if (editFormTemplateId || appearanceDirty || signupPolicyDirty) {
+        if (appearanceDirty || signupPolicyDirty) {
           const template = formTemplates.find(item => item.id === editFormTemplateId)
           const base = template ? JSON.parse(template.json) as FormConfig : event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config
-          await api.setEventForm(event.id, { formJson: JSON.stringify({ ...base, appearance }) })
+          await api.setEventForm(event.id, { formJson: JSON.stringify({ ...base, ...(appearanceDirty ? { appearance } : {}), ...(signupPolicyDirty ? { enforceSignupWindow } : {}) }) })
         } else await api.setEventForm(event.id, { formTemplateId: editFormTemplateId })
         setEditFormTemplateId('')
       }
@@ -1296,6 +1320,11 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               {saveError && <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"><p>{saveError}</p><Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void save()} disabled={busy}>{t('events.retry_save')}</Button></div>}
+              {hasLegacyAnnouncements && <details className="rounded-lg border border-border bg-surface-2 p-3 text-sm">
+                <summary className="cursor-pointer font-medium">{t('events.legacy_announcements_title')}</summary>
+                <p className="mt-2 text-muted-foreground">{t('events.legacy_announcements_preserved')}</p>
+                {(event.announcements ?? []).filter(a => a.trigger === 'on_activate' || a.trigger === 'on_start').map(a => <div key={a.id} className="mt-3 whitespace-pre-wrap break-words"><strong>{a.title}</strong><p className="text-muted-foreground">{a.message}</p></div>)}
+              </details>}
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.name')}</span>
                 <Input value={editName} onChange={(e)=>setEditName(e.target.value)} maxLength={100} />
@@ -1338,6 +1367,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 onSignupActionsChange={setSignupActions}
                 disablePast
               />
+              <label className="flex items-start gap-2 rounded-lg border p-3 text-sm"><input type="checkbox" checked={enforceSignupWindow} onChange={e => { setEnforceSignupWindow(e.target.checked); setSignupPolicyDirty(true) }} className="mt-1" /><span><strong>{t('events.enforce_signup_window')}</strong><span className="mt-1 block text-muted-foreground">{t('events.enforce_signup_help')}</span></span></label>
               <div className="space-y-2">
                 <Label>{t('events.assignment_collection')}</Label>
                 <Select value="" onValueChange={id => {
@@ -1388,14 +1418,15 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   const [channelId, setChannelId] = useState('')
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [sendError, setSendError] = useState('')
   const [guildChannels, setGuildChannels] = useState<{ id: string; name: string }[]>([])
   useEffect(() => { if (open) api.getGuildChannels().then(r=>setGuildChannels(r.channels ?? [])).catch(()=>undefined) }, [open])
 
   const announcementPresets = [
     ...(state.templates ?? []).filter(tp=>tp.kind==='announcement').map(tp=>{
-      try { const p = JSON.parse(tp.json) as { title?: string; message?: string; trigger?: string }; return { id: tp.id, title: p.title ?? tp.name, message: p.message ?? '', trigger: p.trigger ?? 'manual' } } catch { return { id: tp.id, title: tp.name, message: '', trigger: 'manual' } }
+      try { const p = JSON.parse(tp.json) as { title?: string; message?: string; trigger?: string; channelId?: string | null }; return { id: tp.id, title: p.title ?? tp.name, message: p.message ?? '', trigger: p.trigger ?? 'manual', channelId: p.channelId ?? null } } catch { return { id: tp.id, title: tp.name, message: '', trigger: 'manual', channelId: null } }
     }),
-    ...(event.announcements ?? []).map(a=>({ id: a.id, title: a.title, message: a.message, trigger: a.trigger })),
+    ...(event.announcements ?? []).map(a=>({ id: a.id, title: a.title, message: a.message, trigger: a.trigger, channelId: a.channelId ?? null })),
   ]
   function applyPreset(id: string) {
     const tpl = announcementPresets.find(a=>a.id===id) ?? (event.announcements ?? []).find(a=>a.id===id)
@@ -1406,6 +1437,7 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
     }
     setTitle(tpl.title)
     setMessage(tpl.message)
+    if (tpl.channelId) setChannelId(tpl.channelId)
   }
 
   async function send() {
@@ -1415,25 +1447,28 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
       return
     }
     setBusy(true)
+    setSendError('')
     try {
       const targetChannel = channelId.trim() || undefined
       const res = await api.announce(event.id, title.trim(), message.trim(), dm, targetChannel)
       if (res.posted) {
         toast.success(dm ? t('events.posted_with_dms', { count: res.dmSent }) : t('events.posted'))
       } else {
-        // Surface the actual reason now (no_channel_configured, missing_access, etc.)
-        toast.error(`Not posted — ${res.reason}`, { duration: 6000 })
+        const detail = [t(announcementFailureKey(res.reason)), ...(res.dmSent > 0 ? [t('events.announce_dms_sent_retry', { count: res.dmSent })] : []), ...(res.dmFailed > 0 ? [t('events.announce_dms_failed', { count: res.dmFailed })] : [])].join(' ')
+        setSendError(detail)
+        if (res.dmSent > 0) setDm(false)
       }
-      if (res.dmFailed > 0) toast.info(t('events.dms_failed', { count: res.dmFailed }))
+      if (res.posted && res.dmFailed > 0) toast.info(t('events.announce_dms_failed', { count: res.dmFailed }))
       if (res.posted) {
         setOpen(false)
         setTitle('')
         setMessage('')
         setChannelId('')
+        setDm(false)
       }
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('events.announce_failed'))
+      setSendError(t('events.announce_request_unknown'))
     } finally {
       setBusy(false)
     }
@@ -1441,23 +1476,26 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
 
   return (
     <>
-      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
-        <Bell />
-        {t('events.announce')}
-      </Button>
-      {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={() => setOpen(false)}>
-          <Card className="w-full max-w-md animate-pop-in" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <Button variant="secondary" size="sm" onClick={() => setSendError('')}>
+            <Bell />
+            {t('events.announce')}
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="max-h-[90vh] overflow-y-auto p-0 sm:max-w-md">
+          <Card className="border-0 shadow-none">
             <CardHeader>
-              <CardTitle>{t('events.announce')}</CardTitle>
-              <CardDescription>{t('events.announce_desc')}</CardDescription>
+              <DialogTitle>{t('events.announce')}</DialogTitle>
+              <DialogDescription>{t('events.announce_desc')}</DialogDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              {sendError && <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{sendError}</p>}
               {announcementPresets.length > 0 && (
                 <div className="flex flex-col gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">Quick fill from template announcements</span>
+                  <span className="text-xs font-medium text-muted-foreground">{t('events.announce_quick_fill')}</span>
                   <Select onValueChange={applyPreset}>
-                    <SelectTrigger><SelectValue placeholder="Pick a preset (supports tags)" /></SelectTrigger>
+                    <SelectTrigger aria-label={t('events.announce_quick_fill')}><SelectValue placeholder={t('events.announce_pick_preset')} /></SelectTrigger>
                     <SelectContent>
                       {announcementPresets.map(p=> <SelectItem key={p.id} value={p.id}>{p.trigger === 'schedule' ? `⏰ ${p.title}` : p.trigger === 'on_activate' ? `🚀 ${p.title}` : p.title} — {p.message.slice(0,40)}</SelectItem>)}
                     </SelectContent>
@@ -1465,21 +1503,22 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
                 </div>
               )}
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium">{t('events.channel')}</span>
+                <span className="font-medium">{t('events.channel_label')}</span>
                 {guildChannels.length > 0 ? (
                   <Select value={channelId || '__none'} onValueChange={(v)=>setChannelId(v==='__none'?'':v)}>
-                    <SelectTrigger><SelectValue placeholder="Override channel (defaults to panel)" /></SelectTrigger>
+                    <SelectTrigger aria-label={t('events.channel_label')}><SelectValue placeholder={t('events.announce_channel_override')} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__none">Use default / panel</SelectItem>
+                      <SelectItem value="__none">{t('events.announce_channel_default')}</SelectItem>
                       {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="Override channel ID (optional)" maxLength={30} />
+                  <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder={t('events.announce_channel_id')} maxLength={30} />
                 )}
               </label>
-              <TagAutocompleteInput value={title} onChange={v=>setTitle(v)} placeholder={t('events.headline_placeholder') + " — { for tags"} maxLength={100} />
-              <TagAutocompleteTextarea value={message} onChange={v=>setMessage(v)} placeholder={t('events.message_placeholder') + " — e.g. Listen up {everyone} {event} starts {timer} — {panel}"} maxLength={2000} />
+              <TagAutocompleteInput value={title} onChange={v=>setTitle(v)} placeholder={t('events.headline_placeholder')} maxLength={100} />
+              <TagAutocompleteTextarea value={message} onChange={v=>setMessage(v)} placeholder={t('events.message_placeholder')} maxLength={2000} />
+              <p className="text-xs text-muted-foreground">{t('tags.type_hint')}</p>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={dm} onCheckedChange={setDm} />
                 {t('events.also_dm')}
@@ -1493,8 +1532,8 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
               </div>
             </CardContent>
           </Card>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

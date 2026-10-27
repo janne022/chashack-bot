@@ -14,7 +14,7 @@ import { Check, Pencil, ArrowRight } from 'lucide-react'
 
 type Profile = { experience: string; roleTrack: string; skills: string[]; teamPref: string }
 type EventForm = { event: { id: string; name: string; description: string; startsAt: number | null; endsAt: number | null }; form: { version: number; title: string; description: string; appearance: FormAppearance; questions: Question[]; profileFields: { experiences: { id: string; label: string; label_sv?: string }[]; roleTracks: { id: string; label: string; label_sv?: string }[]; skills: { id: string; label: string; label_sv?: string; group: string }[]; teamPrefs: { id: string; label: string; label_sv?: string }[] } } }
-type Registration = { answers: Record<string, string | string[]>; profile: Profile | null; complete: boolean; missingRequiredQuestionIds: string[]; status: string }
+type Registration = { answers: Record<string, string | string[]>; profile: Profile | null; complete: boolean; missingRequiredQuestionIds: string[]; status: string; signupWindowReason?: 'signup_not_open' | 'signup_closed' | null }
 export const Route = createFileRoute('/events/$eventId/signup')({ component: Signup })
 
 function Signup() {
@@ -126,7 +126,7 @@ function Signup() {
       const value = await res.json() as Registration & { error?: string }
       if (res.status === 401) { location.assign('/auth/participant'); return }
       if (res.status === 404) throw new Error(t('participant.signup_member'))
-      if (!res.ok) { setRegistration({ ...registration!, ...value, answers, missingRequiredQuestionIds: value.missingRequiredQuestionIds ?? registration?.missingRequiredQuestionIds ?? [] }); setStale(value.error === 'stale_form_version'); setMessage(value.error === 'stale_form_version' ? t('participant.signup_stale') : t('participant.signup_save_error')); setState('failed'); return }
+      if (!res.ok) { setRegistration({ ...registration!, ...value, answers, missingRequiredQuestionIds: value.missingRequiredQuestionIds ?? registration?.missingRequiredQuestionIds ?? [] }); setStale(value.error === 'stale_form_version'); setMessage(value.error === 'stale_form_version' ? t('participant.signup_stale') : value.error === 'signup_not_open' || value.error === 'signup_closed' ? t(`participant.${value.error}`) : t('participant.signup_save_error')); setState('failed'); return }
       dirty.current = draftRevision.current !== submittedRevision; setRegistration(value); setMessage(t('participant.signup_saved')); setEditing(false); setState('idle')
     } catch (error) { setMessage(error instanceof Error ? error.message : t('participant.signup_failed')); setState('failed') }
   }
@@ -146,8 +146,9 @@ function Signup() {
           <Button onClick={() => location.assign('/auth/participant')}>{t('participant.signup_continue')}</Button>
         </section>}
         {!registration && access === 'nonmember' && <p role="alert">{t('participant.signup_member')}</p>}
-        {registration && !canSubmit && <p role="alert">{t('participant.signup_empty')}</p>}
-        {registration && <form className="space-y-6" onSubmit={e => void submit(e)}>
+        {registration?.signupWindowReason && <p role="alert">{t(`participant.${registration.signupWindowReason}`)}</p>}
+        {registration && !registration.signupWindowReason && !canSubmit && <p role="alert">{t('participant.signup_empty')}</p>}
+        {registration && !registration.signupWindowReason && <form className="space-y-6" onSubmit={e => void submit(e)}>
           <div className="participant-status" role="status"><div className="flex items-center gap-3"><Check size={18} /><div><strong>{dirty.current ? t('participant.unsaved') : registration.complete ? t('participant.saved') : t('participant.signup_pending')}</strong>{readOnly && <p className="mt-1 text-sm opacity-75">{t('participant.edit_hint')}</p>}</div></div>{readOnly && <Button type="button" variant="outline" onClick={() => setEditing(true)}><Pencil size={15} />{t('participant.edit_answers')}</Button>}</div>
           {requiredAnswers.length > 0 && <div><p className="mb-2 text-sm opacity-75">{t('participant.progress', { done: answered, total: requiredAnswers.length })}</p><progress className="participant-progress" value={answered} max={requiredAnswers.length} aria-label={t('participant.registration')} /></div>}
           <fieldset disabled={readOnly || state === 'waiting'} className="min-w-0 space-y-6 participant-fields">

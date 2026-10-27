@@ -17,6 +17,7 @@ export async function deleteGuildMemberData(db: Db, guildId: string, userId: str
       }
     }
     await db.run('DELETE FROM registration_answers WHERE user_id = ? AND event_id IN (SELECT id FROM events WHERE guild_id = ?)', userId, guildId);
+    await db.run('DELETE FROM submission_answers WHERE user_id = ? AND event_id IN (SELECT id FROM events WHERE guild_id = ?)', userId, guildId);
     await db.run('DELETE FROM team_requests WHERE guild_id = ? AND (target_id = ? OR requester_id IN (?, ?, ?))', guildId, userId, userId, `discord:${userId}`, `web:${userId}`);
     await db.run('DELETE FROM participants WHERE guild_id = ? AND user_id = ?', guildId, userId);
 
@@ -46,7 +47,8 @@ export async function deleteGuildMemberData(db: Db, guildId: string, userId: str
 /** Lookup must return confirmed presence/absence; unavailable lookups are skipped. */
 export async function reconcileGuildMembers(db: Db, guildId: string, lookup: (userId: string) => Promise<boolean>, cleanup: (team: Team) => Promise<void> = async () => undefined): Promise<void> {
   const users = await db.all<{ user_id: string }>(`SELECT user_id FROM participants WHERE guild_id = ?
-    UNION SELECT user_id FROM registration_answers WHERE event_id IN (SELECT id FROM events WHERE guild_id = ?)`, guildId, guildId);
+    UNION SELECT user_id FROM registration_answers WHERE event_id IN (SELECT id FROM events WHERE guild_id = ?)
+    UNION SELECT user_id FROM submission_answers WHERE event_id IN (SELECT id FROM events WHERE guild_id = ?)`, guildId, guildId, guildId);
   for (const { user_id: userId } of users) {
     let present: boolean;
     try { present = await lookup(userId); } catch { continue; }
@@ -61,7 +63,13 @@ export async function replayMemberDeletions(db: Db, records: { guildId: string; 
     await withGuildContext(db, record.guildId, async () => {
     const freshRegistration = await db.get(`SELECT 1 FROM participants p JOIN events e ON e.id=p.event_id
       WHERE p.guild_id=? AND p.user_id=? AND p.created_at>? LIMIT 1`, record.guildId, record.userId, record.deletedAt);
-    if (freshRegistration !== undefined) return;
+    if (freshRegistration !== undefined) {
+      // A later rejoin must survive replay, but it must not resurrect older
+      // answers from a restored snapshot in this guild's other events.
+      await db.run('DELETE FROM registration_answers WHERE user_id = ? AND updated_at <= ? AND event_id IN (SELECT id FROM events WHERE guild_id = ?)', record.userId, record.deletedAt, record.guildId);
+      await db.run('DELETE FROM submission_answers WHERE user_id = ? AND updated_at <= ? AND event_id IN (SELECT id FROM events WHERE guild_id = ?)', record.userId, record.deletedAt, record.guildId);
+      return;
+    }
     await deleteGuildMemberData(db, record.guildId, record.userId, record.deletedAt);
     });
   }

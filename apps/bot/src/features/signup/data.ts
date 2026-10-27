@@ -5,12 +5,13 @@
 import type { Db } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
-import { validateCustomAnswers, type ValidatedSignup } from '../form/domain.js';
+import { validateStoredParticipantAnswers, type ValidatedSignup } from '../form/domain.js';
 import { getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
 import { deleteRegistrationAnswers, getRegistrationAnswers } from '../registration/data.js';
 import { projectMatchingParticipant } from '../matching/domain.js';
 import { isCurrentMember } from './eligibility.js';
+import { eventEnforcesSignupWindow, signupWindowReason } from './domain.js';
 
 export type ParticipantStatus = 'active' | 'blocked' | 'withdrawn';
 
@@ -81,22 +82,8 @@ export async function upsertParticipant(
     // Data-layer gate: never write signups for events that are not active
     // (defense in depth — the interaction layer also gates, but a modal can
     // stay open across an event transition).
-    const eventRow = await db.get<{ status: string }>('SELECT status FROM events WHERE id = ? FOR UPDATE', eventId);
-    if (eventRow === undefined) {
-      return err('no_event', 'This signup has no active event behind it. An organizer must activate an event first.');
-    }
-    if (eventRow.status !== 'active') {
-      return err('event_not_active', 'This hackathon is not accepting signups right now.');
-    }
-
-    const blocked = await db.get<{ status: string; block_reason: string | null }>(
-      'SELECT status, block_reason FROM participants WHERE event_id = ? AND user_id = ?',
-      eventId,
-      userId,
-    );
-    if (blocked !== undefined && blocked.status === 'blocked') {
-      return err('blocked', 'You are blocked from signing up. Contact an organizer.');
-    }
+    const access = await checkSignupWrite(db, eventId, userId, guildId);
+    if (!access.ok) return access;
 
     const now = Date.now();
     await db.run(
@@ -128,6 +115,18 @@ export async function upsertParticipant(
     const created = await getParticipant(db, eventId, userId);
     return ok(created!);
   });
+}
+
+/** Call inside a transaction: serializes policy checks with event and form edits. */
+export async function checkSignupWrite(db: Db, eventId: string, userId: string, guildId: string, now = Date.now()): Promise<Result<void>> {
+  const row = await db.get<{ id: string }>('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
+  if (!row) return err('no_event', 'This signup has no active event behind it.');
+  const event = await getEvent(db, eventId);
+  if (!event || event.guildId !== guildId || event.status !== 'active') return err('event_not_active', 'This hackathon is not accepting signups right now.');
+  const participant = await getParticipant(db, eventId, userId);
+  if (participant?.status === 'blocked') return err('blocked', 'You are blocked from signing up. Contact an organizer.');
+  const reason = signupWindowReason(eventEnforcesSignupWindow(event.formJson), event.signupStartsAt, event.signupEndsAt, participant?.status ?? null, now);
+  return reason ? err(reason, reason === 'signup_not_open' ? 'Signup has not opened yet.' : 'Signup has closed. Contact an organizer.') : ok(undefined);
 }
 
 export async function getParticipant(db: Db, eventId: string, userId: string): Promise<Participant | null> {
@@ -166,7 +165,7 @@ export async function projectParticipantForMatching(db: Db, participant: Partici
   const stored = await getRegistrationAnswers(db, participant.eventId, participant.userId);
   if ((form.customQuestions ?? []).some((q) => q.required && q.visibility !== 'organizer_only') && stored?.formVersion !== form.version) return null;
   const answers = stored?.formVersion === form.version ? stored.answers : {};
-  const checked = validateCustomAnswers(form, answers);
+  const checked = validateStoredParticipantAnswers(form, answers);
   if (!checked.ok || checked.missingRequiredQuestionIds.length > 0) return null;
   return projectMatchingParticipant(participant, form, checked.answers);
 }
@@ -183,10 +182,17 @@ export async function setTeammates(db: Db, actor: string, eventId: string, userI
   });
 }
 
-export async function blockParticipant(db: Db, actor: string, eventId: string, userId: string, reason: string): Promise<Result<void>> {
+export async function blockParticipant(db: Db, actor: string, eventId: string, userId: string, reason: string): Promise<Result<import('../teams/data.js').Team | null>> {
   return db.transaction(async () => {
   const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ? FOR UPDATE', eventId);
   if (event === undefined) return err('not_found', 'Event not found.');
+  if (await getParticipant(db, eventId, userId) === null) return err('not_found', 'Participant not found in this event.');
+  const { getTeamForUser, removeFromTeam } = await import('../teams/data.js');
+  const previous = await getTeamForUser(db, eventId, userId);
+  if (previous) {
+    const removed = await removeFromTeam(db, actor, previous.id, userId);
+    if (!removed.ok) return removed;
+  }
   const res = await db.run(
     "UPDATE participants SET status = 'blocked', block_reason = ?, team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?",
     reason.trim().slice(0, 200) || 'No reason given',
@@ -196,7 +202,7 @@ export async function blockParticipant(db: Db, actor: string, eventId: string, u
   );
   if (res.changes === 0) return err('not_found', 'Participant not found in this event.');
   await audit(db, actor, 'participant.block', eventId, { userId, reason }, event.guild_id);
-  return ok(undefined);
+  return ok(previous);
   });
 }
 
@@ -231,10 +237,18 @@ export async function listTeamRoster(db: Db, teamId: string): Promise<{ userId: 
   return (await db.all<{ user_id: string; display_name: string }>("SELECT user_id, display_name FROM participants WHERE team_id = ? AND status = 'active' ORDER BY created_at", teamId)).map((r) => ({ userId: r.user_id, displayName: r.display_name }));
 }
 
-export async function withdrawParticipant(db: Db, actor: string, eventId: string, userId: string): Promise<Result<void>> {
+export async function withdrawParticipant(db: Db, actor: string, eventId: string, userId: string): Promise<Result<import('../teams/data.js').Team | null>> {
   return db.transaction(async () => {
     const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ? FOR UPDATE', eventId);
     if (event === undefined) return err('not_found', 'Event not found.');
+    const participant = await getParticipant(db, eventId, userId);
+    if (!participant || participant.status !== 'active') return err('not_found', 'No active signup found in this event.');
+    const { getTeamForUser, removeFromTeam } = await import('../teams/data.js');
+    const previous = await getTeamForUser(db, eventId, userId);
+    if (previous) {
+      const removed = await removeFromTeam(db, actor, previous.id, userId);
+      if (!removed.ok) return removed;
+    }
     const res = await db.run(
       "UPDATE participants SET status = 'withdrawn', team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ? AND status = 'active'",
       Date.now(), eventId, userId,
@@ -242,7 +256,7 @@ export async function withdrawParticipant(db: Db, actor: string, eventId: string
     if (res.changes === 0) return err('not_found', 'No active signup found in this event.');
     await deleteRegistrationAnswers(db, eventId, userId);
     await audit(db, actor, 'participant.withdraw', eventId, { userId }, event.guild_id);
-    return ok(undefined);
+    return ok(previous);
   });
 }
 

@@ -48,3 +48,33 @@ test('maintenance waits for the schedule marker read before returning', async ()
     await db.close();
   }
 });
+
+test('concurrent maintenance passes send a reminder only once', async () => {
+  const db = await openTestDb();
+  const now = Date.now();
+  const guildId = '123456789012345678';
+  await db.run(`INSERT INTO events (id, guild_id, name, status, starts_at, panel_channel_id, created_at, updated_at)
+    VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`, 'reminder-event', guildId, 'Event', now + 3600000, '223456789012345678', now, now);
+  let entered!: () => void;
+  let release!: () => void;
+  const sending = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let sends = 0;
+  const channel = { isTextBased: () => true, send: async () => { sends++; entered(); await gate; } };
+  const guild = { id: guildId, channels: { fetch: async () => channel } };
+  const client = { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild } } as unknown as Client;
+  const first = runMaintenance({ db, client, now });
+  try {
+    await sending;
+    await runMaintenance({ db, client, now });
+    assert.equal(sends, 1);
+    release();
+    await first;
+    await runMaintenance({ db, client, now });
+    assert.equal(sends, 1, 'a later pass must observe the completed reminder');
+  } finally {
+    release();
+    await first;
+    await db.close();
+  }
+});

@@ -11,6 +11,7 @@ import { getParticipant, listMatchable, projectParticipantForMatching } from '..
 import { getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
 import { listTeams, lockEventTeams, type TeamWithMembers } from '../teams/data.js';
+import { markTeamProvisionPending } from '../teams/provision-data.js';
 import { buildTeams, type MatchResult } from './domain.js';
 import { createHash } from 'node:crypto';
 
@@ -66,6 +67,7 @@ export async function commitMatch(db: Db, actor: string, eventId: string, guildI
         team.name,
         Date.now(),
       );
+      await markTeamProvisionPending(db, guildId, eventId, id);
       for (const userId of team.memberIds) {
         await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', id, Date.now(), eventId, userId);
       }

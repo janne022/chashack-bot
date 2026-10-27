@@ -64,12 +64,14 @@ test('assignments: synthesises a Start block when schedule has none but a start 
   assert.deepEqual(modes(out), ['random']);
 });
 
-test('assignments: empty schedule gets a Start block only when a start time exists', () => {
+test('assignments: undated schedules retain a pending anchored handout', () => {
   const schedule: ScheduleItem[] = [
     { id: 'sch_dinner', time: START + H, title: 'Dinner', kind: 'food' },
   ];
-  // No start time → nothing to attach to, caller keeps the pool on the event.
-  assert.deepEqual(withAssignmentDistribution(schedule, 'random', null), schedule);
+  const pending = withAssignmentDistribution(schedule, 'random', null);
+  assert.equal(pending.find(item => item.id === '__start__')?.time, 0);
+  assert.equal(pending.find(item => item.id === '__start__')?.anchor, 'hackathon_start');
+  assert.deepEqual(modes(pending), ['random']);
   // Empty schedule + a start time → the Start block is synthesised so the
   // distribution still fires at event start.
   const out = withAssignmentDistribution([], 'random', START);

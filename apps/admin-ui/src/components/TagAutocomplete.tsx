@@ -2,23 +2,11 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useT } from "@/lib/i18n"
-import { TAG_DEFS } from "@/components/TagHelp"
+import { useTagDefinitions } from "@/components/TagHelp"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea-label"
-
-type Pos = { start: number; end: number; prefix: string }
-
-function getTagPos(value: string, cursor: number): Pos | null {
-  const before = value.slice(0, cursor)
-  const lastOpen = before.lastIndexOf("{")
-  if (lastOpen === -1) return null
-  const between = before.slice(lastOpen, cursor)
-  if (between.includes("}")) return null
-  const prefix = between.slice(1)
-  if (prefix.length > 30) return null
-  if (prefix !== "" && !/^[a-zA-Z0-9_]*$/.test(prefix)) return null
-  return { start: lastOpen, end: cursor, prefix }
-}
+import { getTagPosition, type TagPosition } from "@/lib/tag-position"
+import { filterTags } from "@/lib/tag-search"
 
 function FilteredTagsPortal({
   anchor,
@@ -32,6 +20,7 @@ function FilteredTagsPortal({
   selectedIdx: number
 }) {
   const t = useT()
+  const definitions = useTagDefinitions()
   const menu = useRef<HTMLDivElement>(null)
   useEffect(() => { menu.current?.querySelector(`[data-selected="true"]`)?.scrollIntoView({ block: "nearest" }) }, [selectedIdx])
   const [rect, setRect] = useState<DOMRect | null>(null)
@@ -52,10 +41,8 @@ function FilteredTagsPortal({
   }, [anchor])
 
   const filtered = useMemo(() => {
-    const p = prefix.toLowerCase()
-    if (p === "") return TAG_DEFS
-    return TAG_DEFS.filter(d => d.tag.toLowerCase().includes(`{${p}`) || d.label.toLowerCase().includes(p) || d.tag.replace(/[{}]/g,"").toLowerCase().startsWith(p))
-  }, [prefix])
+    return filterTags(definitions, prefix)
+  }, [definitions, prefix])
 
   if (!anchor || !rect || filtered.length === 0) return null
   // Stay inside every scroll/clipping ancestor, including modal content.
@@ -117,7 +104,8 @@ function FilteredTagsPortal({
 }
 
 function useTagAutocomplete(value: string, onChange: (next: string) => void) {
-  const [pos, setPos] = useState<Pos | null>(null)
+  const definitions = useTagDefinitions()
+  const [pos, setPos] = useState<TagPosition | null>(null)
   const [selIdx, setSelIdx] = useState(0)
   const ref = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
 
@@ -125,17 +113,15 @@ function useTagAutocomplete(value: string, onChange: (next: string) => void) {
   const updatePos = (v: string, cursor: number, force = false) => {
     if (!force && lastPosition.current?.value === v && lastPosition.current.cursor === cursor) return
     lastPosition.current = { value: v, cursor }
-    const p = getTagPos(v, cursor)
+    const p = getTagPosition(v, cursor)
     setPos(p)
     setSelIdx(0)
   }
 
   const filtered = useMemo(() => {
     if (!pos) return []
-    const p = pos.prefix.toLowerCase()
-    if (p === "") return TAG_DEFS
-    return TAG_DEFS.filter(d => d.tag.toLowerCase().includes(`{${p}`) || d.label.toLowerCase().includes(p) || d.tag.replace(/[{}]/g,"").toLowerCase().startsWith(p))
-  }, [pos])
+    return filterTags(definitions, pos.prefix)
+  }, [definitions, pos])
 
   const pick = (tag: string) => {
     if (!pos) return

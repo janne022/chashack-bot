@@ -7,20 +7,20 @@ import type { AssignmentStrategy } from '@/types'
  */
 export const STRATEGY_OPTIONS: {
   id: AssignmentStrategy
-  label: string
-  hint: string
+  labelKey: string
+  hintKey: string
   icon: typeof Shuffle
 }[] = [
   {
     id: 'random',
-    label: 'Random per team',
-    hint: 'Shuffle the pool and deal a distinct assignment to each team (wraps if fewer assignments than teams).',
+    labelKey: 'assignment.random',
+    hintKey: 'assignment.random_hint',
     icon: Shuffle,
   },
   {
     id: 'same',
-    label: 'Same for all',
-    hint: 'Every team gets the first assignment in the list.',
+    labelKey: 'assignment.same',
+    hintKey: 'assignment.same_hint',
     icon: Copy,
   },
 ]

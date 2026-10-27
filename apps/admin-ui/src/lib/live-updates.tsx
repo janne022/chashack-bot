@@ -57,10 +57,10 @@ export function useLiveUpdates(url: string | null, refresh: (signal?: AbortSigna
     const retryConnection = () => {
       source?.close()
       if (controller.signal.aborted || terminal) return
-      if (++failures > 5) { terminal = true; setStatus('disconnected'); return }
+      failures++
       setStatus('reconnecting')
       clearTimeout(timer)
-      timer = setTimeout(() => { void connect() }, Math.min(1000 * 2 ** (failures - 1), 16000))
+      timer = setTimeout(() => { void connect() }, Math.min(1000 * 2 ** Math.min(failures - 1, 4), 16000))
     }
     const focus = () => { if (document.visibilityState !== 'hidden') schedule() }
     window.addEventListener('focus', focus)

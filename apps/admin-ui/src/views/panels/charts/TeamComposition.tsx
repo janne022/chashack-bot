@@ -19,9 +19,9 @@ const TRACK_PALETTE = ['#55bbda', '#f08080', '#4e8780', '#c77fc7', '#f0b429', '#
 
 const EXPERIENCE_ORDER = ['first_timer', 'some_experience', 'veteran']
 
-const TICK_FILL = '#8e97ab'
-const GRID_STROKE = '#262c3a'
-const COHORT_FILL = '#eef2f7'
+const TICK_FILL = 'var(--muted-foreground)'
+const GRID_STROKE = 'var(--border)'
+const COHORT_FILL = 'var(--foreground)'
 
 interface TrackDef {
   /** Stable chart data key, independent of the raw role track id. */

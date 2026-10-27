@@ -9,6 +9,7 @@
  *    cannot create or accept another one.
  */
 import type { Db } from '../../shared/db.js';
+import { markTeamProvisionPending } from './provision-data.js';
 import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import { countMembers, eventTeamSize, getTeam, getTeamForUser, lockEventTeams, type Team } from './data.js';
@@ -223,6 +224,7 @@ export async function decideRequest(
 
     await db.run("UPDATE team_requests SET status = 'accepted', decided_at = ? WHERE id = ?", Date.now(), requestId);
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', team.id, Date.now(), request.eventId, joinerId);
+    await markTeamProvisionPending(db, team.guildId, request.eventId, team.id);
     await audit(db, actor, 'request.accept', request.eventId, { requestId, teamId: team.id, joinerId, kind: request.kind }, request.guildId);
     return ok({ request: { ...request, status: 'accepted' }, team, joinerId });
   });

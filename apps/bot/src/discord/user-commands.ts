@@ -236,13 +236,12 @@ export async function handleUserCommand(
     }
 
     case 'leave': {
-      const previousTeam = await getTeamForUser(db, ctx.eventId, i.user.id);
       const res = await withdrawParticipant(db, actor, ctx.eventId, i.user.id);
       if (!res.ok) {
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
-      if (previousTeam) await applyTeamLeave({ db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, previousTeam, i.user.id);
+      if (res.value) await applyTeamLeave({ db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value, i.user.id);
       await i.reply({
         embeds: [embedOk(t(locale, 'discord.join.withdrawn_title'), t(locale, 'discord.join.withdrawn_body'))],
         flags: MessageFlags.Ephemeral,

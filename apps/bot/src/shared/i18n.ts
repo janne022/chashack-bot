@@ -25,6 +25,8 @@ const EN: Catalog = {
   'discord.itinerary.updated': 'Updated <t:{ts}:R>',
   // ── errors: FRIENDLY map ────────────────────────────────────────────────
   'errors.blocked': 'You are blocked from signing up. Contact an organizer.',
+  'errors.signup_not_open': 'Signup has not opened yet. Check the event dates and try again when it opens.',
+  'errors.signup_closed': 'Signup has closed. Contact an organizer if you need help joining.',
   'errors.already_in_team': 'You are already in a team. Use `/hackathon leave-team` first.',
   'errors.team_full': 'That team is full.',
   'errors.not_found': 'Not found.',
@@ -423,6 +425,8 @@ const SV: Catalog = {
   'discord.itinerary.updated': 'Uppdaterat <t:{ts}:R>',
   // ── errors: FRIENDLY map ────────────────────────────────────────────────
   'errors.blocked': 'Du är spärrad från anmälan. Kontakta en organisatör.',
+  'errors.signup_not_open': 'Anmälan har inte öppnat ännu. Kontrollera datumen och försök igen när den öppnar.',
+  'errors.signup_closed': 'Anmälan har stängt. Kontakta en arrangör om du behöver hjälp att delta.',
   'errors.already_in_team': 'Du är redan med i ett team. Använd `/hackathon leave-team` först.',
   'errors.team_full': 'Det teamet är fullt.',
   'errors.not_found': 'Hittades inte.',

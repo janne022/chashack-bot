@@ -93,7 +93,7 @@ export async function migrateLiveChanges(db: Db): Promise<void> {
       END LOOP;
       RETURN NULL;
     END $$`);
-  for (const table of ['events', 'participants', 'teams', 'team_requests', 'registration_answers', 'guild_settings', 'form_config', 'event_templates']) {
+  for (const table of ['events', 'participants', 'teams', 'team_requests', 'registration_answers', 'submission_forms', 'submission_answers', 'guild_settings', 'form_config', 'event_templates']) {
     await db.run(`DROP TRIGGER IF EXISTS live_change ON ${table}`);
     await db.run(`CREATE TRIGGER live_change AFTER INSERT OR UPDATE OR DELETE ON ${table} FOR EACH ROW EXECUTE FUNCTION notify_live_change()`);
   }

@@ -11,6 +11,8 @@ const inventory: Record<string, string[]> = {
   form_config: ['guild_id','json','updated_at'],
   participants: ['event_id','user_id','guild_id','display_name','experience','role_track','skills','team_pref','teammates','team_id','status','block_reason','created_at','updated_at'],
   registration_answers: ['event_id','user_id','form_version','answers_json','updated_at'],
+  submission_forms: ['event_id','version','enabled','allow_edits','questions_json','updated_at'],
+  submission_answers: ['event_id','user_id','form_version','answers_json','created_at','updated_at'],
   imported_signups: ['id','event_id','guild_id','source_row','source_timestamp','form_version','values_json','answers_json','discord_username','discord_user_id','created_at','updated_at'],
   team_requests: ['id','event_id','guild_id','team_id','requester_id','target_id','kind','status','created_at','decided_at'],
   member_deletions: ['guild_id','user_id','deleted_at'],
@@ -25,6 +27,7 @@ const policies: Record<string, string> = {
   form_config: 'guild_id', participants: 'guild_id', team_requests: 'guild_id', guild_settings: 'guild_id',
   member_deletions: 'guild_id', private_answer_deletions: 'guild_id',
   registration_answers: 'EXISTS parent events row, itself RLS-filtered', imported_signups: 'guild_id plus owned parent event',
+  submission_forms: 'EXISTS parent events row, itself RLS-filtered', submission_answers: 'EXISTS parent events row, itself RLS-filtered',
   audit_log: 'non-NULL guild_id only; host NULL rows invisible',
 };
 

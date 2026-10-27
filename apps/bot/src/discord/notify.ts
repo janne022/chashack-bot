@@ -1,5 +1,4 @@
 import { reconcileEventDelivery } from './event-delivery.js';
-import { getForm } from '../features/form/data.js';
 import { syncEventAccess } from './event-access.js';
 /**
  * Notifications: post announcements to the event panel channel and optionally
@@ -13,6 +12,7 @@ import { withGuildContext } from '../shared/postgres.js';
 import { audit } from '../shared/audit.js';
 import {
   getActiveEvent,
+  getEvent,
   getEventForm,
   listEvents,
   planMaintenance,
@@ -22,12 +22,14 @@ import {
   markMatchLocked,
   markScheduleAnnounced,
   renderAnnouncementTags,
+  scheduleTimeResolved,
   type HackathonEvent,
   type ScheduleItem,
 } from '../features/events/data.js';
 import type { KyselyDb } from '../shared/kysely.js';
 import { listParticipants } from '../features/signup/data.js';
-import { listTeams, deleteEventTeams } from '../features/teams/data.js';
+import { listTeams, getTeam, getGuildSettings, deleteEventTeams } from '../features/teams/data.js';
+import { listPendingTeamProvisionIds } from '../features/teams/provision-data.js';
 import { previewMatch, commitMatch } from '../features/matching/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
 import { destroyTeamSpace, botLocale, provisionTeamSpace, grantTeamRole } from './provision.js';
@@ -62,7 +64,7 @@ function buildAnnouncementEmbed(event: HackathonEvent, title: string, message: s
   if (event.endsAt !== null) lines.push(`🏁 **${t(locale, 'discord.events.ends')}:** <t:${Math.floor(event.endsAt / 1000)}:F>`);
   // If schedule exists, include next 3 items in embed footer for context
   if (event.schedule && event.schedule.length > 0) {
-    const next = [...event.schedule].sort((a,b)=>a.time-b.time).slice(0,3).map(s=> `• <t:${Math.floor(s.time/1000)}:t> ${s.title}`).join('\n')
+    const next = event.schedule.filter(item => scheduleTimeResolved(event, item)).sort((a,b)=>a.time-b.time).slice(0,3).map(s=> `• <t:${Math.floor(s.time/1000)}:t> ${s.title}`).join('\n')
     if (next) lines.push('', '**Schedule:**', next)
   }
   lines.push('', t(locale, 'discord.notify.sign_up_in', { channel: event.panelChannelId ?? '' }));
@@ -247,8 +249,26 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
     await withGuildContext(db, event.guildId, async () => {
       try { await reconcileEventDelivery(db, client, event, now); }
       catch (error) { console.warn(`Event delivery sync failed for ${event.id}:`, error); }
-      try { await syncEventAccess(db, client, event, getEventForm(db, event, await getForm(db, event.guildId)), allEvents, now); }
+      try { await syncEventAccess(db, client, event.guildId, event.id, now); }
       catch (error) { console.warn(`Event access sync failed for ${event.id}:`, error); }
+      try {
+        const current = await getEvent(db, event.id);
+        if (current?.status === 'active' && (current.endsAt === null || current.endsAt > now)) {
+          const pending = await listPendingTeamProvisionIds(db, current.id);
+          if (pending.length > 0) {
+            let fallback: string | undefined;
+            try { fallback = (await import('../shared/env.js')).env().teamCategoryId; } catch { /* no runtime environment in fixtures */ }
+            const category = current.categoryId ?? (await getGuildSettings(db, current.guildId)).teamCategoryId ?? fallback;
+            const provisionDeps = { db, client, categoryIdFor: () => category ?? undefined };
+            for (const id of pending) {
+              try {
+                const team = await getTeam(db, id);
+                if (team && team.eventId === current.id && team.guildId === current.guildId) await provisionTeamSpace(provisionDeps, team);
+              } catch (error) { console.warn(`Team provisioning recovery failed for ${id}:`, error); }
+            }
+          }
+        }
+      } catch (error) { console.warn(`Team provisioning recovery failed for ${event.id}:`, error); }
     });
   }
   const actions = planMaintenance(allEvents, now);
@@ -257,11 +277,19 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
   }
   if (actions.length === 0) return summary;
 
-  for (const action of actions) {
-    const event = allEvents.find((candidate) => candidate.id === action.eventId) ?? null;
-    if (event === null) continue;
-    await withGuildContext(db, event.guildId, async () => {
+  for (const planned of actions) {
+    const snapshot = allEvents.find((candidate) => candidate.id === planned.eventId) ?? null;
+    if (snapshot === null) continue;
+    await withGuildContext(db, snapshot.guildId, async () => {
+    let needsProvisioning = false;
+    await db.tryAdvisoryLock(`event-maintenance:${snapshot.guildId}:${snapshot.id}`, async () => {
     try {
+      const event = await getEvent(db, snapshot.id);
+      if (!event || event.guildId !== snapshot.guildId) return;
+      const action = planMaintenance([event], now).find(candidate =>
+        candidate.type === planned.type && (candidate.type !== 'schedule' ||
+          (planned.type === 'schedule' && candidate.scheduleId === planned.scheduleId)));
+      if (!action) return;
       switch (action.type) {
         case 'remind_24h': {
           const embed = new EmbedBuilder()
@@ -405,7 +433,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
             summary.push(`auto-match failed (${preview.code}), locked anyway: ${event.name}`);
           } else {
             const committed = await commitMatch(db, 'system', event.id, event.guildId, config);
-            if (committed.ok) await provisionMatchedTeams(db, client, event);
+            if (committed.ok) needsProvisioning = true;
             summary.push(`auto-matched: ${event.name} (${preview.value.teams.length} teams)`);
           }
           await markMatchLocked(db, event.id);
@@ -456,7 +484,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
               if (!preview.ok) throw new Error(preview.message);
               const result = await commitMatch(db, 'system', event.id, event.guildId, config);
               if (!result.ok) throw new Error(result.message);
-              await provisionMatchedTeams(db, client, event);
+              needsProvisioning = true;
               await markMatchLocked(db, event.id);
             }
           }
@@ -465,7 +493,15 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
         }
       }
     } catch (error) {
-      console.error(`maintenance ${action.type} failed for ${action.eventId}:`, error);
+      console.error(`maintenance ${planned.type} failed for ${planned.eventId}:`, error);
+    }
+    });
+    if (needsProvisioning) {
+      const current = await getEvent(db, snapshot.id);
+      if (current?.status === 'active' && (current.endsAt === null || current.endsAt > now)) {
+        try { await provisionMatchedTeams(db, client, current); }
+        catch (error) { console.warn(`Matched-team provisioning failed for ${current.id}; maintenance will retry:`, error); }
+      }
     }
     });
   }

@@ -93,6 +93,10 @@ function OrganizerApp({ children }: { children: ReactNode }) {
           <a href="/?reauth=1" target="_blank" rel="noreferrer" className="underline underline-offset-4">{t('common.sign_in_again')}</a>
           <Button variant="outline" onClick={() => void refresh()}>{t('common.retry')}</Button>
         </div>}
+        {error && error !== 'session_expired' && <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4 text-sm">
+          <p className="flex-1">{t('common.refresh_failed')}</p>
+          <Button variant="outline" onClick={() => void refresh()}>{t('common.retry')}</Button>
+        </div>}
         {children}
       </AppShell>
     </AppContextProvider>

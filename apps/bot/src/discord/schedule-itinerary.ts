@@ -7,8 +7,9 @@ import { EmbedBuilder, type Client, type TextChannel } from 'discord.js'
 import type { Db } from '../shared/db.js'
 import { t } from '../shared/i18n.js'
 import type { HackathonEvent } from '../features/events/data.js'
-import { SYNTHETIC_BLOCK_IDS, getMessageRef, setMessageRef } from '../features/events/data.js'
+import { SYNTHETIC_BLOCK_IDS, getMessageRef, setMessageRef, scheduleTimeResolved } from '../features/events/data.js'
 import { botLocale } from './provision.js'
+import { createHash } from 'node:crypto'
 
 const key = (eventId: string) => `schedule_itinerary:${eventId}`
 
@@ -29,7 +30,7 @@ export function buildScheduleItineraryEmbed(event: HackathonEvent): EmbedBuilder
   if (event.endsAt !== null) lines.push(`**${t(locale, 'discord.events.ends')}:** <t:${Math.floor(event.endsAt/1000)}:F>`)
   lines.push('')
 
-  const blocks = (event.schedule ?? []).filter(s => !SYNTHETIC_BLOCK_IDS.includes(s.id))
+  const blocks = (event.schedule ?? []).filter(s => !SYNTHETIC_BLOCK_IDS.includes(s.id) && scheduleTimeResolved(event, s))
   if (!event.schedule || blocks.length === 0) {
     lines.push(t(locale, 'discord.itinerary.empty'))
   } else {
@@ -76,8 +77,10 @@ export async function postOrUpdateScheduleItinerary(
         await msg.edit({ embeds: [embed] })
         return { channelId, messageId: existing.messageId, edited: true }
       }
+      if (msg) return { error: 'Refusing to edit another author’s schedule message.' }
     }
-    const sent = await (channel as TextChannel).send({ embeds: [embed] })
+    const nonce = createHash('sha256').update(JSON.stringify([event.id, channelId, embed.toJSON()])).digest('hex').slice(0, 24)
+    const sent = await (channel as TextChannel).send({ embeds: [embed], nonce, enforceNonce: true })
     await setItineraryRef(db, event.id, { channelId, messageId: sent.id })
     return { channelId, messageId: sent.id, edited: false }
   } catch (e) {

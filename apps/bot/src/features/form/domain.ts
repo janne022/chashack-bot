@@ -20,6 +20,7 @@ export interface SkillOption {
 
 export interface FormConfig {
   signupMode?: 'web' | 'both';
+  enforceSignupWindow?: boolean;
   participantChannels?: boolean;
   version: number;
   title: string;
@@ -204,6 +205,13 @@ export function validateCustomAnswers(
   return errors.length ? { ok: false, errors } : { ok: true, answers, missingRequiredQuestionIds };
 }
 
+/** Validate a stored participant profile against current visible questions only. */
+export function validateStoredParticipantAnswers(config: FormConfig, stored: Record<string, string | string[]>): CustomAnswersResult {
+  const questions = (config.customQuestions ?? []).filter(q => q.visibility === 'self_and_organizer');
+  const ids = new Set(questions.map(q => q.id));
+  return validateCustomAnswers({ ...config, customQuestions: questions }, Object.fromEntries(Object.entries(stored).filter(([id]) => ids.has(id))));
+}
+
 export const DEFAULT_SKILLS: SkillOption[] = [
   // group "" = freely combinable (multi-select)
   { id: 'frontend_react', label: 'Frontend — React', group: 'frontend' },
@@ -347,6 +355,7 @@ export function validateSignupInput(
 export function normalizeFormUpdate(current: FormConfig, update: Partial<FormConfig>): FormConfig {
   const next: FormConfig = { ...current, ...update };
   next.signupMode = next.signupMode === 'web' ? 'web' : 'both';
+  if (next.enforceSignupWindow !== undefined) next.enforceSignupWindow = next.enforceSignupWindow === true;
   next.participantChannels = next.participantChannels === true;
 
   if (typeof next.teamSize !== 'number' || !Number.isInteger(next.teamSize)) next.teamSize = current.teamSize;

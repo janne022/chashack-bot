@@ -265,19 +265,19 @@ export function ParticipantsPanel({
     meta,
   })
 
+  const sortedRows = table.getRowModel().rows
   const virtualize = filtered.length > VIRTUALIZE_THRESHOLD
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
     count: filtered.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 8,
-    getItemKey: (index) => filtered[index]?.userId ?? String(index),
+    getItemKey: (index) => sortedRows[index]?.id ?? String(index),
     // Rows render below the sticky thead inside the same scroll container.
     scrollMargin: HEADER_OFFSET,
     enabled: virtualize,
   })
 
-  const sortedRows = table.getRowModel().rows
   const virtualItems = rowVirtualizer.getVirtualItems()
   const totalSize = rowVirtualizer.getTotalSize()
   const firstVirtual = virtualItems[0]
@@ -341,7 +341,7 @@ export function ParticipantsPanel({
           <CardDescription>{t('participants.desc')}</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <div
+          {filtered.length === 0 ? <EmptyState icon={<Search className="size-5" />} title={t('participants.no_matches')} action={<Button variant="outline" onClick={() => { setQuery(''); setFilter('all') }}>{t('common.clear')}</Button>} /> : <div
             ref={scrollRef}
             className={virtualize ? 'max-h-[70vh] overflow-auto' : 'overflow-x-auto'}
           >
@@ -357,6 +357,8 @@ export function ParticipantsPanel({
                     return (
                       <th
                         key={header.id}
+                        scope="col"
+                        aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined}
                         className={
                           isSkills
                             ? 'hidden px-4 py-3 font-medium md:table-cell'
@@ -430,7 +432,7 @@ export function ParticipantsPanel({
                 )}
               </tbody>
             </table>
-          </div>
+          </div>}
         </CardContent>
       </Card>
 

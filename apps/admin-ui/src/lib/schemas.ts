@@ -26,10 +26,6 @@ export const createEventSchema = z
     (v) => v.signupStartsAt == null || v.signupEndsAt == null || v.signupEndsAt > v.signupStartsAt,
     { message: 'Signup must end after it starts', path: ['signupEndsAt'] },
   )
-  .refine(
-    (v) => v.signupEndsAt == null || v.startsAt == null || v.signupEndsAt <= v.startsAt,
-    { message: 'Signup must end before the hackathon starts', path: ['signupEndsAt'] },
-  )
 
 export const announceSchema = z.object({
   eventId: z.string().min(1),

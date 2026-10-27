@@ -7,7 +7,7 @@ import { ParticipantFrame } from '@/components/participant-appearance'
 import { useLocale, useT } from '@/lib/i18n'
 import { LiveStatus, useLiveUpdates } from '@/lib/live-updates'
 
-type Registration = { eventId: string; name: string; description: string; startsAt: number | null; endsAt: number | null; status: string; teamId: string | null; complete?: boolean }
+type Registration = { eventId: string; name: string; description: string; startsAt: number | null; endsAt: number | null; status: string; teamId: string | null; complete?: boolean; submissionStatus?: 'complete' | 'pending' }
 export const Route = createFileRoute('/my-hackathons')({ component: MyHackathons })
 function MyHackathons() {
   const t = useT()
@@ -25,7 +25,12 @@ function MyHackathons() {
       const next = await Promise.all(registrations.map(async (item) => {
         const detail = await fetch(`/api/participant/events/${encodeURIComponent(item.eventId)}/registration`, signal ? { signal } : undefined)
         if (!detail.ok) return item
-        return { ...item, complete: (await detail.json() as { complete: boolean }).complete }
+        const complete = (await detail.json() as { complete: boolean }).complete
+        if (!complete || item.status !== 'active') return { ...item, complete }
+        const submission = await fetch(`/api/participant/events/${encodeURIComponent(item.eventId)}/submission`, signal ? { signal } : undefined)
+        if (!submission.ok) return { ...item, complete }
+        const state = await submission.json() as { form: { enabled: boolean }; complete: boolean }
+        return { ...item, complete, ...(state.form.enabled ? { submissionStatus: state.complete ? 'complete' as const : 'pending' as const } : {}) }
       }))
       if (!signal?.aborted) setItems(next)
     } catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : t('participant.my_error')) }
@@ -41,6 +46,7 @@ function MyHackathons() {
       <p className="mt-3 line-clamp-3 text-sm leading-relaxed opacity-75">{item.description}</p>
       {item.startsAt && <p className="mt-5 text-sm font-medium">{new Intl.DateTimeFormat(locale === 'sv' ? 'sv-SE' : 'en-US', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(item.startsAt))}</p>}
       <div className="my-6 grid grid-cols-2 gap-3 border-y py-4 text-sm"><p className="flex items-center gap-2"><CheckCircle2 size={17} aria-hidden="true" />{item.complete === undefined ? t('participant.signup_unknown') : item.complete ? t('participant.saved') : t('participant.signup_pending')}</p><p className="flex items-center gap-2"><Users size={17} aria-hidden="true" />{item.teamId ? t('participant.has_team') : t('participant.no_team')}</p></div>
+      {item.submissionStatus && <p className="mb-4 text-sm">{item.submissionStatus === 'complete' ? t('submission.complete') : t('submission.pending')}</p>}
       <div className="mt-auto flex flex-wrap gap-3"><Button asChild className="min-h-11"><a href={`/events/${encodeURIComponent(item.eventId)}/signup`}>{item.complete ? t('participant.view_signup') : t('participant.signup_pending')}<ArrowUpRight aria-hidden="true" size={16} /></a></Button><Button asChild variant="outline" className="min-h-11"><a href={`/team?eventId=${encodeURIComponent(item.eventId)}`}>{item.teamId ? t('participant.view_team') : t('participant.team_browse')}</a></Button></div>
     </li>)}</ul>}
   </div></ParticipantFrame>

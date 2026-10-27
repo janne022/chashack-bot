@@ -1,4 +1,4 @@
-import { createContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowRight, Globe, LogOut, Server } from 'lucide-react'
 import { api, ApiError } from '@/api'
 import type { AuthMe } from '@/types'
@@ -20,14 +20,17 @@ export function ServerGate({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [checking, setChecking] = useState(true)
+  const loading = useRef(false)
   const showPicker = new URLSearchParams(window.location.search).has('servers')
 
   async function load(initial = false) {
+    if (loading.current) return
+    loading.current = true
     setError('')
     try {
       const next = await api.authMe()
+      if (next.kind !== 'discord' || !next.user) { if (!ready) setSignedOut(true); return }
       setMe(next)
-      if (next.kind !== 'discord' || !next.user) { setSignedOut(true); return }
       const remembered = localStorage.getItem(rememberedServerKey(next.user.id))
       if (initial && !showPicker && remembered && next.guilds.some(g => g.id === remembered)) {
         if (next.guild.id !== remembered) {
@@ -38,14 +41,13 @@ export function ServerGate({ children }: { children: ReactNode }) {
         setReady(true)
       }
     } catch (e) {
-      if (e instanceof ApiError && e.unauthorized) setSignedOut(true)
+      if (e instanceof ApiError && e.unauthorized) { if (!ready) setSignedOut(true) }
       else setError(t('servers.load_error'))
-    } finally { setChecking(false) }
+    } finally { loading.current = false; setChecking(false) }
   }
 
   useEffect(() => { void load(true) }, [])
   useEffect(() => {
-    if (ready) return
     const refresh = () => { if (document.visibilityState === 'visible') void load() }
     window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', refresh)

@@ -51,7 +51,12 @@ export function resolveScheduleAnchors(items: ScheduleItem[], dates: ScheduleDat
     if (item.anchor === undefined || item.offsetMinutes === undefined) return item
     const from = anchorDate(item.anchor, dates)
     if (from === null || !Number.isFinite(from)) return item
-    return { ...item, time: SYNTHETIC_ANCHORS[item.id] ? from : startOfDay(from) + item.offsetMinutes * 60_000 }
+    let time = SYNTHETIC_ANCHORS[item.id] ? from : (item.offsetMode === 'elapsed' ? from : startOfDay(from)) + item.offsetMinutes * 60_000
+    if (!SYNTHETIC_ANCHORS[item.id] && item.offsetMode === 'elapsed' && item.withinEvent) {
+      if (dates.startsAt != null) time = Math.max(time, dates.startsAt)
+      if (dates.endsAt != null) time = Math.min(time, dates.endsAt)
+    }
+    return { ...item, time }
   })
 }
 
@@ -60,6 +65,7 @@ export function toRelativeSchedule(items: ScheduleItem[], startsAt: number | nul
   return items.map((item) => {
     const synthetic = SYNTHETIC_ANCHORS[item.id]
     if (synthetic !== undefined) return { ...item, anchor: synthetic, offsetMinutes: 0 }
+    if (item.offsetMode === 'elapsed' && item.anchor !== undefined && item.offsetMinutes !== undefined) return item
     if (startsAt == null || !Number.isFinite(startsAt)) return item
     return { ...item, anchor: 'hackathon_start', offsetMinutes: Math.round((item.time - startOfDay(startsAt)) / 60_000) }
   })

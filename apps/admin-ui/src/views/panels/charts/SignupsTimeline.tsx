@@ -14,8 +14,8 @@ import { useT } from '@/lib/i18n'
 import type { Participant } from '@/types'
 
 const SKY = '#55bbda'
-const TICK_FILL = '#8e97ab'
-const GRID_STROKE = '#262c3a'
+const TICK_FILL = 'var(--muted-foreground)'
+const GRID_STROKE = 'var(--border)'
 
 interface DayPoint {
   /** Local-day start (ms) — used for ordering / prev-day math only. */

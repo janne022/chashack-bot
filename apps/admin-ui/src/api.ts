@@ -1,4 +1,4 @@
-import type { AppState, AuthMe, FormConfig, HackathonEvent, ImportedSignup, MatchResult, Team, TeamSuggestion } from './types'
+import type { AppState, AuthMe, FormConfig, HackathonEvent, ImportedSignup, MatchResult, SubmissionForm, SubmissionRecord, Team, TeamSuggestion } from './types'
 
 class ApiError extends Error {
   constructor(
@@ -41,6 +41,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
 
+  async submissionForm(eventId: string): Promise<{ form: SubmissionForm }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/submission-form`)
+  },
+  async saveSubmissionForm(eventId: string, form: SubmissionForm): Promise<{ form: SubmissionForm }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/submission-form`, { method: 'PUT', body: JSON.stringify({ version: form.version, form: { enabled: form.enabled, allowEdits: form.allowEdits, questions: form.questions } }) })
+  },
+  async submissions(eventId: string, signal?: AbortSignal): Promise<{ form: SubmissionForm; submissions: (SubmissionRecord & { userId: string })[] }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/submissions`, { signal })
+  },
+
   /**
    * Load app state. Pass an eventId to scope participants/teams/matching to a
    * specific event — required when more than one event is active at once.
@@ -65,12 +75,15 @@ export const api = {
     })
   },
 
-  async createTeam(name: string, kind: 'public' | 'private', ownerId?: string, eventId?: string): Promise<Team> {
-    const res = await request<{ team: Team }>('/api/teams', {
+  async createTeam(name: string, kind: 'public' | 'private', ownerId: string, eventId?: string): Promise<{ team: Team; provisioning: 'complete' | 'pending' | 'disabled' }> {
+    return request('/api/teams', {
       method: 'POST',
       body: JSON.stringify({ name, kind, ownerId, ...(eventId ? { eventId } : {}) }),
     })
-    return res.team
+  },
+
+  async provisionTeam(teamId: string): Promise<{ team: Team; provisioning: 'complete' | 'pending' }> {
+    return request(`/api/teams/${encodeURIComponent(teamId)}/provision`, { method: 'POST' })
   },
 
   async deleteTeam(teamId: string): Promise<void> {

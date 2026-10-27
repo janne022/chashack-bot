@@ -15,6 +15,7 @@ import { AppearanceControls } from "@/components/appearance-controls"
 import { EventTemplateEditor, type EventTemplateDraft } from "@/components/EventTemplateEditor"
 import { AssignmentsEditor } from "@/components/AssignmentsEditor"
 import { TagAutocompleteInput, TagAutocompleteTextarea } from "@/components/TagAutocomplete"
+import { TagHelpButton } from "@/components/TagHelp"
 import type { Assignment, FormConfig, FormAppearance } from "@/types"
 import { dateTime } from "@/lib/format"
 import { DEFAULT_FORM } from "@/lib/default-form"
@@ -139,10 +140,10 @@ export function TemplatesPage() {
 
         <TabsContent value="announcement" className="flex flex-col gap-4 mt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-muted-foreground">Reusable Discord messages — type <code className="rounded bg-muted px-1 font-mono text-xs">{"{"}</code> in the message to see tag suggestions.</p>
-            <Button onClick={()=>setCreatingAnnouncement(true)}><Plus className="size-4" /> New announcement</Button>
+            <p className="text-sm text-muted-foreground">{t('templates.message_list_help')}</p>
+            <Button onClick={()=>setCreatingAnnouncement(true)}><Plus className="size-4" /> {t('templates.new_announcement')}</Button>
           </div>
-          {announcementTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="C1" className="mb-2" />No announcement templates yet — create one.</CardContent></Card> : (
+          {announcementTemplates.length===0 ? <Card><CardContent className="py-8 text-center text-sm text-muted-foreground"><OtterIllustration panel="C1" className="mb-2" />{t('templates.message_empty')}</CardContent></Card> : (
             <div className="grid gap-3 md:grid-cols-2">
               {announcementTemplates.map(tpl=>{
                 let parsed: { title?: string; message?: string; trigger?: string } = {}
@@ -156,7 +157,7 @@ export function TemplatesPage() {
                     <CardHeader className="pb-2">
                       <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
                       <CardDescription className="line-clamp-2 whitespace-pre-wrap break-words text-xs">{parsed.title ?? ""} — {(parsed.message ?? "").slice(0,120)}</CardDescription>
-                      <span className="mt-1 w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium">{parsed.trigger ?? "manual"}</span>
+                      <span className="mt-1 w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium">{t(({ manual: 'templates.trigger_manual', on_activate: 'templates.trigger_activate', on_start: 'templates.trigger_start', schedule: 'templates.trigger_schedule', teams_locked: 'templates.trigger_locked', teams_assigned: 'templates.trigger_assigned' } as Record<string, string>)[parsed.trigger ?? 'manual'] ?? 'templates.trigger_manual')}</span>
                     </CardHeader>
                     <CardContent className="mt-auto flex gap-2">
                       <Button size="sm" variant="secondary" onClick={()=>setEditingAnnouncementId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
@@ -331,6 +332,7 @@ function EventTemplateDialog({ template, formTemplates, assignmentCollections, o
           form: (p.form as FormConfig) ?? DEFAULT_FORM,
           schedule: (p.schedule as EventTemplateDraft["schedule"]) ?? [],
           assignmentCollectionId: (p.assignmentCollectionId as string) ?? "",
+          assignments: Array.isArray(p.assignments) ? p.assignments : [],
           assignmentStrategy: (p.assignmentStrategy as EventTemplateDraft["assignmentStrategy"]) ?? "random",
         }
       } catch {
@@ -347,7 +349,7 @@ function EventTemplateDialog({ template, formTemplates, assignmentCollections, o
     if (!validateQuestions(draft.form)) return
     setBusy(true)
     try {
-      const payload = { name: draft.name.trim(), description: draft.description, cleanupDelayHours: draft.cleanupDelayHours, form: draft.form, schedule: draft.schedule, assignmentCollectionId: draft.assignmentCollectionId || undefined, assignmentStrategy: draft.assignmentStrategy }
+      const payload = { name: draft.name.trim(), description: draft.description, cleanupDelayHours: draft.cleanupDelayHours, form: draft.form, schedule: draft.schedule, ...(draft.assignments?.length ? { assignments: draft.assignments } : {}), assignmentCollectionId: draft.assignmentCollectionId || undefined, assignmentStrategy: draft.assignmentStrategy }
       const json = JSON.stringify(payload)
       if (isEdit) await api.updateTemplate(template.id, { name: draft.name.trim(), json })
       else await api.createTemplateRaw(draft.name.trim(), "event", json)
@@ -379,24 +381,25 @@ function EventTemplateDialog({ template, formTemplates, assignmentCollections, o
 function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; onClose: ()=>void; onSaved: ()=>Promise<void> }) {
   const t = useT()
   const [name, setName] = useState(template?.name ?? "")
-  const [data, setData] = useState<{ title: string; message: string; trigger: "manual"|"on_activate"|"on_start"|"schedule"; channelId: string | null }>(()=>{
+  const [data, setData] = useState<{ title: string; message: string; trigger: "manual"|"on_activate"|"on_start"|"schedule"|"teams_locked"|"teams_assigned"; channelId: string | null }>(()=>{
     if (template) { try { const p = JSON.parse(template.json) as { title?: string; message?: string; trigger?: string; channelId?: string | null }; return { title: p.title ?? "", message: p.message ?? "", trigger: (p.trigger as never) ?? "manual", channelId: p.channelId ?? null } } catch { return { title: "", message: "", trigger: "manual", channelId: null } } }
-    return { title: "Heads up!", message: "Hey {everyone}, quick update for **{event}** — {panel}", trigger: "manual", channelId: null }
+    return { title: t('templates.message_default_title'), message: t('templates.message_default_body'), trigger: "manual", channelId: null }
   })
   const [channels, setChannels] = useState<{ id: string; name: string }[]>([])
-  useEffect(()=>{ api.getGuildChannels().then(r=>setChannels(r.channels ?? [])).catch(()=>undefined) }, [])
+  const [channelsFailed, setChannelsFailed] = useState(false)
+  useEffect(()=>{ api.getGuildChannels().then(r=>setChannels(r.channels ?? [])).catch(()=>setChannelsFailed(true)) }, [])
   const [busy, setBusy] = useState(false)
   const isEdit = template !== null
   async function save() {
-    if (name.trim().length < 2 || data.title.trim().length < 2 || data.message.trim().length < 2) { toast.error("Name, title and message required"); return }
+    if (name.trim().length < 2 || data.title.trim().length < 2 || data.message.trim().length < 2) { toast.error(t('templates.message_validation')); return }
     setBusy(true)
     try {
       const json = JSON.stringify({ title: data.title.trim(), message: data.message.trim(), trigger: data.trigger, channelId: data.channelId ?? null })
       if (isEdit) await api.updateTemplate(template.id, { name: name.trim(), json })
       else await api.createTemplateRaw(name.trim(), "announcement", json)
-      toast.success(isEdit ? "Announcement updated" : t("templates.created", { name: name.trim() }))
+      toast.success(isEdit ? t('templates.message_updated') : t("templates.created", { name: name.trim() }))
       onClose(); await onSaved()
-    } catch(e){ toast.error(e instanceof Error ? e.message : "Save failed") } finally{ setBusy(false) }
+    } catch(e){ toast.error(e instanceof Error ? e.message : t('templates.message_save_failed')) } finally{ setBusy(false) }
   }
   return (
     <Dialog open onOpenChange={open => { if (!open && !busy) onClose() }}>
@@ -408,20 +411,23 @@ function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: 
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <label htmlFor="message-template-name" className="text-sm font-medium">{t("templates.name")}</label>
-            <Input id="message-template-name" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Dinner reminder" maxLength={80} />
+            <Input id="message-template-name" value={name} onChange={e=>setName(e.target.value)} placeholder={t('templates.message_name_placeholder')} maxLength={80} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">{t("templates.trigger")}</label>
+              <label className="text-sm font-medium">{t('templates.suggested_use')}</label>
               <Select value={data.trigger} onValueChange={v=>setData({ ...data, trigger: v as never })}>
-                <SelectTrigger aria-label={t("templates.trigger")}><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label={t('templates.suggested_use')}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="manual">Manual only</SelectItem>
-                  <SelectItem value="on_activate">On activate</SelectItem>
-                  <SelectItem value="schedule">For each schedule item</SelectItem>
-                  <SelectItem value="on_start">At event start</SelectItem>
+                  <SelectItem value="manual">{t('templates.trigger_manual')}</SelectItem>
+                  <SelectItem value="on_activate">{t('templates.trigger_activate')}</SelectItem>
+                  <SelectItem value="schedule">{t('templates.trigger_schedule')}</SelectItem>
+                  <SelectItem value="on_start">{t('templates.trigger_start')}</SelectItem>
+                  <SelectItem value="teams_locked">{t('templates.trigger_locked')}</SelectItem>
+                  <SelectItem value="teams_assigned">{t('templates.trigger_assigned')}</SelectItem>
                 </SelectContent>
               </Select>
+              <span className="text-[11px] text-muted-foreground">{t('templates.suggested_help')}</span>
             </div>
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">{t("templates.channel")}</label>
@@ -429,29 +435,31 @@ function AnnouncementTemplateDialog({ template, onClose, onSaved }: { template: 
                 <Select value={data.channelId ?? "__none"} onValueChange={v=>setData({ ...data, channelId: v==="__none" ? null : v })}>
                   <SelectTrigger aria-label={t("templates.channel")}><SelectValue placeholder={t("templates.channel")} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none">Default (announcement/panel)</SelectItem>
+                    <SelectItem value="__none">{t('events.channel_default_announcement')}</SelectItem>
                     {channels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               ) : (
-                <Input aria-label={t("templates.channel")} value={data.channelId ?? ""} onChange={e=>setData({ ...data, channelId: e.target.value.trim() || null })} placeholder="channel id (optional)" />
+                <Input aria-label={t("templates.channel")} value={data.channelId ?? ""} onChange={e=>setData({ ...data, channelId: e.target.value.trim() || null })} placeholder={t('templates.channel_id_placeholder')} />
               )}
-              <span className="text-[11px] text-muted-foreground">Where this announcement is sent by default. Actions can override per-block.</span>
+              <span className="text-[11px] text-muted-foreground">{t(channelsFailed ? 'templates.channel_fallback' : 'templates.channel_help')}</span>
             </div>
           </div>
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">{t("templates.message_title")}</label>
-            <TagAutocompleteInput value={data.title} onChange={v=>setData({ ...data, title: v })} placeholder="e.g. {schedule_title} — update" maxLength={100} />
+            <TagAutocompleteInput value={data.title} onChange={v=>setData({ ...data, title: v })} placeholder={t('templates.message_title_placeholder')} maxLength={100} />
           </div>
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">{t("templates.message_body")}</label>
             <TagAutocompleteTextarea value={data.message} onChange={v=>setData({ ...data, message: v })} placeholder="⏰ {schedule_title} — {schedule_desc} {everyone}" maxLength={2000} />
-            <span className="text-[11px] text-muted-foreground">Tip: type <code className="rounded bg-muted px-1 font-mono text-[11px]">{"{"}</code> to autocomplete — e.g. <code className="font-mono">{"{eve"}</code> → <code className="font-mono">{"{event}"}</code> · <code className="font-mono">{"{timer"}</code> etc.</span>
+            <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-muted-foreground">
+              <span>{t('tags.type_hint')}</span><TagHelpButton />
+            </div>
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-border p-4 shrink-0 bg-card">
           <Button variant="outline" onClick={onClose}>{t("common.cancel")}</Button>
-          <Button disabled={busy || name.trim().length<2 || data.title.trim().length<2} onClick={()=>void save()}>{t("common.save")}</Button>
+          <Button disabled={busy || name.trim().length<2 || data.title.trim().length<2 || data.message.trim().length<2} onClick={()=>void save()}>{t("common.save")}</Button>
         </div>
       </DialogContent>
     </Dialog>

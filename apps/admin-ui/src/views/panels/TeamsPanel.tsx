@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { KeyRound, MoreHorizontal, Palette, Plus, RefreshCw, Settings2, Trash2, UsersRound } from 'lucide-react'
 import { toast } from 'sonner'
-import type { AppState, Team } from '@/types'
+import type { AppState, Participant, Team } from '@/types'
 import { TEAM_COLOR_SWATCHES } from '@/types'
-import { api } from '@/api'
+import { api, ApiError } from '@/api'
 import { useT } from '@/lib/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -50,12 +50,16 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newKind, setNewKind] = useState<'public' | 'private'>('public')
+  const [newOwner, setNewOwner] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [retryingTeam, setRetryingTeam] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [settingsTeam, setSettingsTeam] = useState<Team | null>(null)
 
   const teamSize = state.config.teamSize
   // New teams land on the event being viewed.
   const eventId = state.selectedEventId ?? undefined
+  const availableOwners = state.participants.filter(p => p.status === 'active' && p.teamId === null)
 
   async function act(fn: () => Promise<void>, okMsg: string) {
     try {
@@ -68,16 +72,34 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
   }
 
   async function createTeam() {
+    if (creating || !availableOwners.some(person => person.userId === newOwner)) return
+    setCreating(true)
     try {
-      await api.createTeam(newName.trim(), newKind, undefined, eventId)
+      const result = await api.createTeam(newName.trim(), newKind, newOwner, eventId)
       toast.success(t('teams.created', { name: newName.trim() }))
+      if (result.provisioning === 'pending') toast.warning(t('teams.provision_pending'))
       setCreateOpen(false)
       setNewName('')
       setNewKind('public')
+      setNewOwner('')
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('teams.create_failed'))
-    }
+      const key = e instanceof ApiError && (e.code === 'ineligible' || e.code === 'already_in_team') ? 'teams.owner_ineligible' : 'teams.create_failed'
+      toast.error(t(key))
+    } finally { setCreating(false) }
+  }
+
+  async function retryProvisioning(team: Team) {
+    if (retryingTeam) return
+    setRetryingTeam(team.id)
+    try {
+      const result = await api.provisionTeam(team.id)
+      if (result.provisioning === 'complete') toast.success(t('teams.provision_complete'))
+      else toast.warning(t('teams.provision_pending'))
+      await refresh()
+    } catch (e) {
+      toast.error(t(e instanceof ApiError && e.code === 'discord_unavailable' ? 'teams.discord_unavailable' : 'teams.provision_failed'))
+    } finally { setRetryingTeam(null) }
   }
 
   if (state.teams.length === 0) {
@@ -105,6 +127,10 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
           setNewName={setNewName}
           newKind={newKind}
           setNewKind={setNewKind}
+          owner={newOwner}
+          setOwner={setNewOwner}
+          owners={availableOwners}
+          creating={creating}
           onCreate={createTeam}
         />
       </>
@@ -152,6 +178,10 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem disabled={retryingTeam !== null} onSelect={() => void retryProvisioning(team)}>
+                    <RefreshCw />
+                    {t('teams.retry_provision')}
+                  </DropdownMenuItem>
                   {team.kind !== 'matched' && (
                     <DropdownMenuItem onSelect={() => setSettingsTeam(team)}>
                       <Settings2 />
@@ -186,6 +216,10 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
               </DropdownMenu>
             </CardHeader>
             <CardContent>
+              {(!team.roleId || !team.textChannelId || !team.voiceChannelId) && <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border p-3 text-sm">
+                <span className="flex-1">{t('teams.provision_incomplete')}</span>
+                <Button variant="outline" size="sm" disabled={retryingTeam !== null} onClick={() => void retryProvisioning(team)}>{t('teams.retry_provision')}</Button>
+              </div>}
               {team.members.length === 0 ? (
                 <p className="py-2 text-sm text-muted-foreground">{t('teams.empty')}</p>
               ) : (
@@ -232,6 +266,10 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
         setNewName={setNewName}
         newKind={newKind}
         setNewKind={setNewKind}
+        owner={newOwner}
+        setOwner={setNewOwner}
+        owners={availableOwners}
+        creating={creating}
         onCreate={createTeam}
       />
 
@@ -284,6 +322,10 @@ function CreateTeamDialog({
   setNewName,
   newKind,
   setNewKind,
+  owner,
+  setOwner,
+  owners,
+  creating,
   onCreate,
 }: {
   open: boolean
@@ -292,6 +334,10 @@ function CreateTeamDialog({
   setNewName: (v: string) => void
   newKind: 'public' | 'private'
   setNewKind: (v: 'public' | 'private') => void
+  owner: string
+  setOwner: (v: string) => void
+  owners: Participant[]
+  creating: boolean
   onCreate: () => Promise<void>
 }) {
   const t = useT()
@@ -327,12 +373,20 @@ function CreateTeamDialog({
               </SelectContent>
             </Select>
           </div>
+          <div className="flex flex-col gap-2">
+            <Label>{t('teams.owner')}</Label>
+            {owners.length > 0 ? <Select value={owner} onValueChange={setOwner}>
+              <SelectTrigger aria-label={t('teams.owner')}><SelectValue placeholder={t('teams.choose_owner')} /></SelectTrigger>
+              <SelectContent>{owners.map(person => <SelectItem key={person.userId} value={person.userId}>{person.displayName} · {person.userId}</SelectItem>)}</SelectContent>
+            </Select> : <p className="text-sm text-muted-foreground">{t('teams.no_owner_candidates')}</p>}
+            <p className="text-xs text-muted-foreground">{t('teams.owner_hint')}</p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={() => void onCreate()} disabled={newName.trim().length < 3}>
+          <Button onClick={() => void onCreate()} disabled={creating || newName.trim().length < 3 || !owners.some(person => person.userId === owner)}>
             {t('common.create')}
           </Button>
         </DialogFooter>

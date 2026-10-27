@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planMaintenance, type HackathonEvent } from './data.js';
+import { planMaintenance, renderAnnouncementTags, scheduleTimeResolved, type HackathonEvent } from './data.js';
 
 function ev(overrides: Partial<HackathonEvent>): HackathonEvent {
   return {
@@ -37,6 +37,31 @@ function ev(overrides: Partial<HackathonEvent>): HackathonEvent {
 }
 
 const H = 3600 * 1000;
+
+test('schedule variables render in both global and block announcements', () => {
+  const block = { id: 'dinner', title: 'Dinner', description: 'Eat together', time: 1000000 };
+  const event = ev({ schedule: [block] });
+  assert.equal(renderAnnouncementTags('{schedule} / {schedule_desc}', event, { scheduleItem: block }).content, '• <t:1000:t> Dinner / Eat together');
+  assert.equal(renderAnnouncementTags('{schedule}', event).content, '• <t:1000:t> Dinner');
+});
+
+test('undated start placeholders are not rendered as 1970 schedule entries', () => {
+  const event = ev({ startsAt: null, schedule: [{ id: '__start__', time: 0, title: 'Pending start', anchor: 'hackathon_start', offsetMinutes: 0 }] });
+  assert.equal(renderAnnouncementTags('{schedule}', event).content, 'No schedule yet');
+});
+
+test('unresolved anchored activities stay pending while legacy literal times remain valid', () => {
+  const event = ev({ schedule: [
+    { id: 'signup', time: 0, title: 'Signup', anchor: 'signup_start', offsetMinutes: 0 },
+    { id: 'welcome', time: 0, title: 'Welcome', anchor: 'hackathon_start', offsetMinutes: 60 },
+    { id: 'end', time: 0, title: 'End', anchor: 'hackathon_end', offsetMinutes: -60 },
+    { id: 'close', time: 0, title: 'Close', anchor: 'signup_end', offsetMinutes: 0 },
+    { id: 'legacy', time: 1234, title: 'Legacy', anchor: 'hackathon_start', offsetMinutes: 0 },
+  ] });
+  assert.deepEqual(event.schedule.map(item => scheduleTimeResolved(event, item)), [false, false, false, false, true]);
+  assert.deepEqual(planMaintenance([{ ...event, status: 'active' }], 5000).filter(action => action.type === 'schedule').map(action => action.scheduleId), ['legacy']);
+  assert.doesNotMatch(renderAnnouncementTags('{schedule}', event).content, /Signup|Welcome|End|Close/);
+});
 
 test('planner: cleanup fires after ends_at + delay', () => {
   const ends = 1000 * H;
