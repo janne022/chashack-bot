@@ -185,6 +185,7 @@ const TEAM_NAMES = [
 
 export function buildTeams(participants: Participant[], config: FormConfig): MatchResult {
   const teamSize = config.teamSize;
+  if (participants.length === 0) return { teams: [], conflicts: [] };
   const byId = new Map(participants.map((p) => [p.userId, p]));
   const conflicts: string[] = [];
 
@@ -207,6 +208,7 @@ export function buildTeams(participants: Participant[], config: FormConfig): Mat
     .filter((p) => !seeded.has(p.userId))
     .sort((a, b) => a.createdAt - b.createdAt || a.userId.localeCompare(b.userId));
 
+  const targetTeams = Math.max(seeds.length, Math.max(1, Math.ceil(participants.length / teamSize)));
   // 3) Greedy: repeatedly place the globally best (team, candidate) pair.
   const teams: Participant[][] = seeds.map((members) => [...members]);
   while (teams.length < 1 || candidates.length > 0) {
@@ -223,9 +225,21 @@ export function buildTeams(participants: Participant[], config: FormConfig): Mat
       }
     }
     if (best === null) {
-      // No open team with space: start a new one with the first remaining candidate.
-      const next = candidates.shift()!;
-      teams.push([next]);
+      // All teams full. Create a new team only if we haven't reached the
+      // target count yet; otherwise balance by adding to the smallest team.
+      if (candidates.length === 0) break;
+      if (teams.length < targetTeams) {
+        const next = candidates.shift()!;
+        teams.push([next]);
+        continue;
+      }
+      // Add to the smallest team (tie-break by best score).
+      let smallest = 0;
+      for (let t = 1; t < teams.length; t++) {
+        if (teams[t]!.length < teams[smallest]!.length) smallest = t;
+      }
+      const chosen = candidates.shift()!;
+      teams[smallest]!.push(chosen);
       continue;
     }
     const chosen = candidates.splice(best.candIdx, 1)[0]!;
