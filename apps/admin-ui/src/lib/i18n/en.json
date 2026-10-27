@@ -167,6 +167,8 @@
   "participant.accept": "Accept",
   "participant.decline": "Decline",
   "participant.invite_id": "Discord user ID",
+  "participant.invite_search": "Search a Discord member…",
+  "participant.invite_no_results": "No members found.",
   "participant.invite_send": "Send invitation",
   "participant.team_invitation": "Team invitation",
   "participant.team_updating": "Updating team…",

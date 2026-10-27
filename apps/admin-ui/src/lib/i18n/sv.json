@@ -167,6 +167,8 @@
   "participant.accept": "Acceptera",
   "participant.decline": "Tacka nej",
   "participant.invite_id": "Discord-användar-ID",
+  "participant.invite_search": "Sök en Discord-medlem…",
+  "participant.invite_no_results": "Inga medlemmar hittades.",
   "participant.invite_send": "Skicka inbjudan",
   "participant.team_invitation": "Laginbjudan",
   "participant.team_updating": "Uppdaterar laget…",
