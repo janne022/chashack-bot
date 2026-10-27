@@ -5,6 +5,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
 import { api, ApiError } from '@/api'
+import { copyText } from '@/lib/clipboard'
 import { createEventSchema, announceSchema } from '@/lib/schemas'
 import type { Assignment, AssignmentStrategy, FormConfig, FormAppearance, HackathonEvent, Participant } from '@/types'
 import { STRATEGY_OPTIONS } from '@/lib/assignment-strategy'
@@ -1034,7 +1035,7 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
             variant="ghost"
             size="sm"
             className="!h-11 sm:!h-7"
-            onClick={() => { void navigator.clipboard.writeText(event.id).then(() => toast.info(t('events.id_copied'))) }}
+            onClick={() => { void copyText(event.id).then(copied => copied ? toast.info(t('events.id_copied')) : toast.error(t('events.id_copy_failed'))) }}
           >
             <Copy />
             {t('events.copy_id')}
@@ -1694,7 +1695,7 @@ function EventCard({ event, isSelected, onOpen, refresh }: { event: HackathonEve
         <ContextMenuSeparator />
         <ContextMenuItem
           onSelect={() => {
-            void navigator.clipboard.writeText(event.id).then(() => toast.info(t("events.id_copied")))
+            void copyText(event.id).then(copied => copied ? toast.info(t("events.id_copied")) : toast.error(t("events.id_copy_failed")))
           }}
         >
           <Copy />

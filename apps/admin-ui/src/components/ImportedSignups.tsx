@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { api, ApiError } from '@/api'
 import type { FormConfig, ImportedSignup } from '@/types'
-import { useT } from '@/lib/i18n'
+import { useLocale, useT } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -22,6 +22,7 @@ const CORE_FIELDS = ['name', 'email', 'discordUsername', 'allergies', 'experienc
 
 export function ImportedSignups({ eventId, eventName, form }: { eventId: string; eventName: string; form: FormConfig }) {
   const t = useT()
+  const locale = useLocale()
   const [records, setRecords] = useState<ImportedSignup[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -47,6 +48,10 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   const [selectedMember, setSelectedMember] = useState<Member | null>(null)
   const [memberBusy, setMemberBusy] = useState(false)
   const [memberError, setMemberError] = useState('')
+  const [templates, setTemplates] = useState<{ id: string; label: { en: string; sv: string }; description: { en: string; sv: string } }[]>([])
+  const [templateId, setTemplateId] = useState('')
+  const [appliedTemplate, setAppliedTemplate] = useState<string | null>(null)
+  const [saveWarnings, setSaveWarnings] = useState<{ row: number; issues: string[] }[]>([])
 
   function describeError(error: unknown, fallback: string) {
     if (error instanceof ApiError) {
@@ -86,12 +91,22 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
     catch { setError(t('imports.file_read_failed')) }
   }
 
-  async function runPreview(nextMapping = mapping) {
+  useEffect(() => {
+    if (!importOpen) return
+    let active = true
+    void api.signupImportTemplates(eventId)
+      .then(result => { if (active) setTemplates(result.templates) })
+      .catch(() => { if (active) setTemplates([]) })
+    return () => { active = false }
+  }, [importOpen, eventId])
+
+  async function runPreview(nextMapping = mapping, nextTemplate = templateId) {
     if (!csv || pending) return
     setPending(true); setError('')
     try {
-      const result = await api.previewSignupImport(eventId, csv, Object.keys(nextMapping).length ? nextMapping : undefined)
+      const result = await api.previewSignupImport(eventId, csv, Object.keys(nextMapping).length ? nextMapping : undefined, nextTemplate || null)
       setHeaders(result.headers); setMapping(result.suggestedMapping); setPreview(result.rows); setSummary(result.summary)
+      setAppliedTemplate(result.presetId)
       setSelectedRow(result.rows[0]?.rowNumber ?? null)
     } catch (e) { setError(describeError(e, 'imports.preview_failed')) }
     finally { setPending(false) }
@@ -100,10 +115,11 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   async function confirmImport() {
     const rows = preview.filter(row => !excluded.includes(row.rowNumber) && row.duplicateStatus !== 'duplicate')
     if (!rows.length || pending) return
-    setPending(true); setError('')
+    setPending(true); setError(''); setSaveWarnings([])
     try {
       const result = await api.importSignups(eventId, rows.map(row => ({ sourceRow: row.rowNumber, values: row.values, answers: row.answers })))
       toast.success(t('imports.saved_summary', { saved: result.saved, skipped: result.skipped, conflicts: result.conflicts }))
+      setSaveWarnings(result.warnings ?? [])
       setImportOpen(false); setFile(null); setCsv(''); setPreview([]); setSummary(null); await reload()
     } catch (e) { setError(describeError(e, 'imports.save_failed')) }
     finally { setPending(false) }
@@ -152,6 +168,15 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
       <Button onClick={() => { setImportOpen(true); setError('') }}><Upload />{t('imports.action')}</Button>
     </header>
     <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">{t('imports.discord_limitation')}</p>
+    {saveWarnings.length > 0 && <div className="space-y-1 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-medium">{t('imports.saved_with_warnings', { count: saveWarnings.length })}</p>
+        <Button variant="ghost" size="sm" onClick={() => setSaveWarnings([])}>{t('common.clear')}</Button>
+      </div>
+      <ul className="list-disc space-y-1 pl-5 text-xs">
+        {saveWarnings.map(warning => <li key={warning.row}>{t('imports.saved_warning_row', { row: warning.row })}: {warning.issues.join(' · ')}</li>)}
+      </ul>
+    </div>}
     <div className="flex flex-wrap items-center gap-3">
       <div className="min-w-48 flex-1"><Label htmlFor="import-search">{t('common.search')}</Label><Input id="import-search" value={search} onChange={e => setSearch(e.target.value)} /></div>
       <Checkbox className="min-h-10" checked={attentionOnly} onCheckedChange={v => setAttentionOnly(Boolean(v))}>{t('imports.needs_attention')}</Checkbox>
@@ -174,9 +199,21 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
         <DialogDescription>{t('imports.limits')}</DialogDescription>
         <div className="space-y-4">
           <div className="space-y-2"><Label htmlFor="signup-csv">{t('imports.csv_file')}</Label><Input id="signup-csv" type="file" accept=".csv,text/csv" disabled={pending} onChange={e => void chooseFile(e.currentTarget.files?.[0])} />{file && <p className="text-xs text-muted-foreground">{file.name} · {file.size.toLocaleString()} bytes</p>}</div>
+          {templates.length > 0 && <div className="space-y-1">
+            <Label htmlFor="import-template">{t('imports.template')}</Label>
+            <Select value={templateId || '__auto__'} onValueChange={value => { const next = value === '__auto__' ? '' : value; setTemplateId(next); if (preview.length > 0) void runPreview(mapping, next) }}>
+              <SelectTrigger id="import-template"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__auto__">{t('imports.template_auto')}</SelectItem>
+                {templates.map(tpl => <SelectItem key={tpl.id} value={tpl.id}>{tpl.label[locale]}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t('imports.template_help')}</p>
+          </div>}
           {!preview.length && <Button disabled={!csv || pending} onClick={() => void runPreview()}>{pending ? t('imports.previewing') : t('imports.preview')}</Button>}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           {preview.length > 0 && <>
+            {appliedTemplate && <p className="text-xs text-muted-foreground">{t('imports.template_applied', { name: templates.find(tpl => tpl.id === appliedTemplate)?.label[locale] ?? appliedTemplate })}</p>}
             <p className="rounded-lg border p-3 text-sm">{t('imports.summary', { create: summary?.create ?? 0, duplicate: summary?.duplicate ?? 0, conflict: summary?.conflict ?? 0 })}</p>
             <div className="space-y-2"><h3 className="font-medium">{t('imports.map_columns')}</h3><div className="grid gap-2 sm:grid-cols-2">{headers.map(header => <div key={header} className="grid min-w-0 grid-cols-1 items-start gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center sm:gap-2"><Label htmlFor={`map-${header}`} className="min-w-0 whitespace-normal break-words">{header}</Label><Select value={mapping[header] || '__source__'} onValueChange={value => setMapping(current => ({ ...current, [header]: value === '__source__' ? '' : value }))}><SelectTrigger id={`map-${header}`} aria-label={`${t('imports.map')} ${header}`} className="w-full min-w-0 [&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__source__">{t('imports.keep_source')}</SelectItem>{CORE_FIELDS.map(key => <SelectItem key={key} value={key}>{fixedLabels[key]}</SelectItem>)}{form.customQuestions?.filter(q => q.visibility !== 'organizer_only').map(q => <SelectItem key={q.id} value={q.id}>{questionLabel(q.label)}</SelectItem>)}</SelectContent></Select></div>)}</div><Button variant="outline" disabled={pending} onClick={() => void runPreview(mapping)}>{t('imports.apply_mapping')}</Button></div>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]">

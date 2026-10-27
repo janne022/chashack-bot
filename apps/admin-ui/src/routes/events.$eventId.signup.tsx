@@ -9,6 +9,7 @@ import { LiveStatus, useLiveUpdates } from '@/lib/live-updates'
 
 
 import { ParticipantNavigation } from '@/components/participant-navigation'
+import { ClaimImportedSignup } from '@/components/claim-imported-signup'
 import { PageSkeleton } from '@/components/ui/skeleton'
 import { Check, Pencil, ArrowRight } from 'lucide-react'
 
@@ -140,6 +141,17 @@ function Signup() {
           <h1 className="participant-title">{event.form.title || event.event.name}</h1>
           <p className="max-w-prose opacity-80">{event.form.description || event.event.description}</p>
         </header>
+        {registration && !registration.complete && !registration.signupWindowReason && access === 'member' && <ClaimImportedSignup
+          eventId={eventId}
+          onActivated={() => void load()}
+          onPrefill={prefill => {
+            draftRevision.current++
+            dirty.current = true
+            setAnswers(current => ({ ...current, ...prefill.answers }))
+            setProfile(current => ({ ...current, ...prefill.profile }))
+            setMessage(t('participant.claim_prefilled'))
+          }}
+        />}
         {!registration && access === 'anonymous' && state !== 'failed' && <section className="rounded-xl border p-5">
         <h2 className="text-lg font-semibold">{t('participant.signup_login')}</h2>
           <p className="my-2 text-sm opacity-80">{t('participant.signup_login_desc')}</p>

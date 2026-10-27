@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react"
-import { LayoutTemplate, BookCopy, Megaphone, Plus, Trash2, Pencil, Copy, ListChecks, Palette } from "lucide-react"
+import { LayoutTemplate, BookCopy, Megaphone, Plus, Trash2, Pencil, Copy, ClipboardCopy, ListChecks, Palette } from "lucide-react"
 import { toast } from "sonner"
 import { useAppContext } from "@/lib/app-context"
 import { useT } from "@/lib/i18n"
 import { api } from "@/api"
+import { copyText } from "@/lib/clipboard"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { OtterIllustration } from "@/components/OtterIllustration"
 import { Button } from "@/components/ui/button"
@@ -16,7 +17,7 @@ import { EventTemplateEditor, type EventTemplateDraft } from "@/components/Event
 import { AssignmentsEditor } from "@/components/AssignmentsEditor"
 import { TagAutocompleteInput, TagAutocompleteTextarea } from "@/components/TagAutocomplete"
 import { TagHelpButton } from "@/components/TagHelp"
-import type { Assignment, FormConfig, FormAppearance } from "@/types"
+import type { Assignment, FormConfig, FormAppearance, EventTemplate } from "@/types"
 import { dateTime } from "@/lib/format"
 import { DEFAULT_FORM } from "@/lib/default-form"
 import { validateQuestions } from "@/lib/question-validation"
@@ -81,10 +82,9 @@ export function TemplatesPage() {
                     <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
                     <CardDescription className="flex items-center gap-2 text-xs"><span>{dateTime(tpl.createdAt)}</span></CardDescription>
                   </CardHeader>
-                  <CardContent className="mt-auto flex gap-2">
+                  <CardContent className="mt-auto flex flex-wrap gap-2">
                     <Button size="sm" variant="secondary" onClick={()=>setEditingEventId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
-                    <Button size="sm" variant="ghost" aria-label={t("templates.copy_reference")} onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                    <Button size="sm" variant="ghost" aria-label={t("common.delete") + ": " + tpl.name} onClick={e=>{ e.stopPropagation(); setDeletingTemplate({id:tpl.id,name:tpl.name}) }}><Trash2 className="size-3.5" /></Button>
+                    <TemplateCardActions template={tpl} onSaved={refresh} onDelete={()=>setDeletingTemplate({id:tpl.id,name:tpl.name})} />
                   </CardContent>
                 </Card>
               ))}
@@ -120,10 +120,9 @@ export function TemplatesPage() {
                     <CardTitle className="truncate text-base">{tpl.name}</CardTitle>
                     <CardDescription className="flex items-center gap-2 text-xs"><span>{dateTime(tpl.createdAt)}</span></CardDescription>
                   </CardHeader>
-                  <CardContent className="mt-auto flex gap-2">
+                  <CardContent className="mt-auto flex flex-wrap gap-2">
                     <Button size="sm" variant="secondary" onClick={()=>setEditingFormId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
-                    <Button size="sm" variant="ghost" aria-label={t("templates.copy_reference")} onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                    <Button size="sm" variant="ghost" aria-label={t("common.delete") + ": " + tpl.name} onClick={e=>{ e.stopPropagation(); setDeletingTemplate({id:tpl.id,name:tpl.name}) }}><Trash2 className="size-3.5" /></Button>
+                    <TemplateCardActions template={tpl} onSaved={refresh} onDelete={()=>setDeletingTemplate({id:tpl.id,name:tpl.name})} />
                   </CardContent>
                 </Card>
               ))}
@@ -159,10 +158,9 @@ export function TemplatesPage() {
                       <CardDescription className="line-clamp-2 whitespace-pre-wrap break-words text-xs">{parsed.title ?? ""} — {(parsed.message ?? "").slice(0,120)}</CardDescription>
                       <span className="mt-1 w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium">{t(({ manual: 'templates.trigger_manual', on_activate: 'templates.trigger_activate', on_start: 'templates.trigger_start', schedule: 'templates.trigger_schedule', teams_locked: 'templates.trigger_locked', teams_assigned: 'templates.trigger_assigned' } as Record<string, string>)[parsed.trigger ?? 'manual'] ?? 'templates.trigger_manual')}</span>
                     </CardHeader>
-                    <CardContent className="mt-auto flex gap-2">
+                    <CardContent className="mt-auto flex flex-wrap gap-2">
                       <Button size="sm" variant="secondary" onClick={()=>setEditingAnnouncementId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
-                      <Button size="sm" variant="ghost" aria-label={t("templates.copy_reference")} onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                      <Button size="sm" variant="ghost" aria-label={t("common.delete") + ": " + tpl.name} onClick={e=>{ e.stopPropagation(); setDeletingTemplate({id:tpl.id,name:tpl.name}) }}><Trash2 className="size-3.5" /></Button>
+                      <TemplateCardActions template={tpl} onSaved={refresh} onDelete={()=>setDeletingTemplate({id:tpl.id,name:tpl.name})} />
                     </CardContent>
                   </Card>
                 )
@@ -212,10 +210,9 @@ export function TemplatesPage() {
                           {items.length > 4 && <li className="text-xs text-muted-foreground">+ {items.length - 4} more</li>}
                         </ul>
                       )}
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <Button size="sm" variant="secondary" onClick={()=>setEditingCollectionId(tpl.id)}><Pencil className="size-3.5" /> {t("common.edit")}</Button>
-                        <Button size="sm" variant="ghost" aria-label={t("templates.copy_reference")} onClick={(e)=>{ e.stopPropagation(); void navigator.clipboard.writeText(tpl.id) }}><Copy className="size-3.5" /></Button>
-                        <Button size="sm" variant="ghost" aria-label={t("common.delete") + ": " + tpl.name} onClick={e=>{ e.stopPropagation(); setDeletingTemplate({id:tpl.id,name:tpl.name}) }}><Trash2 className="size-3.5" /></Button>
+                        <TemplateCardActions template={tpl} onSaved={refresh} onDelete={()=>setDeletingTemplate({id:tpl.id,name:tpl.name})} />
                       </div>
                     </CardContent>
                   </Card>
@@ -240,6 +237,41 @@ export function TemplatesPage() {
       </Tabs>
     </div>
   )
+}
+
+/**
+ * Duplicate / copy-reference / delete controls shared by every template list.
+ * Duplicating is a real copy (new template, same JSON) — the previous icon only
+ * put the template id on the clipboard and did nothing at all on plain-HTTP
+ * origins, where `navigator.clipboard` does not exist.
+ */
+function TemplateCardActions({ template, onSaved, onDelete }: { template: EventTemplate; onSaved: ()=>Promise<void>; onDelete: ()=>void }) {
+  const t = useT()
+  const [busy, setBusy] = useState(false)
+  async function duplicate(event: React.MouseEvent) {
+    event.stopPropagation()
+    if (busy) return
+    setBusy(true)
+    try {
+      const name = t('templates.duplicate_name', { name: template.name }).slice(0, 80)
+      await api.createTemplateRaw(name, template.kind, template.json)
+      toast.success(t('templates.duplicated', { name }))
+      await onSaved()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('common.load_failed'))
+    } finally { setBusy(false) }
+  }
+  async function copyReference(event: React.MouseEvent) {
+    event.stopPropagation()
+    const copied = await copyText(template.id)
+    if (copied) toast.success(t('templates.reference_copied'))
+    else toast.error(t('templates.copy_failed'))
+  }
+  return <>
+    <Button size="sm" variant="outline" disabled={busy} aria-label={t('templates.duplicate')} onClick={e=>void duplicate(e)}><Copy className="size-3.5" /> {t('templates.duplicate')}</Button>
+    <Button size="sm" variant="ghost" aria-label={t('templates.copy_reference')} onClick={e=>void copyReference(e)}><ClipboardCopy className="size-3.5" /></Button>
+    <Button size="sm" variant="ghost" aria-label={t("common.delete") + ": " + template.name} onClick={e=>{ e.stopPropagation(); onDelete() }}><Trash2 className="size-3.5" /></Button>
+  </>
 }
 
 function ThemeDialog({ template, onClose, onSaved }: { template: { id: string; name: string; json: string } | null; onClose: ()=>void; onSaved: ()=>Promise<void> }) {

@@ -287,11 +287,15 @@ export const api = {
     return request('/api/guild/channels')
   },
 
-  async previewSignupImport(eventId: string, csv: string, mapping?: Record<string, string>): Promise<{ headers: string[]; suggestedMapping: Record<string, string>; rows: { rowNumber: number; values: Record<string, string>; answers: Record<string, string | string[]>; issues: string[]; duplicateStatus: 'create' | 'duplicate' | 'conflict' }[]; summary: { create: number; duplicate: number; conflict: number } }> {
-    return request(`/api/events/${encodeURIComponent(eventId)}/signup-import/preview`, { method: 'POST', body: JSON.stringify({ csv, ...(mapping ? { mapping } : {}) }) })
+  async previewSignupImport(eventId: string, csv: string, mapping?: Record<string, string>, templateId?: string | null): Promise<{ headers: string[]; suggestedMapping: Record<string, string>; presetId: string | null; rows: { rowNumber: number; values: Record<string, string>; answers: Record<string, string | string[]>; issues: string[]; duplicateStatus: 'create' | 'duplicate' | 'conflict' }[]; summary: { create: number; duplicate: number; conflict: number } }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/signup-import/preview`, { method: 'POST', body: JSON.stringify({ csv, ...(mapping ? { mapping } : {}), ...(templateId ? { templateId } : {}) }) })
   },
 
-  async importSignups(eventId: string, rows: { sourceRow: number; values: Record<string, string>; answers: Record<string, string | string[]> }[]): Promise<{ saved: number; skipped: number; conflicts: number }> {
+  async signupImportTemplates(eventId: string): Promise<{ templates: { id: string; label: { en: string; sv: string }; description: { en: string; sv: string }; columns: { header: string; target: string }[] }[] }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/signup-import/templates`)
+  },
+
+  async importSignups(eventId: string, rows: { sourceRow: number; values: Record<string, string>; answers: Record<string, string | string[]> }[]): Promise<{ saved: number; skipped: number; conflicts: number; warnings?: { row: number; issues: string[] }[] }> {
     return request(`/api/events/${encodeURIComponent(eventId)}/signup-import`, { method: 'POST', body: JSON.stringify({ rows }) })
   },
 

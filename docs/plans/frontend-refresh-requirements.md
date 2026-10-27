@@ -196,14 +196,52 @@ introduce schema changes without a compatibility and backfill plan.
   submission, bilingual submission authoring, and registration-template creation
   and editing without losing either language.
 
+## Signup import and participant claim
+
+Full design and evidence: `docs/plans/signup-import-and-claim.md`. Additive
+only; no schema change and no rewrite of existing rows.
+
+- [x] Saving an imported Google-Form export no longer fails with `400`. Exported
+  labels are translated to option ids during preview, and the save/edit routes
+  now drop only the cells they cannot read, returning per-row `warnings` instead
+  of rejecting the batch. Structural problems (row shape, oversized cells, ended
+  event) still fail the request. Verified by an API test that imports a raw
+  Swedish export with an unmappable participation answer and a free-text "other"
+  area, and by a tolerant organizer edit.
+- [x] A default import template covers the Hackoween Google Form: name and class,
+  Chas e-mail, optional Discord username, allergies, participation choice, group
+  size, group name, group members and preferred work areas. Auto-detection needs
+  two recognised headers, an explicit template id wins, and unrecognised columns
+  fall back to the generic keyword table. The dialog shows which template was
+  applied.
+- [x] A participant who filled the external form before joining Discord can find
+  and bind their own imported row from the signup page by entering the e-mail they
+  used. The lookup returns identity only (name, group, typed username, linked
+  state); the claim refuses a row owned by another account, an existing
+  participant, a blocked registration and an inactive event, then activates the
+  row or pre-fills the normal form for the answers that are still missing. Each
+  claim is audited. Possession of the address is the proof — an organizer should
+  still review unexpected claims.
+- [x] Template copy buttons work off a secure-origin clipboard and a
+  `textarea`/`execCommand` fallback with success/failure toasts, and templates can
+  be duplicated for real rather than only having their id copied.
+- [x] All new strings exist in English and Swedish; no Discord-facing string was
+  added. Admin catalog parity and literal-key coverage pass.
+- [x] Verification on this worktree: bot build and 327 PostgreSQL/mock-Discord
+  tests pass; admin UI typecheck, Vite build and 16 unit tests pass; 10 new pure
+  normalization/preset tests and 2 new API tests cover the changes above. No live
+  Discord send and no browser screenshot of the new claim panel were produced.
+
 ## Work queue
 
 - [ ] Audit each requirement against implementation and tests; distinguish
   existing behavior, gaps, and behavior needing live verification.
 - [ ] Define compatible data and migration changes for registration, submissions,
   schedule actions, Discord references, and legacy templates before implementing.
-- [ ] Complete form authoring and participant answer flows, Discord capability
+- [x] Complete form authoring and participant answer flows, Discord capability
   warnings, completion state, editing permissions, CSV authorization and errors.
+  CSV import errors are now tolerant and actionable; see "Signup import and
+  participant claim" above.
 - [ ] Repair form editor scrolling, focus tracking, and variable insertion; verify
   every offered variable against its renderer.
 - [ ] Build an event-scoped participant workspace for signup, submission, team,
