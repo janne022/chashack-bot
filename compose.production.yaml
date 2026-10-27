@@ -1,0 +1,232 @@
+services:
+  prepare:
+    image: ${APP_IMAGE:?Set APP_IMAGE to a published GHCR image reference}
+    restart: "no"
+    init: true
+    command: ["node", "apps/bot/scripts/setup-production-secrets.mjs"]
+    user: "0:0"
+    network_mode: none
+    secrets:
+      - source: discord_token
+        target: /state/inputs/discord_token
+      - source: discord_client_secret
+        target: /state/inputs/discord_client_secret
+    volumes:
+      - credential_state:/state/store
+      - database_credentials:/state/database
+      - app_credentials:/state/app
+      - migration_credentials:/state/migration
+      - edge_config:/state/edge-config
+      - postgres_init:/state/postgres-init
+      - postgres_data:/state/postgres:ro
+      # Automatically created when absent; imports an older file-based setup.
+      - ./deploy/secrets:/state/legacy:ro
+    # Compose needs a writable provisioning filesystem for environment-sourced
+    # secret inputs. Runtime services remain read-only and get protected copies.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_READ_SEARCH]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.50
+    pids_limit: 64
+    healthcheck:
+      disable: true
+
+  edge:
+    image: ${CADDY_IMAGE:?Set CADDY_IMAGE to a reviewed immutable image digest}
+    restart: unless-stopped
+    init: true
+    environment:
+      CANONICAL_DOMAIN: ${CANONICAL_DOMAIN:?Set the canonical public DNS name}
+      TUNNEL_PROXY_CIDR: ${TUNNEL_PROXY_CIDR:?Set the cloudflared connector source IP/CIDR}
+    ports:
+      - "${TUNNEL_ORIGIN_BIND_IP:?Set the Unraid LAN IP}:${TUNNEL_ORIGIN_PORT:-8081}:80"
+    volumes:
+      - edge_config:/etc/caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      edge:
+        ipv4_address: ${EDGE_PROXY_IP:?Set the Caddy proxy address in EDGE_SUBNET}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+        restart: true
+      app:
+        condition: service_healthy
+
+  app:
+    image: ${APP_IMAGE:?Set APP_IMAGE to a published GHCR image reference}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      ADMIN_PORT: "8420"
+      PUBLIC_URL: https://${CANONICAL_DOMAIN:?Set the canonical public DNS name}
+      OAUTH_REDIRECT_URI: https://${CANONICAL_DOMAIN}/auth/discord/callback
+      TRUSTED_PROXIES: ${EDGE_PROXY_IP:?Set the exact Caddy proxy address}/32
+      DATABASE_URL_FILE: /run/app-secrets/database_url
+      ADMIN_SESSION_SECRET_FILE: /run/app-secrets/admin_session_secret
+      DISCORD_TOKEN_FILE: /run/app-secrets/discord_token
+      DISCORD_CLIENT_SECRET_FILE: /run/app-secrets/discord_client_secret
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?Set the Discord application client ID}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+      ADMIN_IDS: ${ADMIN_IDS:-}
+      BOT_LANGUAGE: ${BOT_LANGUAGE:-en}
+      SKIP_DATABASE_MIGRATIONS: "1"
+    volumes:
+      - app_credentials:/run/app-secrets:ro
+    expose: ["8420"]
+    networks:
+      edge:
+        ipv4_address: ${EDGE_APP_IP:?Set the app address in EDGE_SUBNET}
+      data: {}
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1.00
+    pids_limit: 256
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8420/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+        restart: true
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    image: ${APP_IMAGE:?Set APP_IMAGE to a published GHCR image reference}
+    restart: "no"
+    init: true
+    command: ["node", "apps/bot/dist/shared/migrate-cli.js"]
+    environment:
+      MIGRATION_DATABASE_URL_FILE: /run/migration-secrets/migration_database_url
+    volumes:
+      - migration_credentials:/run/migration-secrets:ro
+    networks: [data]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 128
+    depends_on:
+      db:
+        condition: service_healthy
+
+  replay-deletions:
+    image: ${APP_IMAGE:?Set APP_IMAGE to a published GHCR image reference}
+    profiles: [recovery]
+    restart: "no"
+    init: true
+    command: ["node", "apps/bot/dist/shared/replay-deletions-cli.js"]
+    environment:
+      DELETION_REPLAY_DATABASE_URL_FILE: /run/secrets/deletion_replay_database_url
+    secrets:
+      - deletion_replay_database_url
+    networks: [data]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 128
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: ${POSTGRES_IMAGE:?Set POSTGRES_IMAGE to a reviewed immutable image digest}
+    restart: unless-stopped
+    init: true
+    environment:
+      POSTGRES_DB: chashack
+      POSTGRES_USER: chashack_bootstrap
+      POSTGRES_PASSWORD_FILE: /run/db-secrets/postgres_bootstrap_password
+      CHASHACK_APP_PASSWORD_FILE: /run/db-secrets/chashack_app_password
+      CHASHACK_MIGRATION_PASSWORD_FILE: /run/db-secrets/chashack_migration_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - database_credentials:/run/db-secrets:ro
+      - postgres_init:/docker-entrypoint-initdb.d:ro
+    networks: [data]
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U chashack_bootstrap -d chashack &&
+          [ "$$(psql -U chashack_bootstrap -d chashack -Atqc
+          "SELECT count(*) FROM pg_roles WHERE rolname IN ('chashack_app', 'chashack_migrate') AND NOT rolsuper AND NOT rolbypassrls AND rolcanlogin")" = "2" ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    shm_size: 256mb
+    mem_limit: 1g
+    cpus: 2.00
+    pids_limit: 256
+    security_opt: [no-new-privileges:true]
+
+networks:
+  edge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:?Set an unused private subnet}
+  data:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+  credential_state:
+  database_credentials:
+  app_credentials:
+  migration_credentials:
+  edge_config:
+  postgres_init:
+
+secrets:
+  discord_token:
+    environment: DISCORD_TOKEN
+  discord_client_secret:
+    environment: DISCORD_CLIENT_SECRET
+  deletion_replay_database_url:
+    file: ./deploy/secrets/deletion_replay_database_url

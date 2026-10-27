@@ -25,6 +25,7 @@ import {
   templateToEventInput,
 } from '../features/events/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
+import { getForm } from '../features/form/data.js';
 import { listParticipants } from '../features/signup/data.js';
 import { listTeams } from '../features/teams/data.js';
 import { postOrUpdatePanel } from './signup-panel.js';

@@ -14,6 +14,7 @@ import {
   StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
+  UserSelectMenuBuilder,
 } from 'discord.js';
 import { MODAL_IDS, TEAM_COLORS, type FormConfig } from '../features/form/domain.js';
 import { t, type BotLocale } from '../shared/i18n.js';
@@ -208,18 +209,16 @@ export function buildTeamSettingsModal(
 
 export const TEAM_INVITE_TARGET_ID = 'hack:team-invite:target';
 
-export function buildTeamInviteModal(eventId: string, teamId: string, locale: BotLocale): ModalBuilder {
+export function buildTeamInviteModal(eventId: string, teamId: string, panelMessageId: string, actorId: string, locale: BotLocale): ModalBuilder {
   const modal = new ModalBuilder()
-    .setCustomId(`hack:team-panel-modal:invite:${eventId}:${teamId}`)
+    .setCustomId(`hack:team-panel-modal:invite:${eventId}:${teamId}:${panelMessageId}:${actorId}`)
     .setTitle(t(locale, 'discord.team_panel.invite_title'));
   modal.addLabelComponents(new LabelBuilder()
     .setLabel(t(locale, 'discord.team_panel.invite_target'))
-    .setTextInputComponent(new TextInputBuilder()
+    .setUserSelectMenuComponent(new UserSelectMenuBuilder()
       .setCustomId(TEAM_INVITE_TARGET_ID)
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('123456789012345678')
-      .setMaxLength(25)
-      .setRequired(true)));
+      .setMinValues(1)
+      .setMaxValues(1)));
   return modal;
 }
 

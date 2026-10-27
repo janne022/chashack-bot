@@ -61,7 +61,7 @@ async function explicitEventContext(ctx: Ctx & Announcer, eventId: string): Prom
 async function handleTeamPanelModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer): Promise<boolean> {
   const parts = i.customId.split(':');
   if (parts[0] !== 'hack' || parts[1] !== 'team-panel-modal') return false;
-  const [, , action, eventId, teamId] = parts;
+  const [, , action, eventId, teamId, panelMessageId, actorId] = parts;
   if (!eventId || !teamId) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
   const team = i.channelId === null ? null : await panelTeam(ctx, eventId, teamId, i.channelId);
   const eligibleOwner = team !== null && team.ownerId === i.user.id
@@ -72,15 +72,20 @@ async function handleTeamPanelModal(i: ModalSubmitInteraction, ctx: Ctx & Announ
   if (action === 'settings') {
     await handleTeamSettingsModal(i, pinnedCtx);
   } else if (action === 'invite') {
-    const raw = i.fields.getTextInputValue(TEAM_INVITE_TARGET_ID).trim();
-    const targetId = raw.match(/^<@!?([0-9]{17,20})>$/)?.[1] ?? raw;
-    if (!/^[0-9]{17,20}$/.test(targetId)) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
-    const result = await createInvite(ctx.db, `discord:${i.user.id}`, eventId, team.guildId, team.id, targetId, ctx.config.teamSize);
+    const panel = await getMessageRef(ctx.db, `team_panel:${team.id}`);
+    const targetId = i.fields.getSelectedUsers(TEAM_INVITE_TARGET_ID)?.first()?.id;
+    if (actorId !== i.user.id || panel === null || panel.messageId !== panelMessageId || panel.channelId !== i.channelId || !targetId) {
+      await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale')));
+      return true;
+    }
+    const pinned = await explicitEventContext(ctx, eventId);
+    if (!pinned) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
+    const result = await createInvite(ctx.db, `discord:${i.user.id}`, eventId, team.guildId, team.id, targetId, pinned.config.teamSize);
     if (!result.ok) { await i.reply({ embeds: [displayErr(ctx.botLocale, result.code, result.message)], flags: MessageFlags.Ephemeral }); return true; }
     const { inviteEmbed } = await import('./user-commands.js');
     const dmSent = await ctx.dm(targetId, {
       content: t(ctx.botLocale, 'discord.teams.invite_dm', { inviter: `${i.user.username} (from **${team.name}**)` }),
-      embeds: [await inviteEmbed(pinnedCtx, team.name, team.id)],
+      embeds: [await inviteEmbed(pinned, team.name, team.id)],
       components: [decideRowFor(result.value.id, ctx.botLocale)],
     });
     await refreshTeamPanel({ db: ctx.db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, team, ctx.botLocale);
@@ -149,7 +154,9 @@ async function handleTeamPanelButton(i: ButtonInteraction, ctx: Ctx & Announcer)
   if (action === 'settings') {
     await i.showModal(buildTeamSettingsModal(team.name, team.kind, team.colorId, ctx.botLocale, `hack:team-panel-modal:settings:${eventId}:${teamId}`));
   } else if (action === 'invite') {
-    await i.showModal(buildTeamInviteModal(eventId, teamId, ctx.botLocale));
+    const pinned = await explicitEventContext(ctx, eventId);
+    if (pinned === null) { await i.reply(eph(t(ctx.botLocale, 'discord.team_panel.stale'))); return true; }
+    await i.showModal(buildTeamInviteModal(eventId, teamId, i.message.id, i.user.id, ctx.botLocale));
   } else if (action === 'requests') {
     const requests = (await listRequestsForUser(ctx.db, eventId, i.user.id, 'pending')).incoming
       .filter((request) => request.teamId === team.id && request.kind === 'join_request');
@@ -404,6 +411,7 @@ export async function onComponent(
   }
   const locale = ctx.botLocale;
   if (typeof i.isButton === 'function' && i.isButton() && await handleTeamPanelButton(i, ctx)) return;
+
 
   // ── signup panel buttons ─────────────────────────────────────────────────
   if (id === IDS.signupButton) {

@@ -377,6 +377,10 @@ reserved for avatars, the live pulse and icon-only buttons.
   12px `muted-foreground`, never as placeholder-only.
 - Selects, date pickers and popovers reuse the input shell; picker popovers open
   as popper-positioned panels with the ambient-low shadow.
+- Calendar date ranges use a `primary/20` band across the start, middle and end
+  cells, with solid primary endpoint buttons. The translucent band stays visible
+  against the popover in dark and light themes while preserving the selected
+  dates as the strongest emphasis.
 
 ### Cards
 - **Interaction model (hybrid).** The whole card is a click target for its
@@ -458,7 +462,7 @@ form surfaces and a contrast-resolved action foreground. A failed image disappea
 without covering content; it never blocks registration. Theme templates copy their
 appearance into the event snapshot rather than binding future theme edits to it.
 Participant primary actions and navigation links use a minimum 44px touch target;
-organizer mobile controls use the same target size.
+compact organizer controls above are not the participant sizing rule.
 
 ## Community workspace refresh
 
@@ -476,3 +480,18 @@ Loading uses skeleton shapes with screen-reader status. Reconnecting live update
 silent; a persistent outage gets an accessible retry icon. Respect reduced motion.
 Validate desktop/mobile in both themes, including open dialogs, keyboard navigation,
 file errors and real saved data. A compilation or API smoke check is not visual proof.
+
+Participant routes set the resolved appearance on the document root while they
+are mounted so Radix portals (selects and popovers rendered outside the frame)
+use the same light or dark palette as the event. The frame restores the console's
+root theme when it unmounts. Organizer previews stay scoped to their own frame.
+
+Selected and hovered tag suggestions invert the foreground/background pair,
+including their descriptions and context, rather than pairing pale text with
+the brand accent. The tag code keeps its own readable background/foreground pair.
+
+Import dialogs use nearly the full viewport width on phones. Column mappings
+stack label above control at narrow widths, while desktop keeps the two-column
+layout; mobile review content scrolls with the dialog instead of creating a
+small nested scroll panel.
+>>>>>>> origin/main

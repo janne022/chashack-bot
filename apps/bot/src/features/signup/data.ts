@@ -11,7 +11,67 @@ import { getForm } from '../form/data.js';
 import { deleteRegistrationAnswers, getRegistrationAnswers } from '../registration/data.js';
 import { projectMatchingParticipant } from '../matching/domain.js';
 import { isCurrentMember } from './eligibility.js';
+import { getTeam, removeFromTeam, type Team } from '../teams/data.js';
 import { eventEnforcesSignupWindow, signupWindowReason } from './domain.js';
+
+export interface PendingTeamRoleRevocation {
+  id: number;
+  guildId: string;
+  eventId: string;
+  userId: string;
+  teamId: string;
+  roleId: string;
+  attemptCount: number;
+}
+
+/** Claim at most limit due rows; abandoned claims become eligible after lease expiry. */
+export async function claimTeamRoleRevocations(db: Db, guildId: string, now = Date.now(), limit = 100): Promise<PendingTeamRoleRevocation[]> {
+  return db.transaction(async () => {
+    const rows = await db.all<{ id: number; guild_id: string; event_id: string; user_id: string; team_id: string; role_id: string; attempt_count: number }>(
+      `SELECT id,guild_id,event_id,user_id,team_id,role_id,attempt_count FROM team_role_revocations
+       WHERE guild_id=? AND next_attempt_at<=? AND (status='pending' OR (status='processing' AND lease_until<=?))
+       ORDER BY id LIMIT ? FOR UPDATE SKIP LOCKED`, guildId, now, now, Math.min(Math.max(limit, 1), 100),
+    );
+    const claimed: PendingTeamRoleRevocation[] = [];
+    for (const row of rows) {
+      await db.run(`UPDATE team_role_revocations SET status='processing',attempt_count=attempt_count+1,lease_until=?,updated_at=? WHERE id=? AND guild_id=?`, now + 120_000, now, row.id, guildId);
+      claimed.push({ id: row.id, guildId: row.guild_id, eventId: row.event_id, userId: row.user_id, teamId: row.team_id, roleId: row.role_id, attemptCount: row.attempt_count + 1 });
+    }
+    return claimed;
+  });
+}
+
+export async function completeTeamRoleRevocation(db: Db, id: number, guildId: string, status: 'complete' | 'superseded'): Promise<void> {
+  await db.run("UPDATE team_role_revocations SET status=?,lease_until=0,last_error_code=NULL,updated_at=? WHERE id=? AND guild_id=? AND status='processing'", status, Date.now(), id, guildId);
+}
+
+export async function resolveTeamRoleRevocations(db: Db, eventId: string, guildId: string, userId: string, teamId: string, roleId: string, status: 'complete' | 'superseded'): Promise<void> {
+  await db.run("UPDATE team_role_revocations SET status=?,lease_until=0,last_error_code=NULL,updated_at=? WHERE event_id=? AND guild_id=? AND user_id=? AND team_id=? AND role_id=? AND status IN ('pending','processing')", status, Date.now(), eventId, guildId, userId, teamId, roleId);
+}
+
+export async function failTeamRoleRevocation(db: Db, id: number, guildId: string, attemptCount: number): Promise<void> {
+  const now = Date.now();
+  const delay = Math.min(60 * 60 * 1000, 30_000 * (2 ** Math.min(Math.max(attemptCount - 1, 0), 7)));
+  await db.run("UPDATE team_role_revocations SET status='pending',next_attempt_at=?,lease_until=0,last_error_code='discord_api_failure',updated_at=? WHERE id=? AND guild_id=? AND status='processing'", now + delay, now, id, guildId);
+}
+
+/** Retain resolved outbox identifiers for 30 days, pruning at most 500 per pass. */
+export async function pruneResolvedTeamRoleRevocations(db: Db, guildId: string, now = Date.now()): Promise<number> {
+  const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+  const result = await db.run(`DELETE FROM team_role_revocations WHERE id IN (
+    SELECT id FROM team_role_revocations WHERE guild_id=? AND status IN ('complete','superseded') AND updated_at<? ORDER BY id LIMIT 500
+  )`, guildId, cutoff);
+  return Number(result.changes);
+}
+
+/** Return true only while this active participant still has the original team assignment. */
+export async function participantStillHasTeamRole(db: Db, eventId: string, guildId: string, userId: string, teamId: string, roleId: string): Promise<boolean> {
+  const current = await db.get<{ status: string; team_id: string | null }>(
+    'SELECT status,team_id FROM participants WHERE event_id=? AND user_id=? AND guild_id=?', eventId, userId, guildId,
+  );
+  if (current?.status !== 'active' || current.team_id !== teamId) return false;
+  return (await db.get<{ role_id: string | null }>('SELECT role_id FROM teams WHERE id=? AND event_id=? AND guild_id=?', teamId, eventId, guildId))?.role_id === roleId;
+}
 
 export type ParticipantStatus = 'active' | 'blocked' | 'withdrawn';
 
@@ -81,7 +141,8 @@ export async function upsertParticipant(
   return db.transaction(async () => {
     // Data-layer gate: never write signups for events that are not active
     // (defense in depth — the interaction layer also gates, but a modal can
-    // stay open across an event transition).
+    // stay open across an event transition). Legacy events without an explicit
+    // enforcement flag keep their historical unrestricted behaviour.
     const access = await checkSignupWrite(db, eventId, userId, guildId);
     if (!access.ok) return access;
 
@@ -182,19 +243,18 @@ export async function setTeammates(db: Db, actor: string, eventId: string, userI
   });
 }
 
-export async function blockParticipant(db: Db, actor: string, eventId: string, userId: string, reason: string): Promise<Result<import('../teams/data.js').Team | null>> {
+export async function blockParticipant(db: Db, actor: string, eventId: string, userId: string, reason: string): Promise<Result<Team | null>> {
   return db.transaction(async () => {
   const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ? FOR UPDATE', eventId);
   if (event === undefined) return err('not_found', 'Event not found.');
-  if (await getParticipant(db, eventId, userId) === null) return err('not_found', 'Participant not found in this event.');
-  const { getTeamForUser, removeFromTeam } = await import('../teams/data.js');
-  const previous = await getTeamForUser(db, eventId, userId);
-  if (previous) {
-    const removed = await removeFromTeam(db, actor, previous.id, userId);
-    if (!removed.ok) return removed;
-  }
+  const participant = await db.get<{ team_id: string | null }>('SELECT team_id FROM participants WHERE event_id = ? AND user_id = ? FOR UPDATE', eventId, userId);
+  if (participant === undefined) return err('not_found', 'Participant not found in this event.');
+  const oldTeam = participant.team_id === null ? null : await getTeam(db, participant.team_id);
+  if (participant.team_id !== null && (oldTeam === null || oldTeam.eventId !== eventId || oldTeam.guildId !== event.guild_id)) return err('not_found', 'Participant team not found in this event.');
+  const detached = participant.team_id === null ? null : await removeFromTeam(db, actor, participant.team_id, userId);
+  if (detached !== null && !detached.ok) return detached;
   const res = await db.run(
-    "UPDATE participants SET status = 'blocked', block_reason = ?, team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ?",
+    "UPDATE participants SET status = 'blocked', block_reason = ?, updated_at = ? WHERE event_id = ? AND user_id = ?",
     reason.trim().slice(0, 200) || 'No reason given',
     Date.now(),
     eventId,
@@ -202,7 +262,7 @@ export async function blockParticipant(db: Db, actor: string, eventId: string, u
   );
   if (res.changes === 0) return err('not_found', 'Participant not found in this event.');
   await audit(db, actor, 'participant.block', eventId, { userId, reason }, event.guild_id);
-  return ok(previous);
+  return ok(oldTeam);
   });
 }
 
@@ -237,26 +297,24 @@ export async function listTeamRoster(db: Db, teamId: string): Promise<{ userId: 
   return (await db.all<{ user_id: string; display_name: string }>("SELECT user_id, display_name FROM participants WHERE team_id = ? AND status = 'active' ORDER BY created_at", teamId)).map((r) => ({ userId: r.user_id, displayName: r.display_name }));
 }
 
-export async function withdrawParticipant(db: Db, actor: string, eventId: string, userId: string): Promise<Result<import('../teams/data.js').Team | null>> {
+export async function withdrawParticipant(db: Db, actor: string, eventId: string, userId: string): Promise<Result<Team | null>> {
   return db.transaction(async () => {
     const event = await db.get<{ guild_id: string }>('SELECT guild_id FROM events WHERE id = ? FOR UPDATE', eventId);
     if (event === undefined) return err('not_found', 'Event not found.');
-    const participant = await getParticipant(db, eventId, userId);
-    if (!participant || participant.status !== 'active') return err('not_found', 'No active signup found in this event.');
-    const { getTeamForUser, removeFromTeam } = await import('../teams/data.js');
-    const previous = await getTeamForUser(db, eventId, userId);
-    if (previous) {
-      const removed = await removeFromTeam(db, actor, previous.id, userId);
-      if (!removed.ok) return removed;
-    }
+    const participant = await db.get<{ team_id: string | null }>("SELECT team_id FROM participants WHERE event_id = ? AND user_id = ? AND status = 'active' FOR UPDATE", eventId, userId);
+    if (participant === undefined) return err('not_found', 'No active signup found in this event.');
+    const oldTeam = participant.team_id === null ? null : await getTeam(db, participant.team_id);
+    if (participant.team_id !== null && (oldTeam === null || oldTeam.eventId !== eventId || oldTeam.guildId !== event.guild_id)) return err('not_found', 'Participant team not found in this event.');
+    const detached = participant.team_id === null ? null : await removeFromTeam(db, actor, participant.team_id, userId);
+    if (detached !== null && !detached.ok) return detached;
     const res = await db.run(
-      "UPDATE participants SET status = 'withdrawn', team_id = NULL, updated_at = ? WHERE event_id = ? AND user_id = ? AND status = 'active'",
+      "UPDATE participants SET status = 'withdrawn', updated_at = ? WHERE event_id = ? AND user_id = ? AND status = 'active'",
       Date.now(), eventId, userId,
     );
     if (res.changes === 0) return err('not_found', 'No active signup found in this event.');
     await deleteRegistrationAnswers(db, eventId, userId);
     await audit(db, actor, 'participant.withdraw', eventId, { userId }, event.guild_id);
-    return ok(previous);
+    return ok(oldTeam);
   });
 }
 

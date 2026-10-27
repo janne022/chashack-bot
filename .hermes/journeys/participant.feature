@@ -35,3 +35,13 @@ Feature: Participant event and team journey
     When I open the team list or attempt to join or reassign
     Then I see a capacity/conflict error or a useful empty action
     And organizer reassignment is keyboard operable without silently overbooking
+
+  @journey:participant
+  Scenario: Event appearance and searchable Discord invitations
+    Given a published Halloween event with a saved appearance
+    When I open the signup form and its profile dropdown
+    Then the form and dropdown use the same event palette
+    And an explicitly light appearance stays light after navigating from a dark page
+    When the eligible team owner invites a member from the current Discord panel
+    Then Discord provides a native member picker without requiring a numeric ID
+    And an invite from a replaced panel or another actor is refused without mutation

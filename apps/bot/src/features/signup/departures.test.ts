@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openTestDb } from '../../shared/test-db.js';
-import { createTeam, joinTeam, getTeam } from '../teams/data.js';
+import { createTeam, joinTeam, getTeam, leaveTeam, removeFromTeam, removeMember, adminAssign } from '../teams/data.js';
+import { blockParticipant } from './data.js';
+import { finishParticipantDeparture, retryFailedParticipantRoleRevocations } from './lifecycle.js';
+import { claimTeamRoleRevocations, pruneResolvedTeamRoleRevocations } from './data.js';
+import { setMembershipLookup } from './eligibility.js';
 import { DEFAULT_FORM } from '../form/domain.js';
 import { deleteGuildMemberData, reconcileGuildMembers, replayMemberDeletions } from './departures.js';
 import { recoverFakeFixture } from '../../shared/fixture-recovery.js';
@@ -74,5 +78,101 @@ test('departure deletes one guild only, elects eligible successor, records ident
     const team = (await db.get<{ id: string }>("SELECT id FROM teams WHERE event_id='a'"))!;
     await deleteGuildMemberData(db, 'a', 'successor', 300);
     assert.equal(await getTeam(db, team.id), null, 'no eligible remaining member uses team deletion');
+  } finally { await db.close(); }
+});
+
+test('blocking captures old team before detaching and reports failed role revocation', async () => {
+  const db = await openTestDb();
+  try {
+    const guild = '11111111111111111';
+    await db.run("INSERT INTO events (id,guild_id,name,status,created_at,updated_at) VALUES ('block-event',?,'Block','active',1,1)", guild);
+    for (const user of ['owner', 'successor']) {
+      await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES ('block-event',?,?,?,'some_experience','backend','[]','random_team','[]','active',1,1)", user, guild, user);
+    }
+    await db.run("INSERT INTO teams (id,event_id,guild_id,name,kind,owner_id,role_id,created_at) VALUES ('block-team','block-event',?,'Block Team','public','owner','role-id',1)", guild);
+    await db.run("UPDATE participants SET team_id='block-team' WHERE event_id='block-event'");
+    setMembershipLookup(db, async () => true);
+    const blocked = await blockParticipant(db, 'admin', 'block-event', 'owner', 'test');
+    assert.equal(blocked.ok, true);
+    if (!blocked.ok) return;
+    assert.equal(blocked.value?.id, 'block-team');
+    assert.equal(blocked.value?.roleId, 'role-id');
+    assert.equal((await db.get<{ status: string }>("SELECT status FROM team_role_revocations WHERE guild_id=? AND event_id='block-event'", guild))?.status, 'pending', 'intent commits with the participant transition before any Discord callback');
+    assert.equal((await db.get<{ owner_id: string }>("SELECT owner_id FROM teams WHERE id='block-team'"))?.owner_id, 'successor');
+    const failedRetry = await retryFailedParticipantRoleRevocations(db, guild, async () => { throw new Error('Discord unavailable'); });
+    assert.deepEqual(failedRetry, { attempted: 1, succeeded: 0 });
+    assert.equal((await db.get<{ status: string; last_error_code: string }>("SELECT status,last_error_code FROM team_role_revocations WHERE guild_id=? AND event_id='block-event'", guild))?.status, 'pending');
+    await db.run("UPDATE team_role_revocations SET next_attempt_at=0 WHERE event_id='block-event'");
+    await db.run("UPDATE participants SET status='active',team_id='block-team' WHERE event_id='block-event' AND user_id='owner'");
+    let providerCalls = 0;
+    const retry = await retryFailedParticipantRoleRevocations(db, guild, async () => { providerCalls++; });
+    assert.deepEqual(retry, { attempted: 1, succeeded: 1 });
+    assert.equal(providerCalls, 0, 'retry must preserve role access after the participant rejoins that team');
+    assert.equal((await db.get<{ status: string }>("SELECT status FROM team_role_revocations WHERE guild_id=? AND event_id='block-event'", guild))?.status, 'superseded');
+
+    for (let i = 0; i < 4; i++) await db.run("INSERT INTO team_role_revocations (guild_id,event_id,user_id,team_id,role_id,created_at,updated_at) VALUES (?,'block-event',?,?,?,1,1)", guild, `u${i}`, `t${i}`, `r${i}`);
+    await db.run("INSERT INTO team_role_revocations (guild_id,event_id,user_id,team_id,role_id,created_at,updated_at) VALUES ('22222222222222222','other-event','u','t','r',1,1)");
+    const bounded = await claimTeamRoleRevocations(db, guild, Date.now(), 2);
+    assert.equal(bounded.length, 2);
+    assert.ok(bounded.every((row) => row.guildId === guild));
+    await db.run("UPDATE team_role_revocations SET status='pending',lease_until=0,next_attempt_at=0 WHERE guild_id=? AND event_id='block-event' AND status='processing'", guild);
+    let successfulCalls = 0;
+    const successfulRetry = await retryFailedParticipantRoleRevocations(db, guild, async (targetGuildId) => {
+      assert.equal(targetGuildId, guild);
+      successfulCalls++;
+    });
+    assert.deepEqual(successfulRetry, { attempted: 4, succeeded: 4 });
+    assert.equal(successfulCalls, 4);
+    for (let i = 0; i < 3; i++) await db.run("INSERT INTO team_role_revocations (guild_id,event_id,user_id,team_id,role_id,status,created_at,updated_at) VALUES (?,'old-event',?,?,?,'complete',1,1)", guild, `old-u${i}`, `old-t${i}`, `old-r${i}`);
+    assert.equal(await pruneResolvedTeamRoleRevocations(db, guild, 31 * 24 * 60 * 60 * 1000), 3);
+  } finally { await db.close(); }
+});
+
+test('participant transition and role-revocation intent roll back together', async () => {
+  const db = await openTestDb();
+  try {
+    const guild = '11111111111111111';
+    await db.run("INSERT INTO events (id,guild_id,name,status,created_at,updated_at) VALUES ('rollback-event',?,'Rollback','active',1,1)", guild);
+    await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES ('rollback-event','owner',?,'owner','','','[]','','[]','active',1,1)", guild);
+    await db.run("INSERT INTO teams (id,event_id,guild_id,name,kind,owner_id,role_id,created_at) VALUES ('rollback-team','rollback-event',?,'Rollback Team','public','owner','role-id',1)", guild);
+    await db.run("UPDATE participants SET team_id='rollback-team' WHERE event_id='rollback-event'");
+    await assert.rejects(db.transaction(async () => {
+      await blockParticipant(db, 'admin', 'rollback-event', 'owner', 'test');
+      throw new Error('simulate caller rollback');
+    }), /simulate caller rollback/);
+    assert.equal((await db.get<{ status: string; team_id: string }>("SELECT status,team_id FROM participants WHERE event_id='rollback-event' AND user_id='owner'"))?.status, 'active');
+    assert.equal((await db.get("SELECT 1 FROM team_role_revocations WHERE event_id='rollback-event'")), undefined);
+  } finally { await db.close(); }
+});
+
+for (const operation of ['leaveTeam', 'removeFromTeam', 'removeMember', 'adminAssign-unassign', 'adminAssign-move'] as const) test(`${operation} transactionally queues a role retry that survives callback failure`, async () => {
+  const db = await openTestDb();
+  try {
+    const guild = '11111111111111111';
+    await db.run("INSERT INTO events (id,guild_id,name,status,created_at,updated_at) VALUES ('move-event',?,'Move','active',1,1)", guild);
+    for (const user of ['owner-a', 'owner-b']) {
+      await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES ('move-event',?,?,?,'some_experience','backend','[]','random_team','[]','active',1,1)", user, guild, user);
+    }
+    const source = await createTeam(db, 'test', 'move-event', guild, 'Source', 'public', 'owner-a');
+    const target = await createTeam(db, 'test', 'move-event', guild, 'Target', 'public', 'owner-b');
+    assert.ok(source.ok && target.ok);
+    await db.run("UPDATE teams SET role_id='source-role' WHERE id=?", source.value.id);
+
+    if (operation === 'leaveTeam') assert.ok((await leaveTeam(db, 'discord:owner-a', 'move-event', 'owner-a')).ok);
+    else if (operation === 'removeFromTeam') assert.ok((await removeFromTeam(db, 'web:admin', source.value.id, 'owner-a')).ok);
+    else if (operation === 'removeMember') assert.ok((await removeMember(db, 'web:admin', source.value.id, 'owner-a')).ok);
+    else if (operation === 'adminAssign-unassign') assert.ok((await adminAssign(db, 'web:admin', 'move-event', 'owner-a', null, 4)).ok);
+    else assert.ok((await adminAssign(db, 'web:admin', 'move-event', 'owner-a', target.value.id, 4)).ok);
+
+    assert.equal((await db.get<{ status: string; role_id: string }>("SELECT status,role_id FROM team_role_revocations WHERE guild_id=? AND event_id='move-event' AND user_id='owner-a'", guild))?.status, 'pending');
+    let providerCalls = 0;
+    const retry = await retryFailedParticipantRoleRevocations(db, guild, async (_guildId, _userId, roleId) => {
+      assert.equal(roleId, 'source-role');
+      providerCalls++;
+      throw new Error('simulated Discord failure');
+    });
+    assert.deepEqual(retry, { attempted: 1, succeeded: 0 });
+    assert.equal(providerCalls, 1);
+    assert.equal((await db.get<{ status: string; attempt_count: number; last_error_code: string }>("SELECT status,attempt_count,last_error_code FROM team_role_revocations WHERE guild_id=? AND event_id='move-event' AND user_id='owner-a'", guild))?.status, 'pending');
   } finally { await db.close(); }
 });

@@ -59,3 +59,15 @@ Feature: Organizer setup
     When I press Escape
     Then the editor closes and focus returns to its opener
     And Enter reopens that form editor
+
+  @journey:organizer-setup
+  Scenario: Built-in theme library and readable signup import
+    Given the guild has not initialized its theme library
+    When I open Themes
+    Then Default, Halloween and Christmas are visible alongside custom themes
+    And deleting a theme does not change forms that copied its appearance
+    When I preview a CSV with long Swedish column headers
+    Then mapping labels and selects do not overlap at desktop, tablet or mobile widths
+    And the desktop import dialog provides a wide review workspace
+    When I type an opening brace into an announcement
+    Then the selected tag, description and context have readable contrast in both console themes

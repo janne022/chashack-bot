@@ -3,8 +3,8 @@
  * admins. The primary entry point for signups (modals can only open from
  * interactions, so a button click is the trigger — never a proactive DM).
  *
- * The panel message id is stored in `meta` so re-posting EDITS the existing
- * panel instead of spamming duplicates, and form edits refresh it.
+ * Each event's panel message id is stored in `meta` so re-posting edits only
+ * that event's panel. Legacy guild refs supply fallback channels, not messages.
  */
 import {
   ActionRowBuilder,
@@ -30,14 +30,15 @@ interface PanelRef {
   messageId: string;
 }
 
-const key = (guildId: string) => `signup_panel:${guildId}`;
+const legacyKey = (guildId: string) => `signup_panel:${guildId}`;
+const panelKey = (guildId: string, eventId: string) => `signup_panel_event:${guildId}:${eventId}`;
 
-function getPanelRef(db: Db, guildId: string): Promise<PanelRef | null> {
-  return getMessageRef(db, key(guildId));
+export function getSignupPanelRef(db: Db, guildId: string, eventId?: string): Promise<PanelRef | null> {
+  return getMessageRef(db, eventId ? panelKey(guildId, eventId) : legacyKey(guildId));
 }
 
-function setPanelRef(db: Db, guildId: string, ref: PanelRef): Promise<void> {
-  return setMessageRef(db, key(guildId), ref);
+function setPanelRef(db: Db, guildId: string, ref: PanelRef, eventId?: string): Promise<void> {
+  return setMessageRef(db, eventId ? panelKey(guildId, eventId) : legacyKey(guildId), ref);
 }
 
 export function buildPanelPayload(config: FormConfig, locale: BotLocale = 'en', eventId?: string, webUrl?: string): {
@@ -94,7 +95,8 @@ export async function postOrUpdatePanel(
   actionRef?: PanelRef,
 ): Promise<{ channelId: string; messageId: string; edited: boolean } | { error: string }> {
   if (channelId === '') {
-    const ref = await getPanelRef(db, guildId);
+    // A legacy guild panel can supply a channel, but never an event's message to edit.
+    const ref = await getSignupPanelRef(db, guildId, eventId) ?? await getSignupPanelRef(db, guildId);
     if (ref === null) return { error: t(locale, 'discord.events.no_panel_yet') };
     channelId = ref.channelId;
   }
@@ -112,12 +114,12 @@ export async function postOrUpdatePanel(
   let webUrl: string | undefined;
   try { const base = env().publicUrl; if (base) webUrl = base.replace(/\/$/, '') + '/events/' + encodeURIComponent(event.id) + '/signup'; } catch { /* missing runtime config */ }
   const payload = buildPanelPayload(config, locale, event.id, webUrl);
-  const eventKey = `signup_panel_event:${guildId}:${event.id}`;
+  const stored = panelKey(guildId, event.id);
   // Legacy scheduled actions can target different channels for the same event.
   // Prefer the action's own tracked message so that refreshing one action does
   // not replace the reference used by another. Old records without a reference
   // can still adopt the existing event panel.
-  const existing = actionRef?.channelId === channelId ? actionRef : await getMessageRef(db, eventKey);
+  const existing = actionRef?.channelId === channelId ? actionRef : await getSignupPanelRef(db, guildId, event.id);
 
   try {
     if (existing !== null && existing.channelId === channelId) {
@@ -128,9 +130,9 @@ export async function postOrUpdatePanel(
       }
       if (message !== null) return { error: t(locale, 'discord.events.panel_post_failed') };
     }
-    const nonce = createHash('sha256').update(JSON.stringify([eventKey, channelId, payload])).digest('hex').slice(0, 24);
+    const nonce = createHash('sha256').update(JSON.stringify([stored, channelId, payload])).digest('hex').slice(0, 24);
     const sent = await (channel as TextChannel).send({ ...payload, nonce, enforceNonce: true });
-    await setMessageRef(db, eventKey, { channelId, messageId: sent.id });
+    await setPanelRef(db, guildId, { channelId, messageId: sent.id }, event.id);
     await setPanelRef(db, guildId, { channelId, messageId: sent.id });
     return { channelId, messageId: sent.id, edited: false };
   } catch (error) {
@@ -141,9 +143,10 @@ export async function postOrUpdatePanel(
 
 /** Refresh after form edits (fire-and-forget friendly; silent when no panel exists). */
 export async function refreshSignupPanel(db: Db, client: Client, guildId: string, locale: BotLocale = 'en', eventId?: string): Promise<void> {
-  const ref = eventId ? await getMessageRef(db, `signup_panel_event:${guildId}:${eventId}`) : await getPanelRef(db, guildId);
+  const targetId = eventId ?? (await getActiveEvent(db, guildId))?.id;
+  const ref = (targetId ? await getSignupPanelRef(db, guildId, targetId) : null) ?? await getSignupPanelRef(db, guildId);
   if (ref === null) return;
-  await postOrUpdatePanel(db, client, guildId, ref.channelId, locale, eventId);
+  await postOrUpdatePanel(db, client, guildId, ref.channelId, locale, targetId);
 }
 
 /** Ephemeral status reply content for the panel's status button, if used later. */

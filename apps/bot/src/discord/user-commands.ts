@@ -28,7 +28,8 @@ import { TEAM_COLORS } from '../features/form/domain.js';
 import { buildSignupModal, buildCreateTeamModal, buildTeamSettingsModal, optionLabel } from './modal.js';
 import { IDS, cancelRow, decideRow, displayErr, embedOk, eph, type Ctx } from './shared.js';
 import { t } from '../shared/i18n.js';
-import { applyTeamLeave } from './provision.js';
+import { applyTeamLeave, revokeTeamRole } from './provision.js';
+import { finishParticipantDeparture } from '../features/signup/lifecycle.js';
 import { refreshTeamPanel } from './team-panel.js';
 
 /** Browser: pick a public team with space → send join request. Shared with the panel button. */
@@ -241,7 +242,14 @@ export async function handleUserCommand(
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
-      if (res.value) await applyTeamLeave({ db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value, i.user.id);
+      const provisionDeps = { db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
+      const revoked = await finishParticipantDeparture(db, guildId, ctx.eventId, i.user.id, res.value,
+        (team, userId) => revokeTeamRole(provisionDeps, team, userId));
+      if (!revoked) {
+        await i.reply({ content: t(locale, 'discord.admin.role_revoke_failed'), flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (res.value !== null) await applyTeamLeave(provisionDeps, res.value, i.user.id, true);
       await i.reply({
         embeds: [embedOk(t(locale, 'discord.join.withdrawn_title'), t(locale, 'discord.join.withdrawn_body'))],
         flags: MessageFlags.Ephemeral,

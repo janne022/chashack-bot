@@ -14,7 +14,7 @@ import { adminAssign, listTeams, setGuildCategory, getTeam } from '../features/t
 import { previewMatch, commitMatch } from '../features/matching/data.js';
 import { getForm } from '../features/form/data.js';
 import { postOrUpdatePanel } from './signup-panel.js';
-import { applyTeamLeave, provisionTeamSpace, grantTeamRole, destroyTeamSpace } from './provision.js';
+import { applyTeamLeave, provisionTeamSpace, grantTeamRole, destroyTeamSpace, revokeTeamRole } from './provision.js';
 import {
   createEvent,
   getActiveEvent,
@@ -32,6 +32,7 @@ import {
 } from '../features/events/data.js';
 import { IDS, confirmRow, displayErr, embedOk, eph, matchPreviewEmbed, type Ctx } from './shared.js';
 import { t } from '../shared/i18n.js';
+import { finishParticipantDeparture } from '../features/signup/lifecycle.js';
 
 export async function handleAdminCommand(
   i: ChatInputCommandInteraction,
@@ -65,7 +66,14 @@ export async function handleAdminCommand(
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
-      if (res.value) await applyTeamLeave({ db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, res.value, user.id);
+      const provisionDeps = { db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
+      const revoked = await finishParticipantDeparture(db, guildId, ctx.eventId, user.id, res.value,
+        (team, userId) => revokeTeamRole(provisionDeps, team, userId));
+      if (!revoked) {
+        await i.reply({ content: t(locale, 'discord.admin.role_revoke_failed'), flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (res.value !== null) await applyTeamLeave(provisionDeps, res.value, user.id, true);
       await i.reply({
         content: `<@${user.id}>`,
         embeds: [embedOk(t(locale, 'discord.admin.blocked_title'), t(locale, 'discord.admin.blocked_body', { name: user.username, reason }))],
@@ -91,12 +99,19 @@ export async function handleAdminCommand(
         await i.reply(eph(t(locale, 'discord.admin.they_have_no_signup')));
         return;
       }
-      const removed = await withdrawParticipant(db, actor, ctx.eventId, user.id);
-      if (!removed.ok) {
-        await i.reply({ embeds: [displayErr(locale, removed.code, removed.message)], flags: MessageFlags.Ephemeral });
+      const res = await withdrawParticipant(db, actor, ctx.eventId, user.id);
+      if (!res.ok) {
+        await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
-      if (removed.value) await applyTeamLeave({ db, client: ctx.client, categoryIdFor: ctx.categoryIdFor }, removed.value, user.id);
+      const provisionDeps = { db, client: ctx.client, categoryIdFor: ctx.categoryIdFor };
+      const revoked = await finishParticipantDeparture(db, guildId, ctx.eventId, user.id, res.value,
+        (team, userId) => revokeTeamRole(provisionDeps, team, userId));
+      if (!revoked) {
+        await i.reply({ content: t(locale, 'discord.admin.role_revoke_failed'), flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (res.value !== null) await applyTeamLeave(provisionDeps, res.value, user.id, true);
       await i.reply({
         embeds: [embedOk(t(locale, 'discord.admin.removed_title'), t(locale, 'discord.admin.removed_body', { name: p.displayName }))],
         flags: MessageFlags.Ephemeral,
@@ -175,7 +190,7 @@ export async function handleAdminCommand(
       const target = channel !== null ? channel.id : undefined;
       if (target === undefined) {
         // Refresh in the stored channel.
-        const res = await postOrUpdatePanel(db, ctx.client, guildId, '');
+        const res = await postOrUpdatePanel(db, ctx.client, guildId, '', locale);
         if ('error' in res) {
           await i.reply(eph(res.error === 'No panel exists yet.' ? t(locale, 'discord.admin.panel_no_panel_yet') : res.error));
           return;
@@ -186,7 +201,7 @@ export async function handleAdminCommand(
         });
         return;
       }
-      const res = await postOrUpdatePanel(db, ctx.client, guildId, target);
+      const res = await postOrUpdatePanel(db, ctx.client, guildId, target, locale);
       if ('error' in res) {
         await i.reply(eph(res.error));
         return;

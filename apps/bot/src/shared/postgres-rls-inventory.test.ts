@@ -20,6 +20,7 @@ const inventory: Record<string, string[]> = {
   guild_settings: ['guild_id','team_category_id','default_announcement_channel_id','default_panel_channel_id','default_category_id','default_cleanup_delay_hours','default_form_template_id','default_schedule_channel_id','mod_role_ids','updated_at'],
   web_sessions: ['id','audience','user_id','username','avatar','guild_ids','selected_guild_id','created_at','expires_at'],
   audit_log: ['id','ts','actor','action','target','details','guild_id'],
+  team_role_revocations: ['id','guild_id','event_id','user_id','team_id','role_id','status','attempt_count','next_attempt_at','lease_until','last_error_code','created_at','updated_at'],
 };
 
 const policies: Record<string, string> = {
@@ -29,6 +30,7 @@ const policies: Record<string, string> = {
   registration_answers: 'EXISTS parent events row, itself RLS-filtered', imported_signups: 'guild_id plus owned parent event',
   submission_forms: 'EXISTS parent events row, itself RLS-filtered', submission_answers: 'EXISTS parent events row, itself RLS-filtered',
   audit_log: 'non-NULL guild_id only; host NULL rows invisible',
+  team_role_revocations: 'guild_id; bounded operational retry data is tenant-scoped',
 };
 
 test('RLS inventory exactly matches the live schema, with only documented global tables exempt', async () => {

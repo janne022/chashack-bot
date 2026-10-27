@@ -33,10 +33,12 @@ import { listPendingTeamProvisionIds } from '../features/teams/provision-data.js
 import { previewMatch, commitMatch } from '../features/matching/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
 import { destroyTeamSpace, botLocale, provisionTeamSpace, grantTeamRole } from './provision.js';
-import { postOrUpdatePanel } from './signup-panel.js';
+import { getSignupPanelRef, postOrUpdatePanel } from './signup-panel.js';
 import { t } from '../shared/i18n.js';
 import { purgeEventPrivateAnswers, purgeExpiredPrivateAnswers } from '../features/registration/retention.js';
 import { purgeImportedSignups } from '../features/signup-import/data.js';
+import { retryFailedParticipantRoleRevocations } from '../features/signup/lifecycle.js';
+import { pruneResolvedTeamRoleRevocations } from '../features/signup/data.js';
 
 export interface NotifyDeps {
   db: Db;
@@ -95,7 +97,7 @@ export async function sendAnnouncement(
   let reason = 'no_channel_configured'
 
   // 1) Announcement channel (override → event ann channel → panel → guild panel).
-  const channelId = overrideChannelId ?? event.announcementChannelId ?? event.panelChannelId ?? await readGuildPanel(db, event.guildId)
+  const channelId = overrideChannelId ?? event.announcementChannelId ?? event.panelChannelId ?? await readGuildPanel(db, event.guildId, event.id)
   if (channelId === null) {
     reason = 'no_channel_configured'
   } else if (warnInvalidGuild(event.guildId, 'announcement post')) {
@@ -173,9 +175,9 @@ export async function sendAnnouncement(
   return { posted, reason, channelId, dmSent, dmFailed };
 }
 
-async function readGuildPanel(db: Db, guildId: string): Promise<string | null> {
+async function readGuildPanel(db: Db, guildId: string, eventId: string): Promise<string | null> {
   const { getMessageRef } = await import('../features/events/data.js');
-  return (await getMessageRef(db, `signup_panel:${guildId}`))?.channelId ?? null;
+  return (await getSignupPanelRef(db, guildId, eventId))?.channelId ?? (await getMessageRef(db, `signup_panel:${guildId}`))?.channelId ?? null;
 }
 
 // ─── Discord scheduled events ────────────────────────────────────────────────
@@ -243,6 +245,26 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
 
   // System maintenance enumerates installed guilds, then uses ordinary tenant-scoped reads.
   const guildIds = [...client.guilds.cache.values()].filter((guild) => guild.available !== false).map((guild) => guild.id);
+  for (const guildId of guildIds) {
+    const retry = await withGuildContext(db, guildId, () => retryFailedParticipantRoleRevocations(db, guildId, async (targetGuildId, userId, roleId) => {
+      if (targetGuildId !== guildId) throw new Error('role retry guild mismatch');
+      const guild = client.guilds.cache.get(guildId);
+      if (!guild) throw new Error('guild unavailable');
+      const role = await guild.roles.fetch(roleId).catch((error) => {
+        if ((error as { code?: number }).code === 10011) return null;
+        throw error;
+      });
+      if (role === null) return;
+      const member = await guild.members.fetch(userId).catch((error) => {
+        if ((error as { code?: number }).code === 10007) return null;
+        throw error;
+      });
+      if (member !== null && member.roles.cache.has(roleId)) await member.roles.remove(roleId, 'Retry failed participant team role revocation');
+    }));
+    if (retry.succeeded > 0 || retry.attempted > retry.succeeded) summary.push(`team role revocations retried in ${guildId}: ${retry.succeeded}/${retry.attempted} succeeded`);
+    const prunedRevocations = await withGuildContext(db, guildId, () => pruneResolvedTeamRoleRevocations(db, guildId));
+    if (prunedRevocations > 0) summary.push(`pruned ${prunedRevocations} resolved team role revocation records in ${guildId}`);
+  }
   const allEvents: HackathonEvent[] = [];
   for (const guildId of guildIds) allEvents.push(...await withGuildContext(db, guildId, () => listEvents(db, guildId)));
   for (const event of allEvents) {
@@ -304,7 +326,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
                 .join('\n'),
             )
             .setColor(0xfaa61a);
-          const channelId = event.panelChannelId ?? await readGuildPanel(db, event.guildId);
+          const channelId = event.panelChannelId ?? await readGuildPanel(db, event.guildId, event.id);
           if (channelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId);
             const channel = await guild.channels.fetch(channelId).catch(() => null);
@@ -329,7 +351,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
         }
         case 'end_event': {
           await endEvent(db, 'system', event.id);
-          const channelId = event.panelChannelId ?? await readGuildPanel(db, event.guildId);
+          const channelId = event.panelChannelId ?? await readGuildPanel(db, event.guildId, event.id);
           if (channelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId);
             const channel = await guild.channels.fetch(channelId).catch(() => null);
@@ -438,7 +460,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
           }
           await markMatchLocked(db, event.id);
           await audit(db, 'system', 'event.auto_match', event.id, { ok: preview.ok, code: preview.ok ? undefined : preview.code }, event.guildId);
-          const autoChannelId = event.panelChannelId ?? await readGuildPanel(db, event.guildId);
+          const autoChannelId = event.panelChannelId ?? await readGuildPanel(db, event.guildId, event.id);
           if (autoChannelId !== null && isSnowflake(event.guildId)) {
             const guild = await client.guilds.fetch(event.guildId).catch(() => null);
             const channel = guild !== null ? await guild.channels.fetch(autoChannelId).catch(() => null) : null;

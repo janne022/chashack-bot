@@ -40,16 +40,19 @@ test('PostgreSQL startup rejects effective owner and elevated role memberships',
         const appUrl = new URL(migrationUrl);
         appUrl.username = app;
         appUrl.password = password;
-        const start = async () => {
-          const runtime = await openDatabase(appUrl.toString(), migrationUrl.toString());
+        const start = async (skipMigrations = false) => {
+          const runtime = await openDatabase(appUrl.toString(), skipMigrations ? undefined : migrationUrl.toString(), skipMigrations);
           try {
             assert.equal((await runtime.get<{ name: string }>('SELECT current_user AS name'))!.name, app);
             if (authority === 'safe') assert.deepEqual(await runtime.all('SELECT * FROM events'), []);
           }
           finally { await runtime.close(); }
         };
-        if (authority === 'safe') await start();
-        else await assert.rejects(start(), /DATABASE_URL role must be/);
+        if (authority === 'safe') { await start(); await start(true); }
+        else {
+          await assert.rejects(start(), /DATABASE_URL role must be/);
+          await assert.rejects(start(true), /DATABASE_URL role must be/);
+        }
       } finally {
         try {
           await db.run('ALTER TABLE events OWNER TO CURRENT_USER');

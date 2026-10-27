@@ -14,3 +14,7 @@ __pycache__/
 
 # Generated deployment artifacts (`aspire publish`), when we start using it.
 aspire-output/
+
+# Local deployment secret material
+deploy/secrets/
+deploy/production.env

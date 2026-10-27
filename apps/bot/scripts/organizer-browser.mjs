@@ -84,6 +84,10 @@ try {
     return result.result.value;
   };
   const nav = async (url) => {
+    // Separate accelerated journeys sharing this disposable fixture/session.
+    // Real quota enforcement is tested in security-boundaries.test.ts; the
+    // explicit browser 429 scenario below still verifies retry feedback.
+    await db.run('DELETE FROM rate_limit_buckets');
     await send('Page.navigate', { url }, sid);
     for (let i = 0; i < 100; i++) {
       const ready = await evaluate(`document.readyState === 'complete' && (document.querySelector('#root')?.innerText.trim().length ?? 0) > 0`);
@@ -244,6 +248,7 @@ try {
 
   await nav(base+'/templates'); await wait(`document.body.innerText.includes('Signup forms')`);
   await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Themes'))`);
+  check('built-in themes are visible in the theme library before creating a custom theme',await evaluate(`['Default','Halloween','Christmas'].every(name=>[...document.querySelectorAll('[data-slot=card-title]')].some(e=>e.innerText===name))`));
   await click(button('New theme')); await wait(`!!document.querySelector('[role=dialog] input[maxlength="80"]')`);
   await fill('[role=dialog] input[maxlength="80"]','Autumn guild theme');
   await click(`document.querySelector('[role=dialog] [role=combobox]')`);
@@ -366,7 +371,7 @@ try {
   await wait(`!document.body.innerText.includes('Autumn guild theme')`);
   templates=(await api('/api/state',undefined,'GET')).templates;
   form=JSON.parse(templates.find(item=>item.id===formTemplate.id).json);
-  check('deleting a theme leaves forms that already copied its appearance intact',!templates.some(item=>item.kind==='theme')&&form.appearance?.themePreset==='halloween'&&form.appearance?.accentColor==='#ef793e');
+  check('deleting a theme preserves built-ins and forms that copied its appearance',!templates.some(item=>item.name==='Autumn guild theme')&&templates.filter(item=>item.kind==='theme').length===3&&form.appearance?.themePreset==='halloween'&&form.appearance?.accentColor==='#ef793e');
   form=authoredForm;
 
   const collection=(await api('/api/templates',{name:'Svenska uppdrag',kind:'assignments',json:JSON.stringify({assignments:[{id:'brief',title:'Bygg tillsammans',instructions:'Bygg något för {team}'}]})})).template;
@@ -380,6 +385,26 @@ try {
   await click(button('Continue with template'));
   await wait(`!!document.querySelector('input[maxlength="100"]')`);
   check('Swedish template fills event editor',await evaluate(`document.querySelector('input[maxlength="100"]').value==='Svensk verkstad' && document.body.innerText.includes('Svenska uppdrag') && document.body.innerText.includes('Verkstad')`));
+  await click(`[...document.querySelectorAll('button')].find(e=>e.innerText.includes('Signup window'))`);
+  await click(`[...document.querySelectorAll('button')].find(e=>e.dataset.empty==='true')`);
+  await wait(`document.querySelectorAll('[data-slot="popover-content"] button[data-day]:not([disabled])').length>7`);
+  const rangeDays=await evaluate(`(()=>[...new Map([...document.querySelectorAll('[data-slot="popover-content"] button[data-day]:not([disabled])')].map(b=>[b.dataset.day,b])).keys()])()`);
+  assert.ok(rangeDays.length>4,'date range calendar exposes enough enabled dates');
+  await click(`[...document.querySelectorAll('[data-slot="popover-content"] button[data-day]')].find(b=>b.dataset.day===${JSON.stringify(rangeDays[0])})`);
+  await click(`[...document.querySelectorAll('[data-slot="popover-content"] button[data-day]:not([disabled])')].find(b=>b.dataset.day===${JSON.stringify(rangeDays[4])})`);
+  await wait(`document.querySelectorAll('[data-slot="popover-content"] button[data-range-middle="true"]').length>=3`);
+  const rangeVisual=async theme=>{
+    await evaluate(`(()=>{document.documentElement.dataset.theme=${JSON.stringify(theme)};document.documentElement.classList.toggle('dark',${JSON.stringify(theme==='dark')})})()`);
+    await evaluate(`(async()=>{const pop=document.querySelector('[data-slot="popover-content"]');getComputedStyle(pop).backgroundColor;await Promise.allSettled(pop.getAnimations({subtree:true}).filter(a=>a instanceof CSSTransition).map(a=>a.finished))})()`);
+    const visual=await evaluate(`(()=>{const pop=document.querySelector('[data-slot="popover-content"]');const mid=pop?.querySelector('button[data-range-middle="true"]');const start=pop?.querySelector('button[data-range-start="true"]');const end=pop?.querySelector('button[data-range-end="true"]');if(!pop||!mid||!start||!end)return null;const style=e=>getComputedStyle(e).backgroundColor;const cell=e=>e.parentElement;const ctx=document.createElement('canvas').getContext('2d');const pixel=color=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=color;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data]};const popRgb=pixel(style(pop)).slice(0,3);const bandPixel=pixel(style(cell(mid)));const base=bandPixel.slice(0,3).map((v,i)=>v*bandPixel[3]/255+popRgb[i]*(1-bandPixel[3]/255));const middlePixel=pixel(style(mid));const bg=middlePixel.slice(0,3).map((v,i)=>v*middlePixel[3]/255+base[i]*(1-middlePixel[3]/255));const fg=pixel(getComputedStyle(mid).color).slice(0,3);const lum=c=>{const v=c/255;return v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4};const l=c=>0.2126*lum(c[0])+0.7152*lum(c[1])+0.0722*lum(c[2]);const a=l(bg),b=l(fg);return {middleCount:pop.querySelectorAll('button[data-range-middle="true"]').length,popover:style(pop),middle:style(mid),text:getComputedStyle(mid).color,textContrast:(Math.max(a,b)+0.05)/(Math.min(a,b)+0.05),start:style(start),end:style(end),band:style(cell(mid)),startConnector:getComputedStyle(cell(start),'::after').backgroundColor,endConnector:getComputedStyle(cell(end),'::after').backgroundColor}})()`);
+    check(`signup date range shows a continuous tinted band with readable text in ${theme} theme`,!!visual&&visual.middleCount>=3&&visual.middle!==visual.popover&&visual.band!==visual.popover&&visual.start!==visual.middle&&visual.end!==visual.middle&&visual.startConnector===visual.band&&visual.endConnector===visual.band&&visual.textContrast>=4.5,JSON.stringify(visual));
+    await screenshot(`signup-date-range-${theme}.png`);
+  };
+  await rangeVisual('dark');
+  await rangeVisual('light');
+  await evaluate(`(()=>{delete document.documentElement.dataset.theme;document.documentElement.classList.add('dark')})()`);
+  await click(button('Done'));
+  await click(`document.querySelector('[aria-label="Clear range"]')`);
   await click(`[...document.querySelectorAll('button')].find(e=>e.innerText.startsWith('Hackathon Starts'))`);
   await click(button('Pick date & time'));
   await wait(`!!document.querySelector('button[data-day]:not([disabled])')`);
@@ -412,10 +437,17 @@ try {
   await click(button('Preview CSV'));
   await wait(`document.querySelector('[role=dialog]')?.innerText.includes('7 new')`);
   check('real CSV preview maps Swedish columns and shows seven editable rows without a Discord column',await evaluate(`document.querySelector('[role=dialog]').innerText.includes('Synthetic import 1')&&document.querySelector('[role=dialog]').innerText.includes('Name and class')&&document.querySelector('[role=dialog]').innerText.includes('Preferred areas / skills')`));
+  const mappingFits = `(()=>{const d=document.querySelector('[role=dialog]');return [...d.querySelectorAll('label[for^="map-"]')].every(label=>{const select=document.getElementById(label.htmlFor),l=label.getBoundingClientRect(),s=select.getBoundingClientRect(),p=d.getBoundingClientRect();return l.left>=p.left&&s.right<=p.right&&((l.bottom<=s.top+1)||(l.right<=s.left+1))&&select.scrollWidth<=select.clientWidth+1})})()`;
+  check('CSV desktop review uses a wide workspace and all Swedish mapping labels fit',await evaluate(`document.querySelector('[role=dialog]').getBoundingClientRect().width>=900&&${mappingFits}`));
   await screenshot('signup-import-review-desktop.png');
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false},sid);
+  await delay(300);
   check('CSV review dialog fits mobile viewport with a usable scroll region',await evaluate(`(()=>{const d=document.querySelector('[role=dialog]')?.getBoundingClientRect();return !!d&&d.left>=0&&d.right<=innerWidth&&document.documentElement.scrollWidth<=innerWidth&&document.querySelector('[role=dialog]').scrollHeight>document.querySelector('[role=dialog]').clientHeight})()`));
+  check('CSV mobile mapping stacks readable labels and selects without overlap or internal horizontal scrolling',await evaluate(`${mappingFits}&&(()=>{const d=document.querySelector('[role=dialog]');return d.scrollWidth<=d.clientWidth+1})()`));
   await screenshot('signup-import-review-mobile.png');
+  await send('Emulation.setDeviceMetricsOverride',{width:768,height:1000,deviceScaleFactor:1,mobile:false},sid);
+  await delay(300);
+  check('CSV tablet mapping stays inside its dialog without overlap',await evaluate(mappingFits));
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
   check('parsed supported answers arrive pre-selected and keep the imported source text visible',await evaluate(`(()=>{const field=document.querySelector('[role=dialog] fieldset');if(!field)return false;const checked=[...field.querySelectorAll('[data-slot=checkbox][data-state=checked]')].map(e=>e.innerText.trim());return field.innerText.includes('Choose supported options explicitly')&&field.innerText.includes('Imported source text')&&checked.includes('Frontend — React')&&checked.includes('UI/UX Design')})()`));
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1400,deviceScaleFactor:1,mobile:false},sid);
@@ -436,6 +468,7 @@ try {
   check('unlinked imported signup creates no participant row',await withGuildContext(db,event.guildId,()=>db.get('SELECT user_id FROM participants WHERE event_id=? AND user_id=?',event.id,'33333333333333333'))===undefined);
   await click(button('Review and edit'));
   await wait(`!!document.querySelector('[role=dialog] input#saved-discordUsername')`);
+  check('saved signup review has enough desktop width for editing',await evaluate(`document.querySelector('[role=dialog]').getBoundingClientRect().width>=650`));
   const savedSkills=`[...document.querySelectorAll('[role=dialog] fieldset')].find(f=>f.innerText.includes('Frontend — React'))`;
   const savedAreaState=`(()=>{const f=${savedSkills};if(!f)return {};const s=n=>[...f.querySelectorAll('[data-slot=checkbox]')].find(e=>e.innerText.includes(n))?.dataset.state;return {react:s('Frontend — React'),design:s('UI/UX Design')}})()`;
   const savedAreaToggle=`(()=>{const f=${savedSkills};return [...f.querySelectorAll('[data-slot=checkbox]')].find(e=>e.innerText.includes('Frontend — React'))})()`;
@@ -483,6 +516,18 @@ try {
   check('mobile toolbar targets are at least 44px',mobile.targets.length>0&&mobile.targets.every(t=>t.height>=44&&t.width>=44));
   check('mobile no horizontal overflow and reduced motion enabled',mobile.scroll<=390&&mobile.reduced);
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
+  for (const mode of ['dark','light']) {
+    await evaluate(`document.documentElement.dataset.theme=${JSON.stringify(mode)}`);
+    await click(button('Announce'));
+    await wait(`!!document.querySelector('input[placeholder*="for tags"]')`);
+    await click(`document.querySelector('input[placeholder*="for tags"]')`);
+    await fill('input[placeholder*="for tags"]','{');
+    await wait(`!![...document.querySelectorAll('button')].find(b=>b.querySelector('code')?.innerText==='{event}')`);
+    check(`selected tag suggestion has readable title, description, context and code in ${mode} mode`,await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.classList.contains('bg-foreground')&&b.querySelector('code'));if(!b)return false;const rgb=c=>(c.match(/[0-9.]+/g)||[]).slice(0,3).map(Number);const lum=c=>rgb(c).map(n=>{n/=255;return n<=.04045?n/12.92:((n+.055)/1.055)**2.4}).reduce((v,n,i)=>v+n*[.2126,.7152,.0722][i],0);const contrast=(a,z)=>(Math.max(lum(a),lum(z))+.05)/(Math.min(lum(a),lum(z))+.05);const bg=getComputedStyle(b).backgroundColor;return [b,...b.querySelectorAll('.tag-detail')].every(e=>contrast(getComputedStyle(e).color,bg)>=4.5)&&contrast(getComputedStyle(b.querySelector('code')).color,getComputedStyle(b.querySelector('code')).backgroundColor)>=4.5})()`));
+    await nav(base+'/events?event='+event.id);
+    await wait(`!!(${button('Announce')})`);
+  }
+  await evaluate(`document.documentElement.dataset.theme='dark'`);
   await click(button('Edit event'));
   await wait(`!!document.querySelector('textarea[maxlength="1000"]')`);
   check('edit dialog has named modal semantics and initial focus',await evaluate(`!!document.querySelector('[role=dialog][aria-labelledby][aria-modal=true]')&&document.querySelector('[role=dialog]').contains(document.activeElement)`));

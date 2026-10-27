@@ -1198,8 +1198,11 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const { state } = useAppContext()
   const t = useT()
   const formTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'form')
+  const themeTemplates = (state.templates ?? []).filter((tpl) => tpl.kind === 'theme')
   // Legacy announcement records have no delivery receipts. Preserve them as
   // presets rather than silently turning them into potentially repeated sends.
+  // Block actions live on the synthetic schedule items (__start__/__signup__/
+  // __end__) — announcements included.
   const deriveStart = (ev: HackathonEvent) => {
     const actions = consolidateSignupBlock(ev.schedule ?? []).find(s=>s.id==='__start__')?.actions ?? []
     const alreadyScheduled = (ev.schedule ?? []).some(item => item.actions?.some(action => action.type === 'distribute_assignments'))
@@ -1395,6 +1398,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 <span className="text-xs text-muted-foreground">{t('events.keep_form')}</span>
               </label>
               <section className="space-y-3"><h3 className="font-semibold">{t('form.appearance')}</h3>
+                {themeTemplates.length > 0 && <label className="flex flex-col gap-2 text-sm"><span>{t('form.saved_theme')}</span><Select value="" onValueChange={id => { const theme = themeTemplates.find(item => item.id === id); if (!theme) return; try { setAppearance(JSON.parse(theme.json) as FormAppearance); setAppearanceDirty(true) } catch { toast.error(t('form.theme_invalid')) } }}><SelectTrigger aria-label={t('form.saved_theme')}><SelectValue placeholder={t('form.apply_theme')} /></SelectTrigger><SelectContent>{themeTemplates.map(theme => <SelectItem key={theme.id} value={theme.id}>{theme.name === 'Default' ? t('form.default_theme') : theme.name === 'Halloween' ? t('form.halloween') : theme.name === 'Christmas' ? t('form.christmas') : theme.name}</SelectItem>)}</SelectContent></Select></label>}
                 <AppearanceControls value={appearance} onChange={next => { setAppearance(next); setAppearanceDirty(true) }} previewTitle={editName} />
               </section>
               <div className="flex justify-end gap-2">

@@ -95,6 +95,8 @@ test('two guild handlers isolate default form and audit IDs', async (t) => {
   const snapshot = () => Promise.all(['events', 'teams', 'participants', 'team_requests', 'event_templates', 'audit_log']
     .map((table) => db.all(`SELECT * FROM ${table} ORDER BY 1`)));
   const denied = async (method: 'POST' | 'PATCH' | 'DELETE', url: string, payload: Record<string, unknown> = {}) => {
+    // Exercise authorization independently of earlier rejection costs in this fixture.
+    await db.run('DELETE FROM rate_limit_buckets');
     const before = await snapshot();
     const response = await app.inject({ method, url, headers, payload });
     assert.equal(response.statusCode, 404, `${method} ${url}: ${response.body}`);

@@ -117,6 +117,28 @@ used only for instant local command registration, never web authorization.
 The admin panel lives at
 `http://localhost:8420`.
 
+Production deployment uses [compose.production.yaml](compose.production.yaml) and
+the [deployment and recovery runbook](docs/operations/production-recovery.md).
+For an Unraid Custom Stack, copy the Compose file and fill in its private `.env`
+field using [the production example](deploy/production.env.example), then click
+**Compose Up**. The stack generates and retains the database passwords, both
+database URLs and the session secret automatically. It packages its Caddy and
+database initialization files in the app image; no shell setup is required.
+Supply the credentials issued by Discord. `CANONICAL_DOMAIN` determines the HTTPS
+origin and callbacks; register `/auth/discord/callback` and
+`/auth/participant/callback` with Discord. Redirect aliases to that origin.
+
+Set `TRUSTED_PROXIES` only to the actual proxy IP/CIDR; the production template
+trusts its fixed Caddy address. Leave it empty for direct local access. The
+production stack runs migration before starting the restricted app and mounts
+the DDL credential only into migration.
+Preserve the credential volumes with the database volume. Follow the runbook for
+secret storage, immutable images, backups and isolated recovery drills.
+
+Security work and verification limits are tracked in the
+[requirements ledger](docs/plans/security-remediation-requirements.md), with
+remaining [investigations and frontend handoff](docs/security-frontend-investigation-backlog.md).
+
 ### Signing in to the console
 
 Sign-in is **Discord OAuth only**. Configure `DISCORD_CLIENT_ID`,

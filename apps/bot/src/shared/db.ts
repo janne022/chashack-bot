@@ -28,17 +28,19 @@ export interface Db extends AsyncDb {
 }
 
 /** PostgreSQL is the only runtime database; never fall back to a local file. */
-export async function openDatabase(databaseUrl: string | undefined, migrationDatabaseUrl: string | undefined): Promise<Db> {
+export async function openDatabase(databaseUrl: string | undefined, migrationDatabaseUrl: string | undefined, skipMigrations = false): Promise<Db> {
   if (databaseUrl === undefined) throw new Error('DATABASE_URL is required');
+  const { openPostgres, migratePostgres } = await import('./postgres.js');
+  if (!skipMigrations) {
   if (migrationDatabaseUrl === undefined) throw new Error('MIGRATION_DATABASE_URL is required');
   const appConfig = parseDatabaseUrl(databaseUrl);
   const migrationConfig = parseDatabaseUrl(migrationDatabaseUrl);
   if (appConfig.host !== migrationConfig.host || appConfig.port !== migrationConfig.port || appConfig.database !== migrationConfig.database || appConfig.user === migrationConfig.user) {
     throw new Error('MIGRATION_DATABASE_URL must use a distinct role on the same PostgreSQL database');
   }
-  const { openPostgres, migratePostgres } = await import('./postgres.js');
   const migrationDb = await openPostgres(migrationDatabaseUrl);
   try { await migratePostgres(migrationDb); } finally { await migrationDb.close(); }
+  }
   const db = await openPostgres(databaseUrl);
   try {
     // MEMBER includes transitive/NOINHERIT memberships, not just active privileges.

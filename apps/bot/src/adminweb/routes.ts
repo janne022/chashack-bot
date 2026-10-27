@@ -8,10 +8,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Db } from '../shared/db.js';
 import type { Env } from '../shared/env.js';
+import { mutationBodyError } from './validation.js';
 import {
   makeDiscordToken,
   makePkcePair,
   makeState,
+  makeParticipantState,
+  participantStateReturn,
   candidateGuilds,
   hasGuildManageAuthority,
   safeEqual,
@@ -22,6 +25,7 @@ import {
 import {
   createSession,
   deleteSession,
+  deleteUserSessions,
   getSession,
   purgeExpiredSessions,
   selectGuild,
@@ -29,6 +33,7 @@ import {
   updateSessionGuilds,
 } from '../features/auth/data.js';
 import { audit } from '../shared/audit.js';
+import { finishParticipantDeparture } from '../features/signup/lifecycle.js';
 import { auditList } from '../shared/audit.js';
 import {
   blockParticipant,
@@ -121,7 +126,7 @@ function sessionRefFrom(req: FastifyRequest, config: Env, audience: 'organizer' 
 function readCookie(req: FastifyRequest, name: string): string | null {
   const cookie = req.headers.cookie ?? '';
   const m = new RegExp(`(?:^|;\\s*)${name}=([^;]+)`).exec(cookie);
-  return m === null ? null : decodeURIComponent(m[1]!);
+  try { return m === null ? null : decodeURIComponent(m[1]!); } catch { return null; }
 }
 
 function sessionCookie(token: string, secure: boolean, name = COOKIE): string {
@@ -148,14 +153,38 @@ function isSnowflake(id: string): boolean {
 export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   const { db, config } = deps;
   app.addHook('onRequest', async (req, reply) => {
+    if (req.url.startsWith('/api/') || req.url.startsWith('/auth/')) reply.header('Cache-Control', 'no-store');
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['sec-fetch-site'] === 'cross-site') {
+      return reply.code(403).send({ error: 'origin_mismatch' });
+    }
+  });
+  app.addHook('preValidation', async (req, reply) => {
+    if (!req.url.startsWith('/api/') || ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return;
+    const field = mutationBodyError(req.body);
+    if (field) return reply.code(400).send({ error: 'invalid_input', code: 'invalid_input', field });
+  });
+  app.addHook('onRequest', async (req, reply) => {
     const isPublicEntry = req.url.startsWith('/auth/') || req.url.startsWith('/api/public/') || req.url.startsWith('/events/');
     const isApi = req.url.startsWith('/api/');
     if (!isPublicEntry && !isApi) return;
-    if (isApi && !isPublicEntry && (await sessionFrom(req)) !== null) return;
-    if (isApi && !isPublicEntry && (await participantSessionFrom(req)) !== null) return;
+    if (isApi || req.url.startsWith('/auth/')) reply.header('Cache-Control', 'no-store');
     try {
-      const result = await consumeQuota(db, 'source', req.raw.socket.remoteAddress ?? 'unknown', 60);
-      if (!result.allowed) reply.header('Retry-After', result.retryAfterSeconds).code(429).send({ error: 'rate_limited', retryAfterSeconds: result.retryAfterSeconds });
+      // Source bound before session/database and Discord lookups; proxy trust is configured in server.ts.
+      const signed = sessionRefFrom(req, config) ?? sessionRefFrom(req, config, 'participant');
+      const result = await consumeQuota(db, 'source', req.ip, signed ? 240 : 60);
+      if (!result.allowed) return reply.header('Retry-After', result.retryAfterSeconds).code(429).send({ error: 'rate_limited', retryAfterSeconds: result.retryAfterSeconds });
+      const session = req.url.startsWith('/api/participant/') ? await participantSessionFrom(req) : (await sessionFrom(req))?.session;
+      if (!session) return;
+      const write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+      const identity = `${session.userId}:${session.selectedGuildId ?? ''}`;
+      const ordinary = await consumeQuota(db, write ? 'ordinary' : 'web-read', identity, write ? 30 : 90);
+      const path = req.url.split('?')[0]!;
+      // Routine team reads share the bounded read quota, not the much smaller
+      // provisioning/fan-out quota. Query values never determine route cost.
+      const expensive = path === '/api/guild/members' || (write && /invite|invitation|teams?|match|announce|discord-events|signup-import|channel-test|\/panel|schedule-itinerary/i.test(path));
+      const costly = ordinary.allowed && expensive ? await consumeQuota(db, 'expensive', identity, 5) : ordinary;
+      const denied = !ordinary.allowed ? ordinary : costly;
+      if (!denied.allowed) return reply.header('Retry-After', denied.retryAfterSeconds).code(429).send({ error: 'rate_limited', retryAfterSeconds: denied.retryAfterSeconds });
     } catch { reply.code(503).send({ error: 'rate_limiter_unavailable', retryable: true }); }
   });
 
@@ -170,6 +199,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const session = await getSession(db, ref.sessionId);
     return session === null || session.audience !== 'organizer' ? null : { ref, session };
   };
+  const actorOf = async (req: FastifyRequest): Promise<string> => `discord:${(await sessionFrom(req))!.session.userId}`;
+  const completeDeparture = async (eventId: string, guildId: string, userId: string, team: import('../features/teams/data.js').Team | null) =>
+    finishParticipantDeparture(db, guildId, eventId, userId, team, async (oldTeam, departed) => {
+      if (deps.client === null || config.skipDiscord) throw new Error('Discord unavailable');
+      await applyTeamLeave({ db, client: deps.client, categoryIdFor: () => undefined }, oldTeam, departed);
+    });
   const participantSessionFrom = async (req: FastifyRequest): Promise<WebSession | null> => {
     const ref = sessionRefFrom(req, config, 'participant');
     if (ref === null) return null;
@@ -295,7 +330,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(401).send({ error: 'unauthorized' });
       return;
     }
-    if (req.url === '/api/auth/logout' || req.url === '/api/auth/me') return;
+    if (req.url === '/api/auth/me' || ['/api/auth/logout', '/api/auth/logout-all'].includes(req.url.split('?')[0]!)) return;
     const targetGuild = req.url === '/api/auth/guild'
       ? ((req.body as { guildId?: string } | null)?.guildId ?? '')
       : live.session.selectedGuildId ?? '';
@@ -369,33 +404,19 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (origin === undefined) return; // same-origin fetch in older browsers, or curl
     let originHost: string;
     try {
-      originHost = new URL(origin).host;
+      originHost = new URL(origin).origin;
     } catch {
       await reply.code(403).send({ error: 'bad_origin' });
       return;
     }
     const expected =
-      config.publicUrl !== undefined ? new URL(config.publicUrl).host : (req.headers.host ?? '');
+      config.publicUrl !== undefined ? new URL(config.publicUrl).origin : `${req.protocol}://${req.headers.host ?? ''}`;
     if (originHost !== expected) {
-      console.warn(`[adminweb] rejected ${method} ${req.url}: Origin ${originHost} != ${expected}`);
+      console.warn(JSON.stringify({ event: 'http.origin_rejected', requestId: req.id, method }));
       await reply.code(403).send({ error: 'origin_mismatch' });
     }
   });
 
-  app.addHook('preHandler', async (req, reply) => {
-    if (!req.url.startsWith('/api/') || ['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) return;
-    const participant = req.url.startsWith('/api/participant/');
-    const session = participant ? await participantSessionFrom(req) : (await sessionFrom(req))?.session ?? null;
-    if (session === null) return;
-    const key = `${session.userId}:${session.selectedGuildId ?? ''}`;
-    const expensive = /invite|invitation|teams?|match/i.test(req.url);
-    try {
-      const ordinary = await consumeQuota(db, 'ordinary', key, 30);
-      const costly = expensive ? await consumeQuota(db, 'expensive', key, 5) : { allowed: true, retryAfterSeconds: 0 };
-      const denied = ordinary.allowed ? costly : ordinary;
-      if (!denied.allowed) reply.header('Retry-After', denied.retryAfterSeconds).code(429).send({ error: 'rate_limited', retryAfterSeconds: denied.retryAfterSeconds });
-    } catch { reply.code(503).send({ error: 'rate_limiter_unavailable', retryable: true }); }
-  });
 
   /**
    * Where Discord sends the code back. Never derived from an attacker-controlled
@@ -483,6 +504,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     try {
       const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {
         method: 'POST',
+        signal: AbortSignal.timeout(10_000),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           client_id: config.clientId,
@@ -508,8 +530,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
       const auth = { Authorization: `Bearer ${accessToken}` };
       const [userRes, guildsRes] = await Promise.all([
-        fetch('https://discord.com/api/v10/users/@me', { headers: auth }),
-        fetch('https://discord.com/api/v10/users/@me/guilds', { headers: auth }),
+        fetch('https://discord.com/api/v10/users/@me', { headers: auth, signal: AbortSignal.timeout(10_000) }),
+        fetch('https://discord.com/api/v10/users/@me/guilds', { headers: auth, signal: AbortSignal.timeout(10_000) }),
       ]);
       if (!userRes.ok || !guildsRes.ok) {
         console.warn(`[oauth] identity fetch failed: user=${userRes.status} guilds=${guildsRes.status}`);
@@ -549,7 +571,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ]);
       await reply.redirect('/');
     } catch (error) {
-      console.warn('[oauth] callback failed:', error);
+      console.warn('[oauth] callback failed');
       await fail('error');
     }
   });
@@ -558,7 +580,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (!oauthConfigured) return reply.code(404).send({ error: 'oauth_not_configured' });
     const callback = redirectUri(req, 'participant');
     if (callback === null) return reply.code(500).send({ error: 'redirect_uri_unconfigured' });
-    const state = makeState();
+    const state = makeParticipantState(config.adminSessionSecret, (req.query as { returnTo?: unknown }).returnTo);
     const pkce = makePkcePair();
     const url = new URL('https://discord.com/oauth2/authorize');
     url.searchParams.set('client_id', config.clientId);
@@ -584,16 +606,18 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const verifier = readCookie(req, PARTICIPANT_PKCE_COOKIE);
     const fail = async (reason: string) => {
       reply.header('set-cookie', [clearCookie(PARTICIPANT_STATE_COOKIE, secureCookies), clearCookie(PARTICIPANT_PKCE_COOKIE, secureCookies)]);
-      return reply.redirect(`/?participant_auth=${reason}`);
+      return reply.redirect(`/my-hackathons?participant_auth=${reason}`);
     };
     if (query.error !== undefined) return fail('cancelled');
     if (query.state === undefined || expectedState === null || !safeEqual(query.state, expectedState) || verifier === null) return fail('bad_state');
+    const returnPath = participantStateReturn(config.adminSessionSecret, query.state);
+    if (returnPath === null) return fail('bad_state');
     if (!query.code) return fail('no_code');
     const callback = redirectUri(req, 'participant');
     if (callback === null) return fail('redirect_uri_unconfigured');
     try {
       const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {
-        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, // g0:allow:secrets t_026e28f9
+        method: 'POST', signal: AbortSignal.timeout(10_000), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, // g0:allow:secrets t_026e28f9
         body: new URLSearchParams({
           client_id: config.clientId, client_secret: config.discordClientSecret!, grant_type: 'authorization_code',
           code: query.code, redirect_uri: callback, code_verifier: verifier,
@@ -602,7 +626,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       if (!tokenRes.ok) return fail('exchange_failed');
       const token = await tokenRes.json() as { access_token?: string; token_type?: string };
       if (!token.access_token || (token.token_type ?? '').toLowerCase() !== 'bearer') return fail('exchange_failed');
-      const userRes = await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${token.access_token}` } });
+      const userRes = await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${token.access_token}` }, signal: AbortSignal.timeout(10_000) });
       if (!userRes.ok) return fail('identity_failed');
       const user = await userRes.json() as { id?: string; username?: string; global_name?: string | null; avatar?: string | null };
       if (!user.id || !user.username) return fail('identity_failed');
@@ -617,7 +641,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         sessionCookie(makeDiscordToken(config.adminSessionSecret, session.id, Date.now(), 'participant'), secureCookies, PARTICIPANT_COOKIE),
         clearCookie(PARTICIPANT_STATE_COOKIE, secureCookies), clearCookie(PARTICIPANT_PKCE_COOKIE, secureCookies),
       ]);
-      return reply.redirect('/');
+      return reply.redirect(returnPath);
     } catch {
       return fail('error');
     }
@@ -687,7 +711,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return { sessionId: live.session.id, scope: `${guildId}/${eventId}`, accepts: async (hint: ChangeHint) =>
         hint.guildId === guildId && (hint.eventId === null || hint.eventId === eventId) };
     });
-  });
+  }, 10_000, config.publicUrl);
 
   const ownHint = async (hint: ChangeHint, userId: string): Promise<boolean> => {
     if (!hint.guildId || !hint.eventId) return false;
@@ -713,7 +737,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (!event || !installedGuildIds().includes(event.guildId)) return null;
     return { sessionId: session.id, scope: `${event.guildId}/${eventId}`, accepts: async (hint) =>
       hint.guildId === event.guildId && hint.eventId === eventId && (hint.table === 'events' || await ownHint(hint, session.userId)) };
-  });
+  }, 10_000, config.publicUrl);
   registerLiveRoute(app, db, '/api/participant/live', async (req) => {
     const session = await participantSessionFrom(req);
     if (!session) return null;
@@ -721,7 +745,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     for (const guildId of installedGuildIds()) if (await currentMember(guildId, session.userId)) guilds.push(guildId);
     return { sessionId: session.id, scope: guilds.sort().join('/'), accepts: async (hint) =>
       hint.guildId !== null && guilds.includes(hint.guildId) && await ownHint(hint, session.userId) };
-  });
+  }, 10_000, config.publicUrl);
 
   app.get('/api/participant/events/:eventId/schedule', async (req, reply) => {
     const session = await participantSessionFrom(req);
@@ -793,6 +817,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const profileRequired = form.experiences.length + form.roleTracks.length + form.skills.length + form.teamPrefs.length > 0;
     const hasQuestions = (form.customQuestions ?? []).some((question) => question.visibility !== 'organizer_only' && (question.presentation === 'web' || question.presentation === 'both'));
     return { eventId: event.id, formVersion: form.version, answers,
+      // Only the authenticated participant's own visible definitions are exposed; organizer-only questions stay hidden.
+      questions: participantQuestions,
       profile: participant === null ? null : { experience: participant.experience, roleTrack: participant.roleTrack, skills: participant.skills, teamPref: participant.teamPref },
       missingRequiredQuestionIds: checked.ok ? checked.missingRequiredQuestionIds : [],
       complete: participant !== null && (profileRequired || hasQuestions) && checked.ok && checked.missingRequiredQuestionIds.length === 0 && (!profileRequired || ((form.experiences.length === 0 || !!participant.experience) && (form.roleTracks.length === 0 || !!participant.roleTrack) && (form.skills.length === 0 || !!participant.skills.length) && (form.teamPrefs.length === 0 || !!participant.teamPref))),
@@ -823,7 +849,6 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       const currentEvent = await getEvent(db, event.id);
       if (!currentEvent || getEventForm(db, currentEvent, await getForm(db, event.guildId)).version !== form.version) return reply.code(409).send({ error: 'stale_form_version' });
       const existing = await getParticipant(db, event.id, session!.userId);
-      if (existing?.status === 'blocked') return reply.code(403).send({ error: 'registration_blocked' });
       const effectiveProfile = profile ?? (existing && existing.experience && existing.roleTrack && existing.skills.length && existing.teamPref ? { experience: existing.experience, roleTrack: existing.roleTrack, skills: existing.skills, teamPref: existing.teamPref } : null);
       if (profileRequired && effectiveProfile === null) return reply.code(400).send({ error: 'invalid_profile' });
       const saved = await saveParticipantAnswers(db, event.id, session!.userId, form.version, checked.answers, participantQuestions.map(q => q.id));
@@ -851,9 +876,9 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const session = await participantSessionFrom(req);
     const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
-    const result = await withdrawParticipant(db, 'participant', event.id, session!.userId);
+    const result = await withdrawParticipant(db, `discord:${session!.userId}`, event.id, session!.userId);
     if (!result.ok) return reply.code(404).send({ error: result.code });
-    if (result.value && deps.client && !deps.config.skipDiscord) await applyTeamLeave({ db, client: deps.client, categoryIdFor: () => undefined }, result.value, session!.userId);
+    if (!await completeDeparture(event.id, event.guildId, session!.userId, result.value)) return reply.code(503).send({ error: 'role_revocation_pending', committed: true });
     return { ok: true };
   });
 
@@ -861,6 +886,17 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const eventId = (req.params as { eventId: string }).eventId;
     const answers = await listRegistrationAnswers(db, eventId);
     return { registrations: answers.map(({ userId, formVersion, answers: values }) => ({ userId, formVersion, answers: values })) };
+  });
+
+  app.get('/api/events/:eventId/registrations/:userId', async (req, reply) => {
+    const { eventId, userId } = req.params as { eventId: string; userId: string };
+    const event = await getEvent(db, eventId);
+    if (!event || event.guildId !== await guildOf(req)) return reply.code(404).send({ error: 'not_found' });
+    const registration = await getRegistrationAnswers(db, eventId, userId);
+    if (!registration) return reply.code(404).send({ error: 'not_found' });
+    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    await audit(db, await actorOf(req), 'registration.read', eventId, { userId }, event.guildId);
+    return { userId, ...registration, questions: registration.formVersion === form.version ? form.customQuestions ?? [] : [], historicalDefinitionUnavailable: registration.formVersion !== form.version };
   });
 
   app.get('/api/participant/me', async (req) => {
@@ -931,7 +967,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(403).send({ ok: false, code: 'not_allowed', message: 'You do not manage that server.' });
       return;
     }
-    await audit(db, 'discord', 'web.switch_guild', target, null, target);
+    await audit(db, await actorOf(req), 'web.switch_guild', target, null, target);
     return { ok: true, guildId: target };
   });
 
@@ -945,6 +981,27 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     reply.header('set-cookie', clearCookie(COOKIE, secureCookies));
     return { ok: true };
   });
+
+  app.post('/api/participant/logout', async (req, reply) => {
+    const session = await participantSessionFrom(req);
+    if (session) await deleteSession(db, session.id);
+    reply.header('set-cookie', clearCookie(PARTICIPANT_COOKIE, secureCookies));
+    return { ok: true };
+  });
+  for (const path of ['/api/auth/logout-all', '/api/participant/logout-all']) { // g0:allow:secrets t_33947af2 - public logout endpoint names, no credentials
+    app.post(path, async (req, reply) => {
+      const session = path.includes('/participant/') ? await participantSessionFrom(req) : (await sessionFrom(req))?.session;
+      if (!session) return reply.code(401).send({ error: 'unauthorized' });
+      await db.transaction(async () => {
+        await deleteUserSessions(db, session.userId);
+        // Host auth audit uses its narrowly permitted action; actor identity is
+        // the authenticated subject, never a payload-supplied user ID.
+        await audit(db, 'discord', 'web.logout', session.userId, { scope: 'all_sessions', audience: session.audience }, null);
+      });
+      reply.header('set-cookie', [clearCookie(COOKIE, secureCookies), clearCookie(PARTICIPANT_COOKIE, secureCookies)]);
+      return { ok: true };
+    });
+  }
 
   app.get('/api/guild/members', async (req, reply) => {
     const query = (req.query as { query?: unknown } | undefined)?.query;
@@ -1042,9 +1099,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await channel.send({ content: `✅ chashack test — if you see this, <#${channelId}> is reachable ✅` })
       return { ok: true, channelId, name: (channel as { name: string }).name }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      const code = (e as Record<string, unknown>)?.code !== undefined ? ` code=${(e as Record<string, unknown>).code}` : ''
-      await reply.code(500).send({ ok: false, code: 'discord_error', message: `Discord error${code}: ${msg}` })
+      await reply.code(500).send({ ok: false, code: 'discord_error', message: 'Discord request failed.' })
     }
   });
 
@@ -1176,7 +1231,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       }
     }
     const strategy = body.assignmentStrategy ?? tplInput?.assignmentStrategy
-    const res = await createEvent(db, 'web', await guildOf(req), {
+    const res = await createEvent(db, await actorOf(req), await guildOf(req), {
       name: body.name,
       ...(body.description !== undefined ? { description: body.description } : {}),
       ...(body.startsAt != null ? { startsAt: body.startsAt } : {}),
@@ -1200,7 +1255,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
     // Create & launch: activate immediately when the caller asked for it.
     if (body.launch === true) {
-      await activateEvent(db, 'web', res.value.id);
+      await activateEvent(db, await actorOf(req), res.value.id);
     }
     // Optional: save as event template via checkbox in create dialog
     if (body.saveAsTemplate) {
@@ -1224,14 +1279,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
           assignments: savedEvent.assignments,
           assignmentStrategy: savedStrategy === 'same' ? 'same' : 'random',
         }
-        await saveTemplate(db, 'web', await guildOf(req), tplName, 'event', JSON.stringify(payload))
+        await saveTemplate(db, await actorOf(req), await guildOf(req), tplName, 'event', JSON.stringify(payload))
       }
     }
     return { ok: true, event: await getEvent(db, res.value.id) ?? res.value };
   });
 
   app.post('/api/events/:eventId/activate', async (req, reply) => {
-    const res = await activateEvent(db, 'web', (req.params as { eventId: string }).eventId);
+    const res = await activateEvent(db, await actorOf(req), (req.params as { eventId: string }).eventId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1265,7 +1320,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
       assignments?: { id: string; title: string; instructions: string; description?: string }[];
     } | null;
-    const res = await updateEvent(db, 'web', eventId, {
+    const res = await updateEvent(db, await actorOf(req), eventId, {
       ...(body?.name !== undefined ? { name: body.name } : {}),
       ...(body?.description !== undefined ? { description: body.description } : {}),
       ...(body?.startsAt !== undefined ? { startsAt: body.startsAt } : {}),
@@ -1304,7 +1359,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/events/:eventId/end', async (req, reply) => {
-    const res = await endEvent(db, 'web', (req.params as { eventId: string }).eventId);
+    const res = await endEvent(db, await actorOf(req), (req.params as { eventId: string }).eventId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1331,7 +1386,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send({ ok: false, code: 'bad_input', message: 'title and message are required.' })
       return
     }
-    const result = await sendAnnouncement({ db, client: deps.client }, 'web', event, body.title, body.message, body.dm ?? false, body.channelId)
+    const result = await sendAnnouncement({ db, client: deps.client }, await actorOf(req), event, body.title, body.message, body.dm ?? false, body.channelId)
     // Surface detailed reason to the UI so it can show "why not posted" instead of generic unreachable
     return { ok: true, ...result }
   })
@@ -1360,7 +1415,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return;
     }
     // Persist the channel on the event.
-    await updateEvent(db, 'web', event.id, { panelChannelId: channelId });
+    await updateEvent(db, await actorOf(req), event.id, { panelChannelId: channelId });
     return { ok: true, channelId: res.channelId, edited: res.edited };
   });
 
@@ -1375,7 +1430,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return;
     }
     const body = req.body as { days?: number; durationHours?: number } | null;
-    const result = await createDiscordEvents({ db, client: deps.client }, 'web', event, body?.days ?? 1, body?.durationHours ?? 24);
+    const result = await createDiscordEvents({ db, client: deps.client }, await actorOf(req), event, body?.days ?? 1, body?.durationHours ?? 24);
     if (result.created.length === 0) {
       await reply.code(400).send({ ok: false, code: 'failed', message: result.errors.join('; ') || 'Nothing created.' });
       return;
@@ -1456,7 +1511,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         json = JSON.stringify(payload)
       }
     }
-    const res = await saveTemplate(db, 'web', await guildOf(req), body?.name ?? '', kind, json)
+    const res = await saveTemplate(db, await actorOf(req), await guildOf(req), body?.name ?? '', kind, json)
     if (!res.ok) {
       await reply.code(400).send(res)
       return
@@ -1494,7 +1549,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   })
 
   app.delete('/api/templates/:templateId', async (req, reply) => {
-    const res = await deleteTemplate(db, 'web', (req.params as { templateId: string }).templateId);
+    const res = await deleteTemplate(db, await actorOf(req), (req.params as { templateId: string }).templateId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1544,7 +1599,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return reply.code(400).send({ ok: false, code: 'invalid_theme' });
     }
     const { updateEventForm } = await import('../features/events/data.js')
-    const res = await updateEventForm(db, 'web', eventId, form)
+    const res = await updateEventForm(db, await actorOf(req), eventId, form)
     if (!res.ok) {
       await reply.code(res.code === 'form_version_conflict' ? 409 : 400).send(res)
       return
@@ -1601,14 +1656,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       }
       cleaned.defaultCleanupDelayHours = n
     }
-    const settings = await updateGuildSettings(db, 'web', await guildOf(req), cleaned)
+    const settings = await updateGuildSettings(db, await actorOf(req), await guildOf(req), cleaned)
     return { ok: true, settings }
   });
 
   app.post('/api/participants/:userId/status', async (req, reply) => {
     const { userId } = req.params as { userId: string };
     const body = req.body as { action?: string; reason?: string } | null;
-    const actor = 'web';
+    const actor = await actorOf(req);
     const eventId = await resolveEventId(req, await guildOf(req));
     let res;
     switch (body?.action) {
@@ -1632,7 +1687,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send(res);
       return;
     }
-    if (res.value && deps.client && !deps.config.skipDiscord) await applyTeamLeave({ db, client: deps.client, categoryIdFor: () => undefined }, res.value, userId);
+    if ((body?.action === 'block' || body?.action === 'withdraw') && res.value !== undefined &&
+        !await completeDeparture(eventId, await guildOf(req), userId, res.value)) {
+      return reply.code(503).send({ error: 'role_revocation_pending', committed: true });
+    }
     return { ok: true };
   });
 
@@ -1641,7 +1699,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const body = req.body as { teamId?: string | null } | null;
     const guildId = await guildOf(req);
     const eventId = await resolveEventId(req, guildId);
-    const res = await adminAssign(db, 'web', eventId, userId, body?.teamId ?? null, (await getForm(db, guildId)).teamSize);
+    const res = await adminAssign(db, await actorOf(req), eventId, userId, body?.teamId ?? null, (await getForm(db, guildId)).teamSize);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1671,7 +1729,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return;
     }
     const eventId = await resolveEventId(req, await guildOf(req));
-    const res = await createTeam(db, 'web', eventId, await guildOf(req), body.name ?? '', body.kind, body.ownerId);
+    const res = await createTeam(db, await actorOf(req), eventId, await guildOf(req), body.name ?? '', body.kind, body.ownerId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1711,7 +1769,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/teams/:teamId/delete', async (req, reply) => {
-    const res = await deleteTeam(db, 'web', (req.params as { teamId: string }).teamId);
+    const res = await deleteTeam(db, await actorOf(req), (req.params as { teamId: string }).teamId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1722,7 +1780,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.post('/api/teams/:teamId/settings', async (req, reply) => {
     const { teamId } = req.params as { teamId: string };
     const body = req.body as { name?: string; kind?: string; colorId?: string | null } | null;
-    const res = await updateTeamSettings(db, 'web', teamId, {
+    const res = await updateTeamSettings(db, await actorOf(req), teamId, {
       ...(body?.name !== undefined ? { name: body.name } : {}),
       ...(body?.kind === 'public' || body?.kind === 'private' ? { kind: body.kind } : {}),
       ...(body?.colorId !== undefined ? { colorId: body.colorId } : {}),
@@ -1738,7 +1796,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   });
 
   app.post('/api/teams/:teamId/rotate-code', async (req, reply) => {
-    const res = await rotateJoinCode(db, 'web', (req.params as { teamId: string }).teamId);
+    const res = await rotateJoinCode(db, await actorOf(req), (req.params as { teamId: string }).teamId);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1750,7 +1808,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const { teamId } = req.params as { teamId: string };
     const body = req.body as { userId?: string } | null;
     const previousTeam = await getTeam(db, teamId);
-    const res = await removeMember(db, 'web', teamId, body?.userId ?? '');
+    const res = await removeMember(db, await actorOf(req), teamId, body?.userId ?? '');
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
@@ -1774,7 +1832,7 @@ app.post('/api/match/commit', async (req, reply) => {
     const eventId = await resolveEventId(req, await guildOf(req));
     const revision = (req.body as { revision?: unknown } | null)?.revision;
     if (typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision)) return reply.code(409).send({ code: 'stale_preview' });
-    const res = await commitMatch(db, 'web', eventId, await guildOf(req), await getForm(db, await guildOf(req)), revision);
+    const res = await commitMatch(db, await actorOf(req), eventId, await guildOf(req), await getForm(db, await guildOf(req)), revision);
     if (!res.ok) {
       return reply.code(409).send({ ok: false, code: res.code, message: res.message });
     }
@@ -1832,14 +1890,14 @@ app.post('/api/match/commit', async (req, reply) => {
   /** Lock teams in now: skips future auto-match (manual match runs still allowed). */
 app.post('/api/match/lock', async (req) => {
     await markMatchLocked(db, await resolveEventId(req, await guildOf(req)));
-    await audit(db, 'web', 'match.lock', await resolveEventId(req, await guildOf(req)), null, await guildOf(req));
+    await audit(db, await actorOf(req), 'match.lock', await resolveEventId(req, await guildOf(req)), null, await guildOf(req));
     return { ok: true };
   });
 
   /** Clear the lock so auto-match can fire again. */
   app.post('/api/match/unlock', async (req) => {
     await markMatchUnlocked(db, await resolveEventId(req, await guildOf(req)));
-    await audit(db, 'web', 'match.unlock', await resolveEventId(req, await guildOf(req)), null, await guildOf(req));
+    await audit(db, await actorOf(req), 'match.unlock', await resolveEventId(req, await guildOf(req)), null, await guildOf(req));
     return { ok: true };
   });
 
@@ -1853,7 +1911,7 @@ app.post('/api/match/lock', async (req) => {
     // Keep the Discord signup panel in sync with the new form config.
     const formGuild = await guildOf(req);
     if (deps.client !== null && isSnowflake(formGuild)) {
-      void refreshSignupPanel(db, deps.client, formGuild).catch(() => undefined);
+      void refreshSignupPanel(db, deps.client, formGuild, config.botLanguage).catch(() => undefined);
     }
     return { ok: true, config: res.value };
   });
@@ -1867,15 +1925,15 @@ app.post('/api/event/reset', async (req) => {
     const eventId = await resolveEventId(req, await guildOf(req));
     const { purgeEventParticipants } = await import('../features/signup/data.js');
     const { deleteEventTeams } = await import('../features/teams/data.js');
-    const participants = await purgeEventParticipants(db, 'web', eventId);
-    const teams = await deleteEventTeams(db, 'web', eventId);
+    const participants = await purgeEventParticipants(db, await actorOf(req), eventId);
+    const teams = await deleteEventTeams(db, await actorOf(req), eventId);
     const imported = await purgeImportedSignups(db, eventId);
     return { ok: true, removed: { participants, teams, imported } };
   });
 
   app.post('/api/guild/category', async (req) => {
     const body = req.body as { categoryId?: string | null } | null;
-    await setGuildCategory(db, 'web', await guildOf(req), body?.categoryId ?? null);
+    await setGuildCategory(db, await actorOf(req), await guildOf(req), body?.categoryId ?? null);
     return { ok: true };
   });
 
