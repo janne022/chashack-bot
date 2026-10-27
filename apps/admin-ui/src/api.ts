@@ -1,4 +1,4 @@
-import type { AppState, AuthMe, FormConfig, HackathonEvent, ImportedSignup, MatchResult, SubmissionForm, SubmissionRecord, Team, TeamSuggestion } from './types'
+import type { AppState, AuthMe, DiscordEventSyncResult, FormConfig, HackathonEvent, ImportedSignup, MatchResult, SubmissionForm, SubmissionRecord, Team, TeamSuggestion } from './types'
 
 class ApiError extends Error {
   constructor(
@@ -221,19 +221,20 @@ export const api = {
     assignments?: { id: string; title: string; instructions: string; description?: string }[]
     assignmentStrategy?: 'random' | 'same'
     launch?: boolean
+    createDiscordEvent?: boolean
     saveAsTemplate?: boolean
     saveTemplateName?: string
-  }): Promise<HackathonEvent> {
-    const res = await request<{ event: HackathonEvent }>('/api/events', {
+  }): Promise<{ event: HackathonEvent; discordEvent: DiscordEventSyncResult | null }> {
+    const res = await request<{ event: HackathonEvent; discordEvent?: DiscordEventSyncResult | null }>('/api/events', {
       method: 'POST',
       body: JSON.stringify(input),
     })
-    return res.event
+    return { event: res.event, discordEvent: res.discordEvent ?? null }
   },
 
-  async activateEvent(eventId: string): Promise<{ event: HackathonEvent; panel: { ok: boolean; channelId?: string; reason?: string; edited?: boolean }; announce: { posted: boolean; reason: string; channelId: string | null } | null; itinerary?: { ok: boolean; channelId?: string; reason?: string; edited?: boolean } | null }> {
-    const res = await request<{ ok: true; event: HackathonEvent; panel: { ok: boolean; channelId?: string; reason?: string; edited?: boolean }; announce: { posted: boolean; reason: string; channelId: string | null } | null; itinerary?: { ok: boolean; channelId?: string; reason?: string; edited?: boolean } | null }>(`/api/events/${eventId}/activate`, { method: 'POST' })
-    return { event: res.event, panel: res.panel, announce: res.announce, itinerary: (res as unknown as { itinerary?: { ok: boolean; channelId?: string; reason?: string; edited?: boolean } | null }).itinerary ?? null }
+  async activateEvent(eventId: string): Promise<{ event: HackathonEvent; panel: { ok: boolean; channelId?: string; reason?: string; edited?: boolean }; announce: { posted: boolean; reason: string; channelId: string | null } | null; itinerary?: { ok: boolean; channelId?: string; reason?: string; edited?: boolean } | null; discordEvent?: DiscordEventSyncResult | null }> {
+    const res = await request<{ ok: true; event: HackathonEvent; panel: { ok: boolean; channelId?: string; reason?: string; edited?: boolean }; announce: { posted: boolean; reason: string; channelId: string | null } | null; itinerary?: { ok: boolean; channelId?: string; reason?: string; edited?: boolean } | null; discordEvent?: DiscordEventSyncResult | null }>(`/api/events/${eventId}/activate`, { method: 'POST' })
+    return { event: res.event, panel: res.panel, announce: res.announce, itinerary: (res as unknown as { itinerary?: { ok: boolean; channelId?: string; reason?: string; edited?: boolean } | null }).itinerary ?? null, discordEvent: res.discordEvent ?? null }
   },
 
   async updateEvent(
@@ -316,6 +317,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ days, durationHours }),
     })
+  },
+
+  async syncDiscordEvent(eventId: string): Promise<DiscordEventSyncResult> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/discord-event`, { method: 'POST' })
   },
 
   async listTemplates(kind?: 'event' | 'form' | 'announcement' | 'assignments' | 'theme'): Promise<{ templates: { id: string; name: string; kind: string; createdAt: number }[] }> {

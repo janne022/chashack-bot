@@ -151,8 +151,16 @@ export async function handleEventAdminCommand(
         await i.reply({ embeds: [displayErr(locale, res.code, res.message)], flags: MessageFlags.Ephemeral });
         return;
       }
+      // Keep the linked Discord scheduled event's dates/name in step.
+      let discordLine = '';
+      if (res.value.startsAt !== null && res.value.discordEventIds.length > 0) {
+        const { syncDiscordEvent } = await import('./notify.js');
+        const synced = await syncDiscordEvent({ db, client: ctx.client }, actor, res.value);
+        if (synced.created.length > 0 || synced.updated.length > 0) discordLine = `\n\n${t(locale, 'discord.events.discord_event_synced')}`;
+        else if (synced.errors.length > 0) discordLine = `\n\n${t(locale, 'discord.events.discord_event_failed_line', { reason: synced.errors.join('; ') })}`;
+      }
       await i.reply({
-        embeds: [embedOk(t(locale, 'discord.events.updated_title'), t(locale, 'discord.events.updated_body', { name: res.value.name }))],
+        embeds: [embedOk(t(locale, 'discord.events.updated_title'), `${t(locale, 'discord.events.updated_body', { name: res.value.name })}${discordLine}`)],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -180,8 +188,16 @@ export async function handleEventAdminCommand(
       } else {
         await postOrUpdatePanel(db, ctx.client, guildId, '', locale, res.value.id).catch(() => undefined);
       }
+      // Activating a dated draft also creates/updates the Discord scheduled event.
+      let discordLine = '';
+      if (res.value.startsAt !== null) {
+        const { syncDiscordEvent } = await import('./notify.js');
+        const synced = await syncDiscordEvent({ db, client: ctx.client }, actor, res.value);
+        if (synced.created.length > 0 || synced.updated.length > 0) discordLine = `\n\n${t(locale, 'discord.events.discord_event_synced')}`;
+        else if (synced.errors.length > 0) discordLine = `\n\n${t(locale, 'discord.events.discord_event_failed_line', { reason: synced.errors.join('; ') })}`;
+      }
       await i.reply({
-        embeds: [embedOk(t(locale, 'discord.events.activated_title'), t(locale, 'discord.events.activated_body', { name: res.value.name }))],
+        embeds: [embedOk(t(locale, 'discord.events.activated_title'), `${t(locale, 'discord.events.activated_body', { name: res.value.name })}${discordLine}`)],
         flags: MessageFlags.Ephemeral,
       });
       return;

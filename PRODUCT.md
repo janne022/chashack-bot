@@ -57,6 +57,9 @@ self-cleaning weekend.
   / Hackathon Ends blocks plus middle blocks carry the actions (announcements,
   post signup, lock teams, auto-match, distribute assignments) that fire at their
   time. Activating an event only flips its status; nothing is posted on Activate.
+  A linked Discord scheduled event mirrors the hackathon's name, description and
+  dates: creating or launching a dated event creates it, edits resync it, and
+  cleanup removes it.
 - Events are set up from **templates** (event / form / announcement / assignment
   collection), whose schedules are anchor-relative so the same template works for
   any dates. Each guild's Themes library starts with persisted Default, Halloween

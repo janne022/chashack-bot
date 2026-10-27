@@ -104,7 +104,7 @@ test('two guild handlers isolate default form and audit IDs', async (t) => {
     assert.equal(announcements, 0, `${method} ${url} emitted an announcement`);
   };
   await t.test('foreign path locators refuse every event and team mutation without side effects', async () => {
-    for (const suffix of ['activate', 'schedule-itinerary', 'end', 'panel', 'discord-events', 'form']) {
+    for (const suffix of ['activate', 'schedule-itinerary', 'end', 'panel', 'discord-event', 'discord-events', 'form']) {
       await denied('POST', `/api/events/${eventA.value.id}/${suffix}`, { channelId: 'channel-a', formJson: '{}' });
     }
     await denied('PATCH', `/api/events/${eventA.value.id}`, { name: 'forged event' });

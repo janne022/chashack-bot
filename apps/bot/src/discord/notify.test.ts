@@ -5,7 +5,7 @@ import type { Client } from 'discord.js';
 import { openTestDb } from '../shared/test-db.js';
 import { getEvent, setMessageRef } from '../features/events/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
-import { runMaintenance } from './notify.js';
+import { runMaintenance, syncDiscordEvent } from './notify.js';
 import { getSignupPanelRef, postOrUpdatePanel, refreshSignupPanel } from './signup-panel.js';
 import { withGuildContext } from '../shared/postgres.js';
 import { handleEventAdminCommand } from './event-commands.js';
@@ -186,5 +186,47 @@ test('two active event panels remain independent in shared and different channel
     assert.equal((await getSignupPanelRef(db, guildId, 'panel-event-0'))?.channelId, channelId);
     assert.deepEqual(await getSignupPanelRef(db, guildId, 'panel-event-1'), b, 'explicit activation channel never takes over the newer event ref');
     assert.deepEqual(messages.get('legacy-message')!.payload, { content: 'Preserve the legacy panel' });
+  } finally { await db.close(); }
+});
+
+test('syncDiscordEvent creates one linked event and updates it instead of duplicating', async () => {
+  const db = await openTestDb();
+  const guildId = '123456789012345678';
+  const now = Date.now();
+  await db.run(`INSERT INTO events (id, guild_id, name, description, status, starts_at, ends_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+    'sync-event', guildId, 'Sync hackathon', 'Build things', now + 3_600_000, now + 7_200_000, now, now);
+
+  const scheduled: { id: string; name: string; edit: (next: { name: string }) => Promise<void> }[] = [];
+  const guild = {
+    id: guildId,
+    scheduledEvents: {
+      fetch: async (id: string) => {
+        const found = scheduled.find((item) => item.id === id);
+        if (found === undefined) throw Object.assign(new Error('Unknown Guild Scheduled Event'), { code: 10070 });
+        return found;
+      },
+      create: async (payload: { name: string }) => {
+        const item = { id: `scheduled-${scheduled.length + 1}`, name: payload.name, edit: async (next: { name: string }) => { item.name = next.name; } };
+        scheduled.push(item);
+        return item;
+      },
+    },
+  };
+  const client = { guilds: { fetch: async () => guild } } as unknown as Client;
+  try {
+    const event = (await getEvent(db, 'sync-event'))!;
+    const created = await syncDiscordEvent({ db, client }, 'test', event);
+    assert.equal(created.created.length, 1);
+    assert.equal(scheduled.length, 1);
+    assert.deepEqual((await getEvent(db, 'sync-event'))?.discordEventIds, ['scheduled-1']);
+
+    const linked = (await getEvent(db, 'sync-event'))!;
+    await db.run('UPDATE events SET starts_at = ?, ends_at = ? WHERE id = ?', now + 5_000_000, now + 9_000_000, 'sync-event');
+    const updated = await syncDiscordEvent({ db, client }, 'test', (await getEvent(db, 'sync-event'))!);
+    assert.equal(updated.created.length, 0);
+    assert.equal(updated.updated.length, 1);
+    assert.equal(scheduled.length, 1, 'a linked Discord event is moved, not duplicated');
+    assert.deepEqual((await getEvent(db, 'sync-event'))?.discordEventIds, linked.discordEventIds);
   } finally { await db.close(); }
 });

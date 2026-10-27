@@ -167,6 +167,12 @@ export interface HackathonEvent {
   updatedAt: number
 }
 
+export interface DiscordEventSyncResult {
+  created: { id: string; name: string }[]
+  updated: { id: string; name: string }[]
+  errors: string[]
+}
+
 export interface ImportedSignup {
   id: string
   eventId: string

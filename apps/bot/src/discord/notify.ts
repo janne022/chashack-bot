@@ -6,7 +6,7 @@ import { syncEventAccess } from './event-access.js';
  * hackathon event and runs the maintenance planner (reminders, auto-end,
  * cleanup).
  */
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type Client } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type Client, type GuildScheduledEvent } from 'discord.js';
 import type { Db } from '../shared/db.js';
 import { withGuildContext } from '../shared/postgres.js';
 import { audit } from '../shared/audit.js';
@@ -34,7 +34,7 @@ import { previewMatch, commitMatch } from '../features/matching/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
 import { destroyTeamSpace, botLocale, provisionTeamSpace, grantTeamRole } from './provision.js';
 import { getSignupPanelRef, postOrUpdatePanel } from './signup-panel.js';
-import { t } from '../shared/i18n.js';
+import { t, type BotLocale } from '../shared/i18n.js';
 import { purgeEventPrivateAnswers, purgeExpiredPrivateAnswers } from '../features/registration/retention.js';
 import { purgeImportedSignups } from '../features/signup-import/data.js';
 import { retryFailedParticipantRoleRevocations } from '../features/signup/lifecycle.js';
@@ -181,6 +181,109 @@ async function readGuildPanel(db: Db, guildId: string, eventId: string): Promise
 }
 
 // ─── Discord scheduled events ────────────────────────────────────────────────
+
+export interface DiscordEventSyncResult {
+  created: { id: string; name: string }[];
+  updated: { id: string; name: string }[];
+  errors: string[];
+}
+
+function scheduledEventPayload(event: HackathonEvent, locale: BotLocale) {
+  const start = event.startsAt!;
+  const fallbackEnd = start + 24 * 3600 * 1000;
+  return {
+    name: event.name.slice(0, 100),
+    description: event.description.slice(0, 1000) || t(locale, 'discord.notify.scheduled_desc_fallback'),
+    scheduledStartTime: start,
+    scheduledEndTime: event.endsAt !== null && event.endsAt > start ? event.endsAt : fallbackEnd,
+    entityMetadata: { location: t(locale, 'discord.notify.location_line') },
+  };
+}
+
+function discordError(error: unknown): string {
+  const code = (error as { code?: unknown })?.code;
+  const message = error instanceof Error ? error.message : 'failed';
+  return code === undefined ? message : `${message} (code ${String(code)})`;
+}
+
+/**
+ * Create or update the one Discord scheduled event that represents this
+ * hackathon. `discordEventIds[0]` is the canonical link; if Discord reports that
+ * id as gone, it is dropped before a replacement is created. Dates come from the
+ * hackathon event itself, so a date edit followed by a sync moves the Discord
+ * event rather than stacking a second one.
+ */
+export async function syncDiscordEvent(
+  deps: NotifyDeps,
+  actor: string,
+  event: HackathonEvent,
+): Promise<DiscordEventSyncResult> {
+  const { client, db } = deps;
+  const empty: DiscordEventSyncResult = { created: [], updated: [], errors: [] };
+  if (warnInvalidGuild(event.guildId, 'syncDiscordEvent')) {
+    return { ...empty, errors: ['DISCORD_GUILD_ID not set — set it in .env'] };
+  }
+  if (event.startsAt === null) {
+    return { ...empty, errors: [t(botLocale(), 'discord.events.needs_start_date')] };
+  }
+  const guild = await client.guilds.fetch(event.guildId).catch(() => null);
+  if (guild === null) return { ...empty, errors: [t(botLocale(), 'discord.events.guild_not_found')] };
+
+  const locale = botLocale();
+  const payload = scheduledEventPayload(event, locale);
+  const result: DiscordEventSyncResult = { created: [], updated: [], errors: [] };
+  let ids = [...event.discordEventIds];
+
+  const existingId = ids[0];
+  if (existingId !== undefined) {
+    let existing: GuildScheduledEvent | null = null;
+    try {
+      existing = await guild.scheduledEvents.fetch(existingId);
+    } catch (error) {
+      if ((error as { code?: unknown })?.code === 10070) {
+        ids = ids.filter((id) => id !== existingId);
+      } else {
+        result.errors.push(discordError(error));
+        return result;
+      }
+    }
+    if (existing !== null) {
+      try {
+        await existing.edit(payload);
+        result.updated.push({ id: existingId, name: payload.name });
+      } catch (error) {
+        // Editing failed; do not create a duplicate on top of the linked event.
+        result.errors.push(discordError(error));
+        return result;
+      }
+    }
+  }
+
+  if (result.updated.length === 0) {
+    try {
+      const scheduled = await guild.scheduledEvents.create({
+        ...payload,
+        entityType: 3, // External
+        privacyLevel: 2, // Guild only
+      });
+      result.created.push({ id: scheduled.id, name: payload.name });
+      ids = [...ids, scheduled.id];
+    } catch (error) {
+      result.errors.push(discordError(error));
+      return result;
+    }
+  }
+
+  const idsChanged = ids.length !== event.discordEventIds.length || ids.some((id, index) => id !== event.discordEventIds[index]);
+  if (idsChanged) await updateEvent(db, actor, event.id, { discordEventIds: ids });
+  if (result.created.length > 0 || result.updated.length > 0) {
+    await audit(db, actor, result.created.length > 0 ? 'discord_events.create' : 'discord_events.update', event.id, {
+      created: result.created.length,
+      updated: result.updated.length,
+    }, event.guildId);
+  }
+  return result;
+}
 
 export async function createDiscordEvents(
   deps: NotifyDeps,

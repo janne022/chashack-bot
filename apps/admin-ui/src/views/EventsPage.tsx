@@ -1,4 +1,4 @@
-import { CalendarDays, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Unlock, Send, LayoutTemplate, FilePlus, FileCheck, Layers, ClipboardList, Search, Rocket, Pencil, ChevronDown, ChevronUp, ChevronLeft, ArrowRight, ExternalLink } from 'lucide-react'
+import { CalendarDays, CalendarPlus, Plus, Bell, Copy, Trash2, Radio, Users, UsersRound, CalendarClock, Lock, Unlock, Send, LayoutTemplate, FilePlus, FileCheck, Layers, ClipboardList, Search, Rocket, Pencil, ChevronDown, ChevronUp, ChevronLeft, ArrowRight, ExternalLink } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useNavigate, useSearch } from '@tanstack/react-router'
@@ -336,6 +336,7 @@ function NewEventButton() {
   const [panelChannelId, setPanelChannelId] = useState('')
   const [announceChannelId, setAnnounceChannelId] = useState('')
   const [scheduleChannelId, setScheduleChannelId] = useState('')
+  const [createDiscordEvent, setCreateDiscordEvent] = useState(true)
   const [saveAsTemplate, setSaveAsTemplate] = useState(false)
   const [busy, setBusy] = useState(false)
   const [guildChannels, setGuildChannels] = useState<{ id: string; name: string }[]>([])
@@ -428,6 +429,7 @@ function NewEventButton() {
     setFormMode('default')
     setFormTemplateId('')
     setCustomForm(JSON.parse(JSON.stringify(DEFAULT_FORM)) as FormConfig)
+    setCreateDiscordEvent(true)
     setChooserOpen(false)
     setOpen(true)
     if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
@@ -550,12 +552,13 @@ function NewEventButton() {
         try { const p = JSON.parse(pickedCollection.json) as { assignments?: Assignment[] }; if (!Array.isArray(p.assignments) || p.assignments.length > 50 || p.assignments.some(item => !item || typeof item.title !== 'string' || !item.title.trim() || typeof item.instructions !== 'string' || !item.instructions.trim())) throw new Error(); pool = p.assignments } catch { throw new Error(t('templates.assignment_collection_invalid')) }
       }
 
-      await api.createEvent({
+      const createdEvent = await api.createEvent({
         ...parsed.data,
         ...(templateId ? { templateId } : {}),
         ...(effectiveFormTemplateId ? { formTemplateId: effectiveFormTemplateId } : {}),
         cleanupDelayHours: cleanupDelayHours,
         ...(launch ? { launch: true } : {}),
+        createDiscordEvent,
         panelChannelId: panelChannelId || null,
         announcementChannelId: announceChannelId || null,
         scheduleChannelId: scheduleChannelId || null,
@@ -566,6 +569,10 @@ function NewEventButton() {
       })
       const created = saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() })
       toast.success(launch ? `Event “${name.trim()}” launched` : created)
+      const discordErrors = createdEvent.discordEvent?.errors ?? []
+      if (createDiscordEvent && discordErrors.length > 0) {
+        toast.warning(t('events.discord_event_failed', { message: discordErrors.join('; ') }), { duration: 8000 })
+      }
 
       setOpen(false)
       setChooserTemplateId('')
@@ -586,6 +593,7 @@ function NewEventButton() {
       setStartActions([])
       setEndActions([])
       setSignupActions([])
+      setCreateDiscordEvent(true)
       setSaveAsTemplate(false)
       setCleanupDelayHours(48)
       setAssignmentCollectionId('')
@@ -889,6 +897,14 @@ function NewEventButton() {
                 <span className="text-xs text-muted-foreground">{t('events.cleanup_delay_hint')}</span>
               </div>
 
+              <label className={cn('flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm', startsAt === '' && 'opacity-60')}>
+                <Checkbox checked={createDiscordEvent && startsAt !== ''} onCheckedChange={setCreateDiscordEvent} disabled={startsAt === ''} />
+                <span className="flex flex-col">
+                  <span className="font-medium">{t('events.create_discord_event')}</span>
+                  <span className="text-xs text-muted-foreground">{startsAt === '' ? t('events.create_discord_event_needs_date') : t('events.create_discord_event_hint')}</span>
+                </span>
+              </label>
+
               <label className="flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm">
                 <Checkbox checked={saveAsTemplate} onCheckedChange={setSaveAsTemplate} />
                 <span className="flex flex-col">
@@ -928,6 +944,7 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
   const [showImports, setShowImports] = useState(false)
   const [showSubmissions, setShowSubmissions] = useState(false)
   const [busy, setBusy] = useState<'match' | 'lock' | null>(null)
+  const [discordBusy, setDiscordBusy] = useState(false)
   const sorted = [...(event.schedule ?? [])]
     .filter((s) => !SYNTHETIC_BLOCK_IDS.includes(s.id))
     .sort((a, b) => a.time - b.time)
@@ -964,6 +981,20 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
       toast.error(e instanceof Error ? e.message : t('events.save_failed'))
     } finally {
       setBusy(null)
+    }
+  }
+
+  async function syncDiscordEvent() {
+    setDiscordBusy(true)
+    try {
+      const res = await api.syncDiscordEvent(event.id)
+      if (res.created.length > 0) toast.success(t('events.discord_event_created'))
+      else if (res.updated.length > 0) toast.success(t('events.discord_event_updated'))
+      await refresh()
+    } catch (e) {
+      toast.error(t('events.discord_event_failed', { message: e instanceof Error ? e.message : t('events.save_failed') }), { duration: 8000 })
+    } finally {
+      setDiscordBusy(false)
     }
   }
 
@@ -1121,6 +1152,31 @@ function EventWorkspace({ event, refresh, onBack }: { event: HackathonEvent; ref
             <div>
               <div className="text-muted-foreground text-xs">{t('events.cleanup')}</div>
               <div>{event.cleanupDone ? t('events.cleanup_done') : t('events.cleanup_pending', { hours: event.cleanupDelayHours })}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <CalendarPlus className="size-4 text-accent" />
+            <div>
+              <div className="text-muted-foreground text-xs">{t('events.discord_event')}</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span>
+                  {event.discordEventIds.length > 0
+                    ? t('events.discord_event_linked', { count: event.discordEventIds.length })
+                    : t('events.discord_event_missing')}
+                </span>
+                {!ended && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto px-1 py-0 text-xs"
+                    disabled={discordBusy || event.startsAt === null}
+                    title={event.startsAt === null ? t('events.discord_event_needs_date') : undefined}
+                    onClick={() => void syncDiscordEvent()}
+                  >
+                    {event.discordEventIds.length > 0 ? t('events.discord_event_sync') : t('events.discord_event_create')}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">

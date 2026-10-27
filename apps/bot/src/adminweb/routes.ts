@@ -79,7 +79,7 @@ import {
 } from '../features/events/data.js';
 import { getForm, updateForm, resetForm } from '../features/form/data.js';
 import { refreshSignupPanel, postOrUpdatePanel } from '../discord/signup-panel.js';
-import { sendAnnouncement, createDiscordEvents } from '../discord/notify.js';
+import { sendAnnouncement, createDiscordEvents, syncDiscordEvent } from '../discord/notify.js';
 import type { FormConfig } from '../features/form/domain.js';
 import { validateCustomAnswers, validateCustomQuestions, validBannerUrl, normalizeAppearance, resolveAppearance } from '../features/form/domain.js';
 import { getRegistrationAnswers, listRegistrationAnswers, saveParticipantAnswers } from '../features/registration/data.js';
@@ -1206,6 +1206,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       saveTemplateName?: string;
       /** Create & launch: activate the event immediately after creating it. */
       launch?: boolean;
+      /** Create the Discord scheduled event immediately (default true when dates are set). */
+      createDiscordEvent?: boolean;
     } | null;
     if (body?.name === undefined || body.name.trim().length < 3) {
       await reply.code(400).send({ ok: false, code: 'bad_name', message: 'Event name must be at least 3 characters.' });
@@ -1294,6 +1296,23 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (body.launch === true) {
       await activateEvent(db, await actorOf(req), res.value.id);
     }
+    // Create the Discord scheduled event alongside the hackathon. A Discord
+    // failure must not lose the event that was just created, so the result is
+    // reported to the console instead of thrown.
+    let discordEvent: Awaited<ReturnType<typeof syncDiscordEvent>> | null = null;
+    if (body.createDiscordEvent !== false && res.value.startsAt !== null && deps.client !== null) {
+      const saved = await getEvent(db, res.value.id) ?? res.value;
+      try {
+        discordEvent = await syncDiscordEvent({ db, client: deps.client }, await actorOf(req), saved);
+      } catch (error) {
+        console.warn('Could not create the Discord scheduled event:', error);
+        discordEvent = {
+          created: [],
+          updated: [],
+          errors: [error instanceof Error ? error.message : 'Discord event creation failed.'],
+        };
+      }
+    }
     // Optional: save as event template via checkbox in create dialog
     if (body.saveAsTemplate) {
       const tplName = (body.saveTemplateName ?? body.name).trim().slice(0, 80)
@@ -1319,7 +1338,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         await saveTemplate(db, await actorOf(req), await guildOf(req), tplName, 'event', JSON.stringify(payload))
       }
     }
-    return { ok: true, event: await getEvent(db, res.value.id) ?? res.value };
+    return { ok: true, event: await getEvent(db, res.value.id) ?? res.value, discordEvent };
   });
 
   app.post('/api/events/:eventId/activate', async (req, reply) => {
@@ -1335,8 +1354,19 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const panelResult: { ok: boolean; channelId?: string; edited?: boolean; reason?: string } = { ok: true, reason: 'schedule-driven — add a “Post signup” action to your Start block or any schedule item' }
     const announceResult: { posted: boolean; reason: string; channelId: string | null } | null = { posted: false, reason: 'schedule-driven — use Start/ schedule actions or manual Announce', channelId: null }
     const itineraryResult: { ok: boolean; channelId?: string; messageId?: string; edited?: boolean; reason?: string } | null = null
+    // A launch is also the first point where a draft becomes visible: make sure
+    // the Discord scheduled event exists (or is moved to the final dates).
+    let discordEvent: Awaited<ReturnType<typeof syncDiscordEvent>> | null = null
+    if (deps.client !== null && event.startsAt !== null) {
+      try {
+        discordEvent = await syncDiscordEvent({ db, client: deps.client }, await actorOf(req), event)
+      } catch (error) {
+        console.warn('Could not create the Discord scheduled event on activate:', error)
+        discordEvent = { created: [], updated: [], errors: [error instanceof Error ? error.message : 'Discord event creation failed.'] }
+      }
+    }
 
-    return { ok: true, event, panel: panelResult, announce: announceResult, itinerary: itineraryResult };
+    return { ok: true, event, panel: panelResult, announce: announceResult, itinerary: itineraryResult, discordEvent };
   });
 
   app.patch('/api/events/:eventId', async (req, reply) => {
@@ -1381,7 +1411,18 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       try { const { reconcileEventDelivery } = await import('../discord/event-delivery.js'); await reconcileEventDelivery(db, deps.client, res.value); }
       catch (error) { console.warn('Discord updates will retry during maintenance:', error); }
     }
-    return { ok: true, event: res.value };
+    // Keep a linked / live Discord event in step with date, name and
+    // description edits. Drafts only sync when they already have an event.
+    let discordEvent: Awaited<ReturnType<typeof syncDiscordEvent>> | null = null;
+    if (deps.client !== null && res.value.startsAt !== null && (res.value.discordEventIds.length > 0 || res.value.status === 'active')) {
+      try {
+        discordEvent = await syncDiscordEvent({ db, client: deps.client }, await actorOf(req), res.value);
+      } catch (error) {
+        console.warn('Could not sync the Discord scheduled event:', error);
+        discordEvent = { created: [], updated: [], errors: [error instanceof Error ? error.message : 'Discord event sync failed.'] };
+      }
+    }
+    return { ok: true, event: res.value, discordEvent };
   });
 
   app.post('/api/events/:eventId/schedule-itinerary', async (req, reply) => {
@@ -1454,6 +1495,24 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     // Persist the channel on the event.
     await updateEvent(db, await actorOf(req), event.id, { panelChannelId: channelId });
     return { ok: true, channelId: res.channelId, edited: res.edited };
+  });
+
+  app.post('/api/events/:eventId/discord-event', async (req, reply) => {
+    const event = await getEvent(db, (req.params as { eventId: string }).eventId);
+    if (event === null || event.guildId !== await guildOf(req)) {
+      await reply.code(404).send({ ok: false, code: 'not_found', message: 'Event not found.' });
+      return;
+    }
+    if (deps.client === null) {
+      await reply.code(503).send({ ok: false, code: 'no_discord', message: 'Bot is not connected to Discord.' });
+      return;
+    }
+    const result = await syncDiscordEvent({ db, client: deps.client }, await actorOf(req), event);
+    if (result.created.length === 0 && result.updated.length === 0) {
+      await reply.code(400).send({ ok: false, code: 'failed', message: result.errors.join('; ') || 'Nothing created.', errors: result.errors });
+      return;
+    }
+    return { ok: true, ...result };
   });
 
   app.post('/api/events/:eventId/discord-events', async (req, reply) => {
