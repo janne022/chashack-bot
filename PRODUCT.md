@@ -59,7 +59,9 @@ self-cleaning weekend.
   time. Activating an event only flips its status; nothing is posted on Activate.
   A linked Discord scheduled event mirrors the hackathon's name, description and
   dates: creating or launching a dated event creates it, edits resync it, and
-  cleanup removes it.
+  cleanup removes it. An active event that has no linked Discord event gets one
+  from the next maintenance pass (at boot and every five minutes), so an event
+  that went live while the bot was offline is not left invisible in Discord.
 - Events are set up from **templates** (event / form / announcement / assignment
   collection), whose schedules are anchor-relative so the same template works for
   any dates. Each guild's Themes library starts with persisted Default, Halloween

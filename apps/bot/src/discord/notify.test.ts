@@ -230,3 +230,66 @@ test('syncDiscordEvent creates one linked event and updates it instead of duplic
     assert.deepEqual((await getEvent(db, 'sync-event'))?.discordEventIds, linked.discordEventIds);
   } finally { await db.close(); }
 });
+
+test('maintenance links the missing Discord event for an active hackathon and leaves drafts alone', async () => {
+  const db = await openTestDb();
+  const guildId = '123456789012345678';
+  const now = Date.now();
+  await db.run(`INSERT INTO events (id, guild_id, name, description, status, starts_at, ends_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+    'unlinked-event', guildId, 'Running hackathon', 'Build things', now + 3_600_000, now + 7_200_000, now, now);
+  await db.run(`INSERT INTO events (id, guild_id, name, status, starts_at, created_at, updated_at)
+    VALUES (?, ?, ?, 'draft', ?, ?, ?)`,
+    'draft-event', guildId, 'Draft hackathon', now + 86_400_000, now, now);
+
+  const created: { name: string; scheduledStartTime: number; scheduledEndTime: number }[] = [];
+  const guild = {
+    id: guildId,
+    scheduledEvents: {
+      create: async (payload: { name: string; scheduledStartTime: number; scheduledEndTime: number }) => {
+        created.push(payload);
+        return { id: `scheduled-${created.length}` };
+      },
+      fetch: async () => { throw Object.assign(new Error('Unknown Guild Scheduled Event'), { code: 10070 }); },
+    },
+  };
+  const client = { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild } } as unknown as Client;
+  try {
+    await runMaintenance({ db, client, now });
+    assert.equal(created.length, 1, 'the running hackathon gets its missing Discord event');
+    assert.deepEqual((await getEvent(db, 'unlinked-event'))?.discordEventIds, ['scheduled-1']);
+    assert.equal(created[0]!.scheduledStartTime, now + 3_600_000, 'the real start date is used');
+
+    await runMaintenance({ db, client, now: now + 60_000 });
+    assert.equal(created.length, 1, 'an already linked event is not created twice');
+    assert.deepEqual((await getEvent(db, 'draft-event'))?.discordEventIds, [], 'drafts stay unlinked until they go live');
+  } finally { await db.close(); }
+});
+
+test('a hackathon that already started is created as running now instead of skipped', async () => {
+  const db = await openTestDb();
+  const guildId = '123456789012345678';
+  const now = Date.now();
+  await db.run(`INSERT INTO events (id, guild_id, name, description, status, starts_at, ends_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+    'running-event', guildId, 'Already running', 'Build things', now - 3_600_000, now + 3_600_000, now, now);
+
+  const created: { scheduledStartTime: number; scheduledEndTime: number }[] = [];
+  const guild = {
+    id: guildId,
+    scheduledEvents: {
+      create: async (payload: { scheduledStartTime: number; scheduledEndTime: number }) => {
+        created.push(payload);
+        return { id: 'scheduled-running' };
+      },
+      fetch: async () => { throw Object.assign(new Error('Unknown Guild Scheduled Event'), { code: 10070 }); },
+    },
+  };
+  const client = { guilds: { fetch: async () => guild } } as unknown as Client;
+  try {
+    const result = await syncDiscordEvent({ db, client }, 'test', (await getEvent(db, 'running-event'))!);
+    assert.equal(result.created.length, 1);
+    assert.ok(created[0]!.scheduledStartTime > now, 'a start in the past is moved forward so Discord accepts it');
+    assert.equal(created[0]!.scheduledEndTime, now + 3_600_000, 'the real end date is kept');
+  } finally { await db.close(); }
+});

@@ -200,6 +200,20 @@ function scheduledEventPayload(event: HackathonEvent, locale: BotLocale) {
   };
 }
 
+/**
+ * Discord will not create a scheduled event that already started, so a
+ * hackathon that is running right now is created as "started a minute ago"
+ * instead of not at all. Existing linked events are edited with their real
+ * dates — only creation is clamped.
+ */
+function creatablePayload(payload: ReturnType<typeof scheduledEventPayload>, now: number) {
+  const scheduledStartTime = payload.scheduledStartTime > now ? payload.scheduledStartTime : now + 60_000;
+  const scheduledEndTime = payload.scheduledEndTime > scheduledStartTime
+    ? payload.scheduledEndTime
+    : scheduledStartTime + 3_600_000;
+  return { ...payload, scheduledStartTime, scheduledEndTime };
+}
+
 function discordError(error: unknown): string {
   const code = (error as { code?: unknown })?.code;
   const message = error instanceof Error ? error.message : 'failed';
@@ -262,7 +276,7 @@ export async function syncDiscordEvent(
   if (result.updated.length === 0) {
     try {
       const scheduled = await guild.scheduledEvents.create({
-        ...payload,
+        ...creatablePayload(payload, Date.now()),
         entityType: 3, // External
         privacyLevel: 2, // Guild only
       });
@@ -336,6 +350,18 @@ export async function createDiscordEvents(
 // ─── maintenance executor ────────────────────────────────────────────────────
 
 /**
+ * Active hackathons should always carry a Discord scheduled event. Creation
+ * normally happens when the event is created, launched or edited, so this is
+ * the catch-up path for events that went live while the bot was offline, were
+ * created before the feature existed, or were created without the option.
+ *
+ * Failures (missing permission, guild gone) do not fix themselves in five
+ * minutes, so a failed attempt is retried hourly instead of every pass.
+ */
+const DISCORD_EVENT_RETRY_MS = 60 * 60 * 1000;
+const discordEventRetryAt = new Map<string, number>();
+
+/**
  * Run one maintenance pass over all guilds: 24h reminders, auto-end,
  * post-event cleanup. Returns a human summary (also logged). Called on an
  * interval from index.ts.
@@ -376,6 +402,30 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
       catch (error) { console.warn(`Event delivery sync failed for ${event.id}:`, error); }
       try { await syncEventAccess(db, client, event.guildId, event.id, now); }
       catch (error) { console.warn(`Event access sync failed for ${event.id}:`, error); }
+      if (event.status === 'active' && event.discordEventIds.length === 0 && event.startsAt !== null) {
+        const alreadyOver = event.endsAt !== null && event.endsAt <= now;
+        const retryAt = discordEventRetryAt.get(event.id) ?? 0;
+        if (!alreadyOver && retryAt <= now) {
+          // Concurrent passes must not each create one: re-read under the lock.
+          await db.tryAdvisoryLock(`discord-event:${event.guildId}:${event.id}`, async () => {
+            const current = await getEvent(db, event.id);
+            if (current === null || current.status !== 'active' || current.discordEventIds.length > 0 || current.startsAt === null) return;
+            try {
+              const linked = await syncDiscordEvent(deps, 'system', current);
+              if (linked.created.length > 0) {
+                discordEventRetryAt.delete(event.id);
+                summary.push(`created the Discord scheduled event for ${current.name}`);
+              } else if (linked.errors.length > 0) {
+                discordEventRetryAt.set(event.id, now + DISCORD_EVENT_RETRY_MS);
+                console.warn(`Discord scheduled event for ${event.id} not created: ${linked.errors.join('; ')}`);
+              }
+            } catch (error) {
+              discordEventRetryAt.set(event.id, now + DISCORD_EVENT_RETRY_MS);
+              console.warn(`Discord scheduled event for ${event.id} not created:`, error);
+            }
+          });
+        }
+      }
       try {
         const current = await getEvent(db, event.id);
         if (current?.status === 'active' && (current.endsAt === null || current.endsAt > now)) {
