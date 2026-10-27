@@ -266,6 +266,12 @@ test('a participant can claim only their own imported row, and only once', async
     assert.equal(carolConflict.statusCode, 409, carolConflict.body);
     assert.equal(carolConflict.json().error, 'participant_conflict');
 
+    // A blocked participant cannot claim, even with a matching row.
+    await withGuildContext(db, guildId, () => db.run("UPDATE participants SET status='blocked' WHERE event_id=? AND user_id=?", eventId, CAROL));
+    const blocked = await app.inject({ method: 'POST', url: claimUrl, headers: participant(carol.id), payload: { email: 'carol@example.test' } });
+    assert.equal(blocked.statusCode, 403, blocked.body);
+    assert.equal(blocked.json().error, 'blocked');
+
     // Another guild's event is invisible to this participant.
     const secondEvent = await withGuildContext(db, '22222222222222222', () => createEvent(db, 'test', '22222222222222222', { name: 'Other tenant' }));
     assert.equal(secondEvent.ok, true);

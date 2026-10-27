@@ -60,6 +60,10 @@ nothing happened — and there was no duplicate action to copy a template at all
       caller through `linkImportedSignup`. Refuses a row linked to another
       Discord user, an existing participant, a missing event or a blocked
       registration, and returns a `prefill` (answers + profile) for the owner.
+      It re-uses `checkSignupWrite`, so the same write guard that protects the
+      registration route (event state, blocked status, signup window) also
+      applies here; an already-active participant bypasses the window exactly as
+      they do on the registration route.
 - [x] The participant signup page shows an "Already signed up on the form?"
       panel with lookup → confirm, localized help, and applies the prefill to
       the normal form so missing answers can be completed there.

@@ -906,6 +906,8 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const email = (req.body as { email?: unknown } | null)?.email;
     if (typeof email !== 'string' || email.trim().length < 3 || email.length > 254 || !email.includes('@')) return reply.code(400).send({ error: 'invalid_email' });
+    const signupAccess = await checkSignupWrite(db, event.id, session!.userId, event.guildId);
+    if (!signupAccess.ok) return reply.code(signupAccess.code === 'blocked' ? 403 : 409).send({ error: signupAccess.code });
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     const result = await claimImportedSignupByEmail(db, event.id, event.guildId, email, session!.userId, form);
     if (result.error === 'import_not_found') return reply.code(404).send({ error: result.error });

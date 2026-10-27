@@ -27,10 +27,14 @@ const ERROR_KEYS: Record<string, string> = {
   identity_conflict: 'participant.claim_identity_conflict',
   participant_conflict: 'participant.claim_participant_conflict',
   registration_blocked: 'participant.claim_blocked',
+  blocked: 'participant.claim_blocked',
+  no_event: 'participant.claim_event_inactive',
   event_not_active: 'participant.claim_event_inactive',
   event_unavailable: 'participant.claim_event_inactive',
   stale_form_version: 'participant.claim_stale',
   invalid_email: 'participant.claim_invalid_email',
+  signup_not_open: 'participant.signup_not_open',
+  signup_closed: 'participant.signup_closed',
 }
 
 /**

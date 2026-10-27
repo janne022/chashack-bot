@@ -87,6 +87,15 @@ export interface ClaimResult {
   prefill?: { answers: Record<string, string | string[]>; profile: { experience: string; roleTrack: string; skills: string[]; teamPref: string } };
 }
 
+/** The owner's own answers and profile, safe to pre-fill the normal web form. */
+async function claimPrefill(db: Db, eventId: string, importId: string, form: FormConfig): Promise<{ answers: Record<string, string | string[]>; profile: { experience: string; roleTrack: string; skills: string[]; teamPref: string } }> {
+  const row = await db.get<{ values_json: string; answers_json: string }>('SELECT values_json,answers_json FROM imported_signups WHERE id=? AND event_id=?', importId, eventId);
+  const values = row ? JSON.parse(row.values_json) as Record<string, string> : {};
+  const stored = row ? JSON.parse(row.answers_json) as Record<string, string | string[]> : {};
+  const checked = validateCustomAnswers(form, stored);
+  return { answers: checked.ok ? checked.answers : {}, profile: importedRowProfile(form, values) };
+}
+
 /**
  * Bind an imported row to the signed-in participant by the e-mail they used on
  * the external form. Refuses a row already owned by someone else.
@@ -97,19 +106,14 @@ export async function claimImportedSignupByEmail(db: Db, eventId: string, guildI
   if (match.linkedToOther) return { linked: false, activated: false, missingFields: [], error: 'identity_conflict' };
   if (match.linkedToSelf) {
     const participant = await getParticipant(db, eventId, userId);
-    return { linked: true, activated: participant !== null, missingFields: [] };
+    return {
+      linked: true,
+      activated: participant !== null,
+      missingFields: [],
+      prefill: await claimPrefill(db, eventId, match.id, form),
+    };
   }
   const result = await linkImportedSignup(db, eventId, guildId, match.id, userId, form);
   if (result.error) return result;
-  const row = await db.get<{ values_json: string; answers_json: string }>('SELECT values_json,answers_json FROM imported_signups WHERE id=? AND event_id=?', match.id, eventId);
-  const values = row ? JSON.parse(row.values_json) as Record<string, string> : {};
-  const stored = row ? JSON.parse(row.answers_json) as Record<string, string | string[]> : {};
-  const checked = validateCustomAnswers(form, stored);
-  return {
-    ...result,
-    prefill: {
-      answers: checked.ok ? checked.answers : {},
-      profile: importedRowProfile(form, values),
-    },
-  };
+  return { ...result, prefill: await claimPrefill(db, eventId, match.id, form) };
 }
