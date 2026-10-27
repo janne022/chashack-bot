@@ -1280,6 +1280,9 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [signupPolicyDirty, setSignupPolicyDirty] = useState(false)
   const [editAssignments, setEditAssignments] = useState<Assignment[]>(()=> (event.assignments ?? []))
   const [editCleanup, setEditCleanup] = useState<number>(event.cleanupDelayHours)
+  const [editTeamSize, setEditTeamSize] = useState<number>(() => {
+    try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 }
+  })
   const [editName, setEditName] = useState(event.name)
   const [editDescription, setEditDescription] = useState(event.description)
   const [editFormTemplateId, setEditFormTemplateId] = useState<string>('')
@@ -1351,11 +1354,11 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
         cleanupDelayHours: editCleanup,
       })
       // Form change is a separate endpoint — only call it when the user picked one.
-      if (editFormTemplateId || appearanceDirty || signupPolicyDirty) {
-        if (appearanceDirty || signupPolicyDirty) {
+      if (editFormTemplateId || appearanceDirty || signupPolicyDirty || editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })()) {
+        if (appearanceDirty || signupPolicyDirty || editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })()) {
           const template = formTemplates.find(item => item.id === editFormTemplateId)
           const base = template ? JSON.parse(template.json) as FormConfig : event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config
-          await api.setEventForm(event.id, { formJson: JSON.stringify({ ...base, ...(appearanceDirty ? { appearance } : {}), ...(signupPolicyDirty ? { enforceSignupWindow } : {}) }) })
+          await api.setEventForm(event.id, { formJson: JSON.stringify({ ...base, ...(appearanceDirty ? { appearance } : {}), ...(signupPolicyDirty ? { enforceSignupWindow } : {}), teamSize: editTeamSize }) })
         } else await api.setEventForm(event.id, { formTemplateId: editFormTemplateId })
         setEditFormTemplateId('')
       }
@@ -1392,6 +1395,21 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.description')}</span>
                 <Textarea value={editDescription} onChange={(e)=>setEditDescription(e.target.value)} maxLength={1000} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">{t('events.team_size')}</span>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={2}
+                    max={25}
+                    value={String(editTeamSize)}
+                    onChange={(e) => setEditTeamSize(Math.min(25, Math.max(2, Number(e.target.value) || 2)))}
+                    className="h-8 w-20"
+                    aria-label={t('events.team_size_aria')}
+                  />
+                  <span className="text-xs text-muted-foreground">{t('events.team_size_hint')}</span>
+                </div>
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.cleanup_delay')}</span>
