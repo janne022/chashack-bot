@@ -56,6 +56,7 @@ import {
   setGuildCategory,
   getGuildSettings,
   updateGuildSettings,
+  getTeamForUser,
 } from '../features/teams/data.js';
 import { previewMatch, commitMatch, lastMatchInfo, listTeamsWithMembers } from '../features/matching/data.js';
 import { projectParticipantForMatching } from '../features/signup/data.js';
@@ -2192,6 +2193,15 @@ app.post('/api/event/reset', async (req) => {
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     const result = await autoLinkImportedSignups(db, eventId, event.guildId, form, createMemberUsernameLookup(deps.client, event.guildId), await actorOf(req));
     const reconciled = await reconcileImportedParticipants(db, eventId, event.guildId, form);
+    // Grant team roles to the members just linked (best-effort; provisioning retries).
+    if (deps.client !== null && !config.skipDiscord) {
+      for (const linked of result.linked) {
+        try {
+          const team = await getTeamForUser(db, eventId, linked.userId);
+          if (team !== null && team.roleId !== null) await grantTeamRole({ db, client: deps.client, categoryIdFor: () => undefined }, team, linked.userId);
+        } catch (error) { console.warn('role grant after auto-link failed; provisioning will retry:', error); }
+      }
+    }
     const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
     return { ...result, participants: reconciled, records: await listImportedSignups(db, eventId, required) };
   });
@@ -2217,7 +2227,7 @@ app.post('/api/event/reset', async (req) => {
     const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
     if (typeof body?.linkDiscordUserId === 'string' && !(await currentMember(event.guildId, body.linkDiscordUserId))) return reply.code(400).send({ error: 'not_guild_member', message: importErrorMessages.not_guild_member });
     try {
-      return await db.transaction(async () => {
+      const result = await db.transaction(async () => {
         const edited = await editImportedSignup(db, params.eventId, params.id, {
           ...(body?.values ? { values: normalizedEdit.values } : {}),
           ...(body?.answers ? { answers: normalizedEdit.answers } : {}),
@@ -2231,7 +2241,7 @@ app.post('/api/event/reset', async (req) => {
           if (linked.error) throw new Error(linked.error);
           const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
           // No sync here: linking already projected the row onto its participant.
-          return { record, ...linked, warnings: [...warnings, ...(linked.warnings ?? [])] };
+          return { record, ...linked, warnings: [...warnings, ...(linked.warnings ?? [])], linkedUserId: body.linkDiscordUserId };
         }
         const record = (await listImportedSignups(db, event.id, required)).find((item) => item.id === params.id) ?? edited;
         // An edit is an update of the same participant, so the console never shows
@@ -2239,6 +2249,16 @@ app.post('/api/event/reset', async (req) => {
         await syncImportedRow(db, event.id, event.guildId, record, form);
         return { record, linked: record.discordUserId !== null, missingFields: record.missingFields, warnings };
       });
+      const linkedUserId = (result as { linkedUserId?: string }).linkedUserId;
+      if (linkedUserId !== undefined && deps.client !== null && !config.skipDiscord) {
+        try {
+          const team = await getTeamForUser(db, event.id, linkedUserId);
+          if (team !== null && team.roleId !== null) {
+            await grantTeamRole({ db, client: deps.client, categoryIdFor: () => undefined }, team, linkedUserId);
+          }
+        } catch (error) { console.warn('role grant after link failed; provisioning will retry:', error); }
+      }
+      return result;
     } catch (error) {
       const code = error instanceof Error ? error.message : 'edit_failed';
       return reply.code(code === 'event_not_active' || code === 'event_ended' ? 409 : code === 'not_found' || code === 'import_not_found' ? 404 : 400)
