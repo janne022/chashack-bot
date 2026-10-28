@@ -4,6 +4,40 @@ import { activateEvent, createEvent, getEvent, getEventForm, updateEventForm } f
 import { DEFAULT_FORM } from '../form/domain.js';
 import { openTestDb } from '../../shared/test-db.js';
 
+test('an incomplete draft form survives editing and cannot be activated until complete', async () => {
+  const db = await openTestDb();
+  try {
+    const question = { id: 'draft', kind: 'text' as const, label: { en: '' }, help: { en: '' }, required: true, presentation: 'web' as const, visibility: 'self_and_organizer' as const };
+    const created = await createEvent(db, 'test', 'guild-draft', { name: 'Draft event', form: { ...DEFAULT_FORM, customQuestions: [question] }, allowIncompleteForm: true });
+    assert.ok(created.ok);
+    if (!created.ok) return;
+    const id = created.value.id;
+    assert.equal(getEventForm(db, await getEvent(db, id), DEFAULT_FORM).customQuestions?.[0]?.label.en, '');
+    const denied = await activateEvent(db, 'test', id);
+    assert.equal(denied.ok, false);
+    assert.equal((await getEvent(db, id))?.status, 'draft');
+    const fixed = await updateEventForm(db, 'test', id, { customQuestions: [{ ...question, label: { en: 'Your idea' } }] });
+    assert.ok(fixed.ok);
+    assert.ok((await activateEvent(db, 'test', id)).ok);
+  } finally { await db.close(); }
+});
+
+test('legacy published whitespace labels remain usable without permitting new blank labels', async () => {
+  const db = await openTestDb();
+  try {
+    const question = { id: 'legacy', kind: 'text' as const, label: { en: ' ' }, help: { en: '' }, required: false, presentation: 'web' as const, visibility: 'self_and_organizer' as const };
+    const legacy = { ...DEFAULT_FORM, customQuestions: [question] };
+    await db.run("INSERT INTO events (id,guild_id,name,status,form_json,created_at,updated_at) VALUES ('legacy','guild-a','Legacy','active',?,1,1)", JSON.stringify(legacy));
+    const saved = await updateEventForm(db, 'test', 'legacy', { description: 'Updated description' });
+    assert.ok(saved.ok);
+    const rejected = await updateEventForm(db, 'test', 'legacy', { customQuestions: [{ ...question, label: { en: '  ' } }] });
+    assert.equal(rejected.ok, false);
+    const draft = await createEvent(db, 'test', 'guild-a', { name: 'Draft', form: legacy, allowIncompleteForm: true });
+    assert.ok(draft.ok);
+    if (draft.ok) assert.equal((await activateEvent(db, 'test', draft.value.id)).ok, false);
+  } finally { await db.close(); }
+});
+
 test('structural form changes conflict on populated published events', async () => {
   const db = await openTestDb();
   try {

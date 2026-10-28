@@ -6,6 +6,12 @@ const CONFIG = DEFAULT_FORM;
 
 const baseQuestion = { id: 'map-exp', kind: 'single_choice' as const, label: { en: 'Experience' }, help: { en: '' }, required: false, presentation: 'web' as const, visibility: 'self_and_organizer' as const, choices: [{ id: 'new', label: { en: 'New' } }, { id: 'old', label: { en: 'Old' } }] };
 
+test('legacy whitespace labels remain answerable but are rejected for new publication', () => {
+  const question = { ...baseQuestion, label: { en: ' ' }, choices: [{ id: 'new', label: { en: ' ' } }] };
+  assert.ok(validateCustomAnswers({ customQuestions: [question] }, { 'map-exp': 'new' }).ok);
+  assert.equal(validateCustomQuestions([question], CONFIG, false, true).ok, false);
+});
+
 test('mapped choices require exact own keys and valid target options', () => {
   const question = { ...baseQuestion, mapping: { field: 'experience' as const, importance: 'high' as const, choiceValues: { new: 'first_timer', old: 'veteran' } } };
   assert.equal(validateCustomQuestions([question], CONFIG).ok, true);

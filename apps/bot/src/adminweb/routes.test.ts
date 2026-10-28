@@ -402,6 +402,26 @@ test('participant registration saves validated answers and stale form versions p
   await db.close();
 });
 
+test('legacy published forms with whitespace labels remain readable and editable', async () => {
+  const db = await openTestDb();
+  const guildId = '11111111111111111';
+  const form = { ...DEFAULT_FORM, experiences: [], roleTracks: [], skills: [], teamPrefs: [], customQuestions: [{ id: 'legacy', kind: 'single_choice', label: { en: ' ' }, help: { en: '' }, required: true, presentation: 'web', visibility: 'self_and_organizer', choices: [{ id: 'choice', label: { en: ' ' } }] }] };
+  await db.run("INSERT INTO events(id,guild_id,name,status,form_json,created_at,updated_at) VALUES ('legacy-form',?,'Legacy','active',?,1,1)", guildId, JSON.stringify(form));
+  const session = await createSession(db, { userId: 'legacy-user', username: 'User', avatar: null, guilds: [], audience: 'participant' });
+  const guild = { id: guildId, members: { fetch: async () => ({ id: 'legacy-user' }) } };
+  const app = Fastify({ logger: false });
+  registerRoutes(app, { db, config, announce: async () => undefined, client: { guilds: { fetch: async () => guild, cache: new Map([[guildId, guild]]) } } as never });
+  const headers = { cookie: `hackpartsess=${encodeURIComponent(makeDiscordToken(signingKey, session.id, Date.now(), 'participant'))}` };
+  const url = ['/api/participant/events', 'legacy-form', 'registration'].join('/');
+  try {
+    const saved = await app.inject({ method: 'PUT', url, headers, payload: { formVersion: form.version, answers: { legacy: 'choice' } } });
+    assert.equal(saved.statusCode, 200, saved.body);
+    const read = await app.inject({ url, headers });
+    assert.equal(read.statusCode, 200, read.body);
+    assert.deepEqual(read.json().answers, { legacy: 'choice' });
+  } finally { await app.close(); await db.close(); }
+});
+
 test('web registration enforces signup windows while preserving active edits', async () => {
   const db = await openTestDb();
   const guildId = '11111111111111111';

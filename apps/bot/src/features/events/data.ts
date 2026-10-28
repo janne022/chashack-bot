@@ -334,6 +334,7 @@ export interface CreateEventInput {
   signupEndsAt?: number | null;
   /** Optional form config to seed the event with (defaults to DEFAULT_FORM). */
   form?: Partial<FormConfig>;
+  allowIncompleteForm?: boolean;
   panelChannelId?: string | null;
   announcementChannelId?: string | null;
   scheduleChannelId?: string | null;
@@ -361,7 +362,7 @@ export async function createEvent(db: Db, actor: string, guildId: string, input:
   }
 
   if (input.form?.customQuestions !== undefined) {
-    const questions = validateCustomQuestions(input.form.customQuestions, { ...await getForm(db, guildId), ...input.form });
+    const questions = validateCustomQuestions(input.form.customQuestions, { ...await getForm(db, guildId), ...input.form }, input.allowIncompleteForm === true, true);
     if (!questions.ok) return err('invalid_questions', questions.errors.join('; '));
   }
   if ((input.form?.appearance !== undefined && !normalizeAppearance(input.form.appearance)) || !validBannerUrl(input.form?.bannerUrl) || (input.form?.themePreset !== undefined && !['default', 'halloween', 'christmas'].includes(input.form.themePreset)) ||
@@ -523,10 +524,15 @@ export async function updateEvent(
 export async function activateEvent(db: Db, actor: string, eventId: string): Promise<Result<HackathonEvent>> {
   // Status check → flip: atomic so two concurrent activates cannot disagree.
   return db.transaction(async () => {
+    await db.get('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
     const event = await getEvent(db, eventId);
     if (event === null) return err('not_found', 'Event not found.');
     if (event.status === 'active') return ok(event);
     if (event.status === 'ended') return err('already_ended', 'Ended events cannot be reactivated — clone it instead.');
+
+    const form = getEventForm(db, event, await getForm(db, event.guildId));
+    const questions = validateCustomQuestions(form.customQuestions ?? [], form, false, true);
+    if (!questions.ok) return err('invalid_questions', questions.errors.join('; '));
 
     // Multiple events can be active simultaneously.
     await db.run("UPDATE events SET status = 'active', updated_at = ? WHERE id = ?", Date.now(), eventId);
@@ -584,7 +590,8 @@ export async function updateEventForm(db: Db, actor: string, eventId: string, up
     } else {
       next = { ...next, version: current.version };
     }
-    const questions = validateCustomQuestions(next.customQuestions ?? [], next);
+    const questionsChanged = JSON.stringify(next.customQuestions ?? []) !== JSON.stringify(current.customQuestions ?? []);
+    const questions = validateCustomQuestions(next.customQuestions ?? [], next, event.status === 'draft', event.status !== 'draft' && questionsChanged);
     if (!questions.ok) return err('invalid_questions', questions.errors.join('; '));
     await db.run('UPDATE events SET form_json = ?, updated_at = ? WHERE id = ?', JSON.stringify(next), Date.now(), eventId);
     await audit(db, actor, 'event.form_update', eventId, null, event.guildId);

@@ -1,7 +1,8 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type { FormConfig } from '@/types'
-import { Hexagon, ArrowLeft, Sun, Moon, Globe } from 'lucide-react'
+import { Hexagon, ArrowLeft, Sun, Globe } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { PRESET_ACCENTS, readableInk, contrastRatio } from '@/lib/color'
 import { setLocale, useLocale, useT } from '@/lib/i18n'
 
@@ -28,11 +29,13 @@ export function frameColors(appearance: Appearance) {
 export function ParticipantFrame({ appearance, children, preview = false }: { appearance: Appearance; children: ReactNode; preview?: boolean }) {
   const t = useT()
   const locale = useLocale()
-  const [preference, setPreference] = useState<'light' | 'dark' | null>(() => {
-    try { const value = localStorage.getItem('chas-participant-mode'); return value === 'light' || value === 'dark' ? value : null } catch { return null }
+  const [preference, setPreference] = useState<'light' | 'dark' | 'system' | 'event'>(() => {
+    try { const value = localStorage.getItem('chas-participant-mode'); return value === 'light' || value === 'dark' || value === 'system' ? value : 'event' } catch { return 'event' }
   })
   const authoredMode = appearance.mode ?? (appearance.themePreset === 'default' ? 'light' : 'dark')
-  const mode = preview ? authoredMode : preference ?? authoredMode
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+  useEffect(() => { const media = window.matchMedia('(prefers-color-scheme: dark)'); const change = (event: MediaQueryListEvent) => setSystemDark(event.matches); media.addEventListener('change', change); return () => media.removeEventListener('change', change) }, [])
+  const mode = preview || preference === 'event' ? authoredMode : preference === 'system' ? (systemDark ? 'dark' : 'light') : preference
   const { accent, background, surface, text } = frameColors(mode === authoredMode ? appearance : {
     ...appearance, mode, backgroundColor: undefined, surfaceColor: undefined, textColor: undefined,
   })
@@ -67,13 +70,12 @@ export function ParticipantFrame({ appearance, children, preview = false }: { ap
       root.classList.toggle('dark', wasDark)
     }
   }, [accent, background, surface, text, mode, preview])
-  const toggle = () => {
-    const next = mode === 'dark' ? 'light' : 'dark'
+  const selectPreference = (next: typeof preference) => {
     setPreference(next)
-    try { localStorage.setItem('chas-participant-mode', next) } catch { /* session preference still applies */ }
+    try { if (next === 'event') localStorage.removeItem('chas-participant-mode'); else localStorage.setItem('chas-participant-mode', next) } catch { /* session preference still applies */ }
   }
   return <main className={preview ? "participant-frame relative" : "participant-frame relative min-h-screen"} style={{ ...variables, color: text, backgroundColor: background, colorScheme: mode } as CSSProperties}>
-    {appearance.backgroundUrl && /^https:\/\//i.test(appearance.backgroundUrl) && <img src={appearance.backgroundUrl} alt="" referrerPolicy="no-referrer" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-15" onError={event => { event.currentTarget.hidden = true }} />}
+    {appearance.backgroundUrl && /^https:\/\//i.test(appearance.backgroundUrl) && <img key={appearance.backgroundUrl} src={appearance.backgroundUrl} alt="" referrerPolicy="no-referrer" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-15" onError={event => { event.currentTarget.hidden = true }} />}
     <div className="relative mx-auto max-w-6xl px-5 pb-16 sm:px-10">
       {!preview && <header className="participant-header">
         {location.pathname === '/my-hackathons'
@@ -81,11 +83,11 @@ export function ParticipantFrame({ appearance, children, preview = false }: { ap
           : <span className="inline-flex min-h-11 items-center gap-3 text-xl font-bold tracking-tight"><Hexagon aria-hidden="true" className="size-7" style={{ color: accent }} />ChasHack<span className="hidden border-l border-current/20 pl-3 text-xs font-normal tracking-normal opacity-70 sm:inline">{t('participant.community')}</span></span>}
         <div className="flex items-center gap-1">
           <Button variant="ghost" className="min-h-11 min-w-11" onClick={() => setLocale(locale === 'en' ? 'sv' : 'en')} aria-label={t('common.language', { locale: locale.toUpperCase() })}><Globe aria-hidden="true" size={16} />{locale.toUpperCase()}</Button>
-          <Button variant="ghost" className="min-h-11 min-w-11" onClick={toggle} aria-label={t('common.switch_theme', { mode: mode === 'dark' ? t('common.theme_light') : t('common.theme_dark') })}>{mode === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}</Button>
+          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" className="min-h-11 min-w-11" aria-label={t('common.theme_mode')}><Sun aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuRadioGroup value={preference} onValueChange={value => selectPreference(value as typeof preference)}><DropdownMenuRadioItem value="event">{t('participant.theme_event')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="light">{t('common.theme_light_mode')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="dark">{t('common.theme_dark_mode')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="system">{t('common.theme_system')}</DropdownMenuRadioItem></DropdownMenuRadioGroup></DropdownMenuContent></DropdownMenu>
         </div>
       </header>}
       {!preview && location.pathname !== '/my-hackathons' && <a href="/my-hackathons" className="mb-5 inline-flex min-h-11 items-center gap-2 text-sm opacity-75 hover:opacity-100"><ArrowLeft aria-hidden="true" size={16} />{t('participant.my_title')}</a>}
-      {appearance.bannerUrl && /^https:\/\//i.test(appearance.bannerUrl) && <img src={appearance.bannerUrl} alt="" referrerPolicy="no-referrer" className="mb-8 max-h-64 w-full rounded-2xl object-cover" onError={event => { event.currentTarget.hidden = true }} />}
+      {appearance.bannerUrl && /^https:\/\//i.test(appearance.bannerUrl) && <img key={appearance.bannerUrl} src={appearance.bannerUrl} alt="" referrerPolicy="no-referrer" className="mb-8 max-h-64 w-full rounded-2xl object-cover" onError={event => { event.currentTarget.hidden = true }} />}
       {children}
     </div>
   </main>

@@ -287,6 +287,11 @@ export interface AuthMe {
   guilds: AuthGuild[]
 }
 
+/**
+ * Team role colour palette. Keep in sync with `TEAM_COLORS` in
+ * `apps/bot/src/features/form/domain.ts` — the console and Discord must render
+ * a team in the same colour.
+ */
 export const TEAM_COLOR_SWATCHES: { id: string; label: string; hex: string }[] = [
   { id: 'blurple', label: 'Blurple', hex: '#5865F2' },
   { id: 'green', label: 'Green', hex: '#3EC46D' },
@@ -295,4 +300,13 @@ export const TEAM_COLOR_SWATCHES: { id: string; label: string; hex: string }[] =
   { id: 'purple', label: 'Purple', hex: '#9B59B6' },
   { id: 'cyan', label: 'Cyan', hex: '#1ABC9C' },
   { id: 'pink', label: 'Pink', hex: '#E91E63' },
+  { id: 'blue', label: 'Blue', hex: '#3498DB' },
+  { id: 'yellow', label: 'Yellow', hex: '#F1C40F' },
+  { id: 'teal', label: 'Teal', hex: '#2DD4BF' },
+  { id: 'lime', label: 'Lime', hex: '#84CC16' },
+  { id: 'magenta', label: 'Magenta', hex: '#D946EF' },
+  { id: 'indigo', label: 'Indigo', hex: '#6366F1' },
+  { id: 'gold', label: 'Gold', hex: '#C9A227' },
+  { id: 'salmon', label: 'Salmon', hex: '#FF7F50' },
+  { id: 'slate', label: 'Slate', hex: '#64748B' },
 ]

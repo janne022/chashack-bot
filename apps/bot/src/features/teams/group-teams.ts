@@ -15,6 +15,7 @@
 import { newId, newJoinCode, type Db } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
 import { markTeamProvisionPending } from './provision-data.js';
+import { nextTeamColor } from './data.js';
 
 export interface GroupTeamMembership {
   teamId: string;
@@ -64,9 +65,10 @@ export async function joinGroupTeam(
   }
 
   const teamId = newId('team');
+  const color = await nextTeamColor(db, eventId);
   await db.run(
     'INSERT INTO teams (id, event_id, guild_id, name, kind, owner_id, join_code, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    teamId, eventId, guildId, name, 'private', userId, newJoinCode(), null, now);
+    teamId, eventId, guildId, name, 'private', userId, newJoinCode(), color, now);
   await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', teamId, now, eventId, userId);
   await markTeamProvisionPending(db, guildId, eventId, teamId);
   await audit(db, actor, 'team.create_group', eventId, { teamId, userId, groupName: name }, guildId);

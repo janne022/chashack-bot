@@ -89,6 +89,7 @@ Confirmed functionality (the README is the detailed inventory; this is the shape
   complementary role tracks, experience mix, friend pulls) with mutual friend
   mentions as a hard constraint and one-way mentions as soft preference; preview →
   conflict report → commit, never written until committed, and re-runnable.
+  New matched teams are kept as evenly sized as those friend groups allow.
 - Team spaces: every team (created or matched) gets a colored role + private text
   and voice channels under an organizer-chosen category, with welcome messages and
   full teardown on delete/reset/cleanup.
@@ -169,7 +170,10 @@ Constraints and deliberate limits:
 Organizers choose web-only signup or Discord profile signup with remaining questions on
 web. Extra custom questions are explicitly identified as web steps. Web custom fields
 include text, choices, a 1–10 slider and yes/no choices. Saved answers have an explicit
-edit state; participants can choose light or dark independent of custom event branding.
+edit state; participants can choose light, dark, system, or the event default.
+Event creation can save incomplete signup questions in a draft; activation requires
+valid questions. A custom event form is stored with the event rather than creating
+a separate form template as a side effect.
 New events enforce their configured signup window for new and returning participants;
 active participants may still edit or withdraw. Legacy events remain unrestricted
 unless organizers enable enforcement. Signup can stay open after kickoff.

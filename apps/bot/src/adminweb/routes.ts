@@ -209,7 +209,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       const path = req.url.split('?')[0]!;
       // Routine team reads share the bounded read quota, not the much smaller
       // provisioning/fan-out quota. Query values never determine route cost.
-      const expensive = path === '/api/guild/members' || (write && /invite|invitation|teams?|match\/(commit|lock|unlock)|announce|discord-events|signup-import|channel-test|\/panel|schedule-itinerary/i.test(path));
+      const expensive = path === '/api/guild/members' || /^\/api\/participant\/events\/[^/]+\/members$/.test(path) || (write && /invite|invitation|teams?|match\/(commit|lock|unlock)|announce|discord-events|signup-import|channel-test|\/panel|schedule-itinerary/i.test(path));
       const costly = ordinary.allowed && expensive ? await consumeQuota(db, 'expensive', identity, 5) : ordinary;
       const denied = !ordinary.allowed ? ordinary : costly;
       if (!denied.allowed) return reply.header('Retry-After', denied.retryAfterSeconds).code(429).send({ error: 'rate_limited', retryAfterSeconds: denied.retryAfterSeconds });
@@ -1242,6 +1242,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       scheduleChannelId?: string | null;
       templateId?: string;
       formTemplateId?: string;
+      formJson?: string;
       schedule?: { id: string; time: number; title: string; description?: string; kind?: string; actions?: { id: string; type: string; title?: string; message?: string; channelId?: string | null; mode?: string; assignmentId?: string }[] }[];
       announcements?: { id: string; title: string; message: string; trigger: string; channelId?: string | null }[];
       assignments?: { id: string; title: string; instructions: string; description?: string }[];
@@ -1282,6 +1283,11 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         await reply.code(400).send({ ok: false, code: 'bad_template', message: 'Form template JSON is invalid.' });
         return;
       }
+    }
+    if (body.formJson !== undefined) {
+      if (body.formTemplateId !== undefined) return reply.code(400).send({ ok: false, code: 'bad_input' });
+      try { form = JSON.parse(body.formJson) as Parameters<typeof createEvent>[3]['form']; if (!form || typeof form !== 'object' || Array.isArray(form)) throw new Error() }
+      catch { return reply.code(400).send({ ok: false, code: 'bad_json' }); }
     }
     // Default form fallback: guild default form template → else global form_config fallback is handled inside createEvent
     if (form === undefined && body.formTemplateId === undefined) {
@@ -1327,6 +1333,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(gs.defaultCategoryId && body.panelChannelId === undefined ? { categoryId: gs.defaultCategoryId } : {}),
       ...(body.cleanupDelayHours !== undefined ? { cleanupDelayHours: body.cleanupDelayHours } : tplInput?.cleanupDelayHours !== undefined ? { cleanupDelayHours: tplInput.cleanupDelayHours } : gs.defaultCleanupDelayHours != null ? { cleanupDelayHours: gs.defaultCleanupDelayHours } : {}),
       ...(form !== undefined ? { form } : {}),
+      allowIncompleteForm: body.launch !== true,
       ...(schedule !== undefined ? { schedule: schedule as never } : {}),
       ...(body.announcements !== undefined ? { announcements: body.announcements as never } : {}),
       ...(assignments !== undefined ? { assignments: assignments as never } : {}),
@@ -1731,7 +1738,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return
     }
     if (form.customQuestions !== undefined) {
-      const questions = validateCustomQuestions(form.customQuestions, form as FormConfig);
+      const questions = validateCustomQuestions(form.customQuestions, form as FormConfig, event.status === 'draft');
       if (!questions.ok) return reply.code(400).send({ ok: false, code: 'invalid_questions', errors: questions.errors });
     }
     if ((form.appearance !== undefined && !normalizeAppearance(form.appearance)) || !validBannerUrl(form.bannerUrl) || (form.themePreset !== undefined && !['default', 'halloween', 'christmas'].includes(form.themePreset)) ||

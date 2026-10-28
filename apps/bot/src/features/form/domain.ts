@@ -114,7 +114,7 @@ export function validBannerUrl(value: unknown): value is string | null | undefin
   } catch { return false; }
 }
 
-export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 'experiences' | 'roleTracks' | 'skills'>): { ok: true; questions: CustomQuestion[] } | { ok: false; errors: string[] } {
+export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 'experiences' | 'roleTracks' | 'skills'>, allowIncomplete = false, requireNonBlank = false): { ok: true; questions: CustomQuestion[] } | { ok: false; errors: string[] } {
   if (!Array.isArray(raw)) return { ok: false, errors: ['questions must be an array'] };
   if (raw.length > 25) return { ok: false, errors: ['at most 25 custom questions are allowed'] };
   const errors: string[] = [];
@@ -128,7 +128,7 @@ export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 
     ids.add(item.id);
     if (!['text', 'single_choice', 'multi_choice', 'slider', 'toggle'].includes(item.kind) || !['web', 'both'].includes(item.presentation) ||
         !['self_and_organizer', 'organizer_only'].includes(item.visibility) || typeof item.required !== 'boolean' ||
-        typeof item.label?.en !== 'string' || item.label.en.length < 1 || item.label.en.length > 200 ||
+        typeof item.label?.en !== 'string' || (!allowIncomplete && (requireNonBlank ? item.label.en.trim().length : item.label.en.length) < 1) || item.label.en.length > 200 ||
         (item.label.sv !== undefined && (typeof item.label.sv !== 'string' || item.label.sv.length > 200)) ||
         typeof item.help?.en !== 'string' || item.help.en.length > 500 ||
         (item.help.sv !== undefined && (typeof item.help.sv !== 'string' || item.help.sv.length > 500))) {
@@ -142,8 +142,8 @@ export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 
     if (!['single_choice', 'multi_choice'].includes(item.kind) && item.choices !== undefined) errors.push(`text question cannot have choices: ${item.id}`);
     if (['single_choice', 'multi_choice'].includes(item.kind)) {
       const choices = item.choices;
-      if (!Array.isArray(choices) || choices.length < 1 || choices.length > 25 || choices.some((choice) =>
-        choice === null || typeof choice !== 'object' || !/^[a-zA-Z0-9_-]{1,64}$/.test(choice.id) || typeof choice.label?.en !== 'string' || choice.label.en.length < 1 || choice.label.en.length > 200)) {
+      if (!Array.isArray(choices) || (!allowIncomplete && choices.length < 1) || choices.length > 25 || choices.some((choice) =>
+        choice === null || typeof choice !== 'object' || !/^[a-zA-Z0-9_-]{1,64}$/.test(choice.id) || typeof choice.label?.en !== 'string' || (!allowIncomplete && (requireNonBlank ? choice.label.en.trim().length : choice.label.en.length) < 1) || choice.label.en.length > 200)) {
         errors.push(`invalid choices: ${item.id}`);
       } else if (new Set(choices.map((choice) => choice.id)).size !== choices.length) errors.push(`duplicate choice IDs: ${item.id}`);
     }
@@ -151,7 +151,7 @@ export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 
       const choiceIds = (item.choices ?? []).map((choice) => choice.id).sort();
       const keys = Object.keys(item.mapping.choiceValues).sort();
       const targets = item.mapping.field === 'experience' ? config?.experiences : item.mapping.field === 'role' ? config?.roleTracks : config?.skills;
-      if (keys.length !== choiceIds.length || keys.some((key, i) => key !== choiceIds[i]) || (targets && Object.values(item.mapping.choiceValues).some((value) => !targets.some((target) => target.id === value))) || (item.mapping.field === 'experience' && !config && Object.values(item.mapping.choiceValues).some((value) => !['first_timer', 'some_experience', 'veteran'].includes(value)))) errors.push(`invalid choice mapping: ${item.id}`);
+      if ((!allowIncomplete && (keys.length !== choiceIds.length || keys.some((key, i) => key !== choiceIds[i]))) || keys.some(key => !choiceIds.includes(key)) || (targets && Object.values(item.mapping.choiceValues).some((value) => !(allowIncomplete && value === '') && !targets.some((target) => target.id === value))) || (item.mapping.field === 'experience' && !config && Object.values(item.mapping.choiceValues).some((value) => !['first_timer', 'some_experience', 'veteran'].includes(value)))) errors.push(`invalid choice mapping: ${item.id}`);
       if (questions.some((question) => question.mapping?.field === item.mapping!.field)) errors.push(`duplicate mapping target: ${item.mapping.field}`);
     }
     questions.push(item);
@@ -260,7 +260,11 @@ export const DEFAULT_FORM: FormConfig = {
 export const EXPERIENCE_IDS: Experience[] = ['first_timer', 'some_experience', 'veteran'];
 export const TEAM_PREF_IDS: TeamPref[] = ['create_team', 'join_team', 'random_team'];
 
-/** Role color palette for team creation (Discord modals have no color picker). */
+/**
+ * Role color palette for team creation (Discord modals have no color picker).
+ * Keep in sync with `TEAM_COLOR_SWATCHES` in the admin UI — a team created in
+ * either surface must render the same colour in both.
+ */
 export const TEAM_COLORS: { id: string; label: string; hex: string; int: number }[] = [
   { id: 'blurple', label: 'Blurple', hex: '#5865F2', int: 0x5865f2 },
   { id: 'green', label: 'Green', hex: '#3EC46D', int: 0x3ec46d },
@@ -269,6 +273,15 @@ export const TEAM_COLORS: { id: string; label: string; hex: string; int: number 
   { id: 'purple', label: 'Purple', hex: '#9B59B6', int: 0x9b59b6 },
   { id: 'cyan', label: 'Cyan', hex: '#1ABC9C', int: 0x1abc9c },
   { id: 'pink', label: 'Pink', hex: '#E91E63', int: 0xe91e63 },
+  { id: 'blue', label: 'Blue', hex: '#3498DB', int: 0x3498db },
+  { id: 'yellow', label: 'Yellow', hex: '#F1C40F', int: 0xf1c40f },
+  { id: 'teal', label: 'Teal', hex: '#2DD4BF', int: 0x2dd4bf },
+  { id: 'lime', label: 'Lime', hex: '#84CC16', int: 0x84cc16 },
+  { id: 'magenta', label: 'Magenta', hex: '#D946EF', int: 0xd946ef },
+  { id: 'indigo', label: 'Indigo', hex: '#6366F1', int: 0x6366f1 },
+  { id: 'gold', label: 'Gold', hex: '#C9A227', int: 0xc9a227 },
+  { id: 'salmon', label: 'Salmon', hex: '#FF7F50', int: 0xff7f50 },
+  { id: 'slate', label: 'Slate', hex: '#64748B', int: 0x64748b },
 ];
 
 export function teamColor(colorId: string | null): { hex: string; int: number } {

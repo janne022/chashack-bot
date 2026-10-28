@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -5,6 +6,35 @@ import { ColorPicker } from '@/components/color-picker'
 import { ParticipantFrame, frameColors, type Appearance } from '@/components/participant-appearance'
 import { PRESET_ACCENTS } from '@/lib/color'
 import { useT } from '@/lib/i18n'
+
+/**
+ * The frame hides images the browser cannot load (a participant should never
+ * see a broken-image icon), so the authoring surface has to say what happened.
+ */
+function ImagePreview({ url, label }: { url: string | null; label: string }) {
+  const t = useT()
+  const valid = url !== null && /^https:\/\//i.test(url)
+  const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading')
+
+  if (url === null || url === '') return null
+  if (!valid) return <p role="alert" className="text-xs text-danger">{t('form.image_error_https')}</p>
+
+  return (
+    <div className="space-y-1.5 rounded-lg border border-border bg-surface-2/40 p-2">
+      <span className="block text-xs font-medium text-muted-foreground">{t('form.image_preview', { label })}</span>
+      <img
+        src={url}
+        alt=""
+        referrerPolicy="no-referrer"
+        className={state === 'ok' ? 'max-h-40 w-full rounded object-cover' : 'hidden'}
+        onLoad={() => setState('ok')}
+        onError={() => setState('error')}
+      />
+      {state === 'error' && <p role="alert" className="text-xs text-danger">{t('form.image_error')}</p>}
+      {state === 'loading' && <p className="text-xs text-muted-foreground">{t('form.image_loading')}</p>}
+    </div>
+  )
+}
 
 export function AppearanceControls({ value, onChange, previewTitle }: { value: Appearance; onChange: (next: Appearance) => void; previewTitle?: string }) {
   const t = useT()
@@ -44,11 +74,12 @@ export function AppearanceControls({ value, onChange, previewTitle }: { value: A
         <ColorPicker label={t(title)} value={value[key] ?? inherited[key]} inherited={value[key] === undefined}
           onChange={hex => edit({ [key]: hex })} onReset={() => edit({ [key]: undefined })} />
       </div>)}
-      {([['bannerUrl', 'form.banner_url'], ['backgroundUrl', 'form.background_url']] as const).map(([key, title]) => <label key={key} className="space-y-2 text-sm sm:col-span-2"><span>{t(title)}</span>
-        <Input type="url" inputMode="url" aria-label={t(title)} placeholder="https://example.com/image.jpg" value={value[key] ?? ''} onChange={event => edit({ [key]: event.target.value || null })} />
+      {([['bannerUrl', 'form.banner_url'], ['backgroundUrl', 'form.background_url']] as const).map(([key, title]) => <div key={key} className="space-y-2 text-sm sm:col-span-2"><label className="block" htmlFor={`appearance-${key}`}>{t(title)}</label>
+        <Input id={`appearance-${key}`} type="url" inputMode="url" aria-label={t(title)} placeholder="https://example.com/image.jpg" value={value[key] ?? ''} onChange={event => edit({ [key]: event.target.value || null })} />
         <span className="block text-xs">{t('form.banner_help')}</span>
+        <ImagePreview key={value[key] ?? ''} url={value[key] ?? null} label={t(title)} />
         <Button type="button" variant="outline" size="sm" disabled={!value[key]} onClick={() => edit({ [key]: null })}>{t('form.clear_banner')}</Button>
-      </label>)}
+      </div>)}
     </div>
     <Button type="button" variant="ghost" size="sm" onClick={() => onChange({ themePreset: 'default', accentColor: PRESET_ACCENTS.default, bannerUrl: null })}>{t('form.reset_appearance')}</Button>
     <div aria-label={t('templates.theme_preview')} className="overflow-hidden rounded-xl border">

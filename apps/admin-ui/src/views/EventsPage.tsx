@@ -15,7 +15,7 @@ import { FormConfigEditor } from '@/components/FormConfigEditor'
 import { SubmissionManager } from '@/components/SubmissionManager'
 import { AppearanceControls } from '@/components/appearance-controls'
 import { resolveAppearance } from '@/components/participant-appearance'
-import { validateQuestions } from '@/lib/question-validation'
+import { questionErrors, validateQuestions } from '@/lib/question-validation'
 import { announcementFailureKey } from '@/lib/announcement-result'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -43,6 +43,15 @@ function toLocalIso(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+/** Create wizard rail — one label per step, in the order the form is filled. */
+const CREATE_STEPS = [
+  { id: 'basics', labelKey: 'events.step_basics' },
+  { id: 'schedule', labelKey: 'events.step_schedule' },
+  { id: 'assignments', labelKey: 'events.step_assignments' },
+  { id: 'form', labelKey: 'events.step_form' },
+  { id: 'review', labelKey: 'events.step_review' },
+] as const
 
 export function EventsPage() {
   const { state, selectEvent, refresh } = useAppContext()
@@ -317,6 +326,7 @@ function NewEventButton() {
   const t = useT()
   const [chooserOpen, setChooserOpen] = useState(false)
   const [open, setOpen] = useState(false)
+  const [createStep, setCreateStep] = useState(0)
   const [chooserTemplateId, setChooserTemplateId] = useState<string>('')
   const [templateId, setTemplateId] = useState<string>('')
   const [formMode, setFormMode] = useState<'default' | 'template' | 'custom'>('default')
@@ -431,6 +441,7 @@ function NewEventButton() {
     setCustomForm(JSON.parse(JSON.stringify(DEFAULT_FORM)) as FormConfig)
     setCreateDiscordEvent(true)
     setChooserOpen(false)
+    setCreateStep(0)
     setOpen(true)
     if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
     if (!announceChannelId && defaults.defaultAnnouncementChannelId) setAnnounceChannelId(defaults.defaultAnnouncementChannelId)
@@ -441,6 +452,7 @@ function NewEventButton() {
     if (!chooserTemplateId) return
     applyTemplate(chooserTemplateId)
     setChooserOpen(false)
+    setCreateStep(0)
     setOpen(true)
     if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
     if (!announceChannelId && defaults.defaultAnnouncementChannelId) setAnnounceChannelId(defaults.defaultAnnouncementChannelId)
@@ -502,7 +514,11 @@ function NewEventButton() {
   }
 
   async function create(launch: boolean) {
-    if (formMode === 'custom' && !validateQuestions(customForm)) return
+    if (launch && formMode === 'custom' && Object.keys(questionErrors(customForm)).length > 0) {
+      setCreateStep(3)
+      requestAnimationFrame(() => validateQuestions(customForm))
+      return
+    }
     const starts = startsAt !== '' ? Date.parse(startsAt) || null : null
     const ends = endsAt !== '' ? Date.parse(endsAt) || null : null
     const signupStarts = signupStartsAt !== '' ? Date.parse(signupStartsAt) || null : null
@@ -521,15 +537,6 @@ function NewEventButton() {
     }
     setBusy(true)
     try {
-      // Custom form: save it as a real form template first — it shows up under
-      // Templates → Form templates and the event just binds to it by id.
-      let effectiveFormTemplateId = formTemplateId
-      if (formMode === 'custom') {
-        const tplName = `${name.trim()} — signup form`
-        const created = await api.createTemplateRaw(tplName, 'form', JSON.stringify(customForm))
-        effectiveFormTemplateId = created.template.id
-        toast.info(t('events.form_created', { name: tplName }))
-      }
       // Block actions (announcements included) ride the synthetic schedule blocks
       // so the planner fires them at the block time. The old on_activate/on_start
       // announcement rows are gone — nothing ever sent those.
@@ -555,7 +562,7 @@ function NewEventButton() {
       const createdEvent = await api.createEvent({
         ...parsed.data,
         ...(templateId ? { templateId } : {}),
-        ...(effectiveFormTemplateId ? { formTemplateId: effectiveFormTemplateId } : {}),
+        ...(formMode === 'custom' ? { formJson: JSON.stringify(customForm) } : formTemplateId ? { formTemplateId } : {}),
         cleanupDelayHours: cleanupDelayHours,
         ...(launch ? { launch: true } : {}),
         createDiscordEvent,
@@ -567,14 +574,15 @@ function NewEventButton() {
         assignmentStrategy,
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
-      const created = saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() })
-      toast.success(launch ? `Event “${name.trim()}” launched` : created)
+      const created = saveAsTemplate ? t('events.created_template', { name: name.trim() }) : t('events.created', { name: name.trim() })
+      toast.success(launch ? t('events.launched', { name: name.trim() }) : created)
       const discordErrors = createdEvent.discordEvent?.errors ?? []
       if (createDiscordEvent && discordErrors.length > 0) {
         toast.warning(t('events.discord_event_failed', { message: discordErrors.join('; ') }), { duration: 8000 })
       }
 
       setOpen(false)
+      setCreateStep(0)
       setChooserTemplateId('')
       setTemplateId('')
       setFormMode('default')
@@ -685,7 +693,34 @@ function NewEventButton() {
               </Button>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              <ol className="flex flex-wrap items-center gap-1.5" aria-label={t('events.create_steps')}>
+                {CREATE_STEPS.map((step, index) => {
+                  const active = createStep === index
+                  const done = createStep > index
+                  return (
+                    <li key={step.id}>
+                      <button
+                        type="button"
+                        onClick={() => setCreateStep(index)}
+                        aria-current={active ? 'step' : undefined}
+                        className={cn(
+                          'flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+                          active ? 'border-accent bg-accent-soft text-accent' : done ? 'border-accent/40 text-foreground' : 'border-border text-muted-foreground hover:border-accent/40',
+                        )}
+                      >
+                        <span className={cn('grid size-5 place-items-center rounded-full text-[10px] font-bold', active ? 'bg-accent text-accent-foreground' : 'bg-surface-2')}>
+                          {done ? '✓' : index + 1}
+                        </span>
+                        {t(step.labelKey)}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
+              <p className="text-xs text-muted-foreground">{t('events.step_of', { current: createStep + 1, total: CREATE_STEPS.length })}</p>
 
+              {createStep === 0 && (
+                <div className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.name')}</span>
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('events.name_placeholder')} maxLength={100} />
@@ -694,44 +729,49 @@ function NewEventButton() {
                 <span className="font-medium">{t('events.description')}</span>
                 <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('events.desc_placeholder')} maxLength={1000} />
               </label>
-              <ScheduleEditor
-                value={schedule}
-                onChange={setSchedule}
-                startValue={startsAt}
-                endValue={endsAt}
-                onStartChange={changeStart}
-                onEndChange={setEndsAt}
-                signupStartValue={signupStartsAt}
-                signupEndValue={signupEndsAt}
-                onSignupStartChange={setSignupStartsAt}
-                onSignupEndChange={setSignupEndsAt}
-                startActions={startActions}
-                endActions={endActions}
-                signupActions={signupActions}
-                onStartActionsChange={setStartActions}
-                onEndActionsChange={setEndActions}
-                onSignupActionsChange={setSignupActions}
-                disablePast
-              />
+                </div>
+              )}
+              {createStep === 1 && (
+                <ScheduleEditor
+                  value={schedule}
+                  onChange={setSchedule}
+                  startValue={startsAt}
+                  endValue={endsAt}
+                  onStartChange={changeStart}
+                  onEndChange={setEndsAt}
+                  signupStartValue={signupStartsAt}
+                  signupEndValue={signupEndsAt}
+                  onSignupStartChange={setSignupStartsAt}
+                  onSignupEndChange={setSignupEndsAt}
+                  startActions={startActions}
+                  endActions={endActions}
+                  signupActions={signupActions}
+                  onStartActionsChange={setStartActions}
+                  onEndActionsChange={setEndActions}
+                  onSignupActionsChange={setSignupActions}
+                  disablePast
+                />
+              )}
+              {createStep === 2 && (
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
-                <span className="text-sm font-medium">Assignments</span>
-                <span className="text-xs text-muted-foreground">Pick a collection — its assignments go out to each team when the hackathon starts. Manage collections under Templates → Assignment collections.</span>
+                <span className="text-sm font-medium">{t('events.assignments_title')}</span>
+                <span className="text-xs text-muted-foreground">{t('events.assignments_hint')}</span>
                 {assignmentCollections.length > 0 || embeddedAssignments.length > 0 || !!assignmentCollectionId ? (
                   <Select value={assignmentCollectionId || '__none'} onValueChange={(v)=>setAssignmentCollectionId(v==='__none'?'':v)}>
-                    <SelectTrigger className="w-72"><SelectValue placeholder="Pick a collection" /></SelectTrigger>
+                    <SelectTrigger className="w-72"><SelectValue placeholder={t('events.pick_collection')} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__none">No assignments</SelectItem>
+                      <SelectItem value="__none">{t('events.no_assignments')}</SelectItem>
                       {embeddedAssignments.length > 0 && <SelectItem value="__embedded">{t('templates.embedded_assignments', { count: embeddedAssignments.length })}</SelectItem>}
                       {assignmentCollectionId && assignmentCollectionId !== '__embedded' && !assignmentCollections.some(c => c.id === assignmentCollectionId) && <SelectItem value={assignmentCollectionId} disabled>{t('templates.assignment_collection_unavailable')}</SelectItem>}
                       {assignmentCollections.map(c => <SelectItem key={c.id} value={c.id}>{c.name} ({c.count})</SelectItem>)}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <p className="rounded-lg border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground">No collections yet — create one under Templates → Assignment collections.</p>
+                  <p className="rounded-lg border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground">{t('events.no_collections')}</p>
                 )}
                 {assignmentCollectionId !== '' && (
                   <div className="flex flex-col gap-2">
-                    <span className="text-sm font-medium">Distribution strategy</span>
+                    <span className="text-sm font-medium">{t('events.distribution_strategy')}</span>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {STRATEGY_OPTIONS.map(opt => {
                         const Icon = opt.icon
@@ -758,7 +798,9 @@ function NewEventButton() {
                   </div>
                 )}
               </div>
+              )}
 
+              {createStep === 3 && (
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
                 <span className="text-sm font-medium">{t('events.form_section')}</span>
                 <div className="grid gap-2 sm:grid-cols-3">
@@ -843,15 +885,16 @@ function NewEventButton() {
                   {formMode === 'default' ? t('events.form_default_hint') : formMode === 'template' ? t('events.form_template_hint') : t('events.form_build_hint')}
                 </span>
               </div>
+              )}
 
-              {guildChannels.length > 0 ? (
+              {createStep === 1 && (guildChannels.length > 0 ? (
                 <div className="grid items-start gap-4 lg:grid-cols-3">
                   <label className="flex flex-col gap-1.5 text-sm">
                     <span className="font-medium">{t('events.panel_channel')}</span>
                     <Select value={panelChannelId || '__none'} onValueChange={(v)=>setPanelChannelId(v==='__none'?'':v)}>
-                      <SelectTrigger><SelectValue placeholder="Pick a Discord channel" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t('events.pick_channel')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none">Not set (use default)</SelectItem>
+                        <SelectItem value="__none">{t('events.channel_default')}</SelectItem>
                         {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
@@ -859,19 +902,19 @@ function NewEventButton() {
                   <label className="flex flex-col gap-1.5 text-sm">
                     <span className="font-medium">{t('events.announce_channel')}</span>
                     <Select value={announceChannelId || '__none'} onValueChange={(v)=>setAnnounceChannelId(v==='__none'?'':v)}>
-                      <SelectTrigger><SelectValue placeholder="Defaults to panel channel" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t('events.channel_panel_default')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none">Not set (use default/panel)</SelectItem>
+                        <SelectItem value="__none">{t('events.channel_default_panel')}</SelectItem>
                         {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </label>
                   <label className="flex flex-col gap-1.5 text-sm">
-                    <span className="font-medium">Schedule / itinerary channel</span>
+                    <span className="font-medium">{t('events.channel_itinerary')}</span>
                     <Select value={scheduleChannelId || '__none'} onValueChange={(v)=>setScheduleChannelId(v==='__none'?'':v)}>
-                      <SelectTrigger><SelectValue placeholder="Channel for the full itinerary" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t('events.channel_itinerary_placeholder')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none">Not set (use Config default)</SelectItem>
+                        <SelectItem value="__none">{t('events.channel_config_default')}</SelectItem>
                         {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
@@ -879,10 +922,11 @@ function NewEventButton() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2.5 text-sm text-muted-foreground">
-                  Channel pickers appear once the bot connection is live. Leave them unset to use the Config defaults.
+                  {t('events.channel_unavailable')}
                 </div>
-              )}
+              ))}
 
+              {createStep === 0 && (
               <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5">
                 <span className="text-sm font-medium">{t('events.cleanup_delay')}</span>
                 <Input
@@ -896,7 +940,9 @@ function NewEventButton() {
                 />
                 <span className="text-xs text-muted-foreground">{t('events.cleanup_delay_hint')}</span>
               </div>
+              )}
 
+              {createStep === 1 && (
               <label className={cn('flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm', startsAt === '' && 'opacity-60')}>
                 <Checkbox checked={createDiscordEvent && startsAt !== ''} onCheckedChange={setCreateDiscordEvent} disabled={startsAt === ''} />
                 <span className="flex flex-col">
@@ -904,25 +950,54 @@ function NewEventButton() {
                   <span className="text-xs text-muted-foreground">{startsAt === '' ? t('events.create_discord_event_needs_date') : t('events.create_discord_event_hint')}</span>
                 </span>
               </label>
+              )}
 
+              {createStep === 4 && (
+              <div className="flex flex-col gap-4">
+                <div className="rounded-lg border border-border bg-surface-2/40 p-4">
+                  <h3 className="font-display text-lg">{name.trim() || t('events.untitled')}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{description.trim() || t('events.no_description')}</p>
+                  <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                    <div><dt className="text-xs text-muted-foreground">{t('events.starts')}</dt><dd>{startsAt ? dateTime(Date.parse(startsAt)) : t('events.not_set')}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">{t('events.ends')}</dt><dd>{endsAt ? dateTime(Date.parse(endsAt)) : t('events.not_set')}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">{t('events.signup_window')}</dt><dd>{signupStartsAt ? dateTime(Date.parse(signupStartsAt)) : t('events.not_set')} – {signupEndsAt ? dateTime(Date.parse(signupEndsAt)) : t('events.not_set')}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">{t('events.assignment_collection')}</dt><dd>{assignmentCollectionId === '__embedded' ? t('templates.embedded_assignments', { count: embeddedAssignments.length }) : assignmentCollectionId ? (state.templates.find(tpl => tpl.id === assignmentCollectionId)?.name ?? t('events.not_set')) : t('events.no_assignments')}</dd></div>
+                  </dl>
+                  <p className="mt-3 text-xs text-muted-foreground">{t('events.draft_hint')}</p>
+                </div>
               <label className="flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm">
                 <Checkbox checked={saveAsTemplate} onCheckedChange={setSaveAsTemplate} />
                 <span className="flex flex-col">
-                  <span className="font-medium">Save as event template</span>
-                  <span className="text-xs text-muted-foreground">Reusable for next time — includes form, schedule and description.</span>
+                  <span className="font-medium">{t('events.save_template')}</span>
+                  <span className="text-xs text-muted-foreground">{t('events.save_template_hint')}</span>
                 </span>
               </label>
+              </div>
+              )}
 
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+                <Button variant="ghost" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+                {createStep > 0 && (
+                  <Button variant="outline" onClick={() => setCreateStep(step => Math.max(0, step - 1))}>
+                    <ChevronLeft />
+                    {t('events.back')}
+                  </Button>
+                )}
                 <Button variant="secondary" disabled={busy || name.trim().length < 3} onClick={() => void create(false)}>
                   <FilePlus />
-                  Save as draft
+                  {t('events.save_draft')}
                 </Button>
-                <Button disabled={busy || name.trim().length < 3} onClick={() => void create(true)}>
-                  <Send />
-                  Create &amp; launch
-                </Button>
+                {createStep < CREATE_STEPS.length - 1 ? (
+                  <Button disabled={name.trim().length < 3} onClick={() => setCreateStep(step => Math.min(CREATE_STEPS.length - 1, step + 1))}>
+                    {t('events.next')}
+                    <ArrowRight />
+                  </Button>
+                ) : (
+                  <Button disabled={busy || name.trim().length < 3} onClick={() => void create(true)}>
+                    <Send />
+                    {t('events.create_launch')}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </DialogContent>
@@ -1286,6 +1361,8 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [editName, setEditName] = useState(event.name)
   const [editDescription, setEditDescription] = useState(event.description)
   const [editFormTemplateId, setEditFormTemplateId] = useState<string>('')
+  const [draftForm, setDraftForm] = useState<FormConfig>(() => { try { return event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config } catch { return state.config } })
+  const [draftFormDirty, setDraftFormDirty] = useState(false)
   const [appearance, setAppearance] = useState<FormAppearance>(() => {
     try { return resolveAppearance(event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config) }
     catch { return resolveAppearance(state.config) }
@@ -1296,6 +1373,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [signupActions, setSignupActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveSignup(event))
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [editTab, setEditTab] = useState<'basics' | 'schedule' | 'assignments' | 'form' | 'theme'>('basics')
 
   function changeStart(next: string) {
     const nextMs = dateInputToMs(next), oldMs = dateInputToMs(start)
@@ -1354,11 +1432,11 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
         cleanupDelayHours: editCleanup,
       })
       // Form change is a separate endpoint — only call it when the user picked one.
-      if (editFormTemplateId || appearanceDirty || signupPolicyDirty || editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })()) {
-        if (appearanceDirty || signupPolicyDirty || editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })()) {
+      if (editFormTemplateId || draftFormDirty || appearanceDirty || signupPolicyDirty || editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })()) {
+        if (draftFormDirty || appearanceDirty || signupPolicyDirty || editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })()) {
           const template = formTemplates.find(item => item.id === editFormTemplateId)
-          const base = template ? JSON.parse(template.json) as FormConfig : event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config
-          await api.setEventForm(event.id, { formJson: JSON.stringify({ ...base, ...(appearanceDirty ? { appearance } : {}), ...(signupPolicyDirty ? { enforceSignupWindow } : {}), teamSize: editTeamSize }) })
+          const base = template ? JSON.parse(template.json) as FormConfig : draftFormDirty ? draftForm : event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config
+          await api.setEventForm(event.id, { formJson: JSON.stringify({ ...base, ...(appearanceDirty ? { appearance } : {}), ...(signupPolicyDirty ? { enforceSignupWindow } : {}), ...(editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })() ? { teamSize: editTeamSize } : {}) }) })
         } else await api.setEventForm(event.id, { formTemplateId: editFormTemplateId })
         setEditFormTemplateId('')
       }
@@ -1376,18 +1454,23 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
     <>
       {open && (
         <Dialog open={open} onOpenChange={next => { if (!next && !busy) onClose() }}>
-          <DialogContent aria-modal="true" showCloseButton={false} className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+          <DialogContent aria-modal="true" showCloseButton={false} className="sm:max-w-[min(56rem,95vw)] max-h-[85vh] overflow-y-auto">
             <CardHeader>
               <DialogTitle>{t('events.edit_schedule_title')}</DialogTitle>
               <DialogDescription>{t('events.edit_schedule_desc')}</DialogDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               {saveError && <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"><p>{saveError}</p><Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void save()} disabled={busy}>{t('events.retry_save')}</Button></div>}
-              {hasLegacyAnnouncements && <details className="rounded-lg border border-border bg-surface-2 p-3 text-sm">
-                <summary className="cursor-pointer font-medium">{t('events.legacy_announcements_title')}</summary>
-                <p className="mt-2 text-muted-foreground">{t('events.legacy_announcements_preserved')}</p>
-                {(event.announcements ?? []).filter(a => a.trigger === 'on_activate' || a.trigger === 'on_start').map(a => <div key={a.id} className="mt-3 whitespace-pre-wrap break-words"><strong>{a.title}</strong><p className="text-muted-foreground">{a.message}</p></div>)}
-              </details>}
+              <Tabs value={editTab} onValueChange={(next) => setEditTab(next as typeof editTab)} className="gap-4">
+                <TabsList variant="line" className="w-full justify-start overflow-x-auto">
+                  <TabsTrigger value="basics"><ClipboardList className="size-3.5" />{t('events.tab_basics')}</TabsTrigger>
+                  <TabsTrigger value="schedule"><CalendarClock className="size-3.5" />{t('events.tab_schedule')}</TabsTrigger>
+                  <TabsTrigger value="assignments"><UsersRound className="size-3.5" />{t('events.tab_assignments')}</TabsTrigger>
+                  <TabsTrigger value="form"><FileCheck className="size-3.5" />{t('events.tab_form')}</TabsTrigger>
+                  <TabsTrigger value="theme"><LayoutTemplate className="size-3.5" />{t('events.tab_theme')}</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="basics" className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.name')}</span>
                 <Input value={editName} onChange={(e)=>setEditName(e.target.value)} maxLength={100} />
@@ -1426,6 +1509,14 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                   <span className="text-xs text-muted-foreground">{t('events.cleanup_delay_hint')}</span>
                 </div>
               </label>
+                </TabsContent>
+
+                <TabsContent value="schedule" className="flex flex-col gap-4">
+              {hasLegacyAnnouncements && <details className="rounded-lg border border-border bg-surface-2 p-3 text-sm">
+                <summary className="cursor-pointer font-medium">{t('events.legacy_announcements_title')}</summary>
+                <p className="mt-2 text-muted-foreground">{t('events.legacy_announcements_preserved')}</p>
+                {(event.announcements ?? []).filter(a => a.trigger === 'on_activate' || a.trigger === 'on_start').map(a => <div key={a.id} className="mt-3 whitespace-pre-wrap break-words"><strong>{a.title}</strong><p className="text-muted-foreground">{a.message}</p></div>)}
+              </details>}
               <ScheduleEditor
                 value={items}
                 onChange={setItems}
@@ -1446,6 +1537,9 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 disablePast
               />
               <label className="flex items-start gap-2 rounded-lg border p-3 text-sm"><input type="checkbox" checked={enforceSignupWindow} onChange={e => { setEnforceSignupWindow(e.target.checked); setSignupPolicyDirty(true) }} className="mt-1" /><span><strong>{t('events.enforce_signup_window')}</strong><span className="mt-1 block text-muted-foreground">{t('events.enforce_signup_help')}</span></span></label>
+                </TabsContent>
+
+                <TabsContent value="assignments" className="flex flex-col gap-4">
               <div className="space-y-2">
                 <Label>{t('events.assignment_collection')}</Label>
                 <Select value="" onValueChange={id => {
@@ -1458,6 +1552,21 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 </Select>
               </div>
               <AssignmentsEditor value={editAssignments} onChange={setEditAssignments} />
+                </TabsContent>
+
+                <TabsContent value="form" className="flex flex-col gap-4">
+              {event.status === 'draft' && !editFormTemplateId && <FormConfigEditor
+                value={{ ...draftForm, ...(appearanceDirty ? { appearance } : {}), ...(signupPolicyDirty ? { enforceSignupWindow } : {}), ...(editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })() ? { teamSize: editTeamSize } : {}) }}
+                onChange={next => {
+                  setDraftForm(next)
+                  setDraftFormDirty(true)
+                  setAppearance(resolveAppearance(next))
+                  setAppearanceDirty(false)
+                  setEnforceSignupWindow(next.enforceSignupWindow === true)
+                  setSignupPolicyDirty(false)
+                  setEditTeamSize(next.teamSize)
+                }}
+              />}
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.change_form')}</span>
                 <Select value={editFormTemplateId} onValueChange={setEditFormTemplateId}>
@@ -1472,10 +1581,16 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 </Select>
                 <span className="text-xs text-muted-foreground">{t('events.keep_form')}</span>
               </label>
+                </TabsContent>
+
+                <TabsContent value="theme" className="flex flex-col gap-4">
               <section className="space-y-3"><h3 className="font-semibold">{t('form.appearance')}</h3>
                 {themeTemplates.length > 0 && <label className="flex flex-col gap-2 text-sm"><span>{t('form.saved_theme')}</span><Select value="" onValueChange={id => { const theme = themeTemplates.find(item => item.id === id); if (!theme) return; try { setAppearance(JSON.parse(theme.json) as FormAppearance); setAppearanceDirty(true) } catch { toast.error(t('form.theme_invalid')) } }}><SelectTrigger aria-label={t('form.saved_theme')}><SelectValue placeholder={t('form.apply_theme')} /></SelectTrigger><SelectContent>{themeTemplates.map(theme => <SelectItem key={theme.id} value={theme.id}>{theme.name === 'Default' ? t('form.default_theme') : theme.name === 'Halloween' ? t('form.halloween') : theme.name === 'Christmas' ? t('form.christmas') : theme.name}</SelectItem>)}</SelectContent></Select></label>}
                 <AppearanceControls value={appearance} onChange={next => { setAppearance(next); setAppearanceDirty(true) }} previewTitle={editName} />
               </section>
+                </TabsContent>
+              </Tabs>
+
               <div className="flex justify-end gap-2">
                 <Button variant="outline" disabled={busy} onClick={onClose}>{t('common.cancel')}</Button>
                 <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>
@@ -1668,7 +1783,7 @@ function EventCard({ event, isSelected, onOpen, refresh }: { event: HackathonEve
       toast.success(t('events.activated_schedule', { name: event.name }), { duration: 7000 })
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('events.activate_failed'))
+      toast.error(e instanceof Error && 'code' in e && e.code === 'invalid_questions' ? t('events.draft_form_incomplete') : e instanceof Error ? e.message : t('events.activate_failed'))
     }
   }
 

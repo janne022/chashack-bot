@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation } from '@tanstack/react-router'
 import { motion, useReducedMotion } from 'framer-motion'
 import {
@@ -6,6 +6,7 @@ import {
   History,
   Sun,
   Moon,
+  Monitor,
   Globe,
   Settings,
   LayoutTemplate,
@@ -16,6 +17,13 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ServerSwitcher } from '@/components/ServerSwitcher'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useAppContext } from '@/lib/app-context'
 import { useLocale, useT, setLocale } from '@/lib/i18n'
 import type { AppState } from '@/types'
@@ -29,10 +37,31 @@ const NAV_KEYS = [
   { to: '/audit', key: 'nav.audit', icon: History },
 ] as const
 
+type ThemeMode = 'light' | 'dark' | 'system'
+const THEME_KEY = 'chas-theme'
+const THEME_OPTIONS: { value: ThemeMode; icon: typeof Sun; labelKey: string }[] = [
+  { value: 'light', icon: Sun, labelKey: 'common.theme_light_mode' },
+  { value: 'dark', icon: Moon, labelKey: 'common.theme_dark_mode' },
+  { value: 'system', icon: Monitor, labelKey: 'common.theme_system' },
+]
+
+/** Stored choice, defaulting to following the operating system. */
+function storedTheme(): ThemeMode {
+  try {
+    const stored = localStorage.getItem(THEME_KEY)
+    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
+  } catch { /* storage unavailable */ }
+  return 'system'
+}
+
+function systemPrefersDark(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
 /**
  * App shell — "Honeycomb playtech" world.
- * Router-aware sidebar; theme toggle persists in localStorage;
- * language toggle cycles en/sv and persists in localStorage.
+ * Router-aware sidebar; theme menu (light / dark / system) persists in
+ * localStorage; language toggle cycles en/sv and persists in localStorage.
  */
 export function AppShell({
   state,
@@ -50,31 +79,63 @@ export function AppShell({
   const reducedMotion = useReducedMotion()
   const locale = useLocale()
 
-  const [theme, setTheme] = useState<'dark' | 'light'>(
-    () => (localStorage.getItem('chas-theme') as 'dark' | 'light') ?? 'dark',
-  )
+  const [theme, setTheme] = useState<ThemeMode>(storedTheme)
+  const [systemDark, setSystemDark] = useState(systemPrefersDark)
 
-  function toggleTheme() {
-    const next = theme === 'dark' ? 'light' : 'dark'
+  // `system` follows the OS live — no reload needed when the device switches.
+  useEffect(() => {
+    const query = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = (event: MediaQueryListEvent) => setSystemDark(event.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+
+  const effectiveTheme = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = effectiveTheme
+    // shadcn's dark variant is class-based (@custom-variant dark) — keep the
+    // class in sync with data-theme so registry components follow the choice.
+    document.documentElement.classList.toggle('dark', effectiveTheme === 'dark')
+  }, [effectiveTheme])
+
+  function selectTheme(next: ThemeMode) {
     setTheme(next)
-    localStorage.setItem('chas-theme', next)
-    document.documentElement.dataset.theme = next
+    try { localStorage.setItem(THEME_KEY, next) } catch { /* storage unavailable */ }
   }
 
   function toggleLocale() {
     setLocale(locale === 'en' ? 'sv' : 'en')
   }
 
-  if (document.documentElement.dataset.theme !== theme) {
-    document.documentElement.dataset.theme = theme
-  }
-  // shadcn's dark variant is class-based (@custom-variant dark) — keep the
-  // class in sync with data-theme so registry components follow the toggle.
-  if (theme === 'dark') {
-    document.documentElement.classList.add('dark')
-  } else {
-    document.documentElement.classList.remove('dark')
-  }
+  const activeTheme = THEME_OPTIONS.find((option) => option.value === theme) ?? THEME_OPTIONS[2]!
+  const ActiveThemeIcon = activeTheme.icon
+
+  const themeMenu = (compact: boolean) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size={compact ? 'icon' : undefined}
+          className={compact ? undefined : 'flex-1 justify-start rounded-lg bg-card text-xs'}
+          aria-label={t('common.theme_mode')}
+        >
+          <ActiveThemeIcon />
+          {!compact && t(activeTheme.labelKey)}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side={compact ? 'bottom' : 'top'} className="w-48">
+        <DropdownMenuRadioGroup value={theme} onValueChange={(next) => selectTheme(next as ThemeMode)}>
+          {THEME_OPTIONS.map(({ value, icon: Icon, labelKey }) => (
+            <DropdownMenuRadioItem key={value} value={value}>
+              <Icon className="mr-1.5 size-4" />
+              {t(labelKey)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 
   return (
     <div className="organizer-workspace min-h-screen lg:flex">
@@ -121,14 +182,7 @@ export function AppShell({
             <div className="text-xs text-muted-foreground">{t('common.active_signups')}</div>
           </div>
           <div className="flex items-center gap-1 rounded-xl border bg-surface-2 p-1">
-            <Button
-              variant="ghost"
-              className="flex-1 justify-start rounded-lg bg-card text-xs"
-              onClick={toggleTheme}
-              aria-label={t('common.switch_theme', { mode: theme === 'dark' ? t('common.theme_light') : t('common.theme_dark') })}
-            >
-              {theme === 'dark' ? <Sun /> : <Moon />}{theme === 'dark' ? t('common.theme_light') : t('common.theme_dark')}
-            </Button>
+            {themeMenu(false)}
             <Button variant="ghost" size="icon" onClick={toggleLocale} aria-label={t('common.language', { locale: locale.toUpperCase() })}>
               <span className="flex items-center gap-0.5 text-[10px] font-bold">
                 <Globe className="size-4" />
@@ -146,14 +200,7 @@ export function AppShell({
           <span className="font-display text-sm">{t('common.app_name')}</span>
         </div>
         <div className="flex gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleTheme}
-            aria-label={t('common.switch_theme', { mode: theme === 'dark' ? t('common.theme_light') : t('common.theme_dark') })}
-          >
-            {theme === 'dark' ? <Sun /> : <Moon />}
-          </Button>
+          {themeMenu(true)}
           <Button variant="ghost" size="icon" onClick={toggleLocale} aria-label={t('common.language', { locale: locale.toUpperCase() })}>
             <span className="flex items-center gap-0.5 text-[10px] font-bold">
               <Globe className="size-4" />

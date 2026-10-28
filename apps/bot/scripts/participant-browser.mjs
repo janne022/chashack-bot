@@ -23,7 +23,7 @@ try {
   ]);
   db=await openTestDb();
   const guildId='11111111111111111', members=new Set(['participant-a','participant-b','participant-c','organizer']);
-  const guild={id:guildId,ownerId:'organizer',members:{fetch:async input=>{const id=typeof input==='string'?input:input.user;if(!members.has(id))throw Object.assign(Error('not a member'),{code:10007});return {id,permissions:{has:()=>id==='organizer',bitfield:id==='organizer'?32n:0n},roles:{cache:new Map()}}}}};
+  const guild={id:guildId,ownerId:'organizer',members:{fetch:async input=>{const id=typeof input==='string'?input:input.user;if(!members.has(id))throw Object.assign(Error('not a member'),{code:10007});return {id,permissions:{has:()=>id==='organizer',bitfield:id==='organizer'?32n:0n},roles:{cache:new Map()}}},search:async ({query})=>query.toLowerCase().includes('participant-b')?new Map([['participant-b',{id:'participant-b',displayName:'Participant B',user:{username:'participant-b',displayAvatarURL:()=>'/favicon.svg'}}]]):new Map()}};
   const client={guilds:{cache:new Map([[guildId,guild]]),fetch:async id=>id===guildId?guild:undefined}};
   const config={adminSessionSecret:'x'.repeat(32),adminPort:port,clientId:'synthetic-client',discordClientSecret:'synthetic-client-secret', // g0:allow:secrets t_583f310e — synthetic fixture only.
     oauthRedirectUri:`${base}/auth/discord/callback`,publicUrl:base,skipDiscord:true,adminIds:[],guildId:undefined,discordToken:'',announceChannelId:undefined,auditChannelId:undefined,teamCategoryId:undefined,botLanguage:'en',databaseUrl:process.env.DATABASE_URL};
@@ -195,8 +195,12 @@ try {
   check('participant can leave a team and return to open team choices',await evaluate(`!document.body.innerText.includes('2 medlemmar')`));
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
   await nav(`/team?eventId=${eventId}`);await wait(`document.body.innerText.includes('Workshop crew')`);
-  check('owner receives invite controls regardless of join-code metadata',await evaluate(`!!document.querySelector('#invite-id')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skicka inbjudan'))`));
-  await evaluate(`(()=>{const e=document.querySelector('#invite-id');if(!e)throw Error('invite input absent');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'participant-b');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  check('owner receives invite controls regardless of join-code metadata',await evaluate(`!!document.querySelector('input[placeholder="Sök en Discord-medlem…"]')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skicka inbjudan'))`));
+  await evaluate(`(()=>{const e=document.querySelector('input[placeholder="Sök en Discord-medlem…"]');e.focus();Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'participant-b');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await wait(`!![...document.querySelectorAll('[role=option]')].find(b=>b.innerText.includes('Participant B'))`);
+  check('typed text alone cannot be submitted as an invite',await evaluate(`document.querySelector('label[for=invite-member]') && [...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skicka inbjudan')).disabled`));
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13},sid); await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13},sid);
+  check('keyboard selects the server member',await evaluate(`!document.querySelector('[role=option]') && ![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skicka inbjudan')).disabled`));
   await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skicka inbjudan'))`);
   await wait(`document.body.innerText.includes('Workshop crew')`);
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-b'].split('=')[1]),url:base,httpOnly:true},sid);
@@ -229,9 +233,26 @@ try {
   check('desktop signup fits the viewport with no horizontal overflow',await evaluate(`document.documentElement.scrollWidth<=innerWidth`));
   check('saved signup requires explicit editing', await evaluate(`document.querySelector('textarea#idea').matches(':disabled')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Edit answers'))`));
   await screenshot('signup-desktop-en.png');
-  await click(`document.querySelector('button[aria-label*="light"]')`);
+  await click(`document.querySelector('button[aria-label="Theme"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(b=>b.innerText.trim()==='Light')`);
+  await wait(`document.documentElement.dataset.theme==='light'`);
   check('light mode preserves the seasonal accent', await evaluate(`getComputedStyle(document.querySelector('main')).backgroundColor==='rgb(247, 245, 240)'&&getComputedStyle(document.querySelector('main')).getPropertyValue('--participant-accent').trim()==='#ef793e'`));
   await screenshot('signup-desktop-light-en.png');
+  await click(`document.querySelector('button[aria-label="Theme"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(b=>b.innerText.trim()==='Event default')`);
+  await wait(`document.documentElement.dataset.theme==='dark'`);
+  check('event default restores the authored theme',await evaluate(`!localStorage.getItem('chas-participant-mode')`));
+  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'light'}]},sid);
+  await click(`document.querySelector('button[aria-label="Theme"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(b=>b.innerText.trim()==='System')`);
+  await wait(`document.documentElement.dataset.theme==='light'`);
+  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'dark'}]},sid);
+  await wait(`document.documentElement.dataset.theme==='dark'`);
+  check('system theme follows a live operating-system preference change',await evaluate(`localStorage.getItem('chas-participant-mode')==='system'`));
+  await click(`document.querySelector('button[aria-label="Theme"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(b=>b.innerText.trim()==='Light')`);
+  await wait(`document.documentElement.dataset.theme==='light'`);
+
   await nav('/my-hackathons'); await wait(`document.body.innerText.includes('Svensk hackathon')`); await screenshot('my-hackathons-desktop.png');
   check('participant mode survives navigation', await evaluate(`localStorage.getItem('chas-participant-mode')==='light'&&document.documentElement.dataset.theme==='light'`));
   await nav(`/team?eventId=${eventId}`); await wait(`document.body.innerText.includes('Workshop crew')`); await screenshot('team-desktop.png');
@@ -305,6 +326,7 @@ try {
   await db.run('UPDATE events SET starts_at=?, ends_at=?, signup_starts_at=?, signup_ends_at=? WHERE id=?',futureStart,futureStart+7200000,futureStart-3600000,futureStart+3600000,eventId);
   await nav(`/events?event=${eventId}`); await wait(`!![...document.querySelectorAll('button')].find(b=>b.innerText.trim()==='Edit event')`);
   await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.trim()==='Edit event')`);
+  await click(`[...document.querySelectorAll('[role=dialog] [role=tab]')].find(b=>b.innerText.includes('Schedule'))`);
   await click(`[...document.querySelectorAll('[role=dialog] button')].find(b=>b.innerText.includes('Signup window'))`);
   await wait(`!![...document.querySelectorAll('[role=dialog] label')].find(l=>l.innerText.includes('Post the signup panel when signup opens'))`);
   await click(`[...document.querySelectorAll('[role=dialog] label')].find(l=>l.innerText.includes('Post the signup panel when signup opens'))`);
