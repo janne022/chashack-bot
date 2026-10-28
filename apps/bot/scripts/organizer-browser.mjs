@@ -754,6 +754,10 @@ try {
     for (const [name, path] of [['events','/events'],['participants','/operations?tab=participants'],['teams','/operations?tab=teams'],['matching','/operations?tab=matching'],['templates','/templates'],['config','/config'],['audit','/audit']]) {
       await nav(base+path); await wait(`!!document.querySelector('.organizer-workspace')`); await delay(250);
       check(name+' fits '+width+'px', await evaluate('document.documentElement.scrollWidth<=innerWidth'));
+      if (name==='participants') {
+        const geometry=await evaluate(`(()=>{const table=document.querySelector('table'),scroller=table?.parentElement,card=table?.closest('[data-slot="card"]');if(!table||!scroller||!card)return null;return {overflowY:getComputedStyle(scroller).overflowY, bottomGap:card.getBoundingClientRect().bottom-scroller.getBoundingClientRect().bottom}})()`);
+        check('short participant table has no vertical scrollbar or extra bottom gap at '+width+'px',!!geometry&&geometry.overflowY==='hidden'&&geometry.bottomGap<=2,JSON.stringify(geometry));
+      }
       await screenshot(name+'-'+width+'.png');
     }
   }

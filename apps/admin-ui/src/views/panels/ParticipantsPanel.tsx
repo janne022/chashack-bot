@@ -358,7 +358,7 @@ export function ParticipantsPanel({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="pb-0">
         <CardHeader>
           <CardTitle>{t('participants.title')}</CardTitle>
           <CardDescription>{t('participants.desc')}</CardDescription>
@@ -366,7 +366,7 @@ export function ParticipantsPanel({
         <CardContent className="p-0">
           {filtered.length === 0 ? <EmptyState icon={<Search className="size-5" />} title={t('participants.no_matches')} action={<Button variant="outline" onClick={() => { setQuery(''); setFilter('all') }}>{t('common.clear')}</Button>} /> : <div
             ref={scrollRef}
-            className={virtualize ? 'max-h-[70vh] overflow-auto' : 'overflow-x-auto'}
+            className={virtualize ? 'max-h-[70vh] overflow-auto' : 'overflow-x-auto overflow-y-hidden'}
           >
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-surface">
