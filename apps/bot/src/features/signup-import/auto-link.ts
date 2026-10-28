@@ -51,3 +51,30 @@ export async function autoLinkImportedSignups(
   }
   return result;
 }
+
+/** Link only identities with one matching unlinked row in this event. */
+export async function autoLinkPresentMembers(
+  db: Db,
+  eventId: string,
+  guildId: string,
+  form: FormConfig,
+  lookup: UsernameLookup,
+  onlyUserId?: string,
+): Promise<string[]> {
+  const candidates = new Map<string, string[]>();
+  for (const row of await listImportedSignups(db, eventId)) {
+    if (row.discordUserId !== null || !row.discordUsername?.trim()) continue;
+    const member = await lookup(row.discordUsername);
+    if (!member || member === 'ambiguous' || (onlyUserId && member !== onlyUserId)) continue;
+    const rows = candidates.get(member) ?? [];
+    rows.push(row.id);
+    candidates.set(member, rows);
+  }
+  const linked: string[] = [];
+  for (const [member, rows] of candidates) {
+    if (rows.length !== 1) continue;
+    const result = await linkImportedSignup(db, eventId, guildId, rows[0]!, member, form, { organizer: true, actor: 'system:member-join', onlyIfUnlinked: true });
+    if (result.linked) linked.push(member);
+  }
+  return linked;
+}

@@ -802,7 +802,7 @@
   "imports.action": "Import signups",
   "imports.back_to_event": "Back to event",
   "imports.organizer_only": "Organizer-only records",
-  "imports.discord_limitation": "Imported signups count as participants right away: they appear in Participants, in matching and on teams, tagged as not in Discord. They only receive Discord roles and channels once they join the server and are linked to a member — use “Link members” to link everyone whose Discord username matches exactly one member.",
+  "imports.discord_limitation": "Imported signups appear in Participants, matching and teams right away. When someone joins the server, an unambiguous Discord username is linked automatically and their team access is set up. Use “Link members” to retry or review other matches.",
   "imports.auto_link_action": "Link members",
   "imports.auto_link_running": "Linking…",
   "imports.auto_link_hint": "Links every imported signup whose Discord username matches exactly one member of this server. Rows with no match or more than one match stay unlinked.",
