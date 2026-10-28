@@ -9,6 +9,24 @@ import { listPendingTeamProvisionIds } from '../teams/provision-data.js';
 const GUILD = 'g1';
 const EVENT = 'ev1';
 
+test('balanced preview is preserved when matching is committed', async () => {
+  const db = await openTestDb();
+  try {
+    await db.run("INSERT INTO events (id,guild_id,name,status,form_json,created_at,updated_at) VALUES (?,?,'Balanced','active',?,1,1)", EVENT, GUILD, JSON.stringify({ ...DEFAULT_FORM, teamSize: 5 }));
+    for (let i = 0; i < 17; i++) {
+      await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES (?,?,?,?,'some_experience','backend','[]','random_team','[]','active',?,?)", EVENT, `p${i}`, GUILD, `Participant ${i}`, i, i);
+    }
+    const preview = await previewMatch(db, EVENT, DEFAULT_FORM);
+    assert.ok(preview.ok);
+    if (!preview.ok) return;
+    assert.deepEqual(preview.value.teams.map(team => team.memberIds.length).sort((a, b) => b - a), [5, 4, 4, 4]);
+    const committed = await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM, preview.value.revision);
+    assert.ok(committed.ok);
+    const rows = await db.all<{ team_id: string; count: number }>("SELECT team_id, COUNT(*) AS count FROM participants WHERE event_id = ? GROUP BY team_id", EVENT);
+    assert.deepEqual(rows.map(row => Number(row.count)).sort((a, b) => b - a), [5, 4, 4, 4]);
+  } finally { await db.close(); }
+});
+
 /**
  * Regression: commitMatch used to run two insert loops — a legacy one without
  * event_id (which left an orphan team row with event_id NULL on every match) plus

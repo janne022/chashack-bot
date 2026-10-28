@@ -8,8 +8,8 @@
  *    unless the friend group is larger than teamSize — then they degrade to a
  *    very strong soft pull and the conflict is reported.
  *  - One-directional mentions are a strong soft pull.
- *  - Greedy agglomerative: friend groups seed teams, then the globally best
- *    (team, candidate) pairing is chosen repeatedly.
+ *  - Friend groups seed teams; remaining candidates fill the smallest teams,
+ *    using compatibility to choose between equally sized teams.
  */
 import type { FormConfig } from '../form/domain.js';
 import { validateCustomAnswers, type CustomAnswersResult } from '../form/domain.js';
@@ -209,12 +209,14 @@ export function buildTeams(participants: Participant[], config: FormConfig): Mat
     .sort((a, b) => a.createdAt - b.createdAt || a.userId.localeCompare(b.userId));
 
   const targetTeams = Math.max(seeds.length, Math.max(1, Math.ceil(participants.length / teamSize)));
-  // 3) Greedy: repeatedly place the globally best (team, candidate) pair.
+  // 3) Open the teams first, then prioritize size before compatibility.
   const teams: Participant[][] = seeds.map((members) => [...members]);
-  while (teams.length < 1 || candidates.length > 0) {
+  while (teams.length < targetTeams && candidates.length > 0) teams.push([candidates.shift()!]);
+  while (candidates.length > 0) {
     let best: { teamIdx: number; candIdx: number; score: number } | null = null;
+    const smallest = Math.min(...teams.filter((team) => team.length < teamSize).map((team) => team.length));
     for (let t = 0; t < teams.length; t++) {
-      if (teams[t]!.length >= teamSize) continue;
+      if (teams[t]!.length !== smallest) continue;
       for (let c = 0; c < candidates.length; c++) {
         const memberScores = teams[t]!.map((m) => scorePair(m, candidates[c]!, config));
         const avg = memberScores.reduce((s, v) => s + v, 0) / memberScores.length;
@@ -224,24 +226,7 @@ export function buildTeams(participants: Participant[], config: FormConfig): Mat
         }
       }
     }
-    if (best === null) {
-      // All teams full. Create a new team only if we haven't reached the
-      // target count yet; otherwise balance by adding to the smallest team.
-      if (candidates.length === 0) break;
-      if (teams.length < targetTeams) {
-        const next = candidates.shift()!;
-        teams.push([next]);
-        continue;
-      }
-      // Add to the smallest team (tie-break by best score).
-      let smallest = 0;
-      for (let t = 1; t < teams.length; t++) {
-        if (teams[t]!.length < teams[smallest]!.length) smallest = t;
-      }
-      const chosen = candidates.shift()!;
-      teams[smallest]!.push(chosen);
-      continue;
-    }
+    if (best === null) throw new Error('No team has room for the remaining participants');
     const chosen = candidates.splice(best.candIdx, 1)[0]!;
     teams[best.teamIdx]!.push(chosen);
   }

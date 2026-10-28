@@ -114,6 +114,42 @@ test('everyone gets placed exactly once', () => {
   assert.equal(new Set(placed).size, people.length);
 });
 
+test('matching spreads 17 participants across teams as evenly as possible', () => {
+  const people = Array.from({ length: 17 }, (_, i) => makeParticipant({ userId: `p${i}` }));
+  const result = buildTeams(people, { ...CONFIG, teamSize: 5 });
+  assert.deepEqual(result.teams.map(team => team.memberIds.length).sort((a, b) => b - a), [5, 4, 4, 4]);
+  assert.equal(new Set(result.teams.flatMap(team => team.memberIds)).size, 17);
+});
+
+test('matching balances around mutual friend groups without splitting them', () => {
+  const friends = ['a', 'b', 'c'].map(id => makeParticipant({ userId: id, teammates: ['a', 'b', 'c'].filter(other => other !== id) }));
+  const people = [...friends, ...['d', 'e', 'f', 'g', 'h', 'i'].map(userId => makeParticipant({ userId }))];
+  const result = buildTeams(people, { ...CONFIG, teamSize: 5 });
+  assert.deepEqual(result.teams.map(team => team.memberIds.length).sort((a, b) => b - a), [5, 4]);
+  assert.ok(result.teams.some(team => friends.every(friend => team.memberIds.includes(friend.userId))));
+});
+
+test('unconstrained teams differ by at most one across participant counts', () => {
+  for (let size = 2; size <= 8; size++) {
+    for (let count = 1; count <= 40; count++) {
+      const people = Array.from({ length: count }, (_, i) => makeParticipant({ userId: `p${i}` }));
+      const teams = buildTeams(people, { ...CONFIG, teamSize: size }).teams;
+      const lengths = teams.map(team => team.memberIds.length);
+      assert.equal(teams.length, Math.ceil(count / size));
+      assert.ok(Math.max(...lengths) - Math.min(...lengths) <= 1, `${count} people, max ${size}: ${lengths}`);
+      assert.equal(new Set(teams.flatMap(team => team.memberIds)).size, count);
+    }
+  }
+});
+
+test('a full mutual friend group stays together when equal sizes are impossible', () => {
+  const ids = ['a', 'b', 'c', 'd', 'e'];
+  const friends = ids.map(userId => makeParticipant({ userId, teammates: ids.filter(id => id !== userId) }));
+  const teams = buildTeams([...friends, makeParticipant({ userId: 'f' }), makeParticipant({ userId: 'g' })], { ...CONFIG, teamSize: 5 }).teams;
+  assert.deepEqual(teams.map(team => team.memberIds.length).sort((a, b) => b - a), [5, 2]);
+  assert.ok(teams.some(team => ids.every(id => team.memberIds.includes(id))));
+});
+
 // ─── suggestTeamsForParticipant ──────────────────────────────────────────────
 
 function makeTeam(id: string, name: string, members: Participant[]): TeamWithMembers {

@@ -54,8 +54,8 @@ Every team (created or matched) gets:
   a "C# backend" and a "Node backend" are distinguishable people.
 - Mutual friend mentions are hard constraints; one-way mentions are strong soft
   preferences and are reported when split.
-- Greedy agglomerative formation: friend groups seed teams, then the globally
-  best (team, candidate) pairing is placed repeatedly. Nothing is written until
+- Friend groups seed teams; remaining participants fill the smallest teams,
+  with compatibility deciding among equally sized teams. Nothing is written until
   an organizer commits; committing announces lineups and can be re-run.
 
 **Admin web panel** (React 19 + Tailwind v4 + Radix-based UI, served by the bot)
