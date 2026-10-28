@@ -1,4 +1,5 @@
 import type { Question } from '@/components/signup-question'
+import { rateLimitMessage } from '../api'
 import type { FormAppearance } from '@/types'
 
 /** The public event + form every participant page renders. */
@@ -30,6 +31,7 @@ export const publicEventQuery = (eventId: string, force = false) => ({
   queryKey: ['public-event', eventId] as const,
   queryFn: async (): Promise<PublicEvent> => {
     const res = await fetch(`/api/public/events/${encodeURIComponent(eventId)}`)
+    if (res.status === 429) throw new Error(rateLimitMessage(res))
     if (!res.ok) throw new Error('participant.signup_unavailable')
     return await res.json() as PublicEvent
   },

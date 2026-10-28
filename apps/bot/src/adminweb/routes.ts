@@ -92,7 +92,7 @@ import { refreshTeamPanel } from '../discord/team-panel.js';
 import { eligibleParticipant, setMembershipLookup } from '../features/signup/eligibility.js';
 import { lookupGuildMember, createMemberUsernameLookup } from '../discord/member-lifecycle.js';
 import { runWithGuildContext, withGuildContext } from '../shared/postgres.js';
-import { consumeQuota } from '../shared/rate-limit.js';
+import { consumeQuota, EXPENSIVE_LIMIT, MEMBER_SEARCH_LIMIT } from '../shared/rate-limit.js';
 import { parseSignupCsv } from '../features/signup-import/domain.js';
 import { createImportedSignups, deleteImportedSignup, deleteImportedSignups, editImportedSignup, listImportedSignups, purgeImportedSignups, summarizeImportedRows } from '../features/signup-import/data.js';
 import { linkImportedSignup, claimImportedSignupByEmail, findImportedSignupByEmail } from '../features/signup-import/link.js';
@@ -209,8 +209,11 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       const path = req.url.split('?')[0]!;
       // Routine team reads share the bounded read quota, not the much smaller
       // provisioning/fan-out quota. Query values never determine route cost.
-      const expensive = path === '/api/guild/members' || /^\/api\/participant\/events\/[^/]+\/members$/.test(path) || (write && /invite|invitation|teams?|match\/(commit|lock|unlock)|announce|discord-events|signup-import|channel-test|\/panel|schedule-itinerary/i.test(path));
-      const costly = ordinary.allowed && expensive ? await consumeQuota(db, 'expensive', identity, 5) : ordinary;
+      const memberSearch = path === '/api/guild/members' || /^\/api\/participant\/events\/[^/]+\/members$/.test(path);
+      const expensive = write && /invite|invitation|teams?|match\/(commit|lock|unlock)|announce|discord-events|signup-import|channel-test|\/panel|schedule-itinerary/i.test(path);
+      const costly = ordinary.allowed && (memberSearch || expensive)
+        ? await consumeQuota(db, memberSearch ? 'member-search' : 'expensive', identity, memberSearch ? MEMBER_SEARCH_LIMIT : EXPENSIVE_LIMIT)
+        : ordinary;
       const denied = !ordinary.allowed ? ordinary : costly;
       if (!denied.allowed) return reply.header('Retry-After', denied.retryAfterSeconds).code(429).send({ error: 'rate_limited', retryAfterSeconds: denied.retryAfterSeconds });
     } catch { reply.code(503).send({ error: 'rate_limiter_unavailable', retryable: true }); }

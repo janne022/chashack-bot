@@ -1,4 +1,5 @@
 import { ParticipantNavigation } from '@/components/participant-navigation'
+import { rateLimitMessage } from '@/api'
 import { PageSkeleton } from '@/components/ui/skeleton'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
@@ -22,7 +23,7 @@ function EventLanding() {
   // and the form does not download the event twice.
   const details = useQuery(publicEventQuery(eventId))
   const reload = () => void details.refetch()
-  if (!details.data) return <main className="mx-auto max-w-2xl p-8">{details.isError ? <><p role="alert">{t('participant.signup_unavailable')}</p><Button onClick={reload}>{t('participant.retry')}</Button></> : <PageSkeleton />}</main>
+  if (!details.data) return <main className="mx-auto max-w-2xl p-8">{details.isError ? <><p role="alert">{details.error instanceof Error && !details.error.message.startsWith('participant.') ? details.error.message : t('participant.signup_unavailable')}</p><Button onClick={reload}>{t('participant.retry')}</Button></> : <PageSkeleton />}</main>
   const language = locale === 'sv' ? 'sv-SE' : 'en-US'
   const event = details.data
   return <ParticipantFrame appearance={event.form.appearance}><ParticipantNavigation eventId={eventId} active={view === 'schedule' ? 'schedule' : view === 'submission' ? 'submission' : 'overview'} />
@@ -55,6 +56,7 @@ function ParticipantSchedule({ eventId, locale }: { eventId: string; locale: str
       const response = await fetch(`${url}/schedule`, { signal })
       if (signal?.aborted) return
       if (response.status === 401) { setSignIn(true); setError(''); return }
+      if (response.status === 429) throw new Error(rateLimitMessage(response))
       if (!response.ok) throw new Error(response.status === 404 ? t('participant.schedule_access') : t('participant.schedule_error'))
       const data = await response.json() as { schedule: ScheduleItem[] }
       if (!signal?.aborted) { setItems(data.schedule); setSignIn(false); setError('') }

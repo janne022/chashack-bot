@@ -3,7 +3,7 @@ import { Save, Settings, Search, X, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppContext } from '@/lib/app-context'
 import { useT } from '@/lib/i18n'
-import { api } from '@/api'
+import { api, rateLimitMessage } from '@/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -31,13 +31,13 @@ export function ConfigPage() {
 
   useEffect(() => {
     fetch('/api/guild/channels')
-      .then((r) => r.json())
+      .then((r) => { if (r.status === 429) throw new Error(rateLimitMessage(r)); return r.json() })
       .then((j: { channels: { id: string; name: string }[]; categories: { id: string; name: string }[]; roles?: { id: string; name: string; color: string }[] }) => {
         setChannels(j.channels ?? [])
         setCategories(j.categories ?? [])
         setRoles(j.roles ?? [])
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => { if (error instanceof Error) toast.error(error.message) })
   }, [])
 
   useEffect(() => {

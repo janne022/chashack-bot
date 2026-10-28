@@ -141,7 +141,7 @@ export function MemberCombobox({
         <div id="member-combobox-list" role="listbox" aria-label={t('imports.member_search')} className="mt-2 max-h-64 space-y-0.5 overflow-y-auto">
           {!enabled && <p className="px-2 py-3 text-xs text-muted-foreground">{t('imports.member_search_hint')}</p>}
           {enabled && search.isFetching && <p className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />{t('imports.searching')}</p>}
-          {enabled && !search.isFetching && search.error && <p role="alert" className="px-2 py-3 text-xs text-destructive">{t('imports.member_search_failed')}</p>}
+          {enabled && !search.isFetching && search.error && <p role="alert" className="px-2 py-3 text-xs text-destructive">{search.error instanceof Error ? search.error.message : t('imports.member_search_failed')}</p>}
           {enabled && !search.isFetching && !search.error && members.length === 0 && <p className="px-2 py-3 text-xs text-muted-foreground">{t('imports.member_search_empty')}</p>}
           {members.map((member, index) => <button
             key={member.id}

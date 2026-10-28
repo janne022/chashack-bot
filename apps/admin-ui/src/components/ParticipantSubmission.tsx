@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { rateLimitMessage } from '@/api'
 import { SignupQuestion, type Localized } from '@/components/signup-question'
 import { Button } from '@/components/ui/button'
 import { PageSkeleton } from '@/components/ui/skeleton'
@@ -27,6 +28,7 @@ export function ParticipantSubmission({ eventId }: { eventId: string }) {
     try {
       const response = await fetch(endpoint, { signal })
       if (response.status === 401) { if (!signal?.aborted) setSignIn(true); return }
+      if (response.status === 429) throw new Error(rateLimitMessage(response))
       if (!response.ok) throw new Error(response.status === 404 ? t('submission.access_error') : t('submission.load_error'))
       const next = await response.json() as SubmissionState
       if (signal?.aborted) return
@@ -55,6 +57,7 @@ export function ParticipantSubmission({ eventId }: { eventId: string }) {
       const response = await fetch(endpoint, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ formVersion: data.form.version, answers }) })
       const result = await response.json() as SubmissionRecord & { complete?: boolean; missingRequiredQuestionIds?: string[]; error?: string }
       if (!response.ok) {
+        if (response.status === 429) { setError(rateLimitMessage(response)); return }
         if (result.error === 'stale_form_version') { setStale(true); setError(t('submission.form_stale')) }
         else setError(result.error === 'submission_locked' ? t('submission.locked') : t('submission.save_error'))
         return

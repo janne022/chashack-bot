@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { registerRoutes } from './routes.js';
 import { mutationBodyError } from './validation.js';
 import { openTestDb } from '../shared/test-db.js';
+import { MEMBER_SEARCH_LIMIT } from '../shared/rate-limit.js';
 import { createSession, getSession } from '../features/auth/data.js';
 import { makeDiscordToken, makeParticipantState, participantStateReturn, participantReturnPath } from '../features/auth/domain.js';
 import type { Env } from '../shared/env.js';
@@ -59,6 +60,7 @@ test('wrong scheme and cross-site metadata cannot revoke a session; malformed co
 });
 
 test('authenticated expensive reads are denied before fresh Discord lookups', async (t) => {
+  const now = Date.now(); t.mock.method(Date, 'now', () => Math.floor(now / 60_000) * 60_000 + 1_000);
   const db = await openTestDb(); const app = Fastify();
   t.after(async () => { await app.close(); await db.close(); });
   const guildId = '11111111111111111'; let lookups = 0;
@@ -67,13 +69,15 @@ test('authenticated expensive reads are denied before fresh Discord lookups', as
   const session = await createSession(db, { userId: 'owner', username: 'Owner', avatar: null, guilds: [{ id: guildId, name: 'Test', icon: null }] });
   const headers = { cookie: cookie(session.id, 'organizer') };
   for (let i = 0; i < 6; i++) assert.equal((await app.inject({ url: '/api/auth/me?filter=teams', headers })).statusCode, 200, 'ordinary reads and query values must not consume the expensive-operation quota');
-  for (let i = 0; i < 5; i++) assert.equal((await app.inject({ url: '/api/guild/members?query=Test', headers })).statusCode, 200);
+  for (let i = 0; i < MEMBER_SEARCH_LIMIT; i++) assert.equal((await app.inject({ url: '/api/guild/members?query=Test', headers })).statusCode, 200);
   const before = lookups;
   const denied = await app.inject({ url: '/api/guild/members?query=Other', headers });
   assert.equal(denied.statusCode, 429); assert.equal(lookups, before); assert.ok(denied.headers['retry-after']);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/match/lock', headers })).statusCode, 200, 'exhausting member searches must not block team actions');
 });
 
 test('participant member searches consume the expensive quota before Discord lookup', async (t) => {
+  const now = Date.now(); t.mock.method(Date, 'now', () => Math.floor(now / 60_000) * 60_000 + 1_000);
   const db = await openTestDb(); const app = Fastify();
   t.after(async () => { await app.close(); await db.close(); });
   const guildId = '11111111111111111'; let searches = 0;
@@ -82,7 +86,7 @@ test('participant member searches consume the expensive quota before Discord loo
   await db.run("INSERT INTO events (id,guild_id,name,status,created_at,updated_at) VALUES ('quota-event',?,'Quota','active',1,1)", guildId);
   const session = await createSession(db, { userId: 'participant', username: 'Participant', avatar: null, guilds: [], audience: 'participant' });
   const headers = { cookie: cookie(session.id, 'participant') };
-  for (let i = 0; i < 5; i++) assert.equal((await app.inject({ url: '/api/participant/events/quota-event/members?query=Test', headers })).statusCode, 200);
+  for (let i = 0; i < MEMBER_SEARCH_LIMIT; i++) assert.equal((await app.inject({ url: '/api/participant/events/quota-event/members?query=Test', headers })).statusCode, 200);
   assert.equal((await app.inject({ url: '/api/participant/events/quota-event/members?query=Other', headers })).statusCode, 429);
-  assert.equal(searches, 5);
+  assert.equal(searches, MEMBER_SEARCH_LIMIT);
 });

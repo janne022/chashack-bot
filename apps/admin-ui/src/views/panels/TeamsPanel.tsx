@@ -85,7 +85,7 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
       await refresh()
     } catch (e) {
       const key = e instanceof ApiError && (e.code === 'ineligible' || e.code === 'already_in_team') ? 'teams.owner_ineligible' : 'teams.create_failed'
-      toast.error(t(key))
+      toast.error(e instanceof ApiError && e.rateLimited ? e.message : t(key))
     } finally { setCreating(false) }
   }
 
@@ -98,7 +98,7 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
       else toast.warning(t('teams.provision_pending'))
       await refresh()
     } catch (e) {
-      toast.error(t(e instanceof ApiError && e.code === 'discord_unavailable' ? 'teams.discord_unavailable' : 'teams.provision_failed'))
+      toast.error(e instanceof ApiError && e.rateLimited ? e.message : t(e instanceof ApiError && e.code === 'discord_unavailable' ? 'teams.discord_unavailable' : 'teams.provision_failed'))
     } finally { setRetryingTeam(null) }
   }
 

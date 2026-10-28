@@ -1,4 +1,12 @@
 import type { AppState, AuthMe, DiscordEventSyncResult, FormConfig, HackathonEvent, ImportedSignup, MatchResult, SubmissionForm, SubmissionRecord, Team, TeamSuggestion } from './types'
+import { translate } from './lib/i18n'
+
+export function rateLimitMessage(response: Response): string {
+  const seconds = Number(response.headers.get('retry-after'))
+  return Number.isFinite(seconds) && seconds > 0
+    ? translate('common.rate_limited_retry', { seconds })
+    : translate('common.rate_limited')
+}
 
 class ApiError extends Error {
   constructor(
@@ -6,6 +14,7 @@ class ApiError extends Error {
     public readonly code: string,
     public readonly unauthorized = false,
     public readonly retryAfterSeconds?: number,
+    public readonly rateLimited = false,
   ) {
     super(message)
   }
@@ -28,12 +37,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const retryAfterSeconds = res.status === 429 ? Number(res.headers.get('retry-after')) : NaN
     const message = (body.message as string) ?? 'Request failed'
     throw new ApiError(
-      res.status === 429 && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-        ? `${message} (retry in ${retryAfterSeconds}s)`
+      res.status === 429
+        ? rateLimitMessage(res)
         : message,
       (body.code as string) ?? (body.error as string) ?? 'error',
       false,
       Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? retryAfterSeconds : undefined,
+      res.status === 429,
     )
   }
   return body as T

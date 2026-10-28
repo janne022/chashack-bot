@@ -26,7 +26,7 @@ export function SubmissionManager({ eventId, baseForm, readOnly }: { eventId: st
       setRecords(result.submissions)
       if (!dirty.current || discardDraft) { dirty.current = false; currentVersion.current = result.form.version; setForm(result.form); setError('') }
       else if (form && result.form.version !== form.version) setError(t('submission.form_stale'))
-    } catch { if (!signal?.aborted && !form) setError(t('submission.load_error')) }
+    } catch (cause) { if (!signal?.aborted && !form) setError(cause instanceof ApiError && cause.rateLimited ? cause.message : t('submission.load_error')) }
   }
   useEffect(() => { const controller = new AbortController(); dirty.current = false; currentVersion.current = 0; void load(controller.signal); return () => controller.abort() }, [eventId])
   useLiveUpdates(form ? `/api/live?eventId=${encodeURIComponent(eventId)}` : null, load)
@@ -35,7 +35,7 @@ export function SubmissionManager({ eventId, baseForm, readOnly }: { eventId: st
     if (form.enabled && !form.questions.length) { setError(t('submission.questions_required')); return }
     setBusy(true); setError(''); setMessage('')
     try { const result = await api.saveSubmissionForm(eventId, form); dirty.current = false; currentVersion.current = result.form.version; setForm(result.form); setError(''); setMessage(t('submission.form_saved')) }
-    catch (cause) { setError(cause instanceof ApiError && cause.code === 'stale_form_version' ? t('submission.form_stale') : t('submission.form_save_error')) }
+    catch (cause) { setError(cause instanceof ApiError && cause.rateLimited ? cause.message : cause instanceof ApiError && cause.code === 'stale_form_version' ? t('submission.form_stale') : t('submission.form_save_error')) }
     finally { setBusy(false) }
   }
   if (!form) return error ? <div role="alert"><p>{error}</p><Button onClick={() => void load()}>{t('participant.retry')}</Button></div> : <PageSkeleton />

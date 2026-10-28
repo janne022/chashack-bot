@@ -82,6 +82,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   function describeError(error: unknown, fallback: string) {
     if (error instanceof ApiError) {
       if (error.unauthorized) return t('imports.session_expired')
+      if (error.rateLimited) return error.message
       if (['access_refused', 'not_allowed', 'forbidden'].includes(error.code)) return t('imports.access_denied')
       if (['csrf', 'bad_origin', 'origin_mismatch'].includes(error.code)) return t('imports.origin_error')
       // Every failure the server can explain has a localized twin here; the

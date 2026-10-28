@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { makeDiscordToken } from '../features/auth/domain.js';
 import { createSession, getSession } from '../features/auth/data.js';
 import { openTestDb } from '../shared/test-db.js';
+import { EXPENSIVE_LIMIT } from '../shared/rate-limit.js';
 import type { Env } from '../shared/env.js';
 import { registerRoutes } from './routes.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
@@ -244,14 +245,15 @@ test('public source quota returns a retryable 429 and ignores spoofed forwarded 
   await db.close();
 });
 
-test('expensive actor quota is shared across target ids and denies before audit or mutation', async () => {
+test('expensive actor quota is shared across target ids and denies before audit or mutation', async (t) => {
+  const now = Date.now(); t.mock.method(Date, 'now', () => Math.floor(now / 60_000) * 60_000 + 1_000);
   const db = await openTestDb();
   const guildId = '11111111111111111';
   const session = await createSession(db, { userId: 'quota-admin', username: 'admin', avatar: null, guilds: [{ id: guildId, name: 'Guild', icon: null }] });
   const guild = { id: guildId, ownerId: 'someone-else', members: { fetch: async (id: string) => ({ id, permissions: { has: (name: string) => name === 'Administrator', bitfield: 8n }, roles: { cache: new Map() } }) } };
   const app = Fastify({ logger: false });
   registerRoutes(app, { db, config, announce: async () => undefined, client: { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild } } as never });
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < EXPENSIVE_LIMIT; i++) {
     const response = await app.inject({ method: 'POST', url: `/api/match/lock?eventId=attacker-selected-${i}`, headers: { cookie: sessionCookie(session.id) } });
     assert.equal(response.statusCode, 200);
   }
@@ -278,7 +280,7 @@ test('registered Discord dispatch shares HTTP expensive quota and denies before 
   for (const locale of ['en', 'sv'] as const) {
     const actor = `shared-${locale}`;
     const localeSession = await createSession(db, { userId: actor, username: 'admin', avatar: null, guilds: [{ id: guildId, name: 'Guild', icon: null }] });
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < EXPENSIVE_LIMIT; i++) {
       const response = await app.inject({ method: 'POST', url: `/api/match/lock?eventId=target-${locale}-${i}`, headers: { cookie: sessionCookie(localeSession.id) } });
       assert.equal(response.statusCode, 200);
     }
