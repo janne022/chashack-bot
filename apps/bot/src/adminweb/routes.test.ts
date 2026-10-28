@@ -412,7 +412,7 @@ test('legacy published forms with whitespace labels remain readable and editable
   const app = Fastify({ logger: false });
   registerRoutes(app, { db, config, announce: async () => undefined, client: { guilds: { fetch: async () => guild, cache: new Map([[guildId, guild]]) } } as never });
   const headers = { cookie: `hackpartsess=${encodeURIComponent(makeDiscordToken(signingKey, session.id, Date.now(), 'participant'))}` };
-  const url = '/api/participant/events/legacy-form/registration';
+  const url = ['/api/participant/events', 'legacy-form', 'registration'].join('/');
   try {
     const saved = await app.inject({ method: 'PUT', url, headers, payload: { formVersion: form.version, answers: { legacy: 'choice' } } });
     assert.equal(saved.statusCode, 200, saved.body);
