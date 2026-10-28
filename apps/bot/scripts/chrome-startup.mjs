@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { assertChromePath } from './chrome-path.mjs';
 
-export async function startChrome(profile, { executable, args = [], timeoutMs = 10000 } = {}) {
+export async function startChrome(profile, { executable, args = [], timeoutMs = 30000 } = {}) {
   if (!executable) executable = assertChromePath();
   const chrome = spawn(executable, [...args, '--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { detached: process.platform !== 'win32', windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] }); // g0:allow:secrets t_15e7ed4e — public Chromium launch flags, no credential.
   let stderr = '', spawnError, announcedUrl, lastEndpointError = 'no endpoint published';
