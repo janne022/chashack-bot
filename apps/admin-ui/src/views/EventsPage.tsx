@@ -15,7 +15,7 @@ import { FormConfigEditor } from '@/components/FormConfigEditor'
 import { SubmissionManager } from '@/components/SubmissionManager'
 import { AppearanceControls } from '@/components/appearance-controls'
 import { resolveAppearance } from '@/components/participant-appearance'
-import { validateQuestions } from '@/lib/question-validation'
+import { questionErrors, validateQuestions } from '@/lib/question-validation'
 import { announcementFailureKey } from '@/lib/announcement-result'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -43,6 +43,15 @@ function toLocalIso(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+/** Create wizard rail — one label per step, in the order the form is filled. */
+const CREATE_STEPS = [
+  { id: 'basics', labelKey: 'events.step_basics' },
+  { id: 'schedule', labelKey: 'events.step_schedule' },
+  { id: 'assignments', labelKey: 'events.step_assignments' },
+  { id: 'form', labelKey: 'events.step_form' },
+  { id: 'review', labelKey: 'events.step_review' },
+] as const
 
 export function EventsPage() {
   const { state, selectEvent, refresh } = useAppContext()
@@ -317,6 +326,7 @@ function NewEventButton() {
   const t = useT()
   const [chooserOpen, setChooserOpen] = useState(false)
   const [open, setOpen] = useState(false)
+  const [createStep, setCreateStep] = useState(0)
   const [chooserTemplateId, setChooserTemplateId] = useState<string>('')
   const [templateId, setTemplateId] = useState<string>('')
   const [formMode, setFormMode] = useState<'default' | 'template' | 'custom'>('default')
@@ -431,6 +441,7 @@ function NewEventButton() {
     setCustomForm(JSON.parse(JSON.stringify(DEFAULT_FORM)) as FormConfig)
     setCreateDiscordEvent(true)
     setChooserOpen(false)
+    setCreateStep(0)
     setOpen(true)
     if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
     if (!announceChannelId && defaults.defaultAnnouncementChannelId) setAnnounceChannelId(defaults.defaultAnnouncementChannelId)
@@ -441,6 +452,7 @@ function NewEventButton() {
     if (!chooserTemplateId) return
     applyTemplate(chooserTemplateId)
     setChooserOpen(false)
+    setCreateStep(0)
     setOpen(true)
     if (!panelChannelId && defaults.defaultPanelChannelId) setPanelChannelId(defaults.defaultPanelChannelId)
     if (!announceChannelId && defaults.defaultAnnouncementChannelId) setAnnounceChannelId(defaults.defaultAnnouncementChannelId)
@@ -502,7 +514,11 @@ function NewEventButton() {
   }
 
   async function create(launch: boolean) {
-    if (formMode === 'custom' && !validateQuestions(customForm)) return
+    if (formMode === 'custom' && Object.keys(questionErrors(customForm)).length > 0) {
+      setCreateStep(3)
+      requestAnimationFrame(() => validateQuestions(customForm))
+      return
+    }
     const starts = startsAt !== '' ? Date.parse(startsAt) || null : null
     const ends = endsAt !== '' ? Date.parse(endsAt) || null : null
     const signupStarts = signupStartsAt !== '' ? Date.parse(signupStartsAt) || null : null
@@ -575,6 +591,7 @@ function NewEventButton() {
       }
 
       setOpen(false)
+      setCreateStep(0)
       setChooserTemplateId('')
       setTemplateId('')
       setFormMode('default')
@@ -685,7 +702,34 @@ function NewEventButton() {
               </Button>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              <ol className="flex flex-wrap items-center gap-1.5" aria-label={t('events.create_steps')}>
+                {CREATE_STEPS.map((step, index) => {
+                  const active = createStep === index
+                  const done = createStep > index
+                  return (
+                    <li key={step.id}>
+                      <button
+                        type="button"
+                        onClick={() => setCreateStep(index)}
+                        aria-current={active ? 'step' : undefined}
+                        className={cn(
+                          'flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+                          active ? 'border-accent bg-accent-soft text-accent' : done ? 'border-accent/40 text-foreground' : 'border-border text-muted-foreground hover:border-accent/40',
+                        )}
+                      >
+                        <span className={cn('grid size-5 place-items-center rounded-full text-[10px] font-bold', active ? 'bg-accent text-accent-foreground' : 'bg-surface-2')}>
+                          {done ? '✓' : index + 1}
+                        </span>
+                        {t(step.labelKey)}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
+              <p className="text-xs text-muted-foreground">{t('events.step_of', { current: createStep + 1, total: CREATE_STEPS.length })}</p>
 
+              {createStep === 0 && (
+                <div className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.name')}</span>
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('events.name_placeholder')} maxLength={100} />
@@ -694,25 +738,30 @@ function NewEventButton() {
                 <span className="font-medium">{t('events.description')}</span>
                 <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('events.desc_placeholder')} maxLength={1000} />
               </label>
-              <ScheduleEditor
-                value={schedule}
-                onChange={setSchedule}
-                startValue={startsAt}
-                endValue={endsAt}
-                onStartChange={changeStart}
-                onEndChange={setEndsAt}
-                signupStartValue={signupStartsAt}
-                signupEndValue={signupEndsAt}
-                onSignupStartChange={setSignupStartsAt}
-                onSignupEndChange={setSignupEndsAt}
-                startActions={startActions}
-                endActions={endActions}
-                signupActions={signupActions}
-                onStartActionsChange={setStartActions}
-                onEndActionsChange={setEndActions}
-                onSignupActionsChange={setSignupActions}
-                disablePast
-              />
+                </div>
+              )}
+              {createStep === 1 && (
+                <ScheduleEditor
+                  value={schedule}
+                  onChange={setSchedule}
+                  startValue={startsAt}
+                  endValue={endsAt}
+                  onStartChange={changeStart}
+                  onEndChange={setEndsAt}
+                  signupStartValue={signupStartsAt}
+                  signupEndValue={signupEndsAt}
+                  onSignupStartChange={setSignupStartsAt}
+                  onSignupEndChange={setSignupEndsAt}
+                  startActions={startActions}
+                  endActions={endActions}
+                  signupActions={signupActions}
+                  onStartActionsChange={setStartActions}
+                  onEndActionsChange={setEndActions}
+                  onSignupActionsChange={setSignupActions}
+                  disablePast
+                />
+              )}
+              {createStep === 2 && (
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
                 <span className="text-sm font-medium">Assignments</span>
                 <span className="text-xs text-muted-foreground">Pick a collection — its assignments go out to each team when the hackathon starts. Manage collections under Templates → Assignment collections.</span>
@@ -758,7 +807,9 @@ function NewEventButton() {
                   </div>
                 )}
               </div>
+              )}
 
+              {createStep === 3 && (
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
                 <span className="text-sm font-medium">{t('events.form_section')}</span>
                 <div className="grid gap-2 sm:grid-cols-3">
@@ -843,8 +894,9 @@ function NewEventButton() {
                   {formMode === 'default' ? t('events.form_default_hint') : formMode === 'template' ? t('events.form_template_hint') : t('events.form_build_hint')}
                 </span>
               </div>
+              )}
 
-              {guildChannels.length > 0 ? (
+              {createStep === 1 && (guildChannels.length > 0 ? (
                 <div className="grid items-start gap-4 lg:grid-cols-3">
                   <label className="flex flex-col gap-1.5 text-sm">
                     <span className="font-medium">{t('events.panel_channel')}</span>
@@ -881,8 +933,9 @@ function NewEventButton() {
                 <div className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2.5 text-sm text-muted-foreground">
                   Channel pickers appear once the bot connection is live. Leave them unset to use the Config defaults.
                 </div>
-              )}
+              ))}
 
+              {createStep === 0 && (
               <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5">
                 <span className="text-sm font-medium">{t('events.cleanup_delay')}</span>
                 <Input
@@ -896,7 +949,9 @@ function NewEventButton() {
                 />
                 <span className="text-xs text-muted-foreground">{t('events.cleanup_delay_hint')}</span>
               </div>
+              )}
 
+              {createStep === 1 && (
               <label className={cn('flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm', startsAt === '' && 'opacity-60')}>
                 <Checkbox checked={createDiscordEvent && startsAt !== ''} onCheckedChange={setCreateDiscordEvent} disabled={startsAt === ''} />
                 <span className="flex flex-col">
@@ -904,7 +959,21 @@ function NewEventButton() {
                   <span className="text-xs text-muted-foreground">{startsAt === '' ? t('events.create_discord_event_needs_date') : t('events.create_discord_event_hint')}</span>
                 </span>
               </label>
+              )}
 
+              {createStep === 4 && (
+              <div className="flex flex-col gap-4">
+                <div className="rounded-lg border border-border bg-surface-2/40 p-4">
+                  <h3 className="font-display text-lg">{name.trim() || t('events.untitled')}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{description.trim() || t('events.no_description')}</p>
+                  <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                    <div><dt className="text-xs text-muted-foreground">{t('events.starts')}</dt><dd>{startsAt ? dateTime(Date.parse(startsAt)) : t('events.not_set')}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">{t('events.ends')}</dt><dd>{endsAt ? dateTime(Date.parse(endsAt)) : t('events.not_set')}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">{t('events.signup_window')}</dt><dd>{signupStartsAt ? dateTime(Date.parse(signupStartsAt)) : t('events.not_set')} – {signupEndsAt ? dateTime(Date.parse(signupEndsAt)) : t('events.not_set')}</dd></div>
+                    <div><dt className="text-xs text-muted-foreground">{t('events.assignment_collection')}</dt><dd>{assignmentCollectionId === '__embedded' ? t('templates.embedded_assignments', { count: embeddedAssignments.length }) : assignmentCollectionId ? (state.templates.find(tpl => tpl.id === assignmentCollectionId)?.name ?? t('events.not_set')) : t('events.no_assignments')}</dd></div>
+                  </dl>
+                  <p className="mt-3 text-xs text-muted-foreground">{t('events.draft_hint')}</p>
+                </div>
               <label className="flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm">
                 <Checkbox checked={saveAsTemplate} onCheckedChange={setSaveAsTemplate} />
                 <span className="flex flex-col">
@@ -912,17 +981,32 @@ function NewEventButton() {
                   <span className="text-xs text-muted-foreground">Reusable for next time — includes form, schedule and description.</span>
                 </span>
               </label>
+              </div>
+              )}
 
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+                <Button variant="ghost" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+                {createStep > 0 && (
+                  <Button variant="outline" onClick={() => setCreateStep(step => Math.max(0, step - 1))}>
+                    <ChevronLeft />
+                    {t('events.back')}
+                  </Button>
+                )}
                 <Button variant="secondary" disabled={busy || name.trim().length < 3} onClick={() => void create(false)}>
                   <FilePlus />
-                  Save as draft
+                  {t('events.save_draft')}
                 </Button>
-                <Button disabled={busy || name.trim().length < 3} onClick={() => void create(true)}>
-                  <Send />
-                  Create &amp; launch
-                </Button>
+                {createStep < CREATE_STEPS.length - 1 ? (
+                  <Button disabled={name.trim().length < 3} onClick={() => setCreateStep(step => Math.min(CREATE_STEPS.length - 1, step + 1))}>
+                    {t('events.next')}
+                    <ArrowRight />
+                  </Button>
+                ) : (
+                  <Button disabled={busy || name.trim().length < 3} onClick={() => void create(true)}>
+                    <Send />
+                    {t('events.create_launch')}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </DialogContent>
@@ -1296,6 +1380,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [signupActions, setSignupActions] = useState<import('@/types').ScheduleAction[]>(()=>deriveSignup(event))
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [editTab, setEditTab] = useState<'basics' | 'schedule' | 'assignments' | 'form' | 'theme'>('basics')
 
   function changeStart(next: string) {
     const nextMs = dateInputToMs(next), oldMs = dateInputToMs(start)
@@ -1376,18 +1461,23 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
     <>
       {open && (
         <Dialog open={open} onOpenChange={next => { if (!next && !busy) onClose() }}>
-          <DialogContent aria-modal="true" showCloseButton={false} className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+          <DialogContent aria-modal="true" showCloseButton={false} className="sm:max-w-[min(56rem,95vw)] max-h-[85vh] overflow-y-auto">
             <CardHeader>
               <DialogTitle>{t('events.edit_schedule_title')}</DialogTitle>
               <DialogDescription>{t('events.edit_schedule_desc')}</DialogDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               {saveError && <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"><p>{saveError}</p><Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void save()} disabled={busy}>{t('events.retry_save')}</Button></div>}
-              {hasLegacyAnnouncements && <details className="rounded-lg border border-border bg-surface-2 p-3 text-sm">
-                <summary className="cursor-pointer font-medium">{t('events.legacy_announcements_title')}</summary>
-                <p className="mt-2 text-muted-foreground">{t('events.legacy_announcements_preserved')}</p>
-                {(event.announcements ?? []).filter(a => a.trigger === 'on_activate' || a.trigger === 'on_start').map(a => <div key={a.id} className="mt-3 whitespace-pre-wrap break-words"><strong>{a.title}</strong><p className="text-muted-foreground">{a.message}</p></div>)}
-              </details>}
+              <Tabs value={editTab} onValueChange={(next) => setEditTab(next as typeof editTab)} className="gap-4">
+                <TabsList variant="line" className="w-full justify-start overflow-x-auto">
+                  <TabsTrigger value="basics"><ClipboardList className="size-3.5" />{t('events.tab_basics')}</TabsTrigger>
+                  <TabsTrigger value="schedule"><CalendarClock className="size-3.5" />{t('events.tab_schedule')}</TabsTrigger>
+                  <TabsTrigger value="assignments"><UsersRound className="size-3.5" />{t('events.tab_assignments')}</TabsTrigger>
+                  <TabsTrigger value="form"><FileCheck className="size-3.5" />{t('events.tab_form')}</TabsTrigger>
+                  <TabsTrigger value="theme"><LayoutTemplate className="size-3.5" />{t('events.tab_theme')}</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="basics" className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.name')}</span>
                 <Input value={editName} onChange={(e)=>setEditName(e.target.value)} maxLength={100} />
@@ -1426,6 +1516,14 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                   <span className="text-xs text-muted-foreground">{t('events.cleanup_delay_hint')}</span>
                 </div>
               </label>
+                </TabsContent>
+
+                <TabsContent value="schedule" className="flex flex-col gap-4">
+              {hasLegacyAnnouncements && <details className="rounded-lg border border-border bg-surface-2 p-3 text-sm">
+                <summary className="cursor-pointer font-medium">{t('events.legacy_announcements_title')}</summary>
+                <p className="mt-2 text-muted-foreground">{t('events.legacy_announcements_preserved')}</p>
+                {(event.announcements ?? []).filter(a => a.trigger === 'on_activate' || a.trigger === 'on_start').map(a => <div key={a.id} className="mt-3 whitespace-pre-wrap break-words"><strong>{a.title}</strong><p className="text-muted-foreground">{a.message}</p></div>)}
+              </details>}
               <ScheduleEditor
                 value={items}
                 onChange={setItems}
@@ -1446,6 +1544,9 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 disablePast
               />
               <label className="flex items-start gap-2 rounded-lg border p-3 text-sm"><input type="checkbox" checked={enforceSignupWindow} onChange={e => { setEnforceSignupWindow(e.target.checked); setSignupPolicyDirty(true) }} className="mt-1" /><span><strong>{t('events.enforce_signup_window')}</strong><span className="mt-1 block text-muted-foreground">{t('events.enforce_signup_help')}</span></span></label>
+                </TabsContent>
+
+                <TabsContent value="assignments" className="flex flex-col gap-4">
               <div className="space-y-2">
                 <Label>{t('events.assignment_collection')}</Label>
                 <Select value="" onValueChange={id => {
@@ -1458,6 +1559,9 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 </Select>
               </div>
               <AssignmentsEditor value={editAssignments} onChange={setEditAssignments} />
+                </TabsContent>
+
+                <TabsContent value="form" className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.change_form')}</span>
                 <Select value={editFormTemplateId} onValueChange={setEditFormTemplateId}>
@@ -1472,10 +1576,16 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 </Select>
                 <span className="text-xs text-muted-foreground">{t('events.keep_form')}</span>
               </label>
+                </TabsContent>
+
+                <TabsContent value="theme" className="flex flex-col gap-4">
               <section className="space-y-3"><h3 className="font-semibold">{t('form.appearance')}</h3>
                 {themeTemplates.length > 0 && <label className="flex flex-col gap-2 text-sm"><span>{t('form.saved_theme')}</span><Select value="" onValueChange={id => { const theme = themeTemplates.find(item => item.id === id); if (!theme) return; try { setAppearance(JSON.parse(theme.json) as FormAppearance); setAppearanceDirty(true) } catch { toast.error(t('form.theme_invalid')) } }}><SelectTrigger aria-label={t('form.saved_theme')}><SelectValue placeholder={t('form.apply_theme')} /></SelectTrigger><SelectContent>{themeTemplates.map(theme => <SelectItem key={theme.id} value={theme.id}>{theme.name === 'Default' ? t('form.default_theme') : theme.name === 'Halloween' ? t('form.halloween') : theme.name === 'Christmas' ? t('form.christmas') : theme.name}</SelectItem>)}</SelectContent></Select></label>}
                 <AppearanceControls value={appearance} onChange={next => { setAppearance(next); setAppearanceDirty(true) }} previewTitle={editName} />
               </section>
+                </TabsContent>
+              </Tabs>
+
               <div className="flex justify-end gap-2">
                 <Button variant="outline" disabled={busy} onClick={onClose}>{t('common.cancel')}</Button>
                 <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>

@@ -260,7 +260,11 @@ export const DEFAULT_FORM: FormConfig = {
 export const EXPERIENCE_IDS: Experience[] = ['first_timer', 'some_experience', 'veteran'];
 export const TEAM_PREF_IDS: TeamPref[] = ['create_team', 'join_team', 'random_team'];
 
-/** Role color palette for team creation (Discord modals have no color picker). */
+/**
+ * Role color palette for team creation (Discord modals have no color picker).
+ * Keep in sync with `TEAM_COLOR_SWATCHES` in the admin UI — a team created in
+ * either surface must render the same colour in both.
+ */
 export const TEAM_COLORS: { id: string; label: string; hex: string; int: number }[] = [
   { id: 'blurple', label: 'Blurple', hex: '#5865F2', int: 0x5865f2 },
   { id: 'green', label: 'Green', hex: '#3EC46D', int: 0x3ec46d },
@@ -269,6 +273,15 @@ export const TEAM_COLORS: { id: string; label: string; hex: string; int: number 
   { id: 'purple', label: 'Purple', hex: '#9B59B6', int: 0x9b59b6 },
   { id: 'cyan', label: 'Cyan', hex: '#1ABC9C', int: 0x1abc9c },
   { id: 'pink', label: 'Pink', hex: '#E91E63', int: 0xe91e63 },
+  { id: 'blue', label: 'Blue', hex: '#3498DB', int: 0x3498db },
+  { id: 'yellow', label: 'Yellow', hex: '#F1C40F', int: 0xf1c40f },
+  { id: 'teal', label: 'Teal', hex: '#2DD4BF', int: 0x2dd4bf },
+  { id: 'lime', label: 'Lime', hex: '#84CC16', int: 0x84cc16 },
+  { id: 'magenta', label: 'Magenta', hex: '#D946EF', int: 0xd946ef },
+  { id: 'indigo', label: 'Indigo', hex: '#6366F1', int: 0x6366f1 },
+  { id: 'gold', label: 'Gold', hex: '#C9A227', int: 0xc9a227 },
+  { id: 'salmon', label: 'Salmon', hex: '#FF7F50', int: 0xff7f50 },
+  { id: 'slate', label: 'Slate', hex: '#64748B', int: 0x64748b },
 ];
 
 export function teamColor(colorId: string | null): { hex: string; int: number } {

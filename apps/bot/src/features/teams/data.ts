@@ -7,6 +7,7 @@ import { audit } from '../../shared/audit.js';
 import { err, ok, type Result } from '../../shared/result.js';
 import { newId, newJoinCode } from '../../shared/db.js';
 import type { TeamKind } from '../form/domain.js';
+import { TEAM_COLORS } from '../form/domain.js';
 import { eligibleParticipant } from '../signup/eligibility.js';
 import { randomInt } from 'node:crypto';
 import { getEvent, getEventForm } from '../events/data.js';
@@ -84,6 +85,21 @@ function toTeam(row: TeamRow): Team {
   };
 }
 
+/**
+ * First palette colour that no other team in this event uses. Colours are a
+ * visual team identity, so teams should not share one until the palette runs
+ * out — then cycle by team order. Call inside the event transaction (the
+ * caller already holds the row lock) so two creates cannot pick the same.
+ */
+export async function nextTeamColor(db: Db, eventId: string): Promise<string> {
+  const rows = await db.all<{ color: string | null }>(
+    'SELECT color FROM teams WHERE event_id = ? ORDER BY created_at, id', eventId);
+  // Legacy NULL colours render as blurple, so count that visible fallback too.
+  const used = new Set(rows.map(row => row.color || 'blurple'));
+  const free = TEAM_COLORS.find(color => !used.has(color.id));
+  return free?.id ?? TEAM_COLORS[rows.length % TEAM_COLORS.length]!.id;
+}
+
 export async function createTeam(
   db: Db,
   actor: string,
@@ -108,6 +124,7 @@ export async function createTeam(
 
     const id = newId('team');
     const joinCode = kind === 'private' ? newJoinCode() : null;
+    const color = colorId ?? await nextTeamColor(db, eventId);
     await db.run(
       'INSERT INTO teams (id, event_id, guild_id, name, kind, owner_id, join_code, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       id,
@@ -117,12 +134,12 @@ export async function createTeam(
       kind,
       ownerId,
       joinCode,
-      colorId,
+      color,
       Date.now(),
     );
     await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', id, Date.now(), eventId, ownerId);
     await markTeamProvisionPending(db, guildId, eventId, id);
-    await audit(db, actor, 'team.create', eventId, { teamId: id, name: cleanName, kind, colorId }, guildId);
+    await audit(db, actor, 'team.create', eventId, { teamId: id, name: cleanName, kind, colorId: color }, guildId);
     const created = await db.get<TeamRow>('SELECT * FROM teams WHERE id = ?', id);
     return ok(toTeam(created!));
   });

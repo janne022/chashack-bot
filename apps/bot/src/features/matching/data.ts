@@ -10,7 +10,7 @@ import type { FormConfig } from '../form/domain.js';
 import { getParticipant, listMatchable, projectParticipantForMatching } from '../signup/data.js';
 import { getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
-import { listTeams, lockEventTeams, type TeamWithMembers } from '../teams/data.js';
+import { listTeams, lockEventTeams, nextTeamColor, type TeamWithMembers } from '../teams/data.js';
 import { markTeamProvisionPending } from '../teams/provision-data.js';
 import { buildTeams, type MatchResult } from './domain.js';
 import { createHash } from 'node:crypto';
@@ -59,12 +59,14 @@ export async function commitMatch(db: Db, actor: string, eventId: string, guildI
     // in one event can never hijack that user's team in another.
     for (const team of preview.value.teams) {
       const id = newId('team');
+      const color = await nextTeamColor(db, eventId);
       await db.run(
-        "INSERT INTO teams (id, event_id, guild_id, name, kind, owner_id, join_code, created_at) VALUES (?, ?, ?, ?, 'matched', NULL, NULL, ?)",
+        "INSERT INTO teams (id, event_id, guild_id, name, kind, owner_id, join_code, color, created_at) VALUES (?, ?, ?, ?, 'matched', NULL, NULL, ?, ?)",
         id,
         eventId,
         guildId,
         team.name,
+        color,
         Date.now(),
       );
       await markTeamProvisionPending(db, guildId, eventId, id);

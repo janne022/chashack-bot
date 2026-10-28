@@ -6,11 +6,12 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Hackathon Admin</title>
     <script>
-      // Set theme before first paint: dark Honeycomb by default, or the
-      // stored choice. Syncs BOTH data-theme (our world) and the .dark class
-      // (shadcn's class-based dark variant) so text/bg never mismatch.
+      // Set theme before first paint: explicit light/dark choice, otherwise
+      // follow the OS (system). Syncs BOTH data-theme (our world) and the
+      // .dark class (shadcn's class-based dark variant) so text/bg never mismatch.
       try {
-        var t = localStorage.getItem('chas-theme') === 'light' ? 'light' : 'dark'
+        var stored = localStorage.getItem('chas-theme')
+        var t = stored === 'light' || stored === 'dark' ? stored : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
         document.documentElement.dataset.theme = t
         if (t === 'dark') document.documentElement.classList.add('dark')
       } catch (e) {}

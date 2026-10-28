@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openTestDb } from '../../shared/test-db.js';
-import { DEFAULT_FORM } from '../form/domain.js';
+import { DEFAULT_FORM, TEAM_COLORS } from '../form/domain.js';
 import { commitMatch, previewMatch } from './data.js';
 import { createTeam } from '../teams/data.js';
 import { listPendingTeamProvisionIds } from '../teams/provision-data.js';
@@ -120,5 +120,32 @@ test('private answer changes never affect matching scores, revision or DTOs', as
     assert.deepEqual(after, before);
     assert.equal(JSON.stringify(after).includes('PRIVATE_SENTINEL'), false);
     if (after.ok) assert.ok((await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM, after.value.revision)).ok);
+  } finally { await db.close(); }
+});
+
+test('commitMatch gives every matched team a distinct palette colour', async () => {
+  const db = await openTestDb();
+  try {
+    await db.run(
+      "INSERT INTO events (id, guild_id, name, status, created_at, updated_at) VALUES (?, ?, 'Colour Test', 'active', 1, 1)",
+      EVENT, GUILD,
+    );
+    const insert = (
+      `INSERT INTO participants
+         (event_id, user_id, guild_id, display_name, experience, role_track, skills, team_pref, teammates, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'some_experience', 'backend', '["backend_node"]', 'random_team', '[]', 'active', ?, ?)`
+    );
+    // Nine opt-ins at the default team size of four produce three teams.
+    for (let index = 0; index < 9; index += 1) {
+      await db.run(insert, EVENT, `m${index}`, GUILD, `Matched ${index}`, index, index);
+    }
+    const res = await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
+    assert.ok(res.ok);
+    const teams = await db.all<{ id: string; color: string | null }>('SELECT id, color FROM teams WHERE event_id = ?', EVENT);
+    assert.ok(teams.length >= 2, 'more than one matched team');
+    const colors = teams.map((team) => team.color);
+    assert.ok(colors.every((color) => color !== null), 'matched teams get a colour');
+    assert.equal(new Set(colors).size, colors.length, 'no two matched teams share a colour');
+    assert.ok(colors.every((color) => TEAM_COLORS.some((palette) => palette.id === color)));
   } finally { await db.close(); }
 });

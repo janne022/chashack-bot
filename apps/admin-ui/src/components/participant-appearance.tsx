@@ -73,7 +73,7 @@ export function ParticipantFrame({ appearance, children, preview = false }: { ap
     try { localStorage.setItem('chas-participant-mode', next) } catch { /* session preference still applies */ }
   }
   return <main className={preview ? "participant-frame relative" : "participant-frame relative min-h-screen"} style={{ ...variables, color: text, backgroundColor: background, colorScheme: mode } as CSSProperties}>
-    {appearance.backgroundUrl && /^https:\/\//i.test(appearance.backgroundUrl) && <img src={appearance.backgroundUrl} alt="" referrerPolicy="no-referrer" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-15" onError={event => { event.currentTarget.hidden = true }} />}
+    {appearance.backgroundUrl && /^https:\/\//i.test(appearance.backgroundUrl) && <img key={appearance.backgroundUrl} src={appearance.backgroundUrl} alt="" referrerPolicy="no-referrer" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-15" onError={event => { event.currentTarget.hidden = true }} />}
     <div className="relative mx-auto max-w-6xl px-5 pb-16 sm:px-10">
       {!preview && <header className="participant-header">
         {location.pathname === '/my-hackathons'
@@ -85,7 +85,7 @@ export function ParticipantFrame({ appearance, children, preview = false }: { ap
         </div>
       </header>}
       {!preview && location.pathname !== '/my-hackathons' && <a href="/my-hackathons" className="mb-5 inline-flex min-h-11 items-center gap-2 text-sm opacity-75 hover:opacity-100"><ArrowLeft aria-hidden="true" size={16} />{t('participant.my_title')}</a>}
-      {appearance.bannerUrl && /^https:\/\//i.test(appearance.bannerUrl) && <img src={appearance.bannerUrl} alt="" referrerPolicy="no-referrer" className="mb-8 max-h-64 w-full rounded-2xl object-cover" onError={event => { event.currentTarget.hidden = true }} />}
+      {appearance.bannerUrl && /^https:\/\//i.test(appearance.bannerUrl) && <img key={appearance.bannerUrl} src={appearance.bannerUrl} alt="" referrerPolicy="no-referrer" className="mb-8 max-h-64 w-full rounded-2xl object-cover" onError={event => { event.currentTarget.hidden = true }} />}
       {children}
     </div>
   </main>
