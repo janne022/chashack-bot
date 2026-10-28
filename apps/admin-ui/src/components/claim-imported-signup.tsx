@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { rateLimitMessage } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -77,6 +78,7 @@ export function ClaimImportedSignup({ eventId, onActivated, onPrefill }: {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: value }),
       })
       if (response.status === 401) { location.assign('/auth/participant'); return }
+      if (response.status === 429) { setError(rateLimitMessage(response)); return }
       if (!response.ok) { setError(describe(await readError(response), 'participant.claim_lookup_failed')); return }
       const result = await response.json() as ClaimMatch
       if (!result.found) { setError(t('participant.claim_not_found')); return }
@@ -94,6 +96,7 @@ export function ClaimImportedSignup({ eventId, onActivated, onPrefill }: {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: email.trim() }),
       })
       if (response.status === 401) { location.assign('/auth/participant'); return }
+      if (response.status === 429) { setError(rateLimitMessage(response)); return }
       if (!response.ok) { setError(describe(await readError(response), 'participant.claim_failed')); return }
       const result = await response.json() as ClaimResult
       if (result.activated) { setDone('activated'); onActivated(); return }

@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { Db } from './db.js';
 
+export const EXPENSIVE_LIMIT = 15;
+export const MEMBER_SEARCH_LIMIT = 30;
+
 export interface QuotaResult {
   allowed: boolean;
   retryAfterSeconds: number;

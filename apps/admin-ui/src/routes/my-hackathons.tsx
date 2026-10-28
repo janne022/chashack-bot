@@ -1,4 +1,5 @@
 import { PageSkeleton } from '@/components/ui/skeleton'
+import { rateLimitMessage } from '@/api'
 import { ArrowUpRight, CheckCircle2, Users, CalendarDays } from 'lucide-react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
@@ -20,14 +21,17 @@ function MyHackathons() {
       const response = await fetch('/api/participant/registrations', signal ? { signal } : undefined)
       if (signal?.aborted) return
       if (response.status === 401) { location.assign('/auth/participant'); return }
+      if (response.status === 429) throw new Error(rateLimitMessage(response))
       if (!response.ok) throw new Error(t('participant.my_error'))
       const registrations = (await response.json() as { registrations: Registration[] }).registrations
       const next = await Promise.all(registrations.map(async (item) => {
         const detail = await fetch(`/api/participant/events/${encodeURIComponent(item.eventId)}/registration`, signal ? { signal } : undefined)
+        if (detail.status === 429) throw new Error(rateLimitMessage(detail))
         if (!detail.ok) return item
         const complete = (await detail.json() as { complete: boolean }).complete
         if (!complete || item.status !== 'active') return { ...item, complete }
         const submission = await fetch(`/api/participant/events/${encodeURIComponent(item.eventId)}/submission`, signal ? { signal } : undefined)
+        if (submission.status === 429) throw new Error(rateLimitMessage(submission))
         if (!submission.ok) return { ...item, complete }
         const state = await submission.json() as { form: { enabled: boolean }; complete: boolean }
         return { ...item, complete, ...(state.form.enabled ? { submissionStatus: state.complete ? 'complete' as const : 'pending' as const } : {}) }

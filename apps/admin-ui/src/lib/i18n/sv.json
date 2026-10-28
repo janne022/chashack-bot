@@ -834,6 +834,8 @@
   "imports.member_search_hint": "Skriv minst två tecken.",
   "imports.member_search_empty": "Ingen servermedlem matchar namnet.",
   "imports.member_search_rate_limited": "Discord begränsar medlemssökningen. Vänta ett ögonblick och skriv igen.",
+  "common.rate_limited": "För många förfrågningar. Vänta en stund och försök igen.",
+  "common.rate_limited_retry": "För många förfrågningar. Försök igen om {seconds} sekunder.",
   "imports.member_form_match": "från formuläret",
   "imports.select_row": "Markera {name}",
   "imports.selected_count": "{count} markerade",

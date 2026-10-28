@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
+import { rateLimitMessage } from '@/api'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { ParticipantFrame } from '@/components/participant-appearance'
@@ -30,6 +31,7 @@ const registrationQuery = (eventId: string, force = false) => ({
     const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`)
     if (res.status === 401) return { kind: 'anonymous' }
     if (res.status === 404) return { kind: 'nonmember' }
+    if (res.status === 429) throw new Error(rateLimitMessage(res))
     if (!res.ok) throw new Error('participant.signup_load_error')
     return { kind: 'member', registration: await res.json() as Registration }
   },
@@ -156,6 +158,7 @@ function Signup() {
       const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ formVersion: event.form.version, answers, ...(profileRequired ? { profile } : {}) }) })
       const value = await res.json() as Registration & { error?: string }
       if (res.status === 401) { location.assign('/auth/participant'); return }
+      if (res.status === 429) throw new Error(rateLimitMessage(res))
       if (res.status === 404) throw new Error(t('participant.signup_member'))
       if (!res.ok) { setRegistration({ ...registration!, ...value, answers, missingRequiredQuestionIds: value.missingRequiredQuestionIds ?? registration?.missingRequiredQuestionIds ?? [] }); setStale(value.error === 'stale_form_version'); setMessage(value.error === 'stale_form_version' ? t('participant.signup_stale') : value.error === 'signup_not_open' || value.error === 'signup_closed' ? t(`participant.${value.error}`) : t('participant.signup_save_error')); setState('failed'); return }
       dirty.current = draftRevision.current !== submittedRevision; setRegistration(value); setMessage(t('participant.signup_saved')); setEditing(false); setState('idle')

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, ExternalLink, Pencil, Sparkles, Trash2, TriangleAlert, UserMinus, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppState, MatchResult, Team, TeamSuggestion } from '@/types'
-import { api } from '@/api'
+import { api, ApiError } from '@/api'
 import { useT } from '@/lib/i18n'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -63,17 +63,20 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
   // ── late-signup suggestions (explicit fetch, never auto-assign) ────────────
   const loadSuggestions = useCallback(async () => {
     setSuggestionsLoading(true)
+    let rateError = ''
     try {
       const results = await Promise.all(
         unteamed.map(async (p) => {
           try {
             return [p.userId, await api.matchSuggestions(p.userId, eventId)] as const
-          } catch {
+          } catch (error) {
+            if (error instanceof ApiError && error.rateLimited) rateError = error.message
             return [p.userId, [] as TeamSuggestion[]] as const
           }
         }),
       )
       setPlacements(Object.fromEntries(results))
+      if (rateError) toast.error(rateError)
     } finally {
       setSuggestionsLoading(false)
     }
@@ -106,7 +109,7 @@ export function MatchingPanel({ state, refresh }: { state: AppState; refresh: ()
       await refresh()
       await loadSuggestions()
     } catch (e) {
-      toast.error(e instanceof Error && 'code' in e && e.code === 'stale_preview' ? t('matching.stale_preview') : t('matching.commit_failed'))
+      toast.error(e instanceof ApiError && e.rateLimited ? e.message : e instanceof Error && 'code' in e && e.code === 'stale_preview' ? t('matching.stale_preview') : t('matching.commit_failed'))
     } finally {
       setBusy(false)
     }

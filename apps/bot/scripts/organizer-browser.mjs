@@ -555,7 +555,7 @@ try {
   await evaluate(`window.originalFetch=window.fetch; window.retry429=true; window.fetch=async (...args)=>{if(window.retry429&&String(args[0]).includes('/api/events/')&&args[1]?.method==='PATCH'){window.retry429=false;return new Response(JSON.stringify({error:'rate_limited',retryAfterSeconds:60}),{status:429,headers:{'content-type':'application/json','retry-after':'60'}})}return window.originalFetch(...args)}`);
   await click(button('Save'));
   await wait(`!!document.querySelector('[role=alert]')`);
-  check('429 preserves entered data and displays Retry-After timing',await evaluate(`document.querySelector('textarea[maxlength="1000"]').value==='Cosmetic change retained'&&document.querySelector('[role=alert]').innerText.includes('retry in 60s')&&!!(${button('Retry save')})`));
+  check('429 preserves entered data and displays Retry-After timing',await evaluate(`document.querySelector('textarea[maxlength="1000"]').value==='Cosmetic change retained'&&document.querySelector('[role=alert]').innerText.includes('try again in 60 seconds')&&!!(${button('Retry save')})`));
   await click(button('Retry save'));
   await wait(`!document.querySelector('textarea[maxlength="1000"]')`);
   state=await api('/api/state',undefined,'GET'); event=state.events.find(e=>e.id===event.id);

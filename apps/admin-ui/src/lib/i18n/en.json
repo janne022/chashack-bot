@@ -834,6 +834,8 @@
   "imports.member_search_hint": "Type at least two characters.",
   "imports.member_search_empty": "No server member matches that name.",
   "imports.member_search_rate_limited": "Discord is rate limiting member search. Wait a moment and type again.",
+  "common.rate_limited": "Too many requests. Please wait a moment and try again.",
+  "common.rate_limited_retry": "Too many requests. Please try again in {seconds} seconds.",
   "imports.member_form_match": "from form",
   "imports.select_row": "Select {name}",
   "imports.selected_count": "{count} selected",

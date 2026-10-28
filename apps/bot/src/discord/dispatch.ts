@@ -19,7 +19,7 @@ import { HACKATHON_ADMIN_NAME } from './commands.js';
 import { onComponent, onModalSubmit } from './components.js';
 import { eph, type Ctx } from './shared.js';
 import { t } from '../shared/i18n.js';
-import { consumeQuota } from '../shared/rate-limit.js';
+import { consumeQuota, EXPENSIVE_LIMIT } from '../shared/rate-limit.js';
 import { hasGuildManageAuthority } from '../features/auth/domain.js';
 
 export interface RouterDeps {
@@ -177,7 +177,7 @@ export function registerInteractionHandlers(client: Client, deps: RouterDeps): v
           const expensive = /invite|provision|create.team|join|match|team.create|req:|admin:move/i.test(operation);
           try {
             const ordinary = await consumeQuota(deps.db, 'ordinary', `${interaction.user.id}:${guildId}`, 30);
-            const costly = expensive ? await consumeQuota(deps.db, 'expensive', `${interaction.user.id}:${guildId}`, 5) : { allowed: true, retryAfterSeconds: 0 };
+            const costly = ordinary.allowed && expensive ? await consumeQuota(deps.db, 'expensive', `${interaction.user.id}:${guildId}`, EXPENSIVE_LIMIT) : ordinary;
             const denied = ordinary.allowed ? costly : ordinary;
             if (!denied.allowed) {
               await interaction.reply(eph(t(locale, 'discord.rate_limited', { seconds: String(denied.retryAfterSeconds) })));
