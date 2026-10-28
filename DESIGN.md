@@ -494,4 +494,3 @@ Import dialogs use nearly the full viewport width on phones. Column mappings
 stack label above control at narrow widths, while desktop keeps the two-column
 layout; mobile review content scrolls with the dialog instead of creating a
 small nested scroll panel.
->>>>>>> origin/main

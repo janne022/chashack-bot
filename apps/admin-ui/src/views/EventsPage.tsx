@@ -514,7 +514,7 @@ function NewEventButton() {
   }
 
   async function create(launch: boolean) {
-    if (formMode === 'custom' && Object.keys(questionErrors(customForm)).length > 0) {
+    if (launch && formMode === 'custom' && Object.keys(questionErrors(customForm)).length > 0) {
       setCreateStep(3)
       requestAnimationFrame(() => validateQuestions(customForm))
       return
@@ -537,15 +537,6 @@ function NewEventButton() {
     }
     setBusy(true)
     try {
-      // Custom form: save it as a real form template first — it shows up under
-      // Templates → Form templates and the event just binds to it by id.
-      let effectiveFormTemplateId = formTemplateId
-      if (formMode === 'custom') {
-        const tplName = `${name.trim()} — signup form`
-        const created = await api.createTemplateRaw(tplName, 'form', JSON.stringify(customForm))
-        effectiveFormTemplateId = created.template.id
-        toast.info(t('events.form_created', { name: tplName }))
-      }
       // Block actions (announcements included) ride the synthetic schedule blocks
       // so the planner fires them at the block time. The old on_activate/on_start
       // announcement rows are gone — nothing ever sent those.
@@ -571,7 +562,7 @@ function NewEventButton() {
       const createdEvent = await api.createEvent({
         ...parsed.data,
         ...(templateId ? { templateId } : {}),
-        ...(effectiveFormTemplateId ? { formTemplateId: effectiveFormTemplateId } : {}),
+        ...(formMode === 'custom' ? { formJson: JSON.stringify(customForm) } : formTemplateId ? { formTemplateId } : {}),
         cleanupDelayHours: cleanupDelayHours,
         ...(launch ? { launch: true } : {}),
         createDiscordEvent,
@@ -583,8 +574,8 @@ function NewEventButton() {
         assignmentStrategy,
         ...(saveAsTemplate ? { saveAsTemplate: true, saveTemplateName: name.trim() } : {}),
       })
-      const created = saveAsTemplate ? `Event “${name.trim()}” created & saved as template` : t('events.created', { name: name.trim() })
-      toast.success(launch ? `Event “${name.trim()}” launched` : created)
+      const created = saveAsTemplate ? t('events.created_template', { name: name.trim() }) : t('events.created', { name: name.trim() })
+      toast.success(launch ? t('events.launched', { name: name.trim() }) : created)
       const discordErrors = createdEvent.discordEvent?.errors ?? []
       if (createDiscordEvent && discordErrors.length > 0) {
         toast.warning(t('events.discord_event_failed', { message: discordErrors.join('; ') }), { duration: 8000 })
@@ -763,24 +754,24 @@ function NewEventButton() {
               )}
               {createStep === 2 && (
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-3">
-                <span className="text-sm font-medium">Assignments</span>
-                <span className="text-xs text-muted-foreground">Pick a collection — its assignments go out to each team when the hackathon starts. Manage collections under Templates → Assignment collections.</span>
+                <span className="text-sm font-medium">{t('events.assignments_title')}</span>
+                <span className="text-xs text-muted-foreground">{t('events.assignments_hint')}</span>
                 {assignmentCollections.length > 0 || embeddedAssignments.length > 0 || !!assignmentCollectionId ? (
                   <Select value={assignmentCollectionId || '__none'} onValueChange={(v)=>setAssignmentCollectionId(v==='__none'?'':v)}>
-                    <SelectTrigger className="w-72"><SelectValue placeholder="Pick a collection" /></SelectTrigger>
+                    <SelectTrigger className="w-72"><SelectValue placeholder={t('events.pick_collection')} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__none">No assignments</SelectItem>
+                      <SelectItem value="__none">{t('events.no_assignments')}</SelectItem>
                       {embeddedAssignments.length > 0 && <SelectItem value="__embedded">{t('templates.embedded_assignments', { count: embeddedAssignments.length })}</SelectItem>}
                       {assignmentCollectionId && assignmentCollectionId !== '__embedded' && !assignmentCollections.some(c => c.id === assignmentCollectionId) && <SelectItem value={assignmentCollectionId} disabled>{t('templates.assignment_collection_unavailable')}</SelectItem>}
                       {assignmentCollections.map(c => <SelectItem key={c.id} value={c.id}>{c.name} ({c.count})</SelectItem>)}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <p className="rounded-lg border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground">No collections yet — create one under Templates → Assignment collections.</p>
+                  <p className="rounded-lg border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground">{t('events.no_collections')}</p>
                 )}
                 {assignmentCollectionId !== '' && (
                   <div className="flex flex-col gap-2">
-                    <span className="text-sm font-medium">Distribution strategy</span>
+                    <span className="text-sm font-medium">{t('events.distribution_strategy')}</span>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {STRATEGY_OPTIONS.map(opt => {
                         const Icon = opt.icon
@@ -901,9 +892,9 @@ function NewEventButton() {
                   <label className="flex flex-col gap-1.5 text-sm">
                     <span className="font-medium">{t('events.panel_channel')}</span>
                     <Select value={panelChannelId || '__none'} onValueChange={(v)=>setPanelChannelId(v==='__none'?'':v)}>
-                      <SelectTrigger><SelectValue placeholder="Pick a Discord channel" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t('events.pick_channel')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none">Not set (use default)</SelectItem>
+                        <SelectItem value="__none">{t('events.channel_default')}</SelectItem>
                         {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
@@ -911,19 +902,19 @@ function NewEventButton() {
                   <label className="flex flex-col gap-1.5 text-sm">
                     <span className="font-medium">{t('events.announce_channel')}</span>
                     <Select value={announceChannelId || '__none'} onValueChange={(v)=>setAnnounceChannelId(v==='__none'?'':v)}>
-                      <SelectTrigger><SelectValue placeholder="Defaults to panel channel" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t('events.channel_panel_default')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none">Not set (use default/panel)</SelectItem>
+                        <SelectItem value="__none">{t('events.channel_default_panel')}</SelectItem>
                         {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </label>
                   <label className="flex flex-col gap-1.5 text-sm">
-                    <span className="font-medium">Schedule / itinerary channel</span>
+                    <span className="font-medium">{t('events.channel_itinerary')}</span>
                     <Select value={scheduleChannelId || '__none'} onValueChange={(v)=>setScheduleChannelId(v==='__none'?'':v)}>
-                      <SelectTrigger><SelectValue placeholder="Channel for the full itinerary" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t('events.channel_itinerary_placeholder')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none">Not set (use Config default)</SelectItem>
+                        <SelectItem value="__none">{t('events.channel_config_default')}</SelectItem>
                         {guildChannels.map(c=> <SelectItem key={c.id} value={c.id}>#{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
@@ -931,7 +922,7 @@ function NewEventButton() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2.5 text-sm text-muted-foreground">
-                  Channel pickers appear once the bot connection is live. Leave them unset to use the Config defaults.
+                  {t('events.channel_unavailable')}
                 </div>
               ))}
 
@@ -977,8 +968,8 @@ function NewEventButton() {
               <label className="flex items-center gap-2 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-sm">
                 <Checkbox checked={saveAsTemplate} onCheckedChange={setSaveAsTemplate} />
                 <span className="flex flex-col">
-                  <span className="font-medium">Save as event template</span>
-                  <span className="text-xs text-muted-foreground">Reusable for next time — includes form, schedule and description.</span>
+                  <span className="font-medium">{t('events.save_template')}</span>
+                  <span className="text-xs text-muted-foreground">{t('events.save_template_hint')}</span>
                 </span>
               </label>
               </div>
@@ -1370,6 +1361,8 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [editName, setEditName] = useState(event.name)
   const [editDescription, setEditDescription] = useState(event.description)
   const [editFormTemplateId, setEditFormTemplateId] = useState<string>('')
+  const [draftForm, setDraftForm] = useState<FormConfig>(() => { try { return event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config } catch { return state.config } })
+  const [draftFormDirty, setDraftFormDirty] = useState(false)
   const [appearance, setAppearance] = useState<FormAppearance>(() => {
     try { return resolveAppearance(event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config) }
     catch { return resolveAppearance(state.config) }
@@ -1439,11 +1432,11 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
         cleanupDelayHours: editCleanup,
       })
       // Form change is a separate endpoint — only call it when the user picked one.
-      if (editFormTemplateId || appearanceDirty || signupPolicyDirty || editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })()) {
-        if (appearanceDirty || signupPolicyDirty || editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })()) {
+      if (editFormTemplateId || draftFormDirty || appearanceDirty || signupPolicyDirty || editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })()) {
+        if (draftFormDirty || appearanceDirty || signupPolicyDirty || editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })()) {
           const template = formTemplates.find(item => item.id === editFormTemplateId)
-          const base = template ? JSON.parse(template.json) as FormConfig : event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config
-          await api.setEventForm(event.id, { formJson: JSON.stringify({ ...base, ...(appearanceDirty ? { appearance } : {}), ...(signupPolicyDirty ? { enforceSignupWindow } : {}), teamSize: editTeamSize }) })
+          const base = template ? JSON.parse(template.json) as FormConfig : draftFormDirty ? draftForm : event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config
+          await api.setEventForm(event.id, { formJson: JSON.stringify({ ...base, ...(appearanceDirty ? { appearance } : {}), ...(signupPolicyDirty ? { enforceSignupWindow } : {}), ...(editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })() ? { teamSize: editTeamSize } : {}) }) })
         } else await api.setEventForm(event.id, { formTemplateId: editFormTemplateId })
         setEditFormTemplateId('')
       }
@@ -1562,6 +1555,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 </TabsContent>
 
                 <TabsContent value="form" className="flex flex-col gap-4">
+              {event.status === 'draft' && !editFormTemplateId && <FormConfigEditor value={draftForm} onChange={next => { setDraftForm(next); setDraftFormDirty(true) }} />}
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.change_form')}</span>
                 <Select value={editFormTemplateId} onValueChange={setEditFormTemplateId}>
@@ -1778,7 +1772,7 @@ function EventCard({ event, isSelected, onOpen, refresh }: { event: HackathonEve
       toast.success(t('events.activated_schedule', { name: event.name }), { duration: 7000 })
       await refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('events.activate_failed'))
+      toast.error(e instanceof Error && 'code' in e && e.code === 'invalid_questions' ? t('events.draft_form_incomplete') : e instanceof Error ? e.message : t('events.activate_failed'))
     }
   }
 

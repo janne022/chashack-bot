@@ -72,3 +72,17 @@ test('authenticated expensive reads are denied before fresh Discord lookups', as
   const denied = await app.inject({ url: '/api/guild/members?query=Other', headers });
   assert.equal(denied.statusCode, 429); assert.equal(lookups, before); assert.ok(denied.headers['retry-after']);
 });
+
+test('participant member searches consume the expensive quota before Discord lookup', async (t) => {
+  const db = await openTestDb(); const app = Fastify();
+  t.after(async () => { await app.close(); await db.close(); });
+  const guildId = '11111111111111111'; let searches = 0;
+  const guild = { id: guildId, ownerId: 'owner', members: { fetch: async () => ({ id: 'participant', permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }), search: async () => { searches++; return new Map(); } } };
+  registerRoutes(app, { db, config, announce: async () => undefined, client: { guilds: { cache: new Map([[guildId, guild]]), fetch: async () => guild } } as never });
+  await db.run("INSERT INTO events (id,guild_id,name,status,created_at,updated_at) VALUES ('quota-event',?,'Quota','active',1,1)", guildId);
+  const session = await createSession(db, { userId: 'participant', username: 'Participant', avatar: null, guilds: [], audience: 'participant' });
+  const headers = { cookie: cookie(session.id, 'participant') };
+  for (let i = 0; i < 5; i++) assert.equal((await app.inject({ url: '/api/participant/events/quota-event/members?query=Test', headers })).statusCode, 200);
+  assert.equal((await app.inject({ url: '/api/participant/events/quota-event/members?query=Other', headers })).statusCode, 429);
+  assert.equal(searches, 5);
+});

@@ -4,6 +4,24 @@ import { activateEvent, createEvent, getEvent, getEventForm, updateEventForm } f
 import { DEFAULT_FORM } from '../form/domain.js';
 import { openTestDb } from '../../shared/test-db.js';
 
+test('an incomplete draft form survives editing and cannot be activated until complete', async () => {
+  const db = await openTestDb();
+  try {
+    const question = { id: 'draft', kind: 'text' as const, label: { en: '' }, help: { en: '' }, required: true, presentation: 'web' as const, visibility: 'self_and_organizer' as const };
+    const created = await createEvent(db, 'test', 'guild-draft', { name: 'Draft event', form: { ...DEFAULT_FORM, customQuestions: [question] }, allowIncompleteForm: true });
+    assert.ok(created.ok);
+    if (!created.ok) return;
+    const id = created.value.id;
+    assert.equal(getEventForm(db, await getEvent(db, id), DEFAULT_FORM).customQuestions?.[0]?.label.en, '');
+    const denied = await activateEvent(db, 'test', id);
+    assert.equal(denied.ok, false);
+    assert.equal((await getEvent(db, id))?.status, 'draft');
+    const fixed = await updateEventForm(db, 'test', id, { customQuestions: [{ ...question, label: { en: 'Your idea' } }] });
+    assert.ok(fixed.ok);
+    assert.ok((await activateEvent(db, 'test', id)).ok);
+  } finally { await db.close(); }
+});
+
 test('structural form changes conflict on populated published events', async () => {
   const db = await openTestDb();
   try {

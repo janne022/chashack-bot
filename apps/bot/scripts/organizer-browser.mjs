@@ -654,7 +654,15 @@ try {
   await click(button('Create & launch'));
   await wait(`!!document.querySelector('fieldset input[aria-invalid=true]')`);
   check('custom event creation rejects invalid question before template or event write',await evaluate(`document.activeElement.matches('fieldset input[aria-invalid=true]')&&window.boundaryWrites.length===0`));
-  await key('Escape'); await wait(`!document.querySelector('[role=dialog]')`);
+  await click(button('Save as draft')); await wait(`!document.querySelector('[role=dialog]')`);
+  const draftState=await api('/api/state',undefined,'GET'); const draft=draftState.events.find(e=>e.name==='Validation boundary');
+  check('incomplete custom form saves as a draft without creating an orphan template',!!draft&&draft.status==='draft'&&JSON.parse(draft.formJson).customQuestions[0].label.en===''&&await evaluate(`!window.boundaryWrites.some(url=>url.includes('/api/templates'))`));
+  await nav(base+'/events?event='+draft.id); await wait(`!!(${button('Edit event')})`); await click(button('Edit event'));
+  await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Form'))`);
+  await wait(`!!document.querySelector('fieldset input[aria-invalid=true]')`);
+  await fill('fieldset input[aria-invalid=true]','Your idea'); await click(button('Save')); await wait(`!document.querySelector('[role=dialog]')`);
+  const editedDraft=(await api('/api/state',undefined,'GET')).events.find(e=>e.id===draft.id);
+  check('draft form can be completed after reopening',JSON.parse(editedDraft.formJson).customQuestions[0].label.en==='Your idea');
   await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')`);
   await click(`[...document.querySelectorAll('button')].find(e=>e.getAttribute('aria-label')?.startsWith('Switch language'))`);
   check('Swedish workspace and preview action are localized',await evaluate(`document.documentElement.lang==='sv'&&document.body.innerText.includes('Offentlig förhandsvisning')`));

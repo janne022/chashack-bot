@@ -49,4 +49,13 @@ Plan created: 2026-10-28. Status: in progress.
 - [x] Admin UI: edit dialog split into tabs
 - [x] i18n en + sv for every new string
 - [x] Verify: bot build + tests, admin-ui tsc + build + tests
-- [ ] PR against `main`
+- [x] PR against `main`
+
+## Audit follow-up
+
+- [x] Accessible participant member selection and actionable search errors.
+- [x] Rate-limit participant Discord member searches.
+- [x] Preserve incomplete event form drafts and reject activation until valid.
+- [x] Avoid orphan form templates when event creation fails.
+- [x] Localize event creation, support participant theme choices, and remove the design merge marker.
+- [x] Verify affected database and browser flows; update the existing PR.

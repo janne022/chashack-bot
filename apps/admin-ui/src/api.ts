@@ -213,6 +213,7 @@ export const api = {
     cleanupDelayHours?: number
     templateId?: string
     formTemplateId?: string
+    formJson?: string
     panelChannelId?: string | null
     announcementChannelId?: string | null
     scheduleChannelId?: string | null
