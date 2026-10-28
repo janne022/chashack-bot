@@ -22,6 +22,22 @@ test('an incomplete draft form survives editing and cannot be activated until co
   } finally { await db.close(); }
 });
 
+test('legacy published whitespace labels remain usable without permitting new blank labels', async () => {
+  const db = await openTestDb();
+  try {
+    const question = { id: 'legacy', kind: 'text' as const, label: { en: ' ' }, help: { en: '' }, required: false, presentation: 'web' as const, visibility: 'self_and_organizer' as const };
+    const legacy = { ...DEFAULT_FORM, customQuestions: [question] };
+    await db.run("INSERT INTO events (id,guild_id,name,status,form_json,created_at,updated_at) VALUES ('legacy','guild-a','Legacy','active',?,1,1)", JSON.stringify(legacy));
+    const saved = await updateEventForm(db, 'test', 'legacy', { description: 'Updated description' });
+    assert.ok(saved.ok);
+    const rejected = await updateEventForm(db, 'test', 'legacy', { customQuestions: [{ ...question, label: { en: '  ' } }] });
+    assert.equal(rejected.ok, false);
+    const draft = await createEvent(db, 'test', 'guild-a', { name: 'Draft', form: legacy, allowIncompleteForm: true });
+    assert.ok(draft.ok);
+    if (draft.ok) assert.equal((await activateEvent(db, 'test', draft.value.id)).ok, false);
+  } finally { await db.close(); }
+});
+
 test('structural form changes conflict on populated published events', async () => {
   const db = await openTestDb();
   try {

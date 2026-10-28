@@ -59,3 +59,10 @@ Plan created: 2026-10-28. Status: in progress.
 - [x] Avoid orphan form templates when event creation fails.
 - [x] Localize event creation, support participant theme choices, and remove the design merge marker.
 - [x] Verify affected database and browser flows; update the existing PR.
+
+## Independent review follow-up
+
+- [x] Verify that random opt-ins are distributed evenly across partially filled teams.
+- [x] Preserve old published form answers while rejecting blank new questions on activation.
+- [x] Keep draft form, theme and signup-policy edits synchronized across tabs.
+- [x] Verify the repaired flows and update the PR.

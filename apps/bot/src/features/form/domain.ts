@@ -114,7 +114,7 @@ export function validBannerUrl(value: unknown): value is string | null | undefin
   } catch { return false; }
 }
 
-export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 'experiences' | 'roleTracks' | 'skills'>, allowIncomplete = false): { ok: true; questions: CustomQuestion[] } | { ok: false; errors: string[] } {
+export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 'experiences' | 'roleTracks' | 'skills'>, allowIncomplete = false, requireNonBlank = false): { ok: true; questions: CustomQuestion[] } | { ok: false; errors: string[] } {
   if (!Array.isArray(raw)) return { ok: false, errors: ['questions must be an array'] };
   if (raw.length > 25) return { ok: false, errors: ['at most 25 custom questions are allowed'] };
   const errors: string[] = [];
@@ -128,7 +128,7 @@ export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 
     ids.add(item.id);
     if (!['text', 'single_choice', 'multi_choice', 'slider', 'toggle'].includes(item.kind) || !['web', 'both'].includes(item.presentation) ||
         !['self_and_organizer', 'organizer_only'].includes(item.visibility) || typeof item.required !== 'boolean' ||
-        typeof item.label?.en !== 'string' || (!allowIncomplete && item.label.en.trim().length < 1) || item.label.en.length > 200 ||
+        typeof item.label?.en !== 'string' || (!allowIncomplete && (requireNonBlank ? item.label.en.trim().length : item.label.en.length) < 1) || item.label.en.length > 200 ||
         (item.label.sv !== undefined && (typeof item.label.sv !== 'string' || item.label.sv.length > 200)) ||
         typeof item.help?.en !== 'string' || item.help.en.length > 500 ||
         (item.help.sv !== undefined && (typeof item.help.sv !== 'string' || item.help.sv.length > 500))) {
@@ -143,7 +143,7 @@ export function validateCustomQuestions(raw: unknown, config?: Pick<FormConfig, 
     if (['single_choice', 'multi_choice'].includes(item.kind)) {
       const choices = item.choices;
       if (!Array.isArray(choices) || (!allowIncomplete && choices.length < 1) || choices.length > 25 || choices.some((choice) =>
-        choice === null || typeof choice !== 'object' || !/^[a-zA-Z0-9_-]{1,64}$/.test(choice.id) || typeof choice.label?.en !== 'string' || (!allowIncomplete && choice.label.en.trim().length < 1) || choice.label.en.length > 200)) {
+        choice === null || typeof choice !== 'object' || !/^[a-zA-Z0-9_-]{1,64}$/.test(choice.id) || typeof choice.label?.en !== 'string' || (!allowIncomplete && (requireNonBlank ? choice.label.en.trim().length : choice.label.en.length) < 1) || choice.label.en.length > 200)) {
         errors.push(`invalid choices: ${item.id}`);
       } else if (new Set(choices.map((choice) => choice.id)).size !== choices.length) errors.push(`duplicate choice IDs: ${item.id}`);
     }

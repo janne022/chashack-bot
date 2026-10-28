@@ -1555,7 +1555,18 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 </TabsContent>
 
                 <TabsContent value="form" className="flex flex-col gap-4">
-              {event.status === 'draft' && !editFormTemplateId && <FormConfigEditor value={draftForm} onChange={next => { setDraftForm(next); setDraftFormDirty(true) }} />}
+              {event.status === 'draft' && !editFormTemplateId && <FormConfigEditor
+                value={{ ...draftForm, ...(appearanceDirty ? { appearance } : {}), ...(signupPolicyDirty ? { enforceSignupWindow } : {}), ...(editTeamSize !== (() => { try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 } })() ? { teamSize: editTeamSize } : {}) }}
+                onChange={next => {
+                  setDraftForm(next)
+                  setDraftFormDirty(true)
+                  setAppearance(resolveAppearance(next))
+                  setAppearanceDirty(false)
+                  setEnforceSignupWindow(next.enforceSignupWindow === true)
+                  setSignupPolicyDirty(false)
+                  setEditTeamSize(next.teamSize)
+                }}
+              />}
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">{t('events.change_form')}</span>
                 <Select value={editFormTemplateId} onValueChange={setEditFormTemplateId}>
