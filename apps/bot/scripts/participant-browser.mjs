@@ -307,6 +307,7 @@ try {
   await db.run('UPDATE events SET starts_at=?, ends_at=?, signup_starts_at=?, signup_ends_at=? WHERE id=?',futureStart,futureStart+7200000,futureStart-3600000,futureStart+3600000,eventId);
   await nav(`/events?event=${eventId}`); await wait(`!![...document.querySelectorAll('button')].find(b=>b.innerText.trim()==='Edit event')`);
   await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.trim()==='Edit event')`);
+  await click(`[...document.querySelectorAll('[role=dialog] [role=tab]')].find(b=>b.innerText.includes('Schedule'))`);
   await click(`[...document.querySelectorAll('[role=dialog] button')].find(b=>b.innerText.includes('Signup window'))`);
   await wait(`!![...document.querySelectorAll('[role=dialog] label')].find(l=>l.innerText.includes('Post the signup panel when signup opens'))`);
   await click(`[...document.querySelectorAll('[role=dialog] label')].find(l=>l.innerText.includes('Post the signup panel when signup opens'))`);
