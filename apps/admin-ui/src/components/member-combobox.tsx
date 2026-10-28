@@ -110,7 +110,7 @@ export function MemberCombobox({
   }
 
   return (
-    <Popover open={open} onOpenChange={open => { if (!disabled) setOpen(open) }}>
+    <Popover modal open={open} onOpenChange={open => { if (!disabled) setOpen(open) }}>
       <div className="flex items-center gap-1">
         <PopoverTrigger asChild>
           <Button type="button" variant="outline" disabled={disabled} className="min-w-0 flex-1 justify-start font-normal" aria-label={t('imports.member_search')}>

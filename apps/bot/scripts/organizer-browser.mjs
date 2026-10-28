@@ -39,7 +39,12 @@ try {
     id, name: `Synthetic test guild ${index + 1}`, ownerId: syntheticUserId,
     members: {
       fetch: async (userId) => ({ id: userId, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }),
-      list: async () => new Map([['33333333333333333', { id: '33333333333333333', displayName: 'Synthetic Member', user: { username: 'synthetic.member', displayAvatarURL: () => '/favicon.svg' } }]]),
+      list: async ({ after } = {}) => after
+        ? new Map([['33333333333333400', { id: '33333333333333400', displayName: 'Next page member', user: { username: 'next-page', displayAvatarURL: () => '/favicon.svg' } }]])
+        : new Map(Array.from({ length: 30 }, (_, i) => {
+          const id = String(33333333333333333n + BigInt(i));
+          return [id, { id, displayName: i ? `Member ${i}` : 'Synthetic Member', user: { username: i ? `member-${i}` : 'synthetic.member', displayAvatarURL: () => '/favicon.svg' } }];
+        })),
       search: async ({ query }) => 'synthetic.member'.startsWith(query.toLowerCase()) ? new Map([['33333333333333333', { id: '33333333333333333', displayName: 'Synthetic Member', user: { username: 'synthetic.member', displayAvatarURL: () => '/favicon.svg' } }]]) : new Map(),
     },
   }]));
@@ -531,6 +536,20 @@ try {
   await fill('input[role=combobox]','');
   await wait(`!![...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Synthetic Member'))`);
   check('organizer can browse Discord members without typing',await evaluate(`!!document.querySelector('[role=option] img')`));
+  const wheelPoint = await evaluate(`(()=>{const r=document.querySelector('#member-combobox-list').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+  await send('Input.dispatchMouseEvent',{type:'mouseWheel',...wheelPoint,deltaX:0,deltaY:500},sid);
+  await wait(`document.querySelector('#member-combobox-list').scrollTop > 0`);
+  check('mouse wheel scrolls member results inside the import dialog',await evaluate(`document.querySelector('#member-combobox-list').scrollTop > 0`));
+  await send('Input.dispatchMouseEvent',{type:'mouseWheel',...wheelPoint,deltaX:0,deltaY:4000},sid);
+  await wait(`document.querySelector('#member-combobox-list').innerText.includes('Next page member')`);
+  check('scrolling member results loads the next page',await evaluate(`document.querySelector('#member-combobox-list').innerText.includes('Next page member')`));
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'},sid);
+  await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'},sid);
+  await wait(`!document.querySelector('#member-combobox-list')`);
+  check('Escape closes the picker without closing the import dialog',await evaluate(`!!document.querySelector('[role=dialog]')&&document.activeElement?.getAttribute('aria-label')==='Search server members'`));
+  await click(`document.querySelector('[role=dialog] button[aria-label="Search server members"]')`);
+
+
   await screenshot('organizer-member-picker.png');
   await fill('input[role=combobox]','s');
   await wait(`!![...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Synthetic Member'))`);

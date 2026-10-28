@@ -97,4 +97,5 @@ Feature: Organizer setup
     When they open the Discord member picker
     Then members appear with their profile pictures and usernames before typing
     And typing one character filters the results
-    And more members load as the list is scrolled
+    And the mouse wheel scrolls the list and loads more members
+    And Escape closes only the picker and returns focus to its trigger
