@@ -861,6 +861,7 @@
   "imports.member_choose": "Välj en servermedlem",
   "imports.member_clear": "Rensa vald medlem",
   "imports.member_search_placeholder": "Skriv ett servernamn eller Discord-användarnamn",
+  "imports.member_load_more": "Visa fler medlemmar",
   "imports.member_search_hint": "Skriv minst två tecken.",
   "imports.member_search_empty": "Ingen servermedlem matchar namnet.",
   "imports.member_search_rate_limited": "Discord begränsar medlemssökningen. Vänta ett ögonblick och skriv igen.",

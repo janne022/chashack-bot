@@ -75,6 +75,11 @@ export function ParticipantsPanel({
 
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<StatusFilter>('all')
+  const suggestions = useMemo(() => {
+    const term = query.trim().toLowerCase()
+    if (!term) return []
+    return [...new Set(state.participants.flatMap(p => [p.displayName, ...p.skills.map(skill => labelFor(state.config, 'skills', skill))]))].filter(value => value.toLowerCase().includes(term)).slice(0, 15)
+  }, [query, state.participants, state.config])
   const [confirmBlock, setConfirmBlock] = useState<Participant | null>(null)
   const [sorting, setSorting] = useState<SortingState>([])
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -239,7 +244,7 @@ export function ParticipantsPanel({
                   </DropdownMenuItem>
                 )}
                 {p.status === 'active' && (
-                  <DropdownMenuItem onSelect={() => m?.onAction(p, 'withdraw')}>
+                  <DropdownMenuItem variant="destructive" onSelect={() => m?.onAction(p, 'withdraw')}>
                     {t('participants.remove_signup')}
                   </DropdownMenuItem>
                 )}
@@ -323,12 +328,16 @@ export function ParticipantsPanel({
           <div className="relative min-w-52 flex-1">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              list="participant-search-suggestions"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('participants.search_placeholder')}
               className="pl-9"
               aria-label={t('participants.search_aria')}
             />
+            <datalist id="participant-search-suggestions">
+              {suggestions.map(value => <option key={value} value={value} />)}
+            </datalist>
           </div>
           <Select value={filter} onValueChange={(v) => setFilter(v as StatusFilter)}>
             <SelectTrigger className="w-44" aria-label={t('participants.filter_aria')}>
@@ -349,7 +358,7 @@ export function ParticipantsPanel({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="pb-0">
         <CardHeader>
           <CardTitle>{t('participants.title')}</CardTitle>
           <CardDescription>{t('participants.desc')}</CardDescription>
@@ -357,7 +366,7 @@ export function ParticipantsPanel({
         <CardContent className="p-0">
           {filtered.length === 0 ? <EmptyState icon={<Search className="size-5" />} title={t('participants.no_matches')} action={<Button variant="outline" onClick={() => { setQuery(''); setFilter('all') }}>{t('common.clear')}</Button>} /> : <div
             ref={scrollRef}
-            className={virtualize ? 'max-h-[70vh] overflow-auto' : 'overflow-x-auto'}
+            className={virtualize ? 'max-h-[70vh] overflow-auto' : 'overflow-x-auto overflow-y-hidden'}
           >
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-surface">

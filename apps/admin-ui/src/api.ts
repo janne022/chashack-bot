@@ -348,8 +348,10 @@ export const api = {
     return request(`/api/events/${encodeURIComponent(eventId)}/imported-signups/auto-link`, { method: 'POST' })
   },
 
-  async searchGuildMembers(query: string, signal?: AbortSignal): Promise<{ members: { id: string; username: string; displayName: string }[] }> {
-    return request(`/api/guild/members?query=${encodeURIComponent(query)}`, { signal })
+  async searchGuildMembers(query: string, after: string | null, signal?: AbortSignal): Promise<{ members: { id: string; username: string; displayName: string; avatar: string }[]; nextCursor: string | null }> {
+    const params = new URLSearchParams({ query })
+    if (after) params.set('after', after)
+    return request(`/api/guild/members?${params}`, { signal })
   },
 
   async createDiscordEvents(eventId: string, days: number, durationHours: number): Promise<void> {

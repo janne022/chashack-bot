@@ -23,7 +23,7 @@ try {
   ]);
   db=await openTestDb();
   const guildId='11111111111111111', members=new Set(['participant-a','participant-b','participant-c','organizer']);
-  const guild={id:guildId,ownerId:'organizer',members:{fetch:async input=>{const id=typeof input==='string'?input:input.user;if(!members.has(id))throw Object.assign(Error('not a member'),{code:10007});return {id,permissions:{has:()=>id==='organizer',bitfield:id==='organizer'?32n:0n},roles:{cache:new Map()}}},search:async ({query})=>query.toLowerCase().includes('participant-b')?new Map([['participant-b',{id:'participant-b',displayName:'Participant B',user:{username:'participant-b',displayAvatarURL:()=>'/favicon.svg'}}]]):new Map()}};
+  const guild={id:guildId,ownerId:'organizer',members:{fetch:async input=>{const id=typeof input==='string'?input:input.user;if(!members.has(id))throw Object.assign(Error('not a member'),{code:10007});return {id,permissions:{has:()=>id==='organizer',bitfield:id==='organizer'?32n:0n},roles:{cache:new Map()}}},list:async()=>new Map([['participant-b',{id:'participant-b',displayName:'Participant B',user:{username:'participant-b',displayAvatarURL:()=>'/favicon.svg'}}]]),search:async ({query})=>'participant-b'.includes(query.toLowerCase())?new Map([['participant-b',{id:'participant-b',displayName:'Participant B',user:{username:'participant-b',displayAvatarURL:()=>'/favicon.svg'}}]]):new Map()}};
   const client={guilds:{cache:new Map([[guildId,guild]]),fetch:async id=>id===guildId?guild:undefined}};
   const config={adminSessionSecret:'x'.repeat(32),adminPort:port,clientId:'synthetic-client',discordClientSecret:'synthetic-client-secret', // g0:allow:secrets t_583f310e — synthetic fixture only.
     oauthRedirectUri:`${base}/auth/discord/callback`,publicUrl:base,skipDiscord:true,adminIds:[],guildId:undefined,discordToken:'',announceChannelId:undefined,auditChannelId:undefined,teamCategoryId:undefined,botLanguage:'en',databaseUrl:process.env.DATABASE_URL};
@@ -125,6 +125,7 @@ try {
   check('scale and no answer persist without being mistaken for missing answers', JSON.parse((await db.get('SELECT answers_json FROM registration_answers WHERE event_id=? AND user_id=?', eventId, 'participant-a')).answers_json).updates === 'no');
   check('post-signup team action remains accessible',await evaluate(`!!document.querySelector('a[href^="/team?eventId"]')`));
   const reg=await fetch(`${base}/api/participant/events/${eventId}/registration`,{headers:{cookie:cookies['participant-a']}});check('registration completion response is true',reg.ok&&(await reg.json()).complete===true);
+  if (!process.env.MEMBER_ONLY) {
   await nav(`/events/${eventId}?view=submission`); await wait(`!!document.querySelector('#project')`);
   check('submission help is associated with the answer in Swedish',await evaluate(`document.querySelector('#project').getAttribute('aria-describedby')?.split(' ').some(id=>document.getElementById(id)?.innerText==='Beskriv ditt projekt')`));
   check('submission help appears in the browser accessibility description',(await ax('#project')).nodes.some(n=>n.role?.value==='textbox'&&n.description?.value?.includes('Beskriv ditt projekt')));
@@ -147,6 +148,7 @@ try {
   await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Spara inlämning'))`);
   await wait(`document.body.innerText.includes('Inlämningen är klar')`);
   check('submission draft saves under the new form version',(await db.get('SELECT form_version FROM submission_answers WHERE event_id=? AND user_id=?',eventId,'participant-a')).form_version===2);
+  }
   await nav(`/events/${eventId}?view=schedule`); await wait(`document.body.innerText.includes('Välkomstträff')`);
   check('schedule shows participant details and marks the schedule tab current', await evaluate(`document.body.innerText.includes('Träffa alla deltagare') && !!document.querySelector('a[aria-current=page][href*="view=schedule"]') && !document.body.innerText.includes('Organizer-only action')`));
   check('event pages have one return link to My hackathons', await evaluate(`[...document.querySelectorAll('a[href="/my-hackathons"]')].length===1`));
@@ -162,8 +164,10 @@ try {
   check('default form profile survives refresh',await evaluate(`document.querySelector('#profile-experience').checked&&document.querySelector('#profile-role').checked`));
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
   await nav('/my-hackathons');await wait(`document.body.innerText.includes('Svensk hackathon')`);
-  await wait(`document.body.innerText.includes('Inlämningen är klar')`);
-  check('My hackathons shows completed submission status', await evaluate(`document.body.innerText.includes('Inlämningen är klar')`));
+  if (!process.env.MEMBER_ONLY) {
+    await wait(`document.body.innerText.includes('Inlämningen är klar')`);
+    check('My hackathons shows completed submission status', await evaluate(`document.body.innerText.includes('Inlämningen är klar')`));
+  }
   check('My hackathons has no redundant self-navigation button', await evaluate(`[...document.querySelectorAll('a[href="/my-hackathons"]')].length===1`));
   await screenshot('my-hackathons-mobile.png');
   check('My hackathons shows only the signed-in participant registration',await evaluate(`document.body.innerText.includes('Svensk hackathon')&&!document.body.innerText.includes('participant-b')`));
@@ -201,7 +205,11 @@ try {
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
   await nav(`/team?eventId=${eventId}`);await wait(`document.body.innerText.includes('Workshop crew')`);
   check('owner receives invite controls regardless of join-code metadata',await evaluate(`!!document.querySelector('input[placeholder="Sök en Discord-medlem…"]')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skicka inbjudan'))`));
-  await evaluate(`(()=>{const e=document.querySelector('input[placeholder="Sök en Discord-medlem…"]');e.focus();Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'participant-b');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await evaluate(`document.querySelector('input[placeholder="Sök en Discord-medlem…"]').focus()`);
+  await wait(`!![...document.querySelectorAll('[role=option]')].find(b=>b.innerText.includes('Participant B'))`);
+  check('member list appears before typing and shows Discord identity', await evaluate(`!!document.querySelector('[role=option] img')&&document.querySelector('[role=option]').innerText.includes('@participant-b')`));
+  await screenshot('participant-member-picker.png');
+  await evaluate(`(()=>{const e=document.querySelector('input[placeholder="Sök en Discord-medlem…"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'p');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   await wait(`!![...document.querySelectorAll('[role=option]')].find(b=>b.innerText.includes('Participant B'))`);
   check('typed text alone cannot be submitted as an invite',await evaluate(`document.querySelector('label[for=invite-member]') && [...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skicka inbjudan')).disabled`));
   await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13},sid); await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13},sid);
@@ -213,6 +221,7 @@ try {
   await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Acceptera'))`);
   await wait(`document.body.innerText.includes('Workshop crew')&&document.body.innerText.includes('2 medlemmar')`);
   check('invited participant can accept from the served invitation controls',await evaluate(`document.body.innerText.includes('Lämna laget')`));
+  if (!process.env.MEMBER_ONLY) {
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-c'].split('=')[1]),url:base,httpOnly:true},sid);
   await nav(`/team?eventId=${eventId}`);await wait(`document.body.innerText.includes('Inga öppna lag')`);
   check('full teams are excluded with a useful empty-state explanation and create action',await evaluate(`document.body.innerText.includes('Inga öppna lag')&&document.body.innerText.includes('Skapa ett lag eller kom tillbaka senare.')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skapa lag'))`));
@@ -341,6 +350,11 @@ try {
   const scheduled=JSON.parse((await db.get('SELECT schedule_json FROM events WHERE id=?',eventId)).schedule_json);
   check('signup panel is configured in the signup block while signup overlaps kickoff',scheduled.some(block=>block.id==='__signup__'&&block.actions?.some(action=>action.type==='post_signup')));
   await nav('/operations?tab=participants');await wait(`document.body.innerText.includes('Participants')`);
+  await evaluate(`(()=>{const e=document.querySelector('input[aria-label="Search participants"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'participant-a');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await wait(`[...document.querySelectorAll('#participant-search-suggestions option')].some(e=>e.value==='participant-a')`);
+  check('operations search suggests matching participants',await evaluate(`[...document.querySelectorAll('#participant-search-suggestions option')].some(e=>e.value==='participant-a')`));
+  await evaluate(`(()=>{const e=document.querySelector('input[aria-label="Search participants"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+
   const reassignment=await evaluate(`document.querySelector('[role=combobox][aria-label*="participant-a"]')?.getAttribute('aria-label')`);
   check('organizer sees the named keyboard-accessible team reassignment control',typeof reassignment==='string'&&reassignment.length>0);
   const selector=`document.querySelector('[role=combobox][aria-label*="participant-a"]')`;
@@ -378,6 +392,7 @@ try {
   for(let i=0;i<40;i++){const row=await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a');if(row?.team_id===null)break;await delay(100)}
   check('keyboard can reassign a participant to no team', (await db.get('SELECT team_id FROM participants WHERE event_id=? AND user_id=?',eventId,'participant-a')).team_id===null);
 
+  }
   assert.deepEqual(exceptions,[]);
   console.log(`RESULT ${checks.length} participant browser assertions passed; uncaught exceptions: 0`);
 } finally {

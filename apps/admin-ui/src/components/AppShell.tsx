@@ -14,12 +14,12 @@ import {
   LayoutTemplate,
   Briefcase,
   TriangleAlert,
+  Globe,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ServerSwitcher } from '@/components/ServerSwitcher'
 import { ServerContext } from '@/components/ServerGate'
-import { LanguageMenu } from '@/components/LanguageMenu'
 import { api } from '@/api'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
@@ -31,11 +31,15 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { useAppContext } from '@/lib/app-context'
 import { discordAvatarUrl } from '@/lib/discord-avatar'
 import { clearSessionCache } from '@/lib/session-cache'
-import { useT } from '@/lib/i18n'
+import { useT, useLocale, setLocale, type Locale } from '@/lib/i18n'
 import type { AppState, AuthMe } from '@/types'
 import brandMark from '@/assets/brand/1.png'
 
@@ -114,35 +118,6 @@ export function AppShell({
     try { localStorage.setItem(THEME_KEY, next) } catch { /* storage unavailable */ }
   }
 
-  const activeTheme = THEME_OPTIONS.find((option) => option.value === theme) ?? THEME_OPTIONS[2]!
-  const ActiveThemeIcon = activeTheme.icon
-
-  const themeMenu = (compact: boolean) => (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size={compact ? 'icon' : undefined}
-          className={compact ? 'min-h-11 min-w-11' : 'flex-1 justify-start rounded-lg bg-card text-xs'}
-          aria-label={t('common.theme_mode')}
-        >
-          <ActiveThemeIcon />
-          {!compact && t(activeTheme.labelKey)}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side={compact ? 'bottom' : 'top'} className="w-48">
-        <DropdownMenuRadioGroup value={theme} onValueChange={(next) => selectTheme(next as ThemeMode)}>
-          {THEME_OPTIONS.map(({ value, icon: Icon, labelKey }) => (
-            <DropdownMenuRadioItem key={value} value={value}>
-              <Icon className="mr-1.5 size-4" />
-              {t(labelKey)}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-
   return (
     <div className="organizer-workspace min-h-screen lg:flex">
       {/* Desktop sidebar */}
@@ -187,11 +162,7 @@ export function AppShell({
             <div className="font-display text-2xl text-accent">{state.stats.active}</div>
             <div className="text-xs text-muted-foreground">{t('common.active_signups')}</div>
           </div>
-          <div className="flex items-center gap-1 rounded-xl border bg-surface-2 p-1">
-            {themeMenu(false)}
-            <LanguageMenu side="top" />
-          </div>
-          {account && <AccountMenu user={account} />}
+          {account && <AccountMenu user={account} theme={theme} onThemeChange={selectTheme} />}
         </div>
       </aside>
 
@@ -202,9 +173,7 @@ export function AppShell({
           <span className="font-display text-sm">{t('common.app_name')}</span>
         </div>
         <div className="flex gap-1">
-          {themeMenu(true)}
-          <LanguageMenu compact />
-          {account && <AccountMenu user={account} compact />}
+          {account && <AccountMenu user={account} compact theme={theme} onThemeChange={selectTheme} />}
         </div>
       </div>
 
@@ -278,9 +247,10 @@ function AccountAvatar({ user }: { user: NonNullable<AuthMe['user']> }) {
   </span>
 }
 
-function AccountMenu({ user, compact = false }: { user: NonNullable<AuthMe['user']>; compact?: boolean }) {
+function AccountMenu({ user, compact = false, theme, onThemeChange }: { user: NonNullable<AuthMe['user']>; compact?: boolean; theme: ThemeMode; onThemeChange: (value: ThemeMode) => void }) {
   const t = useT()
   const queryClient = useQueryClient()
+  const locale = useLocale()
   const signOut = async () => {
     try { await api.logout(); await clearSessionCache(queryClient); window.location.assign('/') }
     catch { toast.error(t('common.sign_out_failed')) }
@@ -293,7 +263,25 @@ function AccountMenu({ user, compact = false }: { user: NonNullable<AuthMe['user
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align={compact ? 'end' : 'start'} side={compact ? 'bottom' : 'top'} className="w-48">
-      <DropdownMenuItem onSelect={() => void signOut()}><LogOut />{t('server.sign_out')}</DropdownMenuItem>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger><Monitor />{t('common.theme_mode')}</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-48">
+          <DropdownMenuRadioGroup value={theme} onValueChange={value => onThemeChange(value as ThemeMode)}>
+            {THEME_OPTIONS.map(({ value, icon: Icon, labelKey }) => <DropdownMenuRadioItem key={value} value={value}><Icon className="mr-1.5 size-4" />{t(labelKey)}</DropdownMenuRadioItem>)}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger><Globe />{t('common.choose_language')}</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-40">
+          <DropdownMenuRadioGroup value={locale} onValueChange={value => setLocale(value as Locale)}>
+            <DropdownMenuRadioItem value="en" lang="en">English</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="sv" lang="sv">Svenska</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem variant="destructive" onSelect={() => void signOut()}><LogOut />{t('server.sign_out')}</DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>
 }

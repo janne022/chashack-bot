@@ -404,9 +404,9 @@ reserved for avatars, the live pulse and icon-only buttons.
   wash with the icon in `accent`.
 - **States:** hover lifts text to `foreground`; active adds the wash and a
   left-edge accent; counts ride as hex-clipped badges at the row end.
-- **Account and preferences:** the sidebar footer keeps theme and language choice
-  menus above a Discord avatar and account name. The account menu contains sign-out;
-  an initial stands in for a missing or unavailable avatar. No email is displayed.
+- **Account and preferences:** the sidebar footer shows a Discord avatar and account name. The account menu contains theme
+  and language selection plus a visually destructive sign-out action; an initial
+  stands in for a missing or unavailable avatar. No email is displayed.
 - **Mobile:** the sidebar collapses into a sticky top bar (brand mark + event
   switcher) and a fixed bottom bar of five icon+label tabs; the active tab is
   accent-coloured. Sticky surfaces inside pages must offset below the mobile top
