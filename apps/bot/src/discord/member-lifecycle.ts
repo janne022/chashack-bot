@@ -26,7 +26,7 @@ export async function lookupGuildMember(client: Client, guildId: string, userId:
 
 function indexMember(map: Map<string, string[]>, member: GuildMember, uniqueNamesOnly = false): void {
   if (member.user.bot) return;
-  for (const name of uniqueNamesOnly ? [member.user.username, member.user.tag] : [member.user.username, member.user.globalName, member.user.tag]) {
+  for (const name of uniqueNamesOnly ? [member.id, member.user.username, member.user.tag] : [member.id, member.user.username, member.user.globalName, member.user.tag]) {
     if (!name) continue;
     const key = name.trim().toLocaleLowerCase('en-US').replace(/^@/, '');
     if (key === '') continue;

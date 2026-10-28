@@ -60,20 +60,22 @@ export async function autoLinkPresentMembers(
   form: FormConfig,
   lookup: UsernameLookup,
   onlyUserId?: string,
+  onlyImportId?: string,
+  actor = 'system:member-join',
 ): Promise<string[]> {
-  const candidates = new Map<string, string[]>();
+  const candidates = new Map<string, { id: string; username: string }[]>();
   for (const row of await listImportedSignups(db, eventId)) {
     if (row.discordUserId !== null || !row.discordUsername?.trim()) continue;
     const member = await lookup(row.discordUsername);
     if (!member || member === 'ambiguous' || (onlyUserId && member !== onlyUserId)) continue;
     const rows = candidates.get(member) ?? [];
-    rows.push(row.id);
+    rows.push({ id: row.id, username: row.discordUsername });
     candidates.set(member, rows);
   }
   const linked: string[] = [];
   for (const [member, rows] of candidates) {
-    if (rows.length !== 1) continue;
-    const result = await linkImportedSignup(db, eventId, guildId, rows[0]!, member, form, { organizer: true, actor: 'system:member-join', onlyIfUnlinked: true });
+    if (rows.length !== 1 || (onlyImportId && rows[0]!.id !== onlyImportId)) continue;
+    const result = await linkImportedSignup(db, eventId, guildId, rows[0]!.id, member, form, { organizer: true, actor, onlyIfUnlinked: true, expectedDiscordUsername: rows[0]!.username });
     if (result.linked) linked.push(member);
   }
   return linked;

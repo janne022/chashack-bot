@@ -34,6 +34,8 @@ export interface LinkOptions {
   actor?: string;
   /** Automatic matching must never overwrite a link made concurrently. */
   onlyIfUnlinked?: boolean;
+  /** Refuse a stale automatic match if the organizer edited the username. */
+  expectedDiscordUsername?: string;
 }
 
 export async function linkImportedSignup(
@@ -50,9 +52,10 @@ export async function linkImportedSignup(
     if (!event || event.guild_id !== guildId) return { linked: false, activated: false, missingFields: [], error: 'event_not_found' };
     if (event.status === 'ended') return { linked: false, activated: false, missingFields: [], error: 'event_ended' };
     if (!options.organizer && event.status !== 'active') return { linked: false, activated: false, missingFields: [], error: 'event_not_active' };
-    const row = await db.get<{ values_json: string; answers_json: string; discord_user_id: string | null; form_version: number }>('SELECT values_json,answers_json,discord_user_id,form_version FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', importId, eventId);
+    const row = await db.get<{ values_json: string; answers_json: string; discord_user_id: string | null; discord_username: string | null; form_version: number }>('SELECT values_json,answers_json,discord_user_id,discord_username,form_version FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', importId, eventId);
     if (!row) return { linked: false, activated: false, missingFields: [], error: 'import_not_found' };
     if (options.onlyIfUnlinked && row.discord_user_id !== null) return { linked: false, activated: false, missingFields: [], error: 'already_linked' };
+    if (options.expectedDiscordUsername !== undefined && row.discord_username !== options.expectedDiscordUsername) return { linked: false, activated: false, missingFields: [], error: 'username_changed' };
     // A member claimed by a *different* row is a duplicate the organizer must
     // resolve; re-binding this row to someone else is a correction, not a clash.
     if (await db.get('SELECT id FROM imported_signups WHERE event_id=? AND discord_user_id=? AND id<>?', eventId, userId, importId)) return { linked: false, activated: false, missingFields: [], error: 'identity_conflict' };

@@ -19,14 +19,15 @@ const BOB = '22345678901234567';
 const CAROL = '32345678901234567';
 const members = [ADA, BOB, CAROL];
 
-const memberFake = (id: string) => ({ id, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } });
+const memberFake = (id: string) => ({ id, user: { username: id === ADA ? 'ada' : id === BOB ? 'bob' : 'carol', tag: id === ADA ? 'ada' : id === BOB ? 'bob' : 'carol', globalName: null, bot: false }, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } });
 
 async function setup() {
   const db = await openTestDb();
   const session = await createSession(db, { userId: '99999999999999999', username: 'Organizer', avatar: null, guilds: [{ id: guildId, name: 'Guild', icon: null }] });
   const guild = {
     id: guildId, name: 'Guild', ownerId: session.userId,
-    members: { fetch: async (id: string | { user: string }) => {
+    members: { cache: new Map(), fetch: async (id?: string | { user: string }) => {
+      if (id === undefined) return new Map(members.map(userId => [userId, memberFake(userId)]));
       const userId = typeof id === 'string' ? id : id.user;
       if (userId !== session.userId && !members.includes(userId)) throw new Error('Unknown Member');
       return memberFake(userId);
@@ -60,6 +61,30 @@ const linkPatch = (app: Awaited<ReturnType<typeof setup>>['app'], eventId: strin
 const ADA_ROW = { name: 'Ada Andersson', email: 'ada@example.test', experience: 'first_timer', skills: 'frontend_react', teamPref: 'random_team' };
 const BOB_ROW = { name: 'Bob Bsson', email: 'bob@example.test', experience: 'veteran', skills: 'backend_node', teamPref: 'join_team' };
 const CAROL_ROW = { name: 'Carol Csson', email: 'carol@example.test', experience: 'some_experience', skills: 'devops', teamPref: 'random_team' };
+
+test('editing a Discord username or ID links only the matching unlinked row', async () => {
+  const { db, app, headers, close } = await setup();
+  try {
+    const eventId = await newEvent(db, guildId, 'Edited identity');
+    await insertRow(db, eventId, 'row-ada', ADA_ROW);
+    await insertRow(db, eventId, 'row-bob', BOB_ROW);
+    await insertRow(db, eventId, 'row-carol', CAROL_ROW);
+    const byName = await linkPatch(app, eventId, 'row-ada', { discordUsername: 'ada' }, headers);
+    assert.equal(byName.statusCode, 200, byName.body);
+    assert.equal(byName.json().record.discordUserId, ADA);
+    assert.equal(byName.json().record.values.discordUsername, 'ada');
+    const byId = await linkPatch(app, eventId, 'row-bob', { values: { discordUsername: BOB } }, headers);
+    assert.equal(byId.statusCode, 200, byId.body);
+    assert.equal(byId.json().record.discordUserId, BOB);
+    const existing = await linkPatch(app, eventId, 'row-ada', { discordUsername: 'carol' }, headers);
+    assert.equal(existing.json().record.discordUserId, ADA, 'editing text cannot rebind an already linked row');
+    await insertRow(db, eventId, 'duplicate', { ...CAROL_ROW, email: 'duplicate@example.test' });
+    await withGuildContext(db, guildId, () => db.run("UPDATE imported_signups SET discord_username='carol' WHERE id='duplicate'"));
+    const ambiguous = await linkPatch(app, eventId, 'row-carol', { discordUsername: 'carol' }, headers);
+    assert.equal(ambiguous.statusCode, 200, ambiguous.body);
+    assert.equal(ambiguous.json().record.discordUserId, null, 'duplicate imported identities need review');
+  } finally { await close(); }
+});
 
 test('an organizer can link on a draft event, adopt a registration and re-bind a row', async () => {
   const { db, app, headers, close } = await setup();

@@ -802,7 +802,7 @@
   "imports.action": "Importera anmälningar",
   "imports.back_to_event": "Tillbaka till evenemanget",
   "imports.organizer_only": "Endast synligt för arrangörer",
-  "imports.discord_limitation": "Importerade anmälningar syns direkt i Deltagare, matchningen och team. När någon går med i servern länkas ett entydigt Discord-användarnamn automatiskt och personens teamåtkomst ordnas. Använd ”Länka medlemmar” för att försöka igen eller granska andra träffar.",
+  "imports.discord_limitation": "Importerade anmälningar syns direkt i Deltagare, matchningen och team. När någon går med i servern eller du ändrar personens Discord-användarnamn eller ID länkas en entydig träff automatiskt och personens teamåtkomst ordnas. Använd ”Länka medlemmar” för att försöka igen eller granska andra träffar.",
   "imports.auto_link_action": "Länka medlemmar",
   "imports.auto_link_running": "Länkar…",
   "imports.auto_link_hint": "Länkar varje importerad anmälan vars Discord-användarnamn matchar exakt en medlem i servern. Rader utan träff eller med flera träffar förblir olänkade.",

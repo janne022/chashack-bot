@@ -100,6 +100,7 @@ export async function editImportedSignup(db: Db, eventId: string, id: string, ed
     const row = await db.get<Row>('SELECT id,event_id,source_row,source_timestamp,form_version,values_json,answers_json,discord_username,discord_user_id FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', id, eventId);
     if (!row) return null;
     const values = { ...JSON.parse(row.values_json) as Record<string, string>, ...edit.values };
+    if (edit.discordUsername !== undefined) values.discordUsername = edit.discordUsername?.trim() ?? '';
     const answers = { ...JSON.parse(row.answers_json) as Record<string, string | string[]>, ...edit.answers };
     const sourceTimestamp = values.sourceTimestamp ?? row.source_timestamp;
     await db.run('UPDATE imported_signups SET values_json=?,answers_json=?,source_timestamp=?,discord_username=?,form_version=?,updated_at=? WHERE id=? AND event_id=?',

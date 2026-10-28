@@ -101,9 +101,9 @@ Confirmed functionality (the README is the detailed inventory; this is the shape
 - Audit log of every mutation; event reset clears participants and teams but keeps
   the form config.
 - Imported signups (Google Form/CSV) count as participants immediately, including
-  in matching and teams. When an unambiguous Discord username matches a member who
-  joins the server, the signup links automatically and keeps its team; reconnect
-  maintenance catches missed joins. Organizers can review other matches with
+  in matching and teams. When an unambiguous Discord username or ID matches a
+  member, a join or an edit to the Discord field links the signup automatically
+  and keeps its team; reconnect maintenance catches missed joins. Organizers can review other matches with
   “Link members”. Deleting a linked import does not delete the participant.
 
 Constraints and deliberate limits:
