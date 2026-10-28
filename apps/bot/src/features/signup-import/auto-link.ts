@@ -51,3 +51,32 @@ export async function autoLinkImportedSignups(
   }
   return result;
 }
+
+/** Link only identities with one matching unlinked row in this event. */
+export async function autoLinkPresentMembers(
+  db: Db,
+  eventId: string,
+  guildId: string,
+  form: FormConfig,
+  lookup: UsernameLookup,
+  onlyUserId?: string,
+  onlyImportId?: string,
+  actor = 'system:member-join',
+): Promise<string[]> {
+  const candidates = new Map<string, { id: string; username: string }[]>();
+  for (const row of await listImportedSignups(db, eventId)) {
+    if (row.discordUserId !== null || !row.discordUsername?.trim()) continue;
+    const member = await lookup(row.discordUsername);
+    if (!member || member === 'ambiguous' || (onlyUserId && member !== onlyUserId)) continue;
+    const rows = candidates.get(member) ?? [];
+    rows.push({ id: row.id, username: row.discordUsername });
+    candidates.set(member, rows);
+  }
+  const linked: string[] = [];
+  for (const [member, rows] of candidates) {
+    if (rows.length !== 1 || (onlyImportId && rows[0]!.id !== onlyImportId)) continue;
+    const result = await linkImportedSignup(db, eventId, guildId, rows[0]!.id, member, form, { organizer: true, actor, onlyIfUnlinked: true, expectedDiscordUsername: rows[0]!.username });
+    if (result.linked) linked.push(member);
+  }
+  return linked;
+}

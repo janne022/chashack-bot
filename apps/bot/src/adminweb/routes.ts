@@ -96,7 +96,7 @@ import { consumeQuota, EXPENSIVE_LIMIT, MEMBER_SEARCH_LIMIT } from '../shared/ra
 import { parseSignupCsv } from '../features/signup-import/domain.js';
 import { createImportedSignups, deleteImportedSignup, deleteImportedSignups, editImportedSignup, listImportedSignups, purgeImportedSignups, summarizeImportedRows } from '../features/signup-import/data.js';
 import { linkImportedSignup, claimImportedSignupByEmail, findImportedSignupByEmail } from '../features/signup-import/link.js';
-import { autoLinkImportedSignups } from '../features/signup-import/auto-link.js';
+import { autoLinkImportedSignups, autoLinkPresentMembers } from '../features/signup-import/auto-link.js';
 import { dropImportedPlaceholder, reconcileImportedParticipants, syncImportedRow } from '../features/signup-import/sync.js';
 import { importedRowProfile, normalizeImportedRow } from '../features/signup-import/normalize.js';
 import { presetCatalog, presetExists, suggestMapping } from '../features/signup-import/presets.js';
@@ -2261,12 +2261,13 @@ app.post('/api/event/reset', async (req) => {
     }
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     if (body?.values && Object.values(body.values as Record<string, unknown>).some((value) => typeof value !== 'string' || value.length > 10_000)) return reply.code(400).send({ error: 'invalid_edit', issues: ['Values must be bounded text'] });
+    const discordUsernameEdit = body?.discordUsername !== undefined ? body.discordUsername as string | null : (body?.values as Record<string, string> | undefined)?.discordUsername;
     // An edit is normalized, not rejected: an unrecognised choice is dropped and
     // reported so the organizer keeps the rest of their correction.
     const normalizedEdit = normalizeImportedRow(form,
       (body?.values as Record<string, unknown> | undefined) ?? {},
       (body?.answers as Record<string, unknown> | undefined) ?? {});
-    if (typeof body?.discordUsername === 'string' && body.discordUsername.length > 256) return reply.code(400).send({ error: 'invalid_edit', message: importErrorMessages.invalid_edit });
+    if (typeof discordUsernameEdit === 'string' && discordUsernameEdit.length > 256) return reply.code(400).send({ error: 'invalid_edit', message: importErrorMessages.invalid_edit });
     const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
     if (typeof body?.linkDiscordUserId === 'string' && !(await currentMember(event.guildId, body.linkDiscordUserId))) return reply.code(400).send({ error: 'not_guild_member', message: importErrorMessages.not_guild_member });
     try {
@@ -2274,7 +2275,7 @@ app.post('/api/event/reset', async (req) => {
         const edited = await editImportedSignup(db, params.eventId, params.id, {
           ...(body?.values ? { values: normalizedEdit.values } : {}),
           ...(body?.answers ? { answers: normalizedEdit.answers } : {}),
-          ...(body?.discordUsername !== undefined ? { discordUsername: body.discordUsername as string | null } : {}),
+          ...(discordUsernameEdit !== undefined ? { discordUsername: discordUsernameEdit } : {}),
           ...(body?.answers !== undefined ? { formVersion: form.version } : {}),
         });
         if (!edited) throw new Error('not_found');
@@ -2292,7 +2293,18 @@ app.post('/api/event/reset', async (req) => {
         await syncImportedRow(db, event.id, event.guildId, record, form);
         return { record, linked: record.discordUserId !== null, missingFields: record.missingFields, warnings };
       });
-      const linkedUserId = (result as { linkedUserId?: string }).linkedUserId;
+      let linkedUserId = (result as { linkedUserId?: string }).linkedUserId;
+      if (discordUsernameEdit !== undefined && linkedUserId === undefined && result.record.discordUserId === null && deps.client !== null && !config.skipDiscord) {
+        try {
+          const matches = await autoLinkPresentMembers(db, event.id, event.guildId, form,
+            createMemberUsernameLookup(deps.client, event.guildId, true, true), undefined, params.id, await actorOf(req));
+          linkedUserId = matches[0];
+          if (linkedUserId) {
+            result.record = (await listImportedSignups(db, event.id, required)).find(item => item.id === params.id) ?? result.record;
+            result.linked = true;
+          }
+        } catch (error) { console.warn('Automatic linking after imported signup edit failed; maintenance will retry:', error); }
+      }
       if (linkedUserId !== undefined && deps.client !== null && !config.skipDiscord) {
         try {
           const team = await getTeamForUser(db, event.id, linkedUserId);

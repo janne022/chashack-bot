@@ -71,6 +71,8 @@ export async function mergeImportedPlaceholder(
   if (placeholder === undefined) return;
   const target = await db.get<{ team_id: string | null }>(
     'SELECT team_id FROM participants WHERE event_id=? AND user_id=?', eventId, userId);
+  await db.run('UPDATE teams SET owner_id=? WHERE event_id=? AND owner_id=?',
+    target?.team_id && target.team_id !== placeholder.team_id ? null : userId, eventId, placeholderId);
   if (target === undefined) {
     await db.run('UPDATE participants SET user_id=?, imported_signup_id=?, updated_at=? WHERE event_id=? AND user_id=?',
       userId, importId, now, eventId, placeholderId);

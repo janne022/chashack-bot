@@ -4,6 +4,8 @@ import type { FormConfig } from '../form/domain.js';
 import { validateCustomAnswers } from '../form/domain.js';
 import { getParticipant } from '../signup/data.js';
 import { joinGroupTeam, type GroupTeamMembership } from '../teams/group-teams.js';
+import { getTeamForUser } from '../teams/data.js';
+import { markTeamProvisionPending } from '../teams/provision-data.js';
 import { importedRowProfile, normalizeImportedRow } from './normalize.js';
 import { mergeImportedPlaceholder, projectImportedParticipant } from './sync.js';
 
@@ -30,6 +32,10 @@ export interface LinkOptions {
   organizer?: boolean;
   /** Who did it, for the audit trail. Defaults to the audience name. */
   actor?: string;
+  /** Automatic matching must never overwrite a link made concurrently. */
+  onlyIfUnlinked?: boolean;
+  /** Refuse a stale automatic match if the organizer edited the username. */
+  expectedDiscordUsername?: string;
 }
 
 export async function linkImportedSignup(
@@ -46,8 +52,10 @@ export async function linkImportedSignup(
     if (!event || event.guild_id !== guildId) return { linked: false, activated: false, missingFields: [], error: 'event_not_found' };
     if (event.status === 'ended') return { linked: false, activated: false, missingFields: [], error: 'event_ended' };
     if (!options.organizer && event.status !== 'active') return { linked: false, activated: false, missingFields: [], error: 'event_not_active' };
-    const row = await db.get<{ values_json: string; answers_json: string; discord_user_id: string | null; form_version: number }>('SELECT values_json,answers_json,discord_user_id,form_version FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', importId, eventId);
+    const row = await db.get<{ values_json: string; answers_json: string; discord_user_id: string | null; discord_username: string | null; form_version: number }>('SELECT values_json,answers_json,discord_user_id,discord_username,form_version FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', importId, eventId);
     if (!row) return { linked: false, activated: false, missingFields: [], error: 'import_not_found' };
+    if (options.onlyIfUnlinked && row.discord_user_id !== null) return { linked: false, activated: false, missingFields: [], error: 'already_linked' };
+    if (options.expectedDiscordUsername !== undefined && row.discord_username !== options.expectedDiscordUsername) return { linked: false, activated: false, missingFields: [], error: 'username_changed' };
     // A member claimed by a *different* row is a duplicate the organizer must
     // resolve; re-binding this row to someone else is a correction, not a clash.
     if (await db.get('SELECT id FROM imported_signups WHERE event_id=? AND discord_user_id=? AND id<>?', eventId, userId, importId)) return { linked: false, activated: false, missingFields: [], error: 'identity_conflict' };
@@ -74,7 +82,6 @@ export async function linkImportedSignup(
     const hadParticipant = target !== null;
     // A placeholder the import created becomes this member's participant, keeping
     // the team they were matched into and the answers they already gave.
-    await mergeImportedPlaceholder(db, eventId, importId, userId);
     const checked = validateCustomAnswers(form, answers);
     if (!checked.ok) return { linked: false, activated: false, missingFields: [], error: 'invalid_answers' };
     const missingFields = checked.missingRequiredQuestionIds;
@@ -86,6 +93,10 @@ export async function linkImportedSignup(
     if (role && !form.roleTracks.some((option) => option.id === role)) return { linked: false, activated: false, missingFields: ['role'], error: 'invalid_core_answer' };
     if (teamPref && !form.teamPrefs.some((option) => option.id === teamPref)) return { linked: false, activated: false, missingFields: ['teamPref'], error: 'invalid_core_answer' };
     if (skills.some((skill) => !form.skills.some((option) => option.id === skill))) return { linked: false, activated: false, missingFields: ['skills'], error: 'invalid_core_answer' };
+    if (hadParticipant && !options.organizer && missingFields.length === 0) return { linked: false, activated: false, missingFields: [], error: 'participant_conflict' };
+    const placeholder = await getParticipant(db, eventId, `imp:${importId}`);
+    if (placeholder?.status === 'blocked') return { linked: false, activated: false, missingFields: [], error: 'registration_blocked' };
+    await mergeImportedPlaceholder(db, eventId, importId, userId);
 
     const persist = async (): Promise<void> => {
       await db.run(
@@ -101,10 +112,16 @@ export async function linkImportedSignup(
     };
     if ((await getParticipant(db, eventId, userId))?.status === 'blocked') return { linked: false, activated: false, missingFields: [], error: 'registration_blocked' };
 
+    const queueTeam = async (): Promise<void> => {
+      const team = await getTeamForUser(db, eventId, userId);
+      if (team) await markTeamProvisionPending(db, guildId, eventId, team.id);
+    };
+
     if (missingFields.length) {
       await persist();
       await project();
       const groupTeam = await joinGroupTeam(db, actor, eventId, guildId, userId, values.groupName);
+      await queueTeam();
       await audit(db, actor, 'imported_signup.link', eventId, { importId, userId, activated: false, missing: missingFields.length, organizer: options.organizer === true }, guildId);
       return { linked: true, activated: false, missingFields, ...(groupTeam ? { groupTeam } : {}), ...(warnings.length ? { warnings } : {}) };
     }
@@ -116,6 +133,7 @@ export async function linkImportedSignup(
       await persist();
       await project();
       const groupTeam = await joinGroupTeam(db, actor, eventId, guildId, userId, values.groupName);
+      await queueTeam();
       await audit(db, actor, 'imported_signup.link', eventId, { importId, userId, activated: true, adopted: true, organizer: options.organizer === true }, guildId);
       return { linked: true, activated: true, missingFields: [], alreadyRegistered: true, ...(groupTeam ? { groupTeam } : {}), ...(warnings.length ? { warnings } : {}) };
     }
@@ -123,6 +141,7 @@ export async function linkImportedSignup(
     await persist();
     await project();
     const groupTeam = await joinGroupTeam(db, actor, eventId, guildId, userId, values.groupName);
+    await queueTeam();
     await audit(db, actor, 'imported_signup.link', eventId, { importId, userId, activated: true, organizer: options.organizer === true }, guildId);
     return { linked: true, activated: true, missingFields: [], ...(groupTeam ? { groupTeam } : {}), ...(warnings.length ? { warnings } : {}) };
   });

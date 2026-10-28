@@ -11,7 +11,7 @@ import { getForm } from '../form/data.js';
 import { getParticipant, listMatchable, listParticipants } from '../signup/data.js';
 import { previewMatch } from '../matching/data.js';
 import { createImportedSignups, deleteImportedSignup, listImportedSignups } from './data.js';
-import { autoLinkImportedSignups } from './auto-link.js';
+import { autoLinkImportedSignups, autoLinkPresentMembers } from './auto-link.js';
 import { linkImportedSignup } from './link.js';
 import {
   dropImportedPlaceholder,
@@ -189,5 +189,19 @@ test('auto-link links a unique username, reports a tie and leaves a stranger unl
     const again = await autoLinkImportedSignups(db, eventId, GUILD, form, async (username) => directory[username] ?? null, 'organizer');
     assert.equal(again.linked.length, 0);
     assert.equal((await listParticipants(db, eventId)).length, 3);
+  } finally { await close(); }
+});
+
+test('automatic linking does not use a username edited during lookup', async () => {
+  const { db, eventId, form, close } = await setup('Changed username');
+  try {
+    const imported = await createImportedSignups(db, eventId, GUILD, form.version, [{ sourceRow: 2, values: { ...ADA_ROW, discordUsername: 'ada' }, answers: {} }]);
+    const id = imported.rows[0]!.id!;
+    const linked = await autoLinkPresentMembers(db, eventId, GUILD, form, async () => {
+      await db.run("UPDATE imported_signups SET discord_username='other' WHERE id=?", id);
+      return ADA;
+    });
+    assert.deepEqual(linked, []);
+    assert.equal((await listImportedSignups(db, eventId))[0]?.discordUserId, null);
   } finally { await close(); }
 });

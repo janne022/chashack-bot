@@ -197,6 +197,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
           toast.success(t(result.groupTeam.created ? 'imports.group_team_created' : 'imports.group_team_joined', { team: result.groupTeam.teamName }))
         }
       }
+      else if (activeEdit.discordUserId === null && result.record.discordUserId !== null) toast.success(t('imports.auto_link_linked', { count: 1 }))
       if (result.warnings && result.warnings.length > 0) toast.warning(t('imports.saved_with_warnings', { count: result.warnings.length }))
       setEditId(null); await reload()
     } catch (e) { setMemberError(describeError(e, 'imports.save_failed')) }

@@ -100,11 +100,11 @@ Confirmed functionality (the README is the detailed inventory; this is the shape
   hackathon start (`random` per team or `same` for all).
 - Audit log of every mutation; event reset clears participants and teams but keeps
   the form config.
-- Imported signups (Google Form/CSV) stay organizer-only paperwork until a current
-  server member is linked. Linking activates the registration instead of
-  duplicating it, a CSV group name becomes that member's private team (the first
-  joiner owns it, later members join), and deleting the imported row never deletes
-  the registration it pointed at.
+- Imported signups (Google Form/CSV) count as participants immediately, including
+  in matching and teams. When an unambiguous Discord username or ID matches a
+  member, a join or an edit to the Discord field links the signup automatically
+  and keeps its team; reconnect maintenance catches missed joins. Organizers can review other matches with
+  “Link members”. Deleting a linked import does not delete the participant.
 
 Constraints and deliberate limits:
 
