@@ -163,7 +163,7 @@ export function MemberCombobox({
             onClick={() => choose(member)}
           >
             <img src={member.avatar} alt="" loading="lazy" className="size-8 shrink-0 rounded-full" />
-            <span className="min-w-0 flex-1"><span className="block truncate font-medium">{member.displayName}</span><span className="block truncate text-xs text-muted-foreground">@{member.username}</span></span>
+            <span className="min-w-0 flex-1"><span className="block truncate font-medium">{member.displayName}</span><span className="block truncate text-xs text-muted-foreground">@{member.username}</span></span>{/* db-guard:allow:db-name-guard #68 — truncate is a CSS class, not SQL. */}
             {isExactMatch(member, term) && term.length > 0 && <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">{t('imports.member_form_match')}</span>}
             {value?.id === member.id && <Check className="size-4 shrink-0 text-accent" />}
           </button>)}
