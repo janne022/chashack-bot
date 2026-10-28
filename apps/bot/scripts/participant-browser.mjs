@@ -23,7 +23,7 @@ try {
   ]);
   db=await openTestDb();
   const guildId='11111111111111111', members=new Set(['participant-a','participant-b','participant-c','organizer']);
-  const guild={id:guildId,ownerId:'organizer',members:{fetch:async input=>{const id=typeof input==='string'?input:input.user;if(!members.has(id))throw Object.assign(Error('not a member'),{code:10007});return {id,permissions:{has:()=>id==='organizer',bitfield:id==='organizer'?32n:0n},roles:{cache:new Map()}}}}};
+  const guild={id:guildId,ownerId:'organizer',members:{fetch:async input=>{const id=typeof input==='string'?input:input.user;if(!members.has(id))throw Object.assign(Error('not a member'),{code:10007});return {id,permissions:{has:()=>id==='organizer',bitfield:id==='organizer'?32n:0n},roles:{cache:new Map()}}},search:async ({query})=>query.toLowerCase().includes('participant-b')?new Map([['participant-b',{id:'participant-b',displayName:'Participant B',user:{username:'participant-b',displayAvatarURL:()=>'/favicon.svg'}}]]):new Map()}};
   const client={guilds:{cache:new Map([[guildId,guild]]),fetch:async id=>id===guildId?guild:undefined}};
   const config={adminSessionSecret:'x'.repeat(32),adminPort:port,clientId:'synthetic-client',discordClientSecret:'synthetic-client-secret', // g0:allow:secrets t_583f310e — synthetic fixture only.
     oauthRedirectUri:`${base}/auth/discord/callback`,publicUrl:base,skipDiscord:true,adminIds:[],guildId:undefined,discordToken:'',announceChannelId:undefined,auditChannelId:undefined,teamCategoryId:undefined,botLanguage:'en',databaseUrl:process.env.DATABASE_URL};
@@ -195,8 +195,10 @@ try {
   check('participant can leave a team and return to open team choices',await evaluate(`!document.body.innerText.includes('2 medlemmar')`));
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
   await nav(`/team?eventId=${eventId}`);await wait(`document.body.innerText.includes('Workshop crew')`);
-  check('owner receives invite controls regardless of join-code metadata',await evaluate(`!!document.querySelector('#invite-id')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skicka inbjudan'))`));
-  await evaluate(`(()=>{const e=document.querySelector('#invite-id');if(!e)throw Error('invite input absent');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'participant-b');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  check('owner receives invite controls regardless of join-code metadata',await evaluate(`!!document.querySelector('input[placeholder="Sök en Discord-medlem…"]')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skicka inbjudan'))`));
+  await evaluate(`(()=>{const e=document.querySelector('input[placeholder="Sök en Discord-medlem…"]');e.focus();Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'participant-b');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await wait(`!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Participant B'))`);
+  await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Participant B'))`);
   await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Skicka inbjudan'))`);
   await wait(`document.body.innerText.includes('Workshop crew')`);
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-b'].split('=')[1]),url:base,httpOnly:true},sid);
