@@ -578,6 +578,11 @@ try {
   await click(button('Save'));
   await wait(`!!document.querySelector('[role=alert]')`);
   check('429 preserves entered data and displays Retry-After timing',await evaluate(`document.querySelector('textarea[maxlength="1000"]').value==='Cosmetic change retained'&&document.querySelector('[role=alert]').innerText.includes('try again in 60 seconds')&&!!(${button('Retry save')})`));
+  await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Assignments'))`);
+  await fill('[role=dialog] input[aria-label="Title"]', 'Pending retry draft');
+  check('retry is disabled while an assignment draft is unfinished', await evaluate(`(${button('Retry save')}).disabled&&document.querySelector('[role=dialog] input[aria-label="Title"]').value==='Pending retry draft'`));
+  await click(button('Clear draft'));
+  await wait(`!(${button('Retry save')}).disabled`);
   await click(button('Retry save'));
   await wait(`!document.querySelector('textarea[maxlength="1000"]')`);
   state=await api('/api/state',undefined,'GET'); event=state.events.find(e=>e.id===event.id);

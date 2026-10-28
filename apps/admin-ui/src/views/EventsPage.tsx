@@ -1407,6 +1407,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   // each time — and in-progress edits can't be clobbered by a background refresh.
 
   async function save() {
+    if (busy || pendingAssignment) return
     setBusy(true)
     setSaveError('')
     try {
@@ -1461,7 +1462,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
               <DialogDescription>{t('events.edit_schedule_desc')}</DialogDescription>
             </CardHeader>
             <CardContent className="flex min-w-0 flex-col gap-4">
-              {saveError && <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"><p>{saveError}</p><Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void save()} disabled={busy}>{t('events.retry_save')}</Button></div>}
+              {saveError && <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"><p>{saveError}</p><Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void save()} disabled={busy || pendingAssignment}>{t('events.retry_save')}</Button></div>}
               <Tabs value={editTab} onValueChange={(next) => setEditTab(next as typeof editTab)} className="min-w-0 gap-4">
                 <TabsList variant="line" className="w-full justify-start overflow-x-auto">
                   <TabsTrigger value="basics"><ClipboardList className="size-3.5" />{t('events.tab_basics')}</TabsTrigger>
