@@ -673,7 +673,7 @@
   "events.channel_default": "Inte angiven (använd standard)",
   "events.channel_panel_default": "Använder panelkanalen som standard",
   "events.channel_default_panel": "Inte angiven (använd standard/panel)",
-  "events.channel_itinerary": "Schema-/programkanal",
+  "events.channel_itinerary": "Programkanal",
   "events.channel_itinerary_placeholder": "Kanal för hela programmet",
   "events.channel_config_default": "Inte angiven (använd inställningarnas standard)",
   "events.save_draft": "Spara som utkast",
