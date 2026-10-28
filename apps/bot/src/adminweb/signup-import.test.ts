@@ -93,10 +93,13 @@ test('organizer member search is bounded, guild-scoped and returns only identity
   const db = await openTestDb();
   const session = await createSession(db, { userId: '99999999999999999', username: 'Organizer', avatar: null, guilds: [{ id: guildId, name: 'Guild', icon: null }] });
   let searchArgs: unknown;
+  let listArgs: unknown;
+  const member = (id: string) => ({ id, displayName: 'Ada Example', user: { username: 'ada', globalName: 'Ada Example', email: 'private@example.test', displayAvatarURL: () => 'https://cdn.discordapp.com/avatars/test.png' }, roles: { cache: new Map() } });
   const guild = {
     id: guildId, name: 'Guild', ownerId: session.userId,
     members: {
-      search: async (options: unknown) => { searchArgs = options; return new Map([['12345678901234567', { id: '12345678901234567', displayName: 'Ada Example', user: { username: 'ada', globalName: 'Ada Example', email: 'private@example.test' }, roles: { cache: new Map([['role', {}]]) } }]]); },
+      search: async (options: unknown) => { searchArgs = options; return new Map([['12345678901234567', member('12345678901234567')]]); },
+      list: async (options: { after?: string }) => { listArgs = options; return options.after ? new Map([['22345678901234567', member('22345678901234567')]]) : new Map(Array.from({length: 30}, (_, i) => { const id = String(12345678901234567n + BigInt(i)); return [id, member(id)]; })); },
       fetch: async () => ({ id: session.userId, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }),
     },
   };
@@ -109,10 +112,23 @@ test('organizer member search is bounded, guild-scoped and returns only identity
     assert.equal(anonymous.statusCode, 401);
     const result = await app.inject({ method: 'GET', url: '/api/guild/members?query=ada', headers });
     assert.equal(result.statusCode, 200, result.body);
-    assert.deepEqual(searchArgs, { query: 'ada', limit: 10 });
-    assert.deepEqual(result.json(), { members: [{ id: '12345678901234567', username: 'ada', displayName: 'Ada Example' }] });
+    assert.deepEqual(searchArgs, { query: 'ada', limit: 100 });
+    assert.deepEqual(result.json(), { members: [{ id: '12345678901234567', username: 'ada', displayName: 'Ada Example', avatar: 'https://cdn.discordapp.com/avatars/test.png' }], nextCursor: null });
     const short = await app.inject({ method: 'GET', url: '/api/guild/members?query=a', headers });
-    assert.equal(short.statusCode, 400);
+    assert.equal(short.statusCode, 200);
+    assert.deepEqual(searchArgs, { query: 'a', limit: 100 });
+    const first = await app.inject({ method: 'GET', url: '/api/guild/members', headers });
+    assert.equal(first.statusCode, 200);
+    assert.deepEqual(listArgs, { limit: 30 });
+    assert.equal(first.json().members.length, 30);
+    const cursor = first.json().nextCursor;
+    const second = await app.inject({ method: 'GET', url: `/api/guild/members?after=${cursor}`, headers });
+    assert.equal(second.statusCode, 200);
+    assert.deepEqual(listArgs, { limit: 30, after: cursor });
+    assert.equal(second.json().members.length, 1);
+    assert.equal(second.json().nextCursor, null);
+    assert.equal((await app.inject({ url: '/api/guild/members?after=invalid', headers })).statusCode, 400);
+    assert.equal((await app.inject({ url: '/api/guild/members?query=a&after=12345678901234567', headers })).statusCode, 400);
   } finally { await app.close(); await db.close(); }
 });
 

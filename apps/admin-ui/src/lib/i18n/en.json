@@ -861,6 +861,7 @@
   "imports.member_choose": "Choose a server member",
   "imports.member_clear": "Clear the selected member",
   "imports.member_search_placeholder": "Type a server name or Discord username",
+  "imports.member_load_more": "Load more members",
   "imports.member_search_hint": "Type at least two characters.",
   "imports.member_search_empty": "No server member matches that name.",
   "imports.member_search_rate_limited": "Discord is rate limiting member search. Wait a moment and type again.",

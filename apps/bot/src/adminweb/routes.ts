@@ -3,6 +3,7 @@
  * routes are POST + JSON. UI files served from public/.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { Guild } from 'discord.js';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -177,6 +178,28 @@ const importErrorMessages: Record<string, string> = {
   invalid_edit: 'The edit could not be applied.',
   discord_unavailable: 'Linking needs the bot to be online.',
 };
+
+const MEMBER_PAGE_SIZE = 30;
+
+async function memberDirectory(guild: Guild, term: string, after: string | undefined) {
+  const members = term
+    ? await guild.members.search({ query: term, limit: 100 })
+    : await guild.members.list({ limit: MEMBER_PAGE_SIZE, ...(after ? { after } : {}) });
+  const results = [...members.values()].map(member => ({
+    id: member.id, username: member.user.username, displayName: member.displayName,
+    avatar: member.user.displayAvatarURL({ size: 64 }),
+  }));
+  return { members: results, nextCursor: !term && results.length === MEMBER_PAGE_SIZE ? results[results.length - 1]!.id : null };
+}
+
+function memberDirectoryQuery(query: unknown): { term: string; after?: string } | null {
+  if (!query || typeof query !== 'object') return { term: '' };
+  const { query: raw, after } = query as { query?: unknown; after?: unknown };
+  if ((raw !== undefined && typeof raw !== 'string') || (after !== undefined && (typeof after !== 'string' || !isSnowflake(after)))) return null;
+  const term = (raw as string | undefined)?.trim() ?? '';
+  if (term.length > 100 || (term && after)) return null;
+  return { term, ...(after ? { after: after as string } : {}) };
+}
 
 export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   const { db, config } = deps;
@@ -792,13 +815,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     if (!session) return reply.code(401).send({ error: 'unauthorized' });
     const event = await participantEvent((req.params as { eventId: string }).eventId, session.userId);
     if (!event) return reply.code(404).send({ error: 'event_unavailable' });
-    const term = typeof (req.query as { query?: unknown })?.query === 'string' ? (req.query as { query: string }).query.trim() : '';
-    if (term.length < 2 || term.length > 100) return reply.code(400).send({ error: 'invalid_query' });
+    const query = memberDirectoryQuery(req.query);
+    if (!query) return reply.code(400).send({ error: 'invalid_query' });
     if (deps.client === null) return reply.code(503).send({ error: 'member_search_unavailable' });
     try {
       const guild = await deps.client.guilds.fetch(event.guildId);
-      const members = await guild.members.search({ query: term, limit: 10 });
-      return { members: [...members.values()].map((member) => ({ id: member.id, username: member.user.username, displayName: member.displayName, avatar: member.user.displayAvatarURL({ size: 64 }) })) };
+      return await memberDirectory(guild, query.term, query.after);
     } catch (error) {
       const status = typeof error === 'object' && error !== null && 'status' in error ? (error as { status?: number }).status : undefined;
       return reply.code(status === 429 ? 429 : 503).send({ error: status === 429 ? 'member_search_rate_limited' : 'member_search_unavailable' });
@@ -1088,14 +1110,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   }
 
   app.get('/api/guild/members', async (req, reply) => {
-    const query = (req.query as { query?: unknown } | undefined)?.query;
-    const term = typeof query === 'string' ? query.trim() : '';
-    if (term.length < 2 || term.length > 100) return reply.code(400).send({ error: 'invalid_query' });
+    const query = memberDirectoryQuery(req.query);
+    if (!query) return reply.code(400).send({ error: 'invalid_query' });
     if (deps.client === null) return reply.code(503).send({ error: 'member_search_unavailable' });
     try {
       const guild = await deps.client.guilds.fetch(await guildOf(req));
-      const members = await guild.members.search({ query: term, limit: 10 });
-      return { members: [...members.values()].map((member) => ({ id: member.id, username: member.user.username, displayName: member.displayName })) };
+      return await memberDirectory(guild, query.term, query.after);
     } catch (error) {
       const status = typeof error === 'object' && error !== null && 'status' in error ? error.status : undefined;
       return reply.code(status === 429 ? 429 : 503).send({ error: status === 429 ? 'member_search_rate_limited' : 'member_search_unavailable' });

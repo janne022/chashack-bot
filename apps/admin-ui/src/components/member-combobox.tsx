@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { Check, Loader2, Search, UserRound, X } from 'lucide-react'
 import { cn } from 'cn'
 import { api } from '@/api'
@@ -13,6 +13,7 @@ export interface GuildMemberOption {
   id: string
   username: string
   displayName: string
+  avatar: string
 }
 
 /**
@@ -68,16 +69,18 @@ export function MemberCombobox({
   }, [query])
 
   const term = debounced.trim()
-  const enabled = term.length >= 2
-  const search = useQuery({
+  const enabled = open && !!guildId
+  const search = useInfiniteQuery({
     queryKey: ['guild-members', guildId, term],
-    queryFn: ({ signal }) => api.searchGuildMembers(term, signal),
-    enabled: open && enabled && !!guildId,
+    queryFn: ({ signal, pageParam }) => api.searchGuildMembers(term, pageParam, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: page => page.nextCursor,
+    enabled,
     staleTime: 5 * 60_000,
     gcTime: 15 * 60_000,
     retry: false,
   })
-  const members = useMemo(() => search.data?.members ?? [], [search.data])
+  const members = useMemo(() => query.trim() === term ? search.data?.pages.flatMap(page => page.members) ?? [] : [], [search.data, query, term])
   const exact = useMemo(() => members.find((member) => isExactMatch(member, term)) ?? null, [members, term])
 
   // Offer the form's own username as the answer when it identifies exactly one
@@ -94,7 +97,8 @@ export function MemberCombobox({
     if (open) setTimeout(() => inputRef.current?.focus(), 0)
   }, [open])
 
-  useEffect(() => { setActive(0) }, [search.data])
+  useEffect(() => { setActive(0) }, [term])
+  useEffect(() => { if (open) document.getElementById(`member-option-${members[active]?.id}`)?.scrollIntoView({ block: 'nearest' }) }, [active, term, open])
 
   useEffect(() => {
     if (search.error && onError) onError(search.error instanceof Error ? search.error.message : t('imports.member_search_failed'))
@@ -110,7 +114,7 @@ export function MemberCombobox({
       <div className="flex items-center gap-1">
         <PopoverTrigger asChild>
           <Button type="button" variant="outline" disabled={disabled} className="min-w-0 flex-1 justify-start font-normal" aria-label={t('imports.member_search')}>
-            <UserRound className="size-4 shrink-0 text-muted-foreground" />
+            {value?.avatar ? <img src={value.avatar} alt="" className="size-6 shrink-0 rounded-full" /> : <UserRound className="size-4 shrink-0 text-muted-foreground" />}
             {value === null
               ? <span className="truncate text-muted-foreground">{t('imports.member_choose')}</span>
               : <span className="truncate">{value.displayName} <span className="text-muted-foreground">@{value.username}</span></span>}
@@ -140,8 +144,7 @@ export function MemberCombobox({
             }}
           />
         </div>
-        <div id="member-combobox-list" role="listbox" aria-label={t('imports.member_search')} className="mt-2 max-h-64 space-y-0.5 overflow-y-auto">
-          {!enabled && <p className="px-2 py-3 text-xs text-muted-foreground">{t('imports.member_search_hint')}</p>}
+        <div id="member-combobox-list" role="listbox" aria-label={t('imports.member_search')} className="mt-2 max-h-64 space-y-0.5 overflow-y-auto" onScroll={event => { const el = event.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 80 && search.hasNextPage && !search.isFetching) void search.fetchNextPage() }}>
           {enabled && search.isFetching && <p className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />{t('imports.searching')}</p>}
           {enabled && !search.isFetching && search.error && <p role="alert" className="px-2 py-3 text-xs text-destructive">{search.error instanceof Error ? search.error.message : t('imports.member_search_failed')}</p>}
           {enabled && !search.isFetching && !search.error && members.length === 0 && <p className="px-2 py-3 text-xs text-muted-foreground">{t('imports.member_search_empty')}</p>}
@@ -159,12 +162,13 @@ export function MemberCombobox({
             onMouseEnter={() => setActive(index)}
             onClick={() => choose(member)}
           >
-            <UserRound className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">{member.displayName} <span className="text-muted-foreground">@{member.username}</span></span>
+            <img src={member.avatar} alt="" loading="lazy" className="size-8 shrink-0 rounded-full" />
+            <span className="min-w-0 flex-1"><span className="block truncate font-medium">{member.displayName}</span><span className="block truncate text-xs text-muted-foreground">@{member.username}</span></span>
             {isExactMatch(member, term) && term.length > 0 && <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">{t('imports.member_form_match')}</span>}
             {value?.id === member.id && <Check className="size-4 shrink-0 text-accent" />}
           </button>)}
         </div>
+        {search.hasNextPage && <Button type="button" variant="ghost" size="sm" className="w-full" disabled={search.isFetching} onClick={() => void search.fetchNextPage()}>{t('imports.member_load_more')}</Button>}
       </PopoverContent>
     </Popover>
   )

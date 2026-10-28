@@ -39,7 +39,8 @@ try {
     id, name: `Synthetic test guild ${index + 1}`, ownerId: syntheticUserId,
     members: {
       fetch: async (userId) => ({ id: userId, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }),
-      search: async ({ query }) => query.toLowerCase().includes('synthetic') ? new Map([['33333333333333333', { id: '33333333333333333', displayName: 'Synthetic Member', user: { username: 'synthetic.member' } }]]) : new Map(),
+      list: async () => new Map([['33333333333333333', { id: '33333333333333333', displayName: 'Synthetic Member', user: { username: 'synthetic.member', displayAvatarURL: () => '/favicon.svg' } }]]),
+      search: async ({ query }) => 'synthetic.member'.startsWith(query.toLowerCase()) ? new Map([['33333333333333333', { id: '33333333333333333', displayName: 'Synthetic Member', user: { username: 'synthetic.member', displayAvatarURL: () => '/favicon.svg' } }]]) : new Map(),
     },
   }]));
   const client = { guilds: { cache: botGuilds, fetch: async (id) => botGuilds.get(id) } };
@@ -149,28 +150,36 @@ try {
   const errors=[];
   browser.addEventListener('message', e=>{const m=JSON.parse(e.data); if(m.method==='Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.text);});
   const rememberedScript = await send('Page.addScriptToEvaluateOnNewDocument',{source: `localStorage.setItem('chas-server:${syntheticUserId}','${guildIds[0]}')`},sid);
+  const openAccountSub = async label => {
+    await click(`document.querySelector('aside button[aria-label$="Synthetic browser user"]')`);
+    await click(`[...document.querySelectorAll('[data-slot=dropdown-menu-sub-trigger]')].find(e=>e.innerText.includes(${JSON.stringify(label)}) )`);
+    await wait(`!!document.querySelector('[role=menuitemradio]')`);
+  };
   await nav(base+'/events');
   await wait(`document.body.innerText.includes('New event')`);
   check('sidebar shows the signed-in name and an avatar fallback without email', await evaluate(`(()=>{const b=document.querySelector('aside button[aria-label="Account: Synthetic browser user"]');return !!b&&b.innerText.includes('Synthetic browser user')&&!b.innerText.includes('@')&&!!b.querySelector('[aria-hidden="true"]')})()`));
   await click(`document.querySelector('aside button[aria-label="Account: Synthetic browser user"]')`);
-  check('account menu exposes sign out', await evaluate(`!![...document.querySelectorAll('[role=menuitem]')].find(e=>e.innerText.includes('Sign out'))`));
+  check('account menu shows sign out as destructive', await evaluate(`[...document.querySelectorAll('[role=menuitem]')].find(e=>e.innerText.includes('Sign out'))?.getAttribute('data-variant')==='destructive'`));
   await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'},sid); await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'},sid);
-  await click(`document.querySelector('aside button[aria-label="Language"]')`);
+  await openAccountSub('Language');
   check('language menu offers English and Swedish with the current choice selected', await evaluate(`(()=>{const items=[...document.querySelectorAll('[role=menuitemradio]')];return items.some(e=>e.innerText==='English'&&e.getAttribute('aria-checked')==='true')&&items.some(e=>e.innerText==='Svenska')})()`));
   await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText==='Svenska')`);
   check('language choice updates and persists', await evaluate(`document.documentElement.lang==='sv'&&localStorage.getItem('chas-locale')==='sv'`));
-  await click(`document.querySelector('aside button[aria-label="Språk"]')`);
+  await openAccountSub('Språk');
   await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText==='English')`);
   await screenshot('sidebar-account-desktop.png');
-  await click(`document.querySelector('aside button[aria-label="Theme"]')`);
+  await openAccountSub('Theme');
   await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText.includes('Light'))`);
   check('sidebar preferences remain readable in light mode', await evaluate(`document.documentElement.dataset.theme==='light'&&!!document.querySelector('aside button[aria-label="Account: Synthetic browser user"]')`));
   await screenshot('sidebar-account-light.png');
-  await click(`document.querySelector('aside button[aria-label="Theme"]')`);
+  await openAccountSub('Theme');
   await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText.includes('System'))`);
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false }, sid);
-  check('mobile account and preference controls are visible and fit', await evaluate(`(()=>{const buttons=[...document.querySelectorAll('header button, .sticky button')].filter(e=>e.getBoundingClientRect().width>0);return !!buttons.find(e=>e.getAttribute('aria-label')==='Account: Synthetic browser user')&&!!buttons.find(e=>e.getAttribute('aria-label')==='Language')&&document.documentElement.scrollWidth<=innerWidth})()`));
+  check('mobile account and preference controls are visible and fit', await evaluate(`(()=>{const buttons=[...document.querySelectorAll('header button, .sticky button')].filter(e=>e.getBoundingClientRect().width>0);return !!buttons.find(e=>e.getAttribute('aria-label')==='Account: Synthetic browser user')&&document.documentElement.scrollWidth<=innerWidth})()`));
+  await click(`[...document.querySelectorAll('button[aria-label="Account: Synthetic browser user"]')].find(e=>e.getBoundingClientRect().width>0)`);
+  check('mobile account menu includes theme, language and sign out',await evaluate(`(()=>{const m=document.querySelector('[role=menu]');return !!m&&['Theme','Language','Sign out'].every(label=>m.innerText.includes(label))&&m.getBoundingClientRect().right<=innerWidth})()`));
   await screenshot('sidebar-account-mobile.png');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'},sid); await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'},sid);
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false }, sid);
   if (!process.env.SIDEBAR_SESSION_ONLY && !process.env.EDITOR_ONLY) {
   check('empty Events exposes a first-event action',await evaluate(`document.body.innerText.includes('No events') && !!(${button('New event')})`));
@@ -519,8 +528,13 @@ try {
   await wait(`!!document.querySelector('[role=dialog] button[aria-label="Search server members"]')`);
   await click(`document.querySelector('[role=dialog] button[aria-label="Search server members"]')`);
   await wait(`!!document.querySelector('input[role=combobox]')`);
-  await fill('input[role=combobox]','synthetic');
+  await fill('input[role=combobox]','');
   await wait(`!![...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Synthetic Member'))`);
+  check('organizer can browse Discord members without typing',await evaluate(`!!document.querySelector('[role=option] img')`));
+  await screenshot('organizer-member-picker.png');
+  await fill('input[role=combobox]','s');
+  await wait(`!![...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Synthetic Member'))`);
+  check('member picker searches one character and shows Discord username and avatar',await evaluate(`(()=>{const option=[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Synthetic Member'));return !!option?.querySelector('img')&&option.innerText.includes('@synthetic.member')})()`));
   await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes('Synthetic Member'))`);
   await click(button('Save and link selected member'));
   await wait(`!document.querySelector('[role=dialog]')`);
@@ -700,7 +714,7 @@ try {
   check('draft form can be completed after reopening',JSON.parse(editedDraft.formJson).customQuestions[0].label.en==='Your idea');
   check('last edits across draft theme and form tabs are retained',JSON.parse(editedDraft.formJson).appearance.themePreset==='christmas'&&JSON.parse(editedDraft.formJson).enforceSignupWindow===true);
   await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')`);
-  await click(`document.querySelector('aside button[aria-label="Language"]')`);
+  await openAccountSub('Language');
   await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText==='Svenska')`);
   check('Swedish workspace and preview action are localized',await evaluate(`document.documentElement.lang==='sv'&&document.body.innerText.includes('Offentlig förhandsvisning')`));
   const keys=await Promise.all(['en','sv'].map(async l=>Object.keys(JSON.parse(await readFile(new URL('../../admin-ui/src/lib/i18n/'+l+'.json',import.meta.url),'utf8'))).sort()));

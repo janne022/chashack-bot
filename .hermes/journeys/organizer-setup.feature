@@ -90,3 +90,11 @@ Feature: Organizer setup
     Then the old workspace is hidden before selecting a server again
     When the session expires
     Then the organizer can sign in again without losing the open workspace
+
+  @journey:organizer-setup
+  Scenario: Browse Discord members while linking an imported signup
+    Given an organizer reviews an imported signup
+    When they open the Discord member picker
+    Then members appear with their profile pictures and usernames before typing
+    And typing one character filters the results
+    And more members load as the list is scrolled

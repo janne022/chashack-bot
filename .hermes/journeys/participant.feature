@@ -45,3 +45,10 @@ Feature: Participant event and team journey
     When the eligible team owner invites a member from the current Discord panel
     Then Discord provides a native member picker without requiring a numeric ID
     And an invite from a replaced panel or another actor is refused without mutation
+
+  @journey:participant
+  Scenario: Browse Discord members for a team invitation
+    Given a participant owns a team
+    When they focus the invite member field
+    Then Discord members appear before they type
+    And they can filter by username and select a member with the keyboard

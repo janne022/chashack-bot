@@ -39,7 +39,7 @@ try {
     id, name: `Synthetic test guild ${index + 1}`, ownerId: syntheticUserId,
     members: {
       fetch: async (userId) => ({ id: userId, permissions: { has: () => false, bitfield: 0n }, roles: { cache: new Map() } }),
-      search: async ({ query }) => query.toLowerCase().includes('synthetic') ? new Map([['33333333333333333', { id: '33333333333333333', displayName: 'Synthetic Member', user: { username: 'synthetic.member' } }]]) : new Map(),
+      search: async ({ query }) => 'synthetic.member'.startsWith(query.toLowerCase()) ? new Map([['33333333333333333', { id: '33333333333333333', displayName: 'Synthetic Member', user: { username: 'synthetic.member', displayAvatarURL: () => '/favicon.svg' } }]]) : new Map(),
     },
   }]));
   const client = { guilds: { cache: botGuilds, fetch: async (id) => botGuilds.get(id) } };
