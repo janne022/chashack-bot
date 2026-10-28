@@ -129,10 +129,15 @@ try {
   // Synthetic cookie/rows represent an authorized session; no OAuth callback exchange occurs.
   await send('Network.setCookie', { name: 'hacksess', value: decodeURIComponent(cookie.slice('hacksess='.length)), url: base, httpOnly: true, sameSite: 'Strict' }, sid);
   await nav(`${base}/`);
-  const localeButton = await evaluate(`(() => [...document.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')?.startsWith('Switch language'))?.getBoundingClientRect().toJSON())()`);
+  const localeButton = await evaluate(`(() => [...document.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')==='Language')?.getBoundingClientRect().toJSON())()`);
   if (localeButton) {
     await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: localeButton.x + localeButton.width / 2, y: localeButton.y + localeButton.height / 2, button: 'left', clickCount: 1 }, sid);
     await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: localeButton.x + localeButton.width / 2, y: localeButton.y + localeButton.height / 2, button: 'left', clickCount: 1 }, sid);
+    const swedish = await evaluate(`document.querySelector('[role=menuitemradio][data-state="unchecked"][lang="sv"]')?.getBoundingClientRect().toJSON()`);
+    if (swedish) {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: swedish.x + swedish.width / 2, y: swedish.y + swedish.height / 2, button: 'left', clickCount: 1 }, sid);
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: swedish.x + swedish.width / 2, y: swedish.y + swedish.height / 2, button: 'left', clickCount: 1 }, sid);
+    }
   }
   const localized = await evaluate('document.documentElement.lang');
   check('browser language control changes rendered document language', localized === 'sv');

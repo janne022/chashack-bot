@@ -449,6 +449,7 @@ export function TeamCardWithMenu({
   onRenamed: () => Promise<void>
   onRemoved: () => Promise<void>
 }) {
+  const t = useT()
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameValue, setRenameValue] = useState(team.name)
   const [busy, setBusy] = useState(false)
@@ -462,11 +463,11 @@ export function TeamCardWithMenu({
     setBusy(true)
     try {
       await api.updateTeamSettings(team.id, { name: next })
-      toast.success(`Team renamed to “${next}”`)
+      toast.success(t('teams.renamed', { name: next }))
       setRenameOpen(false)
       await onRenamed()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Rename failed')
+      toast.error(e instanceof Error ? e.message : t('teams.rename_failed'))
     } finally {
       setBusy(false)
     }
@@ -548,7 +549,7 @@ export function TeamCardWithMenu({
             }}
           >
             <Pencil />
-            Rename
+            {t('teams.rename_matched')}
           </ContextMenuItem>
           {team.members.length > 0 && (
             <>
@@ -579,16 +580,16 @@ export function TeamCardWithMenu({
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename “{team.name}”</DialogTitle>
-            <DialogDescription>The team name shows up in channels, roles and lists.</DialogDescription>
+            <DialogTitle>{t('teams.rename_title', { name: team.name })}</DialogTitle>
+            <DialogDescription>{t('teams.rename_matched_desc')}</DialogDescription>
           </DialogHeader>
-          <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} maxLength={60} />
+          <Input aria-label={t('teams.name')} value={renameValue} onChange={(e) => setRenameValue(e.target.value)} maxLength={60} />
           <DialogFooter>
             <Button variant="outline" onClick={() => setRenameOpen(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button disabled={busy || renameValue.trim().length < 3} onClick={() => void rename()}>
-              Save
+              {t('common.save')}
             </Button>
           </DialogFooter>
         </DialogContent>

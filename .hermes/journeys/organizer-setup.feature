@@ -71,3 +71,22 @@ Feature: Organizer setup
     And the desktop import dialog provides a wide review workspace
     When I type an opening brace into an announcement
     Then the selected tag, description and context have readable contrast in both console themes
+
+  @journey:organizer-setup
+  Scenario: Edit assignments and rename a matched team
+    Given an organizer edits an event with a partially written assignment
+    When they insert a team or event variable and switch between tabs
+    Then the draft remains and cannot be lost by clicking outside the dialog
+    And the saved assignment and distribution action survive reopening
+    When the organizer renames a matched team
+    Then its name changes without changing the team kind or color
+
+  @journey:organizer-setup
+  Scenario: Account, preferences and session changes
+    Given the organizer is signed in with Discord
+    Then the account menu shows their name without an email address
+    And language and theme choices are available on desktop and mobile
+    When the selected server changes elsewhere
+    Then the old workspace is hidden before selecting a server again
+    When the session expires
+    Then the organizer can sign in again without losing the open workspace

@@ -317,6 +317,18 @@ export async function syncRoleColor(deps: ProvisionDeps, team: Team): Promise<vo
   }
 }
 
+/** Keep existing Discord channels aligned with a renamed team. */
+export async function syncTeamChannelNames(deps: ProvisionDeps, team: Team): Promise<void> {
+  const guild = await deps.client.guilds.fetch(team.guildId).catch(() => null);
+  if (!guild) return;
+  const textName = team.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 90) || 'team';
+  for (const [id, name] of [[team.textChannelId, textName], [team.voiceChannelId, team.name.slice(0, 90)]] as const) {
+    if (!id) continue;
+    try { await guild.channels.edit(id, { name }); }
+    catch (error) { console.warn(`team channel rename failed for ${team.id}:`, error); }
+  }
+}
+
 /** Re-grant roles to all members (used when provisioning runs late, e.g. after a failure). */
 export async function grantAllTeamRoles(deps: ProvisionDeps, team: Team, memberIds: string[]): Promise<boolean> {
   let success = true;

@@ -182,12 +182,10 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
                     <RefreshCw />
                     {t('teams.retry_provision')}
                   </DropdownMenuItem>
-                  {team.kind !== 'matched' && (
-                    <DropdownMenuItem onSelect={() => setSettingsTeam(team)}>
-                      <Settings2 />
-                      {t('teams.rename_visibility_color')}
-                    </DropdownMenuItem>
-                  )}
+                  <DropdownMenuItem onSelect={() => setSettingsTeam(team)}>
+                    <Settings2 />
+                    {t(team.kind === 'matched' ? 'teams.rename_matched' : 'teams.rename_visibility_color')}
+                  </DropdownMenuItem>
                   {team.kind === 'private' && (
                     <DropdownMenuItem
                       onSelect={() =>
@@ -301,13 +299,12 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
           team={settingsTeam}
           onClose={() => setSettingsTeam(null)}
           onSave={async (update) => {
-            await act(
-              async () => {
-                await api.updateTeamSettings(settingsTeam.id, update)
-              },
-              t('teams.updated'),
-            )
-            setSettingsTeam(null)
+            try {
+              await api.updateTeamSettings(settingsTeam.id, update)
+              toast.success(t('teams.updated'))
+              setSettingsTeam(null)
+              await refresh()
+            } catch (e) { toast.error(e instanceof Error ? e.message : t('common.action_failed')) }
           }}
         />
       )}
@@ -414,9 +411,9 @@ function TeamSettingsDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('teams.settings')}</DialogTitle>
+          <DialogTitle>{t(team.kind === 'matched' ? 'teams.rename_matched' : 'teams.settings')}</DialogTitle>
           <DialogDescription>
-            {t('teams.settings_desc')}
+            {t(team.kind === 'matched' ? 'teams.rename_matched_desc' : 'teams.settings_desc')}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">
@@ -424,7 +421,7 @@ function TeamSettingsDialog({
             <Label htmlFor="settings-name">{t('teams.name')}</Label>
             <Input id="settings-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
           </div>
-          <div className="flex flex-col gap-2">
+          {team.kind !== 'matched' && <><div className="flex flex-col gap-2">
             <Label>{t('teams.visibility')}</Label>
             <Select value={kind} onValueChange={(v) => setKind(v as 'public' | 'private')}>
               <SelectTrigger>
@@ -457,7 +454,7 @@ function TeamSettingsDialog({
                 />
               ))}
             </div>
-          </div>
+          </div></>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -467,7 +464,7 @@ function TeamSettingsDialog({
             disabled={busy || name.trim().length < 3}
             onClick={() => {
               setBusy(true)
-              void onSave({ name: name.trim(), kind, colorId }).finally(() => setBusy(false))
+              void onSave(team.kind === 'matched' ? { name: name.trim() } : { name: name.trim(), kind, colorId }).finally(() => setBusy(false))
             }}
           >
             {t('teams.save_changes')}

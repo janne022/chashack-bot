@@ -404,13 +404,14 @@ export async function updateTeamSettings(
   actor: string,
   teamId: string,
   update: { name?: string; kind?: TeamKind; colorId?: string | null | undefined },
+  allowMatchedRename = false,
 ): Promise<Result<Team>> {
   // Read current → merge → write → read back: atomic so the returned row is
   // the one this call wrote.
   return db.transaction(async () => {
     const team = await getTeam(db, teamId);
     if (team === null) return err('not_found', 'Team not found.');
-    if (team.kind === 'matched') return err('matched_team', 'Matched teams cannot be edited here.');
+    if (team.kind === 'matched' && (!allowMatchedRename || update.kind !== undefined || update.colorId !== undefined)) return err('matched_team', 'Matched teams can only be renamed by an organizer.');
 
     const name = update.name !== undefined ? update.name.trim().replace(/\s+/g, ' ').slice(0, 60) : team.name;
     if (name.length < 3) return err('bad_name', 'Team name must be at least 3 characters.');

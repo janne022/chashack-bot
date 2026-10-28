@@ -29,8 +29,8 @@ export interface PublicEvent {
  */
 export const publicEventQuery = (eventId: string, force = false) => ({
   queryKey: ['public-event', eventId] as const,
-  queryFn: async (): Promise<PublicEvent> => {
-    const res = await fetch(`/api/public/events/${encodeURIComponent(eventId)}`)
+  queryFn: async ({ signal }: { signal: AbortSignal }): Promise<PublicEvent> => {
+    const res = await fetch(`/api/public/events/${encodeURIComponent(eventId)}`, { signal })
     if (res.status === 429) throw new Error(rateLimitMessage(res))
     if (!res.ok) throw new Error('participant.signup_unavailable')
     return await res.json() as PublicEvent

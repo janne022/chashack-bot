@@ -73,6 +73,11 @@ try {
   check('public route loads the served React event page and signup action',await evaluate(`document.querySelector('h1')?.innerText==='Svensk hackathon'&&!!document.querySelector('a[href$="/signup"]')`));
   check('public event shell references a served SVG favicon with the correct MIME',await evaluate(`document.querySelector('link[rel=icon]')?.getAttribute('href')==='/favicon.svg'&&fetch('/favicon.svg').then(async r=>r.ok&&r.headers.get('content-type')?.includes('image/svg+xml')&&(await r.text()).includes('<svg'))`));
   check('public route uses the event-local palette instead of legacy flat fields',await evaluate(`(()=>{const m=document.querySelector('main');return getComputedStyle(m).backgroundColor==='rgb(16, 24, 32)'&&getComputedStyle(m).getPropertyValue('--participant-accent').trim()==='#ef793e'})()`));
+  await click(`document.querySelector('button[aria-label="Språk"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText==='English')`);
+  check('participant can choose English from the language menu',await evaluate(`document.documentElement.lang==='en'&&localStorage.getItem('chas-locale')==='en'`));
+  await click(`document.querySelector('button[aria-label="Language"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText==='Svenska')`);
   await screenshot('public-mobile-sv.png');
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
   check('desktop public page has a signup action without overflow',await evaluate(`innerWidth===1440&&document.documentElement.scrollWidth<=innerWidth&&!!document.querySelector('a[href$="/signup"]')`));
@@ -222,8 +227,9 @@ try {
   members.delete('participant-c');
   await nav(`/events/${eventId}/signup`);await wait(`document.body.innerText.includes('aktuell medlem')`);
   check('nonmember sees the membership explanation and no team allocation action',await evaluate(`document.body.innerText.includes('aktuell medlem')&&!document.querySelector('form')&&!document.body.innerText.includes('Visa lag')`));
-  await nav('/team?eventId=missing-event');await wait(`[...document.querySelectorAll('[role=alert]')].some(a=>a.innerText.includes('Uppdatera lag'))`);
-  check('team view provides an in-alert recovery action with an explanation on unavailable event',await evaluate(`(()=>{const a=[...document.querySelectorAll('[role=alert]')].find(a=>a.innerText.includes('Uppdatera lag'));if(!a)return false;const explanation=a.querySelector('p')?.innerText.trim()??'';return explanation.length>0&&[...a.querySelectorAll('button')].some(b=>b.innerText.trim()==='Uppdatera lag')})()`));
+  await nav('/team?eventId=missing-event');await wait(`location.pathname==='/team'&&location.search.includes('missing-event')&&[...document.querySelectorAll('[role=alert]')].some(a=>a.innerText.includes('Uppdatera lag'))`);
+  const recoveryAlert=await evaluate(`(()=>{const a=[...document.querySelectorAll('[role=alert]')].find(a=>a.innerText.includes('Uppdatera lag'));return a?{text:a.innerText,explanation:a.querySelector('p')?.innerText.trim()??'',buttons:[...a.querySelectorAll('button')].map(b=>b.innerText.trim())}:null})()`);
+  check('team view provides an in-alert recovery action with an explanation on unavailable event',!!recoveryAlert?.explanation&&recoveryAlert.buttons.includes('Uppdatera lag'),JSON.stringify(recoveryAlert));
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false},sid);
   const desktop=await evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth})`);
   check('desktop viewport is confirmed before layout assertions',desktop.width===1440&&desktop.scroll<=1440);
