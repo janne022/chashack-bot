@@ -1354,6 +1354,7 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
   const [enforceSignupWindow, setEnforceSignupWindow] = useState(() => { try { return !!event.formJson && (JSON.parse(event.formJson) as FormConfig).enforceSignupWindow === true } catch { return false } })
   const [signupPolicyDirty, setSignupPolicyDirty] = useState(false)
   const [editAssignments, setEditAssignments] = useState<Assignment[]>(()=> (event.assignments ?? []))
+  const [pendingAssignment, setPendingAssignment] = useState(false)
   const [editCleanup, setEditCleanup] = useState<number>(event.cleanupDelayHours)
   const [editTeamSize, setEditTeamSize] = useState<number>(() => {
     try { return (event.formJson ? JSON.parse(event.formJson) as FormConfig : state.config).teamSize ?? 4 } catch { return state.config.teamSize ?? 4 }
@@ -1454,14 +1455,14 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
     <>
       {open && (
         <Dialog open={open} onOpenChange={next => { if (!next && !busy) onClose() }}>
-          <DialogContent aria-modal="true" showCloseButton={false} className="sm:max-w-[min(56rem,95vw)] max-h-[85vh] overflow-y-auto">
-            <CardHeader>
+          <DialogContent aria-modal="true" showCloseButton={false} onPointerDownOutside={event => event.preventDefault()} onEscapeKeyDown={event => { if (pendingAssignment) event.preventDefault() }} className="grid-cols-[minmax(0,1fr)] sm:max-w-[min(56rem,95vw)] max-h-[85vh] overflow-x-hidden overflow-y-auto">
+            <CardHeader className="min-w-0">
               <DialogTitle>{t('events.edit_schedule_title')}</DialogTitle>
               <DialogDescription>{t('events.edit_schedule_desc')}</DialogDescription>
             </CardHeader>
-            <CardContent className="flex flex-col gap-4">
+            <CardContent className="flex min-w-0 flex-col gap-4">
               {saveError && <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"><p>{saveError}</p><Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void save()} disabled={busy}>{t('events.retry_save')}</Button></div>}
-              <Tabs value={editTab} onValueChange={(next) => setEditTab(next as typeof editTab)} className="gap-4">
+              <Tabs value={editTab} onValueChange={(next) => setEditTab(next as typeof editTab)} className="min-w-0 gap-4">
                 <TabsList variant="line" className="w-full justify-start overflow-x-auto">
                   <TabsTrigger value="basics"><ClipboardList className="size-3.5" />{t('events.tab_basics')}</TabsTrigger>
                   <TabsTrigger value="schedule"><CalendarClock className="size-3.5" />{t('events.tab_schedule')}</TabsTrigger>
@@ -1539,10 +1540,10 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
               <label className="flex items-start gap-2 rounded-lg border p-3 text-sm"><input type="checkbox" checked={enforceSignupWindow} onChange={e => { setEnforceSignupWindow(e.target.checked); setSignupPolicyDirty(true) }} className="mt-1" /><span><strong>{t('events.enforce_signup_window')}</strong><span className="mt-1 block text-muted-foreground">{t('events.enforce_signup_help')}</span></span></label>
                 </TabsContent>
 
-                <TabsContent value="assignments" className="flex flex-col gap-4">
+                <TabsContent value="assignments" forceMount className="flex flex-col gap-4 data-[state=inactive]:hidden">
               <div className="space-y-2">
                 <Label>{t('events.assignment_collection')}</Label>
-                <Select value="" onValueChange={id => {
+                <Select value="" disabled={pendingAssignment} onValueChange={id => {
                   const template = state.templates?.find(template => template.id === id && template.kind === 'assignments')
                   if (!template) return
                   try { const pool = JSON.parse(template.json).assignments as Assignment[]; if (Array.isArray(pool)) { setEditAssignments(pool); if (![...signupActions, ...endActions, ...items.flatMap(item => item.actions ?? [])].some(action => action.type === 'distribute_assignments')) setStartActions(actions => syncDistribute(actions, pool)) } } catch { /* retain current pool */ }
@@ -1551,7 +1552,10 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                   <SelectContent>{state.templates?.filter(template => template.kind === 'assignments').map(template => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <AssignmentsEditor value={editAssignments} onChange={setEditAssignments} />
+              <AssignmentsEditor value={editAssignments} onPendingChange={setPendingAssignment} onChange={pool => {
+                setEditAssignments(pool)
+                if (![...signupActions, ...endActions, ...items.flatMap(item => item.actions ?? [])].some(action => action.type === 'distribute_assignments')) setStartActions(actions => syncDistribute(actions, pool))
+              }} />
                 </TabsContent>
 
                 <TabsContent value="form" className="flex flex-col gap-4">
@@ -1591,9 +1595,10 @@ function EditableSchedule({ event, refresh, open, onClose }: { event: HackathonE
                 </TabsContent>
               </Tabs>
 
+              {pendingAssignment && <p role="status" className="text-sm text-muted-foreground">{t('assignments.finish_edit')}</p>}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" disabled={busy} onClick={onClose}>{t('common.cancel')}</Button>
-                <Button disabled={busy} onClick={() => void save()}>{t('common.save')}</Button>
+                <Button disabled={busy || pendingAssignment} onClick={() => void save()}>{t('common.save')}</Button>
               </div>
             </CardContent>
           </DialogContent>

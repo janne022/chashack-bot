@@ -281,7 +281,7 @@ export interface AuthGuild {
 
 /** `GET /api/auth/me` — who is signed in and what they may manage. */
 export interface AuthMe {
-  kind: 'discord' | 'password'
+  kind: 'discord' | 'password' | 'anonymous'
   user: { id: string; username: string; avatar: string | null } | null
   guild: { id: string | null; name: string | null }
   guilds: AuthGuild[]

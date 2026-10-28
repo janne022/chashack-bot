@@ -13,14 +13,15 @@ function FilteredTagsPortal({
   prefix,
   onPick,
   selectedIdx,
+  definitions,
 }: {
   anchor: HTMLElement | null
   prefix: string
   onPick: (tag: string) => void
   selectedIdx: number
+  definitions: ReturnType<typeof useTagDefinitions>
 }) {
   const t = useT()
-  const definitions = useTagDefinitions()
   const menu = useRef<HTMLDivElement>(null)
   useEffect(() => { menu.current?.querySelector(`[data-selected="true"]`)?.scrollIntoView({ block: "nearest" }) }, [selectedIdx])
   const [rect, setRect] = useState<DOMRect | null>(null)
@@ -94,7 +95,7 @@ function FilteredTagsPortal({
             <div className="text-xs font-medium leading-tight">{d.label}</div>
             <div className="tag-detail line-clamp-2 text-[11px] leading-snug text-muted-foreground group-hover:text-background">{d.desc}</div>
           </div>
-          <span className="tag-detail shrink-0 text-[10px] text-muted-foreground group-hover:text-background">{d.context}</span>
+          <span className="tag-detail hidden shrink-0 text-[10px] text-muted-foreground group-hover:text-background sm:block">{d.context}</span>
         </button>
       ))}
       <div className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground">{t("tags.keyboard")}</div>
@@ -103,8 +104,13 @@ function FilteredTagsPortal({
   return createPortal(node, anchor.parentElement!)
 }
 
-function useTagAutocomplete(value: string, onChange: (next: string) => void) {
-  const definitions = useTagDefinitions()
+function useTagAutocomplete(value: string, onChange: (next: string) => void, assignment = false) {
+  const t = useT()
+  const allDefinitions = useTagDefinitions()
+  const definitions = useMemo(() => assignment ? [
+    { tag: '{team}', label: t('assignments.team_tag'), desc: t('assignments.team_tag_desc'), example: 'Team Alpha', context: t('assignments.team_tag_context') },
+    ...allDefinitions.filter(def => def.tag === '{event}'),
+  ] : allDefinitions, [assignment, allDefinitions, t])
   const [pos, setPos] = useState<TagPosition | null>(null)
   const [selIdx, setSelIdx] = useState(0)
   const ref = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
@@ -149,12 +155,12 @@ function useTagAutocomplete(value: string, onChange: (next: string) => void) {
     } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setPos(null) }
   }
 
-  return { pos, selIdx, filtered, pick, onKeyDown, ref, updatePos, setPos }
+  return { pos, selIdx, filtered, definitions, pick, onKeyDown, ref, updatePos, setPos }
 }
 
-export function TagAutocompleteTextarea({ value, onChange, placeholder, maxLength, className }: { value: string; onChange: (v: string)=>void; placeholder?: string; maxLength?: number; className?: string }) {
+export function TagAutocompleteTextarea({ value, onChange, placeholder, maxLength, className, rows, assignment }: { value: string; onChange: (v: string)=>void; placeholder?: string; maxLength?: number; className?: string; rows?: number; assignment?: boolean }) {
   const t = useT()
-  const { pos, selIdx, pick, onKeyDown, ref, updatePos, setPos } = useTagAutocomplete(value, onChange)
+  const { pos, selIdx, definitions, pick, onKeyDown, ref, updatePos, setPos } = useTagAutocomplete(value, onChange, assignment)
   return (
     <div className="relative min-w-0">
       <Textarea
@@ -179,16 +185,17 @@ export function TagAutocompleteTextarea({ value, onChange, placeholder, maxLengt
         placeholder={placeholder ?? t("tags.placeholder")}
         aria-label={placeholder ?? t("tags.placeholder")}
         maxLength={maxLength}
+        rows={rows}
         className={className}
       />
-      {pos && <FilteredTagsPortal anchor={ref.current} prefix={pos.prefix} onPick={pick} selectedIdx={selIdx} />}
+      {pos && <FilteredTagsPortal anchor={ref.current} prefix={pos.prefix} onPick={pick} selectedIdx={selIdx} definitions={definitions} />}
     </div>
   )
 }
 
 export function TagAutocompleteInput({ value, onChange, placeholder, maxLength, className }: { value: string; onChange: (v: string)=>void; placeholder?: string; maxLength?: number; className?: string }) {
   const t = useT()
-  const { pos, selIdx, pick, onKeyDown, ref, updatePos, setPos } = useTagAutocomplete(value, onChange)
+  const { pos, selIdx, definitions, pick, onKeyDown, ref, updatePos, setPos } = useTagAutocomplete(value, onChange)
   return (
     <div className="relative min-w-0">
       <Input
@@ -215,7 +222,7 @@ export function TagAutocompleteInput({ value, onChange, placeholder, maxLength, 
         maxLength={maxLength}
         className={className}
       />
-      {pos && <FilteredTagsPortal anchor={ref.current} prefix={pos.prefix} onPick={pick} selectedIdx={selIdx} />}
+      {pos && <FilteredTagsPortal anchor={ref.current} prefix={pos.prefix} onPick={pick} selectedIdx={selIdx} definitions={definitions} />}
     </div>
   )
 }

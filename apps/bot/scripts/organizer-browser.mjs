@@ -148,9 +148,31 @@ try {
   };
   const errors=[];
   browser.addEventListener('message', e=>{const m=JSON.parse(e.data); if(m.method==='Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.text);});
-  await send('Page.addScriptToEvaluateOnNewDocument',{source: `localStorage.setItem('chas-server:${syntheticUserId}','${guildIds[0]}')`},sid);
+  const rememberedScript = await send('Page.addScriptToEvaluateOnNewDocument',{source: `localStorage.setItem('chas-server:${syntheticUserId}','${guildIds[0]}')`},sid);
   await nav(base+'/events');
   await wait(`document.body.innerText.includes('New event')`);
+  check('sidebar shows the signed-in name and an avatar fallback without email', await evaluate(`(()=>{const b=document.querySelector('aside button[aria-label="Account: Synthetic browser user"]');return !!b&&b.innerText.includes('Synthetic browser user')&&!b.innerText.includes('@')&&!!b.querySelector('[aria-hidden="true"]')})()`));
+  await click(`document.querySelector('aside button[aria-label="Account: Synthetic browser user"]')`);
+  check('account menu exposes sign out', await evaluate(`!![...document.querySelectorAll('[role=menuitem]')].find(e=>e.innerText.includes('Sign out'))`));
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'},sid); await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'},sid);
+  await click(`document.querySelector('aside button[aria-label="Language"]')`);
+  check('language menu offers English and Swedish with the current choice selected', await evaluate(`(()=>{const items=[...document.querySelectorAll('[role=menuitemradio]')];return items.some(e=>e.innerText==='English'&&e.getAttribute('aria-checked')==='true')&&items.some(e=>e.innerText==='Svenska')})()`));
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText==='Svenska')`);
+  check('language choice updates and persists', await evaluate(`document.documentElement.lang==='sv'&&localStorage.getItem('chas-locale')==='sv'`));
+  await click(`document.querySelector('aside button[aria-label="Språk"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText==='English')`);
+  await screenshot('sidebar-account-desktop.png');
+  await click(`document.querySelector('aside button[aria-label="Theme"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText.includes('Light'))`);
+  check('sidebar preferences remain readable in light mode', await evaluate(`document.documentElement.dataset.theme==='light'&&!!document.querySelector('aside button[aria-label="Account: Synthetic browser user"]')`));
+  await screenshot('sidebar-account-light.png');
+  await click(`document.querySelector('aside button[aria-label="Theme"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText.includes('System'))`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false }, sid);
+  check('mobile account and preference controls are visible and fit', await evaluate(`(()=>{const buttons=[...document.querySelectorAll('header button, .sticky button')].filter(e=>e.getBoundingClientRect().width>0);return !!buttons.find(e=>e.getAttribute('aria-label')==='Account: Synthetic browser user')&&!!buttons.find(e=>e.getAttribute('aria-label')==='Language')&&document.documentElement.scrollWidth<=innerWidth})()`));
+  await screenshot('sidebar-account-mobile.png');
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false }, sid);
+  if (!process.env.SIDEBAR_SESSION_ONLY && !process.env.EDITOR_ONLY) {
   check('empty Events exposes a first-event action',await evaluate(`document.body.innerText.includes('No events') && !!(${button('New event')})`));
   const verifyOtter = async (width, height) => {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }, sid);
@@ -673,7 +695,8 @@ try {
   check('draft form can be completed after reopening',JSON.parse(editedDraft.formJson).customQuestions[0].label.en==='Your idea');
   check('last edits across draft theme and form tabs are retained',JSON.parse(editedDraft.formJson).appearance.themePreset==='christmas'&&JSON.parse(editedDraft.formJson).enforceSignupWindow===true);
   await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')`);
-  await click(`[...document.querySelectorAll('button')].find(e=>e.getAttribute('aria-label')?.startsWith('Switch language'))`);
+  await click(`document.querySelector('aside button[aria-label="Language"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(e=>e.innerText==='Svenska')`);
   check('Swedish workspace and preview action are localized',await evaluate(`document.documentElement.lang==='sv'&&document.body.innerText.includes('Offentlig förhandsvisning')`));
   const keys=await Promise.all(['en','sv'].map(async l=>Object.keys(JSON.parse(await readFile(new URL('../../admin-ui/src/lib/i18n/'+l+'.json',import.meta.url),'utf8'))).sort()));
   check('English and Swedish catalogs contain the same keys',JSON.stringify(keys[0])===JSON.stringify(keys[1]));
@@ -715,6 +738,77 @@ try {
       await screenshot(name+'-'+width+'.png');
     }
   }
+  }
+
+  if (!process.env.SIDEBAR_SESSION_ONLY) {
+    const editedEvent = (await api('/api/events', { name: 'Assignment check', launch: true })).event;
+    await nav(base+'/events?event='+editedEvent.id); await wait(`!!(${button('Edit event')})`); await click(button('Edit event'));
+    await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Assignments'))`);
+    await fill('[role=dialog] input[aria-label="Title"]', 'Build together');
+    await fill('[role=dialog] textarea[data-tag-autocomplete]', 'Hello {');
+    await wait(`!!document.querySelector('[data-tag-suggestions]')`);
+    check('assignment autocomplete offers only supported team and event variables', await evaluate(`(()=>{const tags=[...document.querySelectorAll('[data-tag-suggestions] code')].map(e=>e.innerText);return tags.includes('{team}')&&tags.includes('{event}')&&tags.length===2})()`));
+    await screenshot('assignment-editor-desktop.png');
+    await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false }, sid); await delay(300);
+    await screenshot('assignment-editor-mobile.png');
+    const assignmentGeometry = await evaluate(`(()=>{const dialog=document.querySelector('[role=dialog]').getBoundingClientRect(),menu=document.querySelector('[data-tag-suggestions]').getBoundingClientRect();return {left:dialog.left,right:dialog.right,menuLeft:menu.left,menuRight:menu.right,viewport:innerWidth,scroll:document.documentElement.scrollWidth}})()`);
+    check('assignment editor and suggestions fit on mobile', assignmentGeometry.left>=0&&assignmentGeometry.right<=assignmentGeometry.viewport&&assignmentGeometry.menuLeft>=0&&assignmentGeometry.menuRight<=assignmentGeometry.viewport&&assignmentGeometry.scroll<=assignmentGeometry.viewport, JSON.stringify(assignmentGeometry));
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false }, sid);
+    await click(`[...document.querySelectorAll('[data-tag-suggestions] button')].find(e=>e.innerText.includes('{team}'))`);
+    check('unfinished assignment prevents event save', await evaluate(`document.querySelector('[role=dialog] textarea[data-tag-autocomplete]').value==='Hello {team}'&&[...document.querySelectorAll('[role=dialog] button')].find(b=>b.innerText.trim()==='Save')?.disabled`));
+    await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Basics'))`);
+    await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Assignments'))`);
+    check('unfinished assignment survives switching tabs', await evaluate(`document.querySelector('[role=dialog] textarea[data-tag-autocomplete]').value==='Hello {team}'&&document.querySelector('[role=dialog] input[aria-label="Title"]').value==='Build together'`));
+    await send('Input.dispatchMouseEvent',{type:'mousePressed',x:4,y:4,button:'left',clickCount:1},sid); await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:4,y:4,button:'left',clickCount:1},sid);
+    check('clicking outside the event editor does not discard the assignment', await evaluate(`!!document.querySelector('[role=dialog]')&&document.querySelector('[role=dialog] textarea[data-tag-autocomplete]').value==='Hello {team}'`));
+    await click(button('Add to list')); await wait(`![...document.querySelectorAll('[role=dialog] button')].find(b=>b.innerText.trim()==='Save')?.disabled`);
+    await click(button('Save')); await wait(`!document.querySelector('[role=dialog]')`);
+    const saved = (await api('/api/state', undefined, 'GET')).events.find(e=>e.id===editedEvent.id);
+    check('event save persists the assignment and its distribution action', saved.assignments.some(a=>a.title==='Build together'&&a.instructions==='Hello {team}')&&saved.schedule.some(s=>s.actions?.some(a=>a.type==='distribute_assignments')));
+    await nav(base+'/events?event='+editedEvent.id); await wait(`!!(${button('Edit event')})`); await click(button('Edit event'));
+    await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Assignments'))`);
+    await click(`document.querySelector('[aria-label="Edit Build together"]')`);
+    await fill('[role=dialog] li textarea[data-tag-autocomplete]', 'Updated {');
+    await wait(`!!document.querySelector('[data-tag-suggestions]')`);
+    await click(`[...document.querySelectorAll('[data-tag-suggestions] button')].find(e=>e.innerText.includes('{event}'))`);
+    await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Basics'))`);
+    await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Assignments'))`);
+    check('editing an existing assignment keeps its draft across tabs', await evaluate(`document.querySelector('[role=dialog] li textarea').value==='Updated {event}'`));
+    await click(`[...document.querySelectorAll('[role=dialog] li button')].find(b=>b.innerText.trim()==='Save')`);
+    await wait(`![...document.querySelectorAll('[role=dialog] button')].find(b=>b.innerText.trim()==='Save')?.disabled`);
+    await click(button('Save')); await wait(`!document.querySelector('[role=dialog]')`);
+    const updated = (await api('/api/state', undefined, 'GET')).events.find(e=>e.id===editedEvent.id);
+    check('edited assignment instructions persist on the event', updated.assignments.some(a=>a.title==='Build together'&&a.instructions==='Updated {event}'));
+    await withGuildContext(db, guildIds[0], () => db.run("INSERT INTO teams (id,event_id,guild_id,name,kind,color,created_at) VALUES ('matched-test',?,?,'Team Alpha','matched','cyan',1)", editedEvent.id, guildIds[0]));
+    await evaluate(`localStorage.setItem('chas-event',${JSON.stringify(editedEvent.id)})`);
+    await nav(base+'/operations?tab=teams'); await wait(`document.body.innerText.includes('Team Alpha')`);
+    await click(`document.querySelector('[aria-label="Actions for Team Alpha"]')`);
+    await click(`[...document.querySelectorAll('[role=menuitem]')].find(e=>e.innerText.includes('Rename team'))`);
+    await fill('[role=dialog] #settings-name', 'Team Better');
+    await click(button('Save changes')); await wait(`!document.querySelector('[role=dialog]')`);
+    const renamed = await withGuildContext(db, guildIds[0], () => db.get("SELECT name,kind,color FROM teams WHERE id='matched-test'"));
+    check('matched team rename persists without changing its kind or color', renamed.name==='Team Better' && renamed.kind==='matched' && renamed.color==='cyan');
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false }, sid);
+  await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: rememberedScript.identifier }, sid);
+  await api('/api/auth/guild', { guildId: guildIds[1] });
+  await evaluate(`Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>window.testVisibility}); window.testVisibility='hidden'; window.dispatchEvent(new Event('visibilitychange')); window.testVisibility='visible'; window.dispatchEvent(new Event('visibilitychange'))`);
+  await wait(`!![...document.querySelectorAll('button')].find(e=>e.innerText.includes('Synthetic test guild 2'))`);
+  check('a server changed elsewhere hides the old workspace before selection', await evaluate(`!document.querySelector('.organizer-workspace')`));
+  await click(`[...document.querySelectorAll('button')].find(e=>e.innerText.includes('Synthetic test guild 2'))`);
+  await wait(`!!document.querySelector('.organizer-workspace') && document.body.innerText.includes('Synthetic test guild 2')`);
+  check('server picker switches to the newly selected guild', await evaluate(`document.querySelector('aside')?.innerText.includes('Synthetic test guild 2')`));
+  await db.run('DELETE FROM web_sessions WHERE id=?', session.id);
+  await evaluate(`window.authRefreshes=0; window.testFetch=window.fetch; window.fetch=(...args)=>{if(String(args[0]).startsWith('/api/auth/me'))window.authRefreshes++;return window.testFetch(...args)}; window.testVisibility='hidden'; window.dispatchEvent(new Event('visibilitychange')); window.testVisibility='visible'; window.dispatchEvent(new Event('visibilitychange'))`);
+  await wait(`window.authRefreshes>0 && document.body.innerText.includes('Your session expired')`);
+  check('revoked session preserves the workspace for reauthentication', await evaluate(`!!document.querySelector('.organizer-workspace')&&document.body.innerText.includes('Sign in again')`));
+  const signoutSession = await createSession(db, { userId: syntheticUserId, username: 'Synthetic browser user', avatar: null, guilds: guildIds.map((id, index) => ({ id, name: `Synthetic test guild ${index + 1}`, icon: null })) });
+  await send('Network.setCookie', { name: 'hacksess', value: makeDiscordToken(config.adminSessionSecret, signoutSession.id), url: base, httpOnly: true }, sid);
+  await nav(base+'/events'); await wait(`!!document.querySelector('aside button[aria-label="Account: Synthetic browser user"]')`);
+  await click(`document.querySelector('aside button[aria-label="Account: Synthetic browser user"]')`);
+  await click(`[...document.querySelectorAll('[role=menuitem]')].find(e=>e.innerText.includes('Sign out'))`);
+  await wait(`!!document.querySelector('.login-workspace')`);
+  check('account sign-out revokes the session and clears the workspace', !(await db.get('SELECT id FROM web_sessions WHERE id=?', signoutSession.id)) && await evaluate(`!document.querySelector('.organizer-workspace')`));
   await send('Network.deleteCookies',{name:'hacksess',url:base},sid);
   await send('Network.deleteCookies',{name:'hackpartsess',url:base},sid);
   for (const width of [1440,390]) {

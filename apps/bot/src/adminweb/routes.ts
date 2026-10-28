@@ -568,7 +568,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         console.warn(`[oauth] identity fetch failed: user=${userRes.status} guilds=${guildsRes.status}`);
         return void (await fail('identity_failed'));
       }
-      const user = (await userRes.json()) as { id: string; username: string; avatar: string | null };
+      const user = (await userRes.json()) as { id: string; username: string; global_name?: string | null; avatar: string | null };
       const userGuilds = (await guildsRes.json()) as OAuthGuild[];
 
       // OAuth permissions are stale/non-authoritative; freshGuildAccess checks
@@ -590,7 +590,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await purgeExpiredSessions(db);
       const session = await createSession(db, {
         userId: user.id,
-        username: user.username,
+        username: user.global_name || user.username,
         avatar: user.avatar,
         guilds,
       });
@@ -1936,12 +1936,15 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       ...(body?.name !== undefined ? { name: body.name } : {}),
       ...(body?.kind === 'public' || body?.kind === 'private' ? { kind: body.kind } : {}),
       ...(body?.colorId !== undefined ? { colorId: body.colorId } : {}),
-    });
+    }, true);
     if (!res.ok) {
       await reply.code(400).send(res);
       return;
     }
     if (deps.client !== null && !deps.config.skipDiscord) {
+      const { syncRoleColor, syncTeamChannelNames } = await import('../discord/provision.js');
+      await syncRoleColor({ db, client: deps.client, categoryIdFor: () => undefined }, res.value);
+      if (body?.name !== undefined) await syncTeamChannelNames({ db, client: deps.client, categoryIdFor: () => undefined }, res.value);
       await refreshTeamPanel({ db, client: deps.client, categoryIdFor: () => undefined }, res.value);
     }
     return { ok: true, team: res.value };

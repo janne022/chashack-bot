@@ -1,10 +1,11 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type { FormConfig } from '@/types'
-import { Hexagon, ArrowLeft, Sun, Globe } from 'lucide-react'
+import { Hexagon, ArrowLeft, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { LanguageMenu } from '@/components/LanguageMenu'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { PRESET_ACCENTS, readableInk, contrastRatio } from '@/lib/color'
-import { setLocale, useLocale, useT } from '@/lib/i18n'
+import { useT } from '@/lib/i18n'
 
 export type Appearance = NonNullable<FormConfig['appearance']>
 
@@ -28,7 +29,6 @@ export function frameColors(appearance: Appearance) {
 
 export function ParticipantFrame({ appearance, children, preview = false }: { appearance: Appearance; children: ReactNode; preview?: boolean }) {
   const t = useT()
-  const locale = useLocale()
   const [preference, setPreference] = useState<'light' | 'dark' | 'system' | 'event'>(() => {
     try { const value = localStorage.getItem('chas-participant-mode'); return value === 'light' || value === 'dark' || value === 'system' ? value : 'event' } catch { return 'event' }
   })
@@ -82,7 +82,7 @@ export function ParticipantFrame({ appearance, children, preview = false }: { ap
           ? <a href="/my-hackathons" aria-label="ChasHack" className="inline-flex min-h-11 items-center gap-3 text-xl font-bold tracking-tight"><Hexagon aria-hidden="true" className="size-7" style={{ color: accent }} />ChasHack<span className="hidden border-l border-current/20 pl-3 text-xs font-normal tracking-normal opacity-70 sm:inline">{t('participant.community')}</span></a>
           : <span className="inline-flex min-h-11 items-center gap-3 text-xl font-bold tracking-tight"><Hexagon aria-hidden="true" className="size-7" style={{ color: accent }} />ChasHack<span className="hidden border-l border-current/20 pl-3 text-xs font-normal tracking-normal opacity-70 sm:inline">{t('participant.community')}</span></span>}
         <div className="flex items-center gap-1">
-          <Button variant="ghost" className="min-h-11 min-w-11" onClick={() => setLocale(locale === 'en' ? 'sv' : 'en')} aria-label={t('common.language', { locale: locale.toUpperCase() })}><Globe aria-hidden="true" size={16} />{locale.toUpperCase()}</Button>
+          <LanguageMenu compact />
           <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" className="min-h-11 min-w-11" aria-label={t('common.theme_mode')}><Sun aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuRadioGroup value={preference} onValueChange={value => selectPreference(value as typeof preference)}><DropdownMenuRadioItem value="event">{t('participant.theme_event')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="light">{t('common.theme_light_mode')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="dark">{t('common.theme_dark_mode')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="system">{t('common.theme_system')}</DropdownMenuRadioItem></DropdownMenuRadioGroup></DropdownMenuContent></DropdownMenu>
         </div>
       </header>}

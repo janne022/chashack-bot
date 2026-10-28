@@ -27,8 +27,8 @@ const emptyProfile = (): Profile => ({ experience: '', roleTrack: '', skills: []
 // the page to show the login or the non-member notice.
 const registrationQuery = (eventId: string, force = false) => ({
   queryKey: ['participant-registration', eventId] as const,
-  queryFn: async (): Promise<RegistrationLookup> => {
-    const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`)
+  queryFn: async ({ signal }: { signal: AbortSignal }): Promise<RegistrationLookup> => {
+    const res = await fetch(`/api/participant/events/${encodeURIComponent(eventId)}/registration`, { signal })
     if (res.status === 401) return { kind: 'anonymous' }
     if (res.status === 404) return { kind: 'nonmember' }
     if (res.status === 429) throw new Error(rateLimitMessage(res))

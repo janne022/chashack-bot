@@ -4,9 +4,28 @@ import { openTestDb } from '../../shared/test-db.js';
 import { openPostgres } from '../../shared/postgres.js';
 import { DEFAULT_FORM, TEAM_COLORS, validateSignupInput } from '../form/domain.js';
 import { upsertParticipant } from '../signup/data.js';
-import { adminAssign, createTeam, joinTeam, listTeams, nextTeamColor } from './data.js';
+import { adminAssign, createTeam, joinTeam, listTeams, nextTeamColor, updateTeamSettings } from './data.js';
 import { createInvite, decideRequest } from './requests-data.js';
 import { setMembershipLookup } from '../signup/eligibility.js';
+
+test('organizers can rename matched teams without changing their kind, color or members', async () => {
+  const db = await openTestDb();
+  try {
+    await db.run("INSERT INTO events (id,guild_id,name,status,created_at,updated_at) VALUES ('ev','g','Event','active',1,1)");
+    await db.run("INSERT INTO teams (id,event_id,guild_id,name,kind,color,created_at) VALUES ('matched','ev','g','Team Alpha','matched','cyan',1)");
+    await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,team_id,status,created_at,updated_at) VALUES ('ev','user','g','User','','','[]','random_team','[]','matched','active',1,1)");
+    const memberAttempt = await updateTeamSettings(db, 'member', 'matched', { name: 'New name' });
+    assert.equal(memberAttempt.ok, false);
+    const kindAttempt = await updateTeamSettings(db, 'admin', 'matched', { kind: 'public' }, true);
+    assert.equal(kindAttempt.ok, false);
+    const renamed = await updateTeamSettings(db, 'admin', 'matched', { name: 'New name' }, true);
+    assert.ok(renamed.ok);
+    assert.equal(renamed.value.name, 'New name');
+    assert.equal(renamed.value.kind, 'matched');
+    assert.equal(renamed.value.colorId, 'cyan');
+    assert.equal((await db.get<{ team_id: string }>("SELECT team_id FROM participants WHERE event_id='ev' AND user_id='user'"))?.team_id, 'matched');
+  } finally { await db.close(); }
+});
 
 test('organizer reassignment enforces team capacity', async () => {
   const db = await openTestDb();

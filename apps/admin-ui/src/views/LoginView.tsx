@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Info, Hexagon, ArrowUpRight } from 'lucide-react'
 
-import { useLocale, useT, setLocale } from '@/lib/i18n'
+import { useT } from '@/lib/i18n'
+import { LanguageMenu } from '@/components/LanguageMenu'
 
 /** Reasons the OAuth callback can bounce back with (`/?auth=…`). */
 const AUTH_ERRORS: Record<string, string> = {
@@ -19,7 +20,6 @@ export function LoginView({ notice }: { notice?: string | null }) {
   const [bounced, setBounced] = useState<string | null>(null)
 
   const t = useT()
-  const locale = useLocale()
 
   useEffect(() => {
     // Bounced login attempt: the callback redirects here with a reason.
@@ -30,7 +30,7 @@ export function LoginView({ notice }: { notice?: string | null }) {
   const bounceKey = bounced !== null ? AUTH_ERRORS[bounced] : undefined
 
   return <main className="login-workspace min-h-screen bg-background text-foreground">
-    <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-7"><a href="/" className="inline-flex items-center gap-3 text-xl font-semibold"><Hexagon className="size-7 text-accent" aria-hidden="true" />ChasHack</a><button type="button" onClick={() => setLocale(locale === 'en' ? 'sv' : 'en')} aria-label={t('common.language', { locale: locale.toUpperCase() })} className="min-h-11 min-w-11 rounded-lg border px-3 text-sm">{locale.toUpperCase()}</button></header>
+    <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-7"><a href="/" className="inline-flex items-center gap-3 text-xl font-semibold"><Hexagon className="size-7 text-accent" aria-hidden="true" />ChasHack</a><LanguageMenu compact /></header>
     <div className="mx-auto grid max-w-6xl gap-12 px-6 py-16 lg:grid-cols-[1.25fr_1fr] lg:items-center lg:gap-24 lg:py-28">
       <section><p className="mb-6 text-sm font-medium text-accent">{t('login.organizer')}</p><h1 className="max-w-xl text-5xl font-semibold leading-[1.05] tracking-[-.05em] sm:text-6xl">{t('login.headline')}</h1><p className="mt-7 max-w-md text-lg leading-relaxed text-muted-foreground">{t('login.intro')}</p><div className="mt-12 flex items-center gap-4 border-t pt-6"><span className="flex -space-x-2" aria-hidden="true">{['C', 'H', '+'].map(letter => <span key={letter} className="grid size-10 place-items-center rounded-full border-2 border-background bg-surface-2 text-xs font-semibold">{letter}</span>)}</span><p className="max-w-60 text-sm text-muted-foreground">{t('login.community')}</p></div></section>
       <section className="rounded-2xl border bg-card p-7 sm:p-9"><h2 className="text-2xl font-semibold tracking-tight">{t('common.workspace')}</h2><p className="mb-8 mt-3 text-sm leading-relaxed text-muted-foreground">{t('login.tagline')}</p>

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Check, Loader2, Search, UserRound, X } from 'lucide-react'
 import { cn } from 'cn'
 import { api } from '@/api'
 import { useT } from '@/lib/i18n'
+import { ServerContext } from '@/components/ServerGate'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -52,6 +53,7 @@ export function MemberCombobox({
   onError?: (message: string) => void
 }) {
   const t = useT()
+  const guildId = useContext(ServerContext)?.guild.id
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState(initialQuery)
   const [debounced, setDebounced] = useState(initialQuery)
@@ -68,9 +70,9 @@ export function MemberCombobox({
   const term = debounced.trim()
   const enabled = term.length >= 2
   const search = useQuery({
-    queryKey: ['guild-members', term],
-    queryFn: () => api.searchGuildMembers(term),
-    enabled: open && enabled,
+    queryKey: ['guild-members', guildId, term],
+    queryFn: ({ signal }) => api.searchGuildMembers(term, signal),
+    enabled: open && enabled && !!guildId,
     staleTime: 5 * 60_000,
     gcTime: 15 * 60_000,
     retry: false,

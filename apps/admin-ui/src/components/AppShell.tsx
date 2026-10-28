@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation } from '@tanstack/react-router'
 import { motion, useReducedMotion } from 'framer-motion'
 import {
@@ -7,7 +7,9 @@ import {
   Sun,
   Moon,
   Monitor,
-  Globe,
+  ChevronsUpDown,
+  LogOut,
+  UserRound,
   Settings,
   LayoutTemplate,
   Briefcase,
@@ -16,17 +18,25 @@ import {
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ServerSwitcher } from '@/components/ServerSwitcher'
+import { ServerContext } from '@/components/ServerGate'
+import { LanguageMenu } from '@/components/LanguageMenu'
+import { api } from '@/api'
+import { toast } from 'sonner'
+import { useQueryClient } from '@tanstack/react-query'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAppContext } from '@/lib/app-context'
-import { useLocale, useT, setLocale } from '@/lib/i18n'
-import type { AppState } from '@/types'
+import { discordAvatarUrl } from '@/lib/discord-avatar'
+import { clearSessionCache } from '@/lib/session-cache'
+import { useT } from '@/lib/i18n'
+import type { AppState, AuthMe } from '@/types'
 import brandMark from '@/assets/brand/1.png'
 
 const NAV_KEYS = [
@@ -61,7 +71,7 @@ function systemPrefersDark(): boolean {
 /**
  * App shell — "Honeycomb playtech" world.
  * Router-aware sidebar; theme menu (light / dark / system) persists in
- * localStorage; language toggle cycles en/sv and persists in localStorage.
+ * localStorage; language and account controls are available on both layouts.
  */
 export function AppShell({
   state,
@@ -77,7 +87,7 @@ export function AppShell({
 
   const t = useT()
   const reducedMotion = useReducedMotion()
-  const locale = useLocale()
+  const account = useContext(ServerContext)?.user ?? null
 
   const [theme, setTheme] = useState<ThemeMode>(storedTheme)
   const [systemDark, setSystemDark] = useState(systemPrefersDark)
@@ -104,10 +114,6 @@ export function AppShell({
     try { localStorage.setItem(THEME_KEY, next) } catch { /* storage unavailable */ }
   }
 
-  function toggleLocale() {
-    setLocale(locale === 'en' ? 'sv' : 'en')
-  }
-
   const activeTheme = THEME_OPTIONS.find((option) => option.value === theme) ?? THEME_OPTIONS[2]!
   const ActiveThemeIcon = activeTheme.icon
 
@@ -117,7 +123,7 @@ export function AppShell({
         <Button
           variant="ghost"
           size={compact ? 'icon' : undefined}
-          className={compact ? undefined : 'flex-1 justify-start rounded-lg bg-card text-xs'}
+          className={compact ? 'min-h-11 min-w-11' : 'flex-1 justify-start rounded-lg bg-card text-xs'}
           aria-label={t('common.theme_mode')}
         >
           <ActiveThemeIcon />
@@ -140,7 +146,7 @@ export function AppShell({
   return (
     <div className="organizer-workspace min-h-screen lg:flex">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-card p-5 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col overflow-y-auto border-r border-border bg-card p-5 lg:flex">
         <div className="mb-6 flex items-center gap-3 px-1 pt-1">
           <img src={brandMark} alt="" className="hex-badge size-9 object-cover" />
           <div>
@@ -183,13 +189,9 @@ export function AppShell({
           </div>
           <div className="flex items-center gap-1 rounded-xl border bg-surface-2 p-1">
             {themeMenu(false)}
-            <Button variant="ghost" size="icon" onClick={toggleLocale} aria-label={t('common.language', { locale: locale.toUpperCase() })}>
-              <span className="flex items-center gap-0.5 text-[10px] font-bold">
-                <Globe className="size-4" />
-                {locale.toUpperCase()}
-              </span>
-            </Button>
+            <LanguageMenu side="top" />
           </div>
+          {account && <AccountMenu user={account} />}
         </div>
       </aside>
 
@@ -201,12 +203,8 @@ export function AppShell({
         </div>
         <div className="flex gap-1">
           {themeMenu(true)}
-          <Button variant="ghost" size="icon" onClick={toggleLocale} aria-label={t('common.language', { locale: locale.toUpperCase() })}>
-            <span className="flex items-center gap-0.5 text-[10px] font-bold">
-              <Globe className="size-4" />
-              {locale.toUpperCase()}
-            </span>
-          </Button>
+          <LanguageMenu compact />
+          {account && <AccountMenu user={account} compact />}
         </div>
       </div>
 
@@ -270,6 +268,34 @@ export function AppShell({
       </nav>
     </div>
   )
+}
+
+function AccountAvatar({ user }: { user: NonNullable<AuthMe['user']> }) {
+  const [failed, setFailed] = useState(false)
+  const avatarUrl = discordAvatarUrl(user)
+  return <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-surface-2 text-sm font-semibold text-foreground" aria-hidden="true">
+    {avatarUrl && !failed ? <img src={avatarUrl} alt="" className="size-full object-cover" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : user.username.trim() ? Array.from(user.username.trim())[0]?.toLocaleUpperCase() : <UserRound className="size-4" />}
+  </span>
+}
+
+function AccountMenu({ user, compact = false }: { user: NonNullable<AuthMe['user']>; compact?: boolean }) {
+  const t = useT()
+  const queryClient = useQueryClient()
+  const signOut = async () => {
+    try { await api.logout(); await clearSessionCache(queryClient); window.location.assign('/') }
+    catch { toast.error(t('common.sign_out_failed')) }
+  }
+  return <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <Button variant="ghost" className={compact ? 'size-11 p-1' : 'min-h-12 w-full justify-start gap-3 rounded-xl px-2'} aria-label={t('common.account_menu', { name: user.username })}>
+        <AccountAvatar key={`${user.id}:${user.avatar}`} user={user} />
+        {!compact && <><span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-sm font-medium">{user.username}</span><ChevronsUpDown className="size-4 text-muted-foreground" /></>}
+      </Button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align={compact ? 'end' : 'start'} side={compact ? 'bottom' : 'top'} className="w-48">
+      <DropdownMenuItem onSelect={() => void signOut()}><LogOut />{t('server.sign_out')}</DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
 }
 
 /**
