@@ -219,6 +219,21 @@ export async function migratePostgres(db: Db): Promise<void> {
   const statements = schemaSql.split(';').map((sql) => sql.trim()).filter(Boolean);
   await db.transaction(async () => {
     const tables = statements.filter((sql) => sql.startsWith('CREATE TABLE'));
+    // Installs created before form-version history already have this table but
+    // without the composite key its answer history references. The inline
+    // UNIQUE only applies when the table is created, so add that key first.
+    const importKey = await db.get(
+      `SELECT 1 FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = current_schema() AND t.relname = 'imported_signups' AND c.contype IN ('p','u')
+         AND (SELECT array_agg(a.attname ORDER BY a.attname)
+              FROM unnest(c.conkey) AS key(attnum)
+              JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = key.attnum) = ARRAY['event_id','id']::name[]`,
+    );
+    if ((await db.get<{ present: boolean }>("SELECT to_regclass('imported_signups') IS NOT NULL AS present"))?.present && !importKey) {
+      await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_imported_signups_event_id ON imported_signups(event_id, id)');
+    }
     for (const sql of tables) await db.run(sql);
     const columns = await db.all<{ table_name: string; column_name: string }>("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()");
     for (const sql of tables) {

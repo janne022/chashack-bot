@@ -85,6 +85,7 @@ import { sendAnnouncement, createDiscordEvents, syncDiscordEvent } from '../disc
 import type { FormConfig } from '../features/form/domain.js';
 import { validateCustomAnswers, validateCustomQuestions, validBannerUrl, normalizeAppearance, resolveAppearance } from '../features/form/domain.js';
 import { getRegistrationAnswers, listRegistrationAnswers, saveParticipantAnswers } from '../features/registration/data.js';
+import { getFormVersion, getImportedAnswerHistory, getRegistrationAnswerHistory } from '../features/registration/history.js';
 import { registerParticipantTeamRoutes } from './participant-teams.js';
 import { registerLiveRoute } from './live.js';
 import type { ChangeHint } from '../shared/live-changes.js';
@@ -890,7 +891,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const participant = await getParticipant(db, event.id, session!.userId);
     const participantQuestions = (form.customQuestions ?? []).filter(q => q.presentation === 'web' || q.presentation === 'both');
     const visibleIds = new Set(participantQuestions.map(q => q.id));
-    const answers = Object.fromEntries(Object.entries(stored?.answers ?? {}).filter(([id]) => visibleIds.has(id)));
+    const answers = Object.fromEntries(Object.entries(stored?.formVersion === form.version ? stored.answers : {}).filter(([id]) => visibleIds.has(id)));
     const checked = validateCustomAnswers({ ...form, customQuestions: participantQuestions }, answers);
     const profileRequired = form.experiences.length + form.roleTracks.length + form.skills.length + form.teamPrefs.length > 0;
     const hasQuestions = (form.customQuestions ?? []).some((question) => question.presentation === 'web' || question.presentation === 'both');
@@ -1008,8 +1009,11 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const registration = await getRegistrationAnswers(db, eventId, userId);
     if (!registration) return reply.code(404).send({ error: 'not_found' });
     const form = getEventForm(db, event, await getForm(db, event.guildId));
+    const answerForm = registration.formVersion === form.version ? form : await getFormVersion(db, eventId, registration.formVersion);
     await audit(db, await actorOf(req), 'registration.read', eventId, { userId }, event.guildId);
-    return { userId, ...registration, questions: registration.formVersion === form.version ? form.customQuestions ?? [] : [], historicalDefinitionUnavailable: registration.formVersion !== form.version };
+    return { userId, ...registration, questions: answerForm?.customQuestions ?? [],
+      historicalDefinitionUnavailable: answerForm === null,
+      answerHistory: await getRegistrationAnswerHistory(db, eventId, userId) };
   });
 
   app.get('/api/participant/me', async (req) => {
@@ -2248,7 +2252,12 @@ app.post('/api/event/reset', async (req) => {
     if (!event || event.guildId !== await guildOf(req)) return { records: [] };
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
-    return { records: await listImportedSignups(db, eventId, required) };
+    const records = await listImportedSignups(db, eventId, required);
+    return { records: await Promise.all(records.map(async (record) => {
+      const answerForm = record.formVersion === form.version ? form : await getFormVersion(db, eventId, record.formVersion);
+      return { ...record, questions: answerForm?.customQuestions ?? [], historicalDefinitionUnavailable: answerForm === null,
+        answerHistory: await getImportedAnswerHistory(db, eventId, record.id) };
+    })) };
   });
 
   app.post('/api/events/:eventId/imported-signups/auto-link', async (req, reply) => {

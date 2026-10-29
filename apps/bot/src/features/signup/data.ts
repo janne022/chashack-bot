@@ -333,6 +333,7 @@ export async function purgeEventParticipants(db: Db, actor: string, eventId: str
     const row = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM participants WHERE event_id = ?', eventId);
     const count = row?.n ?? 0;
     await db.run('DELETE FROM registration_answers WHERE event_id = ?', eventId);
+    await db.run('DELETE FROM registration_answer_history WHERE event_id = ?', eventId);
     await db.run('DELETE FROM participants WHERE event_id = ?', eventId);
     if (count > 0) await audit(db, actor, 'participant.purge', eventId, { count }, event.guild_id);
     return count;

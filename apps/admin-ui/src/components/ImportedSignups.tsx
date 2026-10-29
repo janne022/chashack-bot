@@ -1,3 +1,4 @@
+import { AnswerVersions } from '@/components/answer-versions'
 import { PageSkeleton } from '@/components/ui/skeleton'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -164,7 +165,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
   }
 
   function openEditor(record: ImportedSignup) {
-    setEditId(record.id); setEditValues({ ...record.values }); setEditAnswers({ ...record.answers }); setDiscordUsername(record.discordUsername ?? '')
+    setEditId(record.id); setEditValues({ ...record.values }); setEditAnswers(record.formVersion === form.version ? { ...record.answers } : {}); setDiscordUsername(record.discordUsername ?? '')
     setSelectedMember(null); setMemberError('')
   }
 
@@ -323,6 +324,7 @@ export function ImportedSignups({ eventId, eventName, form }: { eventId: string;
                 ? <p className="text-muted-foreground">{t('imports.linked_via_form', { username: record.discordUsername ?? '' })}</p>
                 : <p className="text-muted-foreground">{t('imports.unlinked_detail', { username: t('imports.not_provided') })}</p>}
             {Object.entries(record.values).filter(([key]) => key.startsWith('source:')).map(([key, value]) => <p key={key} className="break-words text-xs text-muted-foreground">{key.slice(7)}: {value}</p>)}
+            {(record.answerHistory?.length > 0 || record.formVersion !== form.version) && <details><summary className="cursor-pointer font-medium">{t('answers.previous')}</summary><div className="mt-3"><AnswerVersions versions={[...(record.formVersion !== form.version ? [{ formVersion: record.formVersion, answers: record.answers, values: record.values, questions: record.questions, historicalDefinitionUnavailable: record.historicalDefinitionUnavailable }] : []), ...(record.answerHistory ?? [])]} /></div></details>}
             <Button variant="secondary" onClick={() => openEditor(record)}>{t('imports.review_edit')}</Button>
           </CardContent>
         </Card>

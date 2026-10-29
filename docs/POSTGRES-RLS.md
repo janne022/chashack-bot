@@ -135,9 +135,8 @@ change production grants, run production migrations or claim a deployed role.
 
 Every row below is checked against actual information_schema columns and live
 ENABLE/FORCE flags by `shared/postgres-rls-inventory.test.ts`. Its literal column
-arrays enumerate every exact column, including form versions stored in
-`events.form_json` and `registration_answers.form_version`; there is no separate
-form-versions table. `selected_guild_id` is not a tenant-key column.
+arrays enumerate every exact column, including form versions and historical
+answers stored in the versioned registration and import tables. `selected_guild_id` is not a tenant-key column.
 
 | Table | Classification / policy key or parent | App-role behavior test |
 | --- | --- | --- |
@@ -145,6 +144,10 @@ form-versions table. `selected_guild_id` is not a tenant-key column.
 | teams | tenant, guild_id; write checks event_id parent when non-NULL | postgres-rls: unfiltered CRUD + forged parent |
 | participants | tenant, guild_id; write checks event_id and optional team_id parents | postgres-rls: unfiltered CRUD + forged parent |
 | registration_answers | indirect: event_id → events.id, RLS-filtered parent | postgres-rls: unfiltered CRUD; routes-rls: subject answers |
+| registration_form_versions | indirect: event_id → events.id, RLS-filtered parent | postgres-rls: unfiltered CRUD |
+| registration_answer_history | indirect: event_id → events.id, RLS-filtered parent | postgres-rls: unfiltered CRUD; version history and retention tests |
+| imported_signups | tenant, guild_id; write checks event parent | postgres-rls: unfiltered CRUD |
+| imported_signup_answer_history | indirect: event_id → events.id, RLS-filtered parent; import parent | postgres-rls: unfiltered CRUD; version history and retention tests |
 | submission_forms | indirect: event_id → events.id, RLS-filtered parent | postgres-rls inventory and submission isolation tests |
 | submission_answers | indirect: event_id → events.id, RLS-filtered parent | postgres-rls inventory and submission isolation tests |
 | team_requests | tenant, guild_id; write checks team_id and event_id | postgres-rls: unfiltered CRUD + forged parent |

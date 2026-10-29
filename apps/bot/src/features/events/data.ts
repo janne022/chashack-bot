@@ -13,6 +13,7 @@ import { err, ok, type Result } from '../../shared/result.js';
 import { DEFAULT_FORM, type FormConfig } from '../form/domain.js';
 import { getForm } from '../form/data.js';
 import { normalizeFormUpdate, validateCustomQuestions, validBannerUrl, normalizeAppearance } from '../form/domain.js';
+import { saveFormVersion, snapshotOutgoingFormVersion } from '../registration/history.js';
 
 export type EventStatus = 'draft' | 'active' | 'ended';
 
@@ -414,6 +415,7 @@ export async function createEvent(db: Db, actor: string, guildId: string, input:
       Date.now(),
       Date.now(),
     );
+    await saveFormVersion(db, id, form);
     await audit(db, actor, 'event.create', id, { name }, guildId);
     const created = await getEvent(db, id);
     return ok(created!);
@@ -577,15 +579,14 @@ export async function updateEventForm(db: Db, actor: string, eventId: string, up
     const current = getEventForm(db, event, DEFAULT_FORM);
     let next = normalizeFormUpdate(current, update);
     const structure = (form: FormConfig) => JSON.stringify({
-      questions: (form.customQuestions ?? []).map((q) => ({
-        id: q.id, kind: q.kind, choices: q.choices?.map((c) => c.id).sort() ?? [], required: q.required,
-        presentation: q.presentation, visibility: q.visibility, mapping: q.mapping ?? null,
+      questions: (form.customQuestions ?? []).map((question) => ({
+        id: question.id, kind: question.kind, choices: question.choices?.map((choice) => choice.id).sort() ?? [],
+        required: question.required, presentation: question.presentation, visibility: question.visibility, mapping: question.mapping ?? null,
       })).sort((a, b) => a.id.localeCompare(b.id)),
       mappingTargets: { experiences: form.experiences.map((item) => item.id), roleTracks: form.roleTracks.map((item) => item.id), skills: form.skills.map((item) => item.id) },
     });
-    if (structure(current) !== structure(next)) {
-      const populated = await db.get<{ count: number }>('SELECT COUNT(*) AS count FROM participants WHERE event_id = ?', eventId);
-      if (event.status !== 'draft' && Number(populated?.count ?? 0) > 0) return err('form_version_conflict', 'This published event has registrations. Create an explicit version migration before changing question structure.');
+    const structuralChange = structure(current) !== structure(next);
+    if (structuralChange) {
       next = { ...next, version: current.version + 1 };
     } else {
       next = { ...next, version: current.version };
@@ -593,6 +594,9 @@ export async function updateEventForm(db: Db, actor: string, eventId: string, up
     const questionsChanged = JSON.stringify(next.customQuestions ?? []) !== JSON.stringify(current.customQuestions ?? []);
     const questions = validateCustomQuestions(next.customQuestions ?? [], next, event.status === 'draft', event.status !== 'draft' && questionsChanged);
     if (!questions.ok) return err('invalid_questions', questions.errors.join('; '));
+    if (structuralChange) await snapshotOutgoingFormVersion(db, eventId, current);
+    else await snapshotOutgoingFormVersion(db, eventId, next);
+    if (structuralChange) await saveFormVersion(db, eventId, next);
     await db.run('UPDATE events SET form_json = ?, updated_at = ? WHERE id = ?', JSON.stringify(next), Date.now(), eventId);
     await audit(db, actor, 'event.form_update', eventId, null, event.guildId);
     return ok(next);

@@ -27,9 +27,8 @@ shared-password and env-guild authorization paths are removed. The session signi
 secret is required explicitly; rotating it revokes every session.
 
 Organizer and participant sessions can be revoked individually or together for
-the signed-in Discord user. Authorized organizers can retrieve individual form
-answers within their selected guild; the individual-answer UI is tracked as
-separate frontend work. Confidential participant-provided questions remain
+the signed-in Discord user. Authorized organizers can inspect individual form
+answers within their selected guild, including answers from previous form versions. Confidential participant-provided questions remain
 readable by their subject and authorized organizers, not by other participants.
 
 ## Product Purpose

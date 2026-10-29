@@ -38,20 +38,22 @@ test('legacy published whitespace labels remain usable without permitting new bl
   } finally { await db.close(); }
 });
 
-test('structural form changes conflict on populated published events', async () => {
+test('structural form changes advance version on populated published events', async () => {
   const db = await openTestDb();
   try {
     const created = await createEvent(db, 'test', 'guild-a', { name: 'Versioned' });
     assert.equal(created.ok, true);
     if (!created.ok) return;
+    const initialVersion = getEventForm(db, await getEvent(db, created.value.id), DEFAULT_FORM).version;
     await activateEvent(db, 'test', created.value.id);
     await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'active',1,1)",
       created.value.id, 'participant-a', 'guild-a', 'A', '', '', '[]', '', '[]');
     const result = await updateEventForm(db, 'test', created.value.id, {
       customQuestions: [{ id: 'new-required', kind: 'text', label: { en: 'New' }, help: { en: '' }, required: true, presentation: 'web', visibility: 'self_and_organizer' }],
     });
-    assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.code, 'form_version_conflict');
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.value.version, initialVersion + 1);
+    assert.ok(await db.get('SELECT form_version FROM registration_form_versions WHERE event_id=? AND form_version=?', created.value.id, initialVersion));
   } finally { await db.close(); }
 });
 
@@ -76,6 +78,28 @@ test('appearance edit on a populated published event preserves version and answe
   } finally { await db.close(); }
 });
 
+test('question copy edits keep the version and refresh its outgoing snapshot before structural replacement', async () => {
+  const db = await openTestDb();
+  try {
+    const original = { id: 'prompt', kind: 'text' as const, label: { en: 'Original' }, help: { en: '' }, required: false, presentation: 'web' as const, visibility: 'self_and_organizer' as const };
+    const created = await createEvent(db, 'test', 'guild-copy', { name: 'Cosmetic labels', form: { ...DEFAULT_FORM, customQuestions: [original] } });
+    assert.ok(created.ok);
+    if (!created.ok) return;
+    const eventId = created.value.id;
+    const version = getEventForm(db, await getEvent(db, eventId), DEFAULT_FORM).version;
+    const cosmetic = await updateEventForm(db, 'test', eventId, { customQuestions: [{ ...original, label: { en: 'Latest wording' } }] });
+    assert.ok(cosmetic.ok);
+    if (!cosmetic.ok) return;
+    assert.equal(cosmetic.value.version, version);
+    const changed = await updateEventForm(db, 'test', eventId, { customQuestions: [{ ...original, label: { en: 'Latest wording' }, kind: 'toggle' }] });
+    assert.ok(changed.ok);
+    if (!changed.ok) return;
+    assert.equal(changed.value.version, version + 1);
+    const snapshot = await db.get<{ form_json: string }>('SELECT form_json FROM registration_form_versions WHERE event_id=? AND form_version=?', eventId, version);
+    assert.equal(JSON.parse(snapshot!.form_json).customQuestions[0].label.en, 'Latest wording');
+  } finally { await db.close(); }
+});
+
 test('explicit light mode on a Halloween appearance survives event form persistence', async () => {
   const db = await openTestDb();
   try {
@@ -93,7 +117,7 @@ test('explicit light mode on a Halloween appearance survives event form persiste
   } finally { await db.close(); }
 });
 
-test('changing a mapped core target is structural on populated published events', async () => {
+test('changing a mapped core target cannot invalidate a populated published form', async () => {
   const db = await openTestDb();
   try {
     const form = { ...DEFAULT_FORM, customQuestions: [{ id: 'role-map', kind: 'single_choice' as const, label: { en: 'Role' }, help: { en: '' }, required: false, presentation: 'web' as const, visibility: 'self_and_organizer' as const, choices: [{ id: 'x', label: { en: 'X' } }], mapping: { field: 'role' as const, importance: 'normal' as const, choiceValues: { x: 'frontend' } } }] };
@@ -105,7 +129,7 @@ test('changing a mapped core target is structural on populated published events'
       created.value.id, 'participant-map', 'guild-map', 'A', '', '', '[]', '', '[]');
     const result = await updateEventForm(db, 'test', created.value.id, { roleTracks: [{ id: 'backend', label: 'Backend' }] });
     assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.code, 'form_version_conflict');
+    if (!result.ok) assert.equal(result.code, 'invalid_questions');
   } finally { await db.close(); }
 });
 

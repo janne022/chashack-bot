@@ -1,5 +1,7 @@
 import type { Db } from '../../shared/db.js';
 import { err, ok, type Result } from '../../shared/result.js';
+import { archiveRegistrationAnswerVersion } from './history.js';
+import { recordRegistrationWithdrawalDeletion } from './retention.js';
 
 export interface RegistrationAnswers {
   formVersion: number;
@@ -26,10 +28,14 @@ export async function saveRegistrationAnswers(
 ): Promise<Result<RegistrationAnswers>> {
   return db.transaction(async () => {
     await db.get('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
-    const existing = await db.get<{ form_version: number }>(
-      'SELECT form_version FROM registration_answers WHERE event_id = ? AND user_id = ?', eventId, userId,
+    const existing = await db.get<{ form_version: number; answers_json: string; updated_at: number }>(
+      'SELECT form_version, answers_json, updated_at FROM registration_answers WHERE event_id = ? AND user_id = ?', eventId, userId,
     );
     if (existing !== undefined && existing.form_version > formVersion) return err('stale_form_version', 'The signup form changed. Reload it before saving.');
+    if (existing !== undefined && existing.form_version < formVersion) {
+      await archiveRegistrationAnswerVersion(db, eventId, userId, existing.form_version,
+        JSON.parse(existing.answers_json) as RegistrationAnswers['answers'], existing.updated_at);
+    }
     await db.run(
       `INSERT INTO registration_answers (event_id, user_id, form_version, answers_json, updated_at)
        VALUES (?, ?, ?, ?, ?) ON CONFLICT (event_id, user_id) DO UPDATE
@@ -49,11 +55,15 @@ export async function saveParticipantAnswers(
     await db.get('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
     const existing = await getRegistrationAnswers(db, eventId, userId);
     const visibleIds = new Set(visibleQuestionIds);
-    const retained = Object.fromEntries(Object.entries(existing?.answers ?? {}).filter(([id]) => !visibleIds.has(id)));
+    const retained = existing?.formVersion === formVersion
+      ? Object.fromEntries(Object.entries(existing.answers).filter(([id]) => !visibleIds.has(id)))
+      : {};
     return saveRegistrationAnswers(db, eventId, userId, formVersion, { ...retained, ...answers });
   });
 }
 
 export async function deleteRegistrationAnswers(db: Db, eventId: string, userId: string): Promise<void> {
+  await recordRegistrationWithdrawalDeletion(db, eventId, userId, Date.now());
   await db.run('DELETE FROM registration_answers WHERE event_id = ? AND user_id = ?', eventId, userId);
+  await db.run('DELETE FROM registration_answer_history WHERE event_id = ? AND user_id = ?', eventId, userId);
 }

@@ -105,6 +105,23 @@ CREATE TABLE IF NOT EXISTS registration_answers (
       FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
     );
 
+CREATE TABLE IF NOT EXISTS registration_form_versions (
+      event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      form_version BIGINT NOT NULL,
+      form_json TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY (event_id, form_version)
+    );
+
+CREATE TABLE IF NOT EXISTS registration_answer_history (
+      event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      form_version BIGINT NOT NULL,
+      answers_json TEXT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      PRIMARY KEY (event_id, user_id, form_version)
+    );
+
 CREATE TABLE IF NOT EXISTS submission_forms (
       event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
       version BIGINT NOT NULL,
@@ -137,7 +154,19 @@ CREATE TABLE IF NOT EXISTS imported_signups (
       discord_user_id TEXT,
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL,
-      UNIQUE (event_id, source_row)
+      UNIQUE (event_id, source_row),
+      UNIQUE (event_id, id)
+    );
+
+CREATE TABLE IF NOT EXISTS imported_signup_answer_history (
+      event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      import_id TEXT NOT NULL REFERENCES imported_signups(id) ON DELETE CASCADE,
+      form_version BIGINT NOT NULL,
+      answers_json TEXT NOT NULL,
+      values_json TEXT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      PRIMARY KEY (event_id, import_id, form_version),
+      FOREIGN KEY (event_id, import_id) REFERENCES imported_signups(event_id, id) ON DELETE CASCADE
     );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_imported_signups_event_email ON imported_signups(event_id, lower(values_json::jsonb->>'email')) WHERE NULLIF(trim(values_json::jsonb->>'email'), '') IS NOT NULL;
@@ -281,6 +310,16 @@ ALTER TABLE registration_answers FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON registration_answers;
 CREATE POLICY tenant_isolation ON registration_answers USING (EXISTS (SELECT 1 FROM events WHERE events.id = registration_answers.event_id)) WITH CHECK (EXISTS (SELECT 1 FROM events WHERE events.id = registration_answers.event_id));
 
+ALTER TABLE registration_form_versions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE registration_form_versions FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON registration_form_versions;
+CREATE POLICY tenant_isolation ON registration_form_versions USING (EXISTS (SELECT 1 FROM events WHERE events.id = registration_form_versions.event_id)) WITH CHECK (EXISTS (SELECT 1 FROM events WHERE events.id = registration_form_versions.event_id));
+
+ALTER TABLE registration_answer_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE registration_answer_history FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON registration_answer_history;
+CREATE POLICY tenant_isolation ON registration_answer_history USING (EXISTS (SELECT 1 FROM events WHERE events.id = registration_answer_history.event_id)) WITH CHECK (EXISTS (SELECT 1 FROM events WHERE events.id = registration_answer_history.event_id));
+
 ALTER TABLE submission_forms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE submission_forms FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON submission_forms;
@@ -295,6 +334,11 @@ ALTER TABLE imported_signups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE imported_signups FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON imported_signups;
 CREATE POLICY tenant_isolation ON imported_signups USING (guild_id = NULLIF(current_setting('app.guild_id', true), '') AND EXISTS (SELECT 1 FROM events WHERE events.id = imported_signups.event_id AND events.guild_id = imported_signups.guild_id)) WITH CHECK (guild_id = NULLIF(current_setting('app.guild_id', true), '') AND EXISTS (SELECT 1 FROM events WHERE events.id = imported_signups.event_id AND events.guild_id = imported_signups.guild_id));
+
+ALTER TABLE imported_signup_answer_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE imported_signup_answer_history FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON imported_signup_answer_history;
+CREATE POLICY tenant_isolation ON imported_signup_answer_history USING (EXISTS (SELECT 1 FROM events WHERE events.id = imported_signup_answer_history.event_id AND events.guild_id = NULLIF(current_setting('app.guild_id', true), ''))) WITH CHECK (EXISTS (SELECT 1 FROM events WHERE events.id = imported_signup_answer_history.event_id AND events.guild_id = NULLIF(current_setting('app.guild_id', true), '')));
 
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log FORCE ROW LEVEL SECURITY;

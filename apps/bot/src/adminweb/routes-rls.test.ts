@@ -131,9 +131,13 @@ test('real app-role handlers bind fresh participant authority, public projection
   });
   await t.test('individual answer inspection requires current organizer authority in the selected guild and audits no answer values', async () => {
     const orgHeaders = { cookie: `hacksess=${encodeURIComponent(makeDiscordToken(secret, organizer.id))}` };
+    await owner.run('INSERT INTO registration_form_versions (event_id,form_version,form_json,created_at) VALUES (?,0,?,1)', 'a', JSON.stringify({ ...form, version: 0 }));
+    await owner.run('INSERT INTO registration_answer_history (event_id,user_id,form_version,answers_json,updated_at) VALUES (?,?,0,?,1)', 'a', 'subject', JSON.stringify({ private: 'OLD_PRIVATE_SENTINEL' }));
     const response = await app.inject({ url: '/api/events/a/registrations/subject', headers: orgHeaders }); // g0:allow:secrets t_33947af2 - synthetic API paths, no credentials
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.headers['cache-control'], 'no-store');
+    assert.deepEqual(response.json().answerHistory.map((item: { formVersion: number; answers: unknown }) => [item.formVersion, item.answers]), [[0, { private: 'OLD_PRIVATE_SENTINEL' }]]);
+    assert.doesNotMatch((await get('a')).body, /OLD_PRIVATE_SENTINEL/);
     assert.deepEqual(response.json().answers, { private: 'PRIVATE_a' });
     assert.equal(response.json().questions[0].id, 'private');
     assert.equal((await app.inject({ url: '/api/events/b/registrations/subject', headers: orgHeaders })).statusCode, 404); // g0:allow:secrets t_33947af2 - synthetic API paths, no credentials
