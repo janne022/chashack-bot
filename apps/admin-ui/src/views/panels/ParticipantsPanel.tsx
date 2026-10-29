@@ -372,7 +372,7 @@ export function ParticipantsPanel({
           <CardDescription>{t('participants.desc')}</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          {filtered.length === 0 ? <EmptyState icon={<Search className="size-5" />} title={t('participants.no_matches')} action={<Button variant="outline" onClick={() => { setQuery(''); setFilter('all') }}>{t('common.clear')}</Button>} /> : <Table containerRef={scrollRef} containerClassName={virtualize ? "h-[70vh] overflow-auto" : undefined} className={virtualize ? "grid" : undefined} aria-rowcount={sortedRows.length + 1}>
+          {filtered.length === 0 ? <EmptyState icon={<Search className="size-5" />} title={t('participants.no_matches')} action={<Button variant="outline" onClick={() => { setQuery(''); setFilter('all') }}>{t('common.clear')}</Button>} /> : <Table containerRef={scrollRef} containerClassName={virtualize ? "h-[70vh] overflow-auto" : "overflow-y-hidden"} className={virtualize ? "grid" : undefined} aria-rowcount={sortedRows.length + 1}>
               <TableHeader className="sticky top-0 z-10 bg-surface">
                 <TableRow className={`${virtualize ? GRID_COLUMNS : ""} border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground`}>
                   {table.getHeaderGroups()[0]?.headers.map((header) => {
