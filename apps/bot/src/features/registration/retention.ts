@@ -177,8 +177,8 @@ async function deletionIdentities(db: Db, eventId: string, guildId: string, cuto
 
 /** Purge organizer-only answers at end+7d; cleanup may invoke this sooner. */
 export async function purgeExpiredPrivateAnswers(db: Db, now: number): Promise<string[]> {
-  const events = await db.all<{ id: string; guild_id: string; ends_at: number; form_json: string }>(
-    `SELECT id,guild_id,ends_at,form_json FROM events WHERE status='ended' AND ends_at IS NOT NULL AND ends_at <= ?`, now - RETENTION_MS,
+  const events = await db.all<{ id: string; guild_id: string; ends_at: number }>(
+    `SELECT id,guild_id,ends_at FROM events WHERE status='ended' AND ends_at IS NOT NULL AND ends_at <= ?`, now - RETENTION_MS,
   );
   const purged: string[] = [];
   for (const event of events) {
