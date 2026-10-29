@@ -72,9 +72,9 @@ test('custom question definitions reject private matching inputs and malformed c
   assert.equal(validateCustomQuestions([{ id: 'pick', kind: 'single_choice', label: { en: 'Pick' }, help: { en: '' }, required: true, presentation: 'both', visibility: 'self_and_organizer', choices: [{ id: 'x', label: { en: 'X' } }, { id: 'x', label: { en: 'Dup' } }] }], CONFIG).ok, false);
 });
 
-test('required organizer-only fields do not block participant completion', () => {
+test('required private fields block participant completion', () => {
   const form = { ...DEFAULT_FORM, customQuestions: [{ id: 'private', kind: 'text' as const, label: { en: 'Organizer note' }, help: { en: '' }, required: true, presentation: 'web' as const, visibility: 'organizer_only' as const }] };
-  assert.deepEqual(validateCustomAnswers(form, {}), { ok: true, answers: {}, missingRequiredQuestionIds: [] });
+  assert.deepEqual(validateCustomAnswers(form, {}), { ok: true, answers: {}, missingRequiredQuestionIds: ['private'] });
 });
 
 test('banner URLs allow only bounded HTTPS URLs without embedded credentials', () => {

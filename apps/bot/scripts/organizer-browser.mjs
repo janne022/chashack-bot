@@ -623,8 +623,8 @@ try {
   check('replacement collection persists on an existing event',event.assignments[0].id==='replacement');
   await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'active',1,1)",event.id,'synthetic-participant',guildIds[0],'Synthetic participant','','','[]','','[]');
   const structural={...form,customQuestions:form.customQuestions.map(q=>({...q,required:true}))};
-  await api('/api/templates',{name:'Structural conflict',kind:'form',json:JSON.stringify(structural)});
-  await api('/api/templates',{name:'Cosmetic label',kind:'form',json:JSON.stringify({...form,customQuestions:form.customQuestions.map(q=>({...q,label:{en:'Updated interests',sv:'Uppdaterade intressen'}}))})});
+  await api('/api/templates',{name:'Structural replacement',kind:'form',json:JSON.stringify(structural)});
+  await api('/api/templates',{name:'Cosmetic label',kind:'form',json:JSON.stringify({...structural,customQuestions:structural.customQuestions.map(q=>({...q,label:{en:'Updated interests',sv:'Uppdaterade intressen'}}))})});
   await nav(base+'/events?event='+event.id); await wait(`!!document.querySelector('a[target="_blank"]')&&!!(${button('Edit event')})`);
   const chooseForm=async name=>{await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Form'))`);await wait(`[...document.querySelectorAll('label')].some(e=>e.innerText.includes('Change form'))`);await click(`[...document.querySelectorAll('label')].find(e=>e.innerText.includes('Change form')).querySelector('[role=combobox]')`);await wait(`!!document.querySelector('[role=option]')`);await click(`[...document.querySelectorAll('[role=option]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))`);};
   // Reproduce a navigation-time hit-test race without retrying the interaction.
@@ -638,19 +638,24 @@ try {
   await click(button('Edit event'));
   await wait(`!!document.querySelector('[role=dialog]')`);
   check('edit event waits for an unobstructed target and opens with exactly one real click',await evaluate(`window.editRaceClicks===1&&!document.querySelector('#click-race-cover')`));
-  await chooseForm('Structural conflict');
+  const pinnedVersion=JSON.parse(event.formJson).version;
+  await chooseForm('Structural replacement');
   await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Basics'))`);
-  await fill('textarea[maxlength="1000"]','Retained conflict description');
-  await click(button('Save')); await wait(`!!document.querySelector('[role=alert]')`);
-  const failureAX=await send('Accessibility.getFullAXTree',{},sid);
-  check('populated published structural edit exposes conflict and Retry in AX',failureAX.nodes.some(n=>n.role?.value==='alert')&&await evaluate(`document.querySelector('[role=alert]').innerText.includes('version migration')&&!!(${button('Retry save')})`));
-  check('conflict retains typed input and chosen template without success',await evaluate(`document.querySelector('textarea[maxlength="1000"]').value==='Retained conflict description'&&!!(${button('Save')})`));
+  await fill('textarea[maxlength="1000"]','Published structural description');
+  await click(button('Save'));
+  await wait(`!document.querySelector('[role=dialog]')`);
   let after=(await api('/api/state',undefined,'GET')).events.find(e=>e.id===event.id);
-  check('rejected structural save leaves pinned definition unchanged',JSON.parse(after.formJson).customQuestions[0].required===false);
-  await chooseForm('Cosmetic label'); await click(button('Retry save'));
-  await wait(`!document.querySelector('textarea[maxlength="1000"]')`);
+  check('populated published structural edit advances the served version',JSON.parse(after.formJson).version===pinnedVersion+1&&JSON.parse(after.formJson).customQuestions[0].required===true&&after.description==='Published structural description');
+  const outgoing=await db.get('SELECT form_json FROM registration_form_versions WHERE event_id=? AND form_version=?',event.id,pinnedVersion);
+  check('outgoing definition is snapshotted before replacement',!!outgoing&&JSON.parse(outgoing.form_json).customQuestions[0].required===false);
+  await click(button('Edit event')); await wait(`!!document.querySelector('[role=dialog]')`);
+  await chooseForm('Cosmetic label');
+  await click(`[...document.querySelectorAll('[role=tab]')].find(e=>e.innerText.includes('Basics'))`);
+  await click(button('Save'));
+  await wait(`!document.querySelector('[role=dialog]')`);
   after=(await api('/api/state',undefined,'GET')).events.find(e=>e.id===event.id);
-  check('cosmetic form label saves on the same published version',JSON.parse(after.formJson).customQuestions[0].label.sv==='Uppdaterade intressen'&&JSON.parse(after.formJson).version===JSON.parse(event.formJson).version);
+  check('cosmetic form label saves on the same advanced version',JSON.parse(after.formJson).customQuestions[0].label.sv==='Uppdaterade intressen'&&JSON.parse(after.formJson).version===pinnedVersion+1);
+  event=after;
   // QA1: replacement identities must be structural, including after a reload.
   for (const kind of ['text','single_choice']) {
     const original={...DEFAULT_FORM,customQuestions:[{id:'question_1',kind,label:{en:'Original question'},help:{en:''},required:false,presentation:'web',visibility:'self_and_organizer',...(kind==='text'?{}:{choices:[{id:'option_1',label:{en:'Original choice'}}]})}]};
@@ -683,12 +688,11 @@ try {
     check(`${kind} replacement identity persists`,(kind==='text'?saved.customQuestions[0].id:saved.customQuestions[0].choices[0].id)===replacement);
     await nav(base+'/events?event='+published.id); await wait(`!!(${button('Edit event')})`);
     await click(button('Edit event')); await wait(`!!document.querySelector('[role=dialog]')`,15000); await chooseForm(name); await click(button('Save'));
-    await wait(`!!document.querySelector('[role=alert]')`);
-    check(`${kind} replacement reports structural conflict in served editor`,await evaluate(`document.querySelector('[role=alert]').innerText.includes('version migration')&&!!(${button('Retry save')})`));
-    const unchanged=(await api('/api/state',undefined,'GET')).events.find(e=>e.id===published.id);
+    await wait(`!document.querySelector('[role=dialog]')`);
+    const advanced=JSON.parse((await api('/api/state',undefined,'GET')).events.find(e=>e.id===published.id).formJson);
     const stored=await db.get('SELECT form_version,answers_json FROM registration_answers WHERE event_id=? AND user_id=?',published.id,'identity-user');
-    check(`${kind} conflict preserves pinned form and historical answers`,unchanged.formJson===published.formJson&&stored.form_version===pinned.version&&stored.answers_json===JSON.stringify(historical));
-    await key('Escape'); await wait(`!document.querySelector('[role=dialog]')`);
+    check(`${kind} replacement advances the served form version`,advanced.version===pinned.version+1&&(kind==='text'?advanced.customQuestions[0].id:advanced.customQuestions[0].choices[0].id)===replacement);
+    check(`${kind} earlier answers stay on their original version`,stored.form_version===pinned.version&&stored.answers_json===JSON.stringify(historical));
   }
   // QA2 sibling boundaries: embedded event templates and custom event creation.
   const mappedQuestion={id:'map-a',kind:'single_choice',label:{en:'Role'},help:{en:''},required:false,presentation:'web',visibility:'self_and_organizer',choices:[{id:'frontend',label:{en:'Frontend'}}],mapping:{field:'role',importance:'normal',choiceValues:{frontend:'frontend'}}};

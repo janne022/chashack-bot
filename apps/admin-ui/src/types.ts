@@ -89,6 +89,14 @@ export interface CustomQuestion {
   mapping?: { field: 'experience' | 'role' | 'skills'; importance: 'low' | 'normal' | 'high'; choiceValues: Record<string, string> }
 }
 
+export interface AnswerVersion {
+  values?: Record<string, string>
+  formVersion: number
+  answers: Record<string, string | string[]>
+  questions: CustomQuestion[]
+  historicalDefinitionUnavailable: boolean
+}
+
 export interface SubmissionForm {
   version: number
   enabled: boolean
@@ -183,6 +191,9 @@ export interface ImportedSignup {
   formVersion: number
   values: Record<string, string>
   answers: Record<string, string | string[]>
+  answerHistory: AnswerVersion[]
+  questions: CustomQuestion[]
+  historicalDefinitionUnavailable: boolean
   discordUsername: string | null
   discordUserId: string | null
   state: 'incomplete' | 'unlinked' | 'linked'

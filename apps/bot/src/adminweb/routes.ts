@@ -2,7 +2,7 @@
  * Admin web routes. Session auth via HMAC-signed cookie; all state-changing
  * routes are POST + JSON. UI files served from public/.
  */
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Guild } from 'discord.js';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -85,6 +85,7 @@ import { sendAnnouncement, createDiscordEvents, syncDiscordEvent } from '../disc
 import type { FormConfig } from '../features/form/domain.js';
 import { validateCustomAnswers, validateCustomQuestions, validBannerUrl, normalizeAppearance, resolveAppearance } from '../features/form/domain.js';
 import { getRegistrationAnswers, listRegistrationAnswers, saveParticipantAnswers } from '../features/registration/data.js';
+import { getFormVersion, getImportedAnswerHistory, getRegistrationAnswerHistory } from '../features/registration/history.js';
 import { registerParticipantTeamRoutes } from './participant-teams.js';
 import { registerLiveRoute } from './live.js';
 import type { ChangeHint } from '../shared/live-changes.js';
@@ -276,6 +277,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return live?.session?.selectedGuildId ?? '';
   };
 
+  const participantAuthority = new WeakMap<FastifyRequest, { eventId: string; guildId: string; userId: string }>();
   app.addHook('preValidation', (req, reply, done) => {
     if (req.url.startsWith('/api/participant/events/')) {
       void (async () => {
@@ -283,12 +285,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         const eventId = (req.params as { eventId?: string }).eventId;
         if (session && eventId) {
           for (const guildId of installedGuildIds()) {
-            if (!await currentMember(guildId, session.userId)) continue;
             const event = await withGuildContext(db, guildId, () => getEvent(db, eventId));
-            if (event?.guildId === guildId && event.status === 'active') {
-              runWithGuildContext(db, guildId, done);
-              return;
-            }
+            if (event?.guildId !== guildId || event.status !== 'active') continue;
+            if (!await currentMember(guildId, session.userId)) break;
+            participantAuthority.set(req, { eventId, guildId, userId: session.userId });
+            runWithGuildContext(db, guildId, done);
+            return;
           }
           void reply.code(404).send({ error: 'event_unavailable' });
           return;
@@ -715,7 +717,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     };
   });
 
-  app.get('/events/:eventId', async (req, reply) => {
+  const publicEventPage = async (req: FastifyRequest, reply: FastifyReply) => {
     const published = await publishedEvent((req.params as { eventId: string }).eventId);
     if (published === null) return reply.code(404).type('text/html; charset=utf-8').send('<!doctype html><title>Event not found</title>');
     const { event, form } = published;
@@ -723,8 +725,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const name = escape(event.name);
     const description = escape(event.description);
     const appearance = resolveAppearance(form);
-    const image = appearance.bannerUrl ? `<meta property="og:image" content="${escape(appearance.bannerUrl)}">` : '';
-    const metadata = `<title>${name}</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta name="description" content="${description}"><meta property="og:title" content="${name}"><meta property="og:description" content="${description}">${image}`;
+    const image = appearance.bannerUrl ? `<meta property="og:image" content="${escape(appearance.bannerUrl)}"><meta name="twitter:image" content="${escape(appearance.bannerUrl)}">` : '';
+    const eventPath = `/events/${encodeURIComponent(event.id)}${req.url.split('?')[0]?.endsWith('/signup') ? '/signup' : ''}`;
+    const canonical = config.publicUrl ? `<meta property="og:url" content="${escape(new URL(eventPath, config.publicUrl).href)}">` : '';
+    const metadata = `<title>${name}</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta name="description" content="${description}"><meta property="og:type" content="website"><meta property="og:site_name" content="ChasHack"><meta property="og:title" content="${name}"><meta property="og:description" content="${description}">${canonical}${image}<meta name="twitter:card" content="${appearance.bannerUrl ? 'summary_large_image' : 'summary'}"><meta name="twitter:title" content="${name}"><meta name="twitter:description" content="${description}">`;
     const date = (value: number | null): string => value === null ? '' : escape(new Intl.DateTimeFormat('en', { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' }).format(value));
     const dates = event.startsAt === null && event.endsAt === null ? '' : `<dl class="event-details">${event.startsAt === null ? '' : `<div><dt>Starts</dt><dd><time datetime="${new Date(event.startsAt).toISOString()}">${date(event.startsAt)} UTC</time></dd></div>`}${event.endsAt === null ? '' : `<div><dt>Ends</dt><dd><time datetime="${new Date(event.endsAt).toISOString()}">${date(event.endsAt)} UTC</time></dd></div>`}</dl>`;
     const fallback = `<main><h1>${name}</h1><p>${description}</p>${dates}<a href="/events/${encodeURIComponent(event.id)}/signup">Sign up</a></main>`;
@@ -733,15 +737,19 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     for (const path of candidates) {
       try {
         const shell = await readFile(join(path, 'index.html'), 'utf8');
-        return reply.type('text/html; charset=utf-8').send(shell.replace('<title>Hackathon Admin</title>', metadata).replace('<div id="root"></div>', `<div id="root">${fallback}</div>`));
+        return reply.type('text/html; charset=utf-8').send(shell.replace(/<meta\s+data-social-default(?:="")?\s+[^>]*>/g, '').replace('<title>Hackathon Admin</title>', metadata).replace('<div id="root"></div>', `<div id="root">${fallback}</div>`));
       } catch { /* API-only mode still serves accessible details. */ }
     }
     return reply.type('text/html; charset=utf-8').send(`<!doctype html><html lang="en"><head>${metadata}</head><body>${fallback}</body></html>`);
-  });
+  };
+  app.get('/events/:eventId', publicEventPage);
+  app.get('/events/:eventId/signup', publicEventPage);
 
-  const participantEvent = async (eventId: string, userId: string) => {
+  const participantEvent = async (eventId: string, userId: string, req?: FastifyRequest) => {
     const event = await getEvent(db, eventId);
     if (event === null || event.status !== 'active' || deps.client === null) return null;
+    const authority = req ? participantAuthority.get(req) : undefined;
+    if (authority?.eventId === eventId && authority.guildId === event.guildId && authority.userId === userId) return event;
     try {
       if (!(await lookupGuildMember(deps.client, event.guildId, userId))) return null;
     } catch { return null; }
@@ -803,7 +811,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/participant/events/:eventId/schedule', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null || (await getParticipant(db, event.id, session!.userId))?.status !== 'active') {
       return reply.code(404).send({ error: 'event_unavailable' });
     }
@@ -813,7 +821,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.get('/api/participant/events/:eventId/members', async (req, reply) => {
     const session = await participantSessionFrom(req);
     if (!session) return reply.code(401).send({ error: 'unauthorized' });
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session.userId, req);
     if (!event) return reply.code(404).send({ error: 'event_unavailable' });
     const query = memberDirectoryQuery(req.query);
     if (!query) return reply.code(400).send({ error: 'invalid_query' });
@@ -829,7 +837,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/participant/events/:eventId/submission', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (!event || !await eligibleParticipant(db, event.id, session!.userId)) return reply.code(404).send({ error: 'event_unavailable' });
     const form = await getSubmissionForm(db, event.id);
     if (!form.enabled) return { form, submission: null, complete: false, editable: false, missingRequiredQuestionIds: [] };
@@ -843,7 +851,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.put('/api/participant/events/:eventId/submission', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (!event || !await eligibleParticipant(db, event.id, session!.userId)) return reply.code(404).send({ error: 'event_unavailable' });
     const body = req.body as { formVersion?: unknown; answers?: unknown } | null;
     if (!Number.isSafeInteger(body?.formVersion)) return reply.code(400).send({ error: 'invalid_form_version' });
@@ -876,19 +884,19 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/participant/events/:eventId/registration', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     const stored = await getRegistrationAnswers(db, event.id, session!.userId);
     const participant = await getParticipant(db, event.id, session!.userId);
-    const participantQuestions = (form.customQuestions ?? []).filter(q => q.visibility === 'self_and_organizer' && (q.presentation === 'web' || q.presentation === 'both'));
+    const participantQuestions = (form.customQuestions ?? []).filter(q => q.presentation === 'web' || q.presentation === 'both');
     const visibleIds = new Set(participantQuestions.map(q => q.id));
-    const answers = Object.fromEntries(Object.entries(stored?.answers ?? {}).filter(([id]) => visibleIds.has(id)));
+    const answers = Object.fromEntries(Object.entries(stored?.formVersion === form.version ? stored.answers : {}).filter(([id]) => visibleIds.has(id)));
     const checked = validateCustomAnswers({ ...form, customQuestions: participantQuestions }, answers);
     const profileRequired = form.experiences.length + form.roleTracks.length + form.skills.length + form.teamPrefs.length > 0;
-    const hasQuestions = (form.customQuestions ?? []).some((question) => question.visibility !== 'organizer_only' && (question.presentation === 'web' || question.presentation === 'both'));
+    const hasQuestions = (form.customQuestions ?? []).some((question) => question.presentation === 'web' || question.presentation === 'both');
     return { eventId: event.id, formVersion: form.version, answers,
-      // Only the authenticated participant's own visible definitions are exposed; organizer-only questions stay hidden.
+      // Private definitions and answers are visible only to their authenticated subject and organizers.
       questions: participantQuestions,
       profile: participant === null ? null : { experience: participant.experience, roleTrack: participant.roleTrack, skills: participant.skills, teamPref: participant.teamPref },
       missingRequiredQuestionIds: checked.ok ? checked.missingRequiredQuestionIds : [],
@@ -899,19 +907,19 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.put('/api/participant/events/:eventId/registration', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const body = req.body as { formVersion?: unknown; answers?: unknown; profile?: { experience?: unknown; roleTrack?: unknown; skills?: unknown; teamPref?: unknown }; teamPref?: unknown } | null;
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     if (!Number.isInteger(body?.formVersion) || body?.formVersion !== form.version) return reply.code(409).send({ error: 'stale_form_version' });
-    const participantQuestions = (form.customQuestions ?? []).filter(q => q.visibility === 'self_and_organizer' && (q.presentation === 'web' || q.presentation === 'both'));
+    const participantQuestions = (form.customQuestions ?? []).filter(q => q.presentation === 'web' || q.presentation === 'both');
     const checked = validateCustomAnswers({ ...form, customQuestions: participantQuestions }, body?.answers);
     if (!checked.ok) return reply.code(400).send({ error: 'invalid_answers', details: checked.errors });
     const teamPref = body?.teamPref;
     if (teamPref !== undefined && teamPref !== null && (typeof teamPref !== 'string' || !['create_team', 'join_team', 'random_team'].includes(teamPref))) return reply.code(400).send({ error: 'invalid_team_pref' });
     const profile = body?.profile;
     const profileRequired = form.experiences.length + form.roleTracks.length + form.skills.length + form.teamPrefs.length > 0;
-    const hasQuestions = (form.customQuestions ?? []).some((question) => question.visibility !== 'organizer_only' && (question.presentation === 'web' || question.presentation === 'both'));
+    const hasQuestions = (form.customQuestions ?? []).some((question) => question.presentation === 'web' || question.presentation === 'both');
     if (!profileRequired && !hasQuestions) return reply.code(400).send({ error: 'empty_signup_form' });
     if (profile !== undefined && (!profile || (form.experiences.length > 0 ? typeof profile.experience !== 'string' || !form.experiences.some((item) => item.id === profile.experience) : !!profile.experience) || (form.roleTracks.length > 0 ? typeof profile.roleTrack !== 'string' || !form.roleTracks.some((item) => item.id === profile.roleTrack) : !!profile.roleTrack) || !Array.isArray(profile.skills) || (form.skills.length > 0 && profile.skills.length === 0) || profile.skills.some((id) => typeof id !== 'string' || !form.skills.some((item) => item.id === id)) || new Set(profile.skills).size !== profile.skills.length || [...new Set(profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean))].length !== profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean).length || (form.teamPrefs.length > 0 ? typeof profile.teamPref !== 'string' || !form.teamPrefs.some((item) => item.id === profile.teamPref) : !!profile.teamPref))) return reply.code(400).send({ error: 'invalid_profile' });
     return db.transaction(async () => {
@@ -936,7 +944,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       } else if (existing?.status === 'withdrawn') {
         await db.run("UPDATE participants SET status = 'active', updated_at = ? WHERE event_id = ? AND user_id = ?", Date.now(), event.id, session!.userId);
       }
-      return { eventId: event.id, formVersion: form.version, answers: checked.answers,
+      return { eventId: event.id, formVersion: form.version, answers: checked.answers, questions: participantQuestions,
         missingRequiredQuestionIds: checked.missingRequiredQuestionIds, complete: checked.missingRequiredQuestionIds.length === 0 && (!profileRequired || ((form.experiences.length === 0 || !!(profile?.experience ?? existing?.experience)) && (form.roleTracks.length === 0 || !!(profile?.roleTrack ?? existing?.roleTrack)) && (form.skills.length === 0 || (Array.isArray(profile?.skills) ? profile.skills.length > 0 : !!existing?.skills.length)) && (form.teamPrefs.length === 0 || !!(profile?.teamPref ?? teamPref ?? existing?.teamPref)))),
         profile: effectiveProfile,
         teamPref: typeof profile?.teamPref === 'string' ? profile.teamPref : typeof teamPref === 'string' ? teamPref : existing?.teamPref ?? null, status: existing?.status === 'withdrawn' ? 'active' : existing?.status ?? 'active' };
@@ -945,7 +953,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.delete('/api/participant/events/:eventId/registration', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const result = await withdrawParticipant(db, `discord:${session!.userId}`, event.id, session!.userId);
     if (!result.ok) return reply.code(404).send({ error: result.code });
@@ -960,7 +968,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
    */
   app.post('/api/participant/events/:eventId/claim/lookup', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const email = (req.body as { email?: unknown } | null)?.email;
     if (typeof email !== 'string' || email.trim().length < 3 || email.length > 254 || !email.includes('@')) return reply.code(400).send({ error: 'invalid_email' });
@@ -971,7 +979,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.post('/api/participant/events/:eventId/claim', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const email = (req.body as { email?: unknown } | null)?.email;
     if (typeof email !== 'string' || email.trim().length < 3 || email.length > 254 || !email.includes('@')) return reply.code(400).send({ error: 'invalid_email' });
@@ -1001,8 +1009,11 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const registration = await getRegistrationAnswers(db, eventId, userId);
     if (!registration) return reply.code(404).send({ error: 'not_found' });
     const form = getEventForm(db, event, await getForm(db, event.guildId));
+    const answerForm = registration.formVersion === form.version ? form : await getFormVersion(db, eventId, registration.formVersion);
     await audit(db, await actorOf(req), 'registration.read', eventId, { userId }, event.guildId);
-    return { userId, ...registration, questions: registration.formVersion === form.version ? form.customQuestions ?? [] : [], historicalDefinitionUnavailable: registration.formVersion !== form.version };
+    return { userId, ...registration, questions: answerForm?.customQuestions ?? [],
+      historicalDefinitionUnavailable: answerForm === null,
+      answerHistory: await getRegistrationAnswerHistory(db, eventId, userId) };
   });
 
   app.get('/api/participant/me', async (req) => {
@@ -2244,7 +2255,12 @@ app.post('/api/event/reset', async (req) => {
     if (!event || event.guildId !== await guildOf(req)) return { records: [] };
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     const required = (form.customQuestions ?? []).filter((question) => question.required && question.visibility !== 'organizer_only').map((question) => question.id);
-    return { records: await listImportedSignups(db, eventId, required) };
+    const records = await listImportedSignups(db, eventId, required);
+    return { records: await Promise.all(records.map(async (record) => {
+      const answerForm = record.formVersion === form.version ? form : await getFormVersion(db, eventId, record.formVersion);
+      return { ...record, questions: answerForm?.customQuestions ?? [], historicalDefinitionUnavailable: answerForm === null,
+        answerHistory: await getImportedAnswerHistory(db, eventId, record.id) };
+    })) };
   });
 
   app.post('/api/events/:eventId/imported-signups/auto-link', async (req, reply) => {

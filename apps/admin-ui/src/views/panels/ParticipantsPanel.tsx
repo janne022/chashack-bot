@@ -1,12 +1,14 @@
 import { MoreHorizontal, Search, Users } from 'lucide-react'
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { toast } from 'sonner'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { flexRender, useTable } from '@tanstack/react-table'
 import type { Cell, SortingState } from '@tanstack/react-table'
-import type { AppState, Participant } from '@/types'
+import type { AnswerVersion, AppState, Participant } from '@/types'
+import { AnswerVersions } from '@/components/answer-versions'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { api } from '@/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -80,6 +82,7 @@ export function ParticipantsPanel({
     if (!term) return []
     return [...new Set(state.participants.flatMap(p => [p.displayName, ...p.skills.map(skill => labelFor(state.config, 'skills', skill))]))].filter(value => value.toLowerCase().includes(term)).slice(0, 15)
   }, [query, state.participants, state.config])
+  const [answersParticipant, setAnswersParticipant] = useState<Participant | null>(null)
   const [confirmBlock, setConfirmBlock] = useState<Participant | null>(null)
   const [sorting, setSorting] = useState<SortingState>([])
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -231,6 +234,7 @@ export function ParticipantsPanel({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {eventId && <DropdownMenuItem onSelect={() => setAnswersParticipant(p)}>{t('answers.view')}</DropdownMenuItem>}
                 {p.status !== 'blocked' ? (
                   <DropdownMenuItem
                     className="text-danger data-[highlighted]:bg-danger/10"
@@ -271,7 +275,7 @@ export function ParticipantsPanel({
       },
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.config, t])
+  }, [state.config, t, eventId])
 
   const table = useTable({
     features: participantsFeatures,
@@ -459,6 +463,7 @@ export function ParticipantsPanel({
         </CardContent>
       </Card>
 
+      {answersParticipant && eventId && <ParticipantAnswers eventId={eventId} participant={answersParticipant} onClose={() => setAnswersParticipant(null)} />}
       <AlertDialog open={confirmBlock !== null} onOpenChange={(o) => !o && setConfirmBlock(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -527,4 +532,22 @@ function renderCell(cell: Cell<ParticipantsFeatures, Participant>): ReactNode {
       {flexRender(cell.column.columnDef.cell, cell.getContext())}
     </td>
   )
+}
+
+function ParticipantAnswers({ eventId, participant, onClose }: { eventId: string; participant: Participant; onClose: () => void }) {
+  const t = useT()
+  const [versions, setVersions] = useState<AnswerVersion[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let active = true
+    void api.registrationAnswers(eventId, participant.userId).then(result => {
+      if (active) setVersions([result, ...result.answerHistory])
+    }).catch(() => { if (active) setFailed(true) })
+    return () => { active = false }
+  }, [eventId, participant.userId])
+  return <Dialog open onOpenChange={open => { if (!open) onClose() }}><DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+    <DialogTitle>{t('answers.title', { name: participant.displayName })}</DialogTitle>
+    <DialogDescription>{t('answers.description')}</DialogDescription>
+    {failed ? <p role="alert">{t('answers.load_failed')}</p> : versions === null ? <p role="status">{t('answers.loading')}</p> : <AnswerVersions versions={versions} />}
+  </DialogContent></Dialog>
 }

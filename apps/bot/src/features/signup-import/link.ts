@@ -6,6 +6,7 @@ import { getParticipant } from '../signup/data.js';
 import { joinGroupTeam, type GroupTeamMembership } from '../teams/group-teams.js';
 import { getTeamForUser } from '../teams/data.js';
 import { markTeamProvisionPending } from '../teams/provision-data.js';
+import { archiveImportedAnswerVersion } from '../registration/history.js';
 import { importedRowProfile, normalizeImportedRow } from './normalize.js';
 import { mergeImportedPlaceholder, projectImportedParticipant } from './sync.js';
 
@@ -52,7 +53,7 @@ export async function linkImportedSignup(
     if (!event || event.guild_id !== guildId) return { linked: false, activated: false, missingFields: [], error: 'event_not_found' };
     if (event.status === 'ended') return { linked: false, activated: false, missingFields: [], error: 'event_ended' };
     if (!options.organizer && event.status !== 'active') return { linked: false, activated: false, missingFields: [], error: 'event_not_active' };
-    const row = await db.get<{ values_json: string; answers_json: string; discord_user_id: string | null; discord_username: string | null; form_version: number }>('SELECT values_json,answers_json,discord_user_id,discord_username,form_version FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', importId, eventId);
+    const row = await db.get<{ values_json: string; answers_json: string; discord_user_id: string | null; discord_username: string | null; form_version: number; updated_at: number }>('SELECT values_json,answers_json,discord_user_id,discord_username,form_version,updated_at FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', importId, eventId);
     if (!row) return { linked: false, activated: false, missingFields: [], error: 'import_not_found' };
     if (options.onlyIfUnlinked && row.discord_user_id !== null) return { linked: false, activated: false, missingFields: [], error: 'already_linked' };
     if (options.expectedDiscordUsername !== undefined && row.discord_username !== options.expectedDiscordUsername) return { linked: false, activated: false, missingFields: [], error: 'username_changed' };
@@ -65,16 +66,25 @@ export async function linkImportedSignup(
     let values = JSON.parse(row.values_json) as Record<string, string>;
     let answers = JSON.parse(row.answers_json) as Record<string, string | string[]>;
     let formVersion = row.form_version;
+    if (row.form_version !== form.version) {
+      await archiveImportedAnswerVersion(db, eventId, importId, row.form_version, answers, values, row.updated_at);
+    }
     if (options.organizer) {
       // The organizer is authoritative: an option id from an older form, or a
       // stale version stamp, must not block the correction they came here to make.
-      const normalized = normalizeImportedRow(form, values, answers);
+      const normalized = normalizeImportedRow(form, values, row.form_version === form.version ? answers : {});
       values = normalized.values;
       answers = normalized.answers;
       warnings.push(...normalized.issues);
       formVersion = form.version;
     } else if (row.form_version !== form.version) {
-      return { linked: false, activated: false, missingFields: [], error: 'stale_form_version' };
+      // The historical answers stay attached to their old version. Start this
+      // version empty so a reused question id cannot silently carry old data.
+      const normalized = normalizeImportedRow(form, values, {});
+      values = normalized.values;
+      answers = {};
+      warnings.push(...normalized.issues);
+      formVersion = form.version;
     }
 
     const target = await getParticipant(db, eventId, userId);

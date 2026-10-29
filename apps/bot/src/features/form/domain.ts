@@ -179,7 +179,7 @@ export function validateCustomAnswers(
     const value = input[question.id];
     if (Array.isArray(value) && question.kind !== 'multi_choice') { errors.push(`invalid answer type: ${question.id}`); continue; }
     if (value === undefined || value === null || value === '' || (typeof value === 'string' && value.trim() === '') || (Array.isArray(value) && value.length === 0)) {
-      if (question.required && question.visibility !== 'organizer_only') missingRequiredQuestionIds.push(question.id);
+      if (question.required) missingRequiredQuestionIds.push(question.id);
       continue;
     }
     if (question.kind === 'slider' || question.kind === 'toggle') {
@@ -207,7 +207,7 @@ export function validateCustomAnswers(
 
 /** Validate a stored participant profile against current visible questions only. */
 export function validateStoredParticipantAnswers(config: FormConfig, stored: Record<string, string | string[]>): CustomAnswersResult {
-  const questions = (config.customQuestions ?? []).filter(q => q.visibility === 'self_and_organizer');
+  const questions = config.customQuestions ?? [];
   const ids = new Set(questions.map(q => q.id));
   return validateCustomAnswers({ ...config, customQuestions: questions }, Object.fromEntries(Object.entries(stored).filter(([id]) => ids.has(id))));
 }

@@ -231,7 +231,7 @@ export async function listMatchable(db: Db, eventId: string): Promise<Participan
 
 export async function projectParticipantForMatching(db: Db, participant: Participant, form: import('../form/domain.js').FormConfig): Promise<Participant | null> {
   const stored = await getRegistrationAnswers(db, participant.eventId, participant.userId);
-  if ((form.customQuestions ?? []).some((q) => q.required && q.visibility !== 'organizer_only') && stored?.formVersion !== form.version) return null;
+  if ((form.customQuestions ?? []).some((q) => q.required) && stored?.formVersion !== form.version) return null;
   const answers = stored?.formVersion === form.version ? stored.answers : {};
   const checked = validateStoredParticipantAnswers(form, answers);
   if (!checked.ok || checked.missingRequiredQuestionIds.length > 0) return null;
@@ -333,6 +333,7 @@ export async function purgeEventParticipants(db: Db, actor: string, eventId: str
     const row = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM participants WHERE event_id = ?', eventId);
     const count = row?.n ?? 0;
     await db.run('DELETE FROM registration_answers WHERE event_id = ?', eventId);
+    await db.run('DELETE FROM registration_answer_history WHERE event_id = ?', eventId);
     await db.run('DELETE FROM participants WHERE event_id = ?', eventId);
     if (count > 0) await audit(db, actor, 'participant.purge', eventId, { count }, event.guild_id);
     return count;

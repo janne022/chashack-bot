@@ -1,4 +1,4 @@
-import type { AppState, AuthMe, DiscordEventSyncResult, FormConfig, HackathonEvent, ImportedSignup, MatchResult, SubmissionForm, SubmissionRecord, Team, TeamSuggestion } from './types'
+import type { AnswerVersion, AppState, AuthMe, DiscordEventSyncResult, FormConfig, HackathonEvent, ImportedSignup, MatchResult, SubmissionForm, SubmissionRecord, Team, TeamSuggestion } from './types'
 import { translate } from './lib/i18n'
 
 export function rateLimitMessage(response: Response): string {
@@ -50,6 +50,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  async registrationAnswers(eventId: string, userId: string): Promise<AnswerVersion & { answerHistory: AnswerVersion[] }> {
+    return request(`/api/events/${encodeURIComponent(eventId)}/registrations/${encodeURIComponent(userId)}`)
+  },
+
 
   async submissionForm(eventId: string): Promise<{ form: SubmissionForm }> {
     return request(`/api/events/${encodeURIComponent(eventId)}/submission-form`)

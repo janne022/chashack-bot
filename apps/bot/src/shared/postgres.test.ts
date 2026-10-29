@@ -117,6 +117,22 @@ test('Postgres migration repairs indexed and nullable columns before indexes wit
   } finally { await db.close(); }
 });
 
+test('existing install gains the composite import key before answer history is created', async () => {
+  const db = await openTestDb();
+  try {
+    // Shape of a database created before form-version history shipped.
+    await db.run('DROP TABLE imported_signup_answer_history'); // db-guard:allow:db-name-guard t_25580df8 - fixture table created by this test inside openTestDb's disposable schema.
+    await db.run('ALTER TABLE imported_signups DROP CONSTRAINT imported_signups_event_id_id_key');
+    await migratePostgres(db);
+    await db.run("INSERT INTO events(id,guild_id,name,created_at,updated_at) VALUES ('legacy-event','guild','Legacy',1,1)");
+    await db.run(`INSERT INTO imported_signups (id,event_id,guild_id,source_row,form_version,values_json,answers_json,created_at,updated_at)
+      VALUES ('legacy-import','legacy-event','guild',2,1,'{}','{}',1,1)`);
+    await db.run("INSERT INTO imported_signup_answer_history VALUES ('legacy-event','legacy-import',0,'{}','{}',1)");
+    assert.deepEqual(await db.all("SELECT import_id FROM imported_signup_answer_history WHERE import_id='legacy-import'"), [{ import_id: 'legacy-import' }]);
+    await migratePostgres(db);
+  } finally { await db.close(); }
+});
+
 test('populated legacy event survives additive submission upgrade and repeat migration', async () => {
   const db = await openTestDb();
   try {

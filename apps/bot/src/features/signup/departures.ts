@@ -18,6 +18,7 @@ export async function deleteGuildMemberData(db: Db, guildId: string, userId: str
       }
     }
     await db.run('DELETE FROM registration_answers WHERE user_id = ? AND event_id IN (SELECT id FROM events WHERE guild_id = ?)', userId, guildId);
+    await db.run('DELETE FROM registration_answer_history WHERE user_id = ? AND event_id IN (SELECT id FROM events WHERE guild_id = ?)', userId, guildId);
     await db.run('DELETE FROM submission_answers WHERE user_id = ? AND event_id IN (SELECT id FROM events WHERE guild_id = ?)', userId, guildId);
     await db.run('DELETE FROM team_requests WHERE guild_id = ? AND (target_id = ? OR requester_id IN (?, ?, ?))', guildId, userId, userId, `discord:${userId}`, `web:${userId}`);
     await db.run('DELETE FROM participants WHERE guild_id = ? AND user_id = ?', guildId, userId);
@@ -71,6 +72,7 @@ export async function replayMemberDeletions(db: Db, records: { guildId: string; 
       // A later rejoin must survive replay, but it must not resurrect older
       // answers from a restored snapshot in this guild's other events.
       await db.run('DELETE FROM registration_answers WHERE user_id = ? AND updated_at <= ? AND event_id IN (SELECT id FROM events WHERE guild_id = ?)', record.userId, record.deletedAt, record.guildId);
+      await db.run('DELETE FROM registration_answer_history WHERE user_id = ? AND updated_at <= ? AND event_id IN (SELECT id FROM events WHERE guild_id = ?)', record.userId, record.deletedAt, record.guildId);
       await db.run('DELETE FROM submission_answers WHERE user_id = ? AND updated_at <= ? AND event_id IN (SELECT id FROM events WHERE guild_id = ?)', record.userId, record.deletedAt, record.guildId);
       return;
     }

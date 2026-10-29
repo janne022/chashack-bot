@@ -12,6 +12,9 @@ import type { FormConfig } from '../form/domain.js';
 import { importedRowProfile, normalizeImportedRow } from './normalize.js';
 import { listImportedSignups, type ImportedSignup } from './data.js';
 import { joinGroupTeam } from '../teams/group-teams.js';
+import { archiveRegistrationAnswerVersion } from '../registration/history.js';
+import { getEvent, getEventForm } from '../events/data.js';
+import { getForm } from '../form/data.js';
 
 /** Placeholder identities never collide with a snowflake and name their row. */
 export function importedParticipantId(importId: string): string {
@@ -74,6 +77,19 @@ export async function mergeImportedPlaceholder(
   await db.run('UPDATE teams SET owner_id=? WHERE event_id=? AND owner_id=?',
     target?.team_id && target.team_id !== placeholder.team_id ? null : userId, eventId, placeholderId);
   if (target === undefined) {
+    const targetAnswers = await db.get<{ form_version: number; answers_json: string; updated_at: number }>(
+      'SELECT form_version,answers_json,updated_at FROM registration_answers WHERE event_id=? AND user_id=?', eventId, userId,
+    );
+    if (targetAnswers !== undefined) {
+      await archiveRegistrationAnswerVersion(db, eventId, userId, targetAnswers.form_version,
+        JSON.parse(targetAnswers.answers_json) as Record<string, string | string[]>, targetAnswers.updated_at);
+    }
+    await db.run(
+      `INSERT INTO registration_answer_history (event_id,user_id,form_version,answers_json,updated_at)
+       SELECT event_id,?,form_version,answers_json,updated_at FROM registration_answer_history
+       WHERE event_id=? AND user_id=? ON CONFLICT (event_id,user_id,form_version) DO NOTHING`,
+      userId, eventId, placeholderId,
+    );
     await db.run('UPDATE participants SET user_id=?, imported_signup_id=?, updated_at=? WHERE event_id=? AND user_id=?',
       userId, importId, now, eventId, placeholderId);
     await db.run('DELETE FROM registration_answers WHERE event_id=? AND user_id=?', eventId, userId);
@@ -83,6 +99,19 @@ export async function mergeImportedPlaceholder(
   if (target.team_id === null && placeholder.team_id !== null) {
     await db.run('UPDATE participants SET team_id=?, updated_at=? WHERE event_id=? AND user_id=?', placeholder.team_id, now, eventId, userId);
   }
+  const placeholderAnswers = await db.get<{ form_version: number; answers_json: string; updated_at: number }>(
+    'SELECT form_version,answers_json,updated_at FROM registration_answers WHERE event_id=? AND user_id=?', eventId, placeholderId,
+  );
+  if (placeholderAnswers !== undefined) {
+    await archiveRegistrationAnswerVersion(db, eventId, placeholderId, placeholderAnswers.form_version,
+      JSON.parse(placeholderAnswers.answers_json) as Record<string, string | string[]>, placeholderAnswers.updated_at);
+  }
+  await db.run(
+    `INSERT INTO registration_answer_history (event_id,user_id,form_version,answers_json,updated_at)
+     SELECT event_id,?,form_version,answers_json,updated_at FROM registration_answer_history
+     WHERE event_id=? AND user_id=? ON CONFLICT (event_id,user_id,form_version) DO NOTHING`,
+    userId, eventId, placeholderId,
+  );
   await db.run('DELETE FROM participants WHERE event_id=? AND user_id=?', eventId, placeholderId);
   await db.run('DELETE FROM registration_answers WHERE event_id=? AND user_id=?', eventId, placeholderId);
 }
@@ -95,6 +124,7 @@ export async function dropImportedPlaceholder(db: Db, eventId: string, importId:
   const placeholderId = importedParticipantId(importId);
   await db.run('DELETE FROM participants WHERE event_id=? AND user_id=?', eventId, placeholderId);
   await db.run('DELETE FROM registration_answers WHERE event_id=? AND user_id=?', eventId, placeholderId);
+  await db.run('DELETE FROM registration_answer_history WHERE event_id=? AND user_id=?', eventId, placeholderId);
   await db.run('UPDATE participants SET imported_signup_id=NULL WHERE event_id=? AND imported_signup_id=? AND user_id<>?',
     eventId, importId, placeholderId);
 }
@@ -116,19 +146,58 @@ export interface ImportedProjectionInput {
  * current form, so a form change cannot leave unreadable answers behind.
  */
 export async function projectImportedParticipant(db: Db, input: ImportedProjectionInput): Promise<string> {
-  const { eventId, guildId, importId, userId, form } = input;
-  const normalized = normalizeImportedRow(form, input.values, input.answers);
-  const profile = importedRowProfile(form, normalized.values);
-  const name = (normalized.values.name ?? '').trim().slice(0, 80) || DEFAULT_NAME;
-  await mergeImportedPlaceholder(db, eventId, importId, userId);
-  await upsertParticipantFromRow(db, eventId, guildId, userId, importId, name, profile);
-  await db.run(
-    `INSERT INTO registration_answers (event_id, user_id, form_version, answers_json, updated_at)
-     VALUES (?, ?, ?, ?, ?) ON CONFLICT (event_id, user_id) DO UPDATE
-     SET form_version = EXCLUDED.form_version, answers_json = EXCLUDED.answers_json, updated_at = EXCLUDED.updated_at`,
-    eventId, userId, form.version, JSON.stringify(normalized.answers), Date.now(),
-  );
-  return userId;
+  const { eventId, guildId, importId } = input;
+  return db.transaction(async () => {
+    // Lock the event and reread both authoritative records. A caller may have
+    // listed an import before its form or payload changed.
+    const eventLock = await db.get<{ guild_id: string }>(
+      'SELECT guild_id FROM events WHERE id=? FOR UPDATE', eventId,
+    );
+    if (!eventLock || eventLock.guild_id !== guildId) return input.userId;
+    const activeEvent = await getEvent(db, eventId);
+    const form = getEventForm(db, activeEvent, await getForm(db, guildId));
+    const row = await db.get<{ form_version: number; values_json: string; answers_json: string; discord_user_id: string | null; updated_at: number }>(
+      'SELECT form_version,values_json,answers_json,discord_user_id,updated_at FROM imported_signups WHERE id=? AND event_id=? AND guild_id=? FOR UPDATE',
+      importId, eventId, guildId,
+    );
+    if (!row) return input.userId;
+    const userId = row.discord_user_id ?? importedParticipantId(importId);
+    const values = JSON.parse(row.values_json) as Record<string, string>;
+    const rowAnswers = JSON.parse(row.answers_json) as Record<string, string | string[]>;
+    const normalized = normalizeImportedRow(form, values, row.form_version === form.version ? rowAnswers : {});
+    const profile = importedRowProfile(form, normalized.values);
+    const name = (normalized.values.name ?? '').trim().slice(0, 80) || DEFAULT_NAME;
+    const profileTarget = await db.get<{ updated_at: number }>(
+      'SELECT updated_at FROM participants WHERE event_id=? AND user_id=?', eventId, userId,
+    ) ?? await db.get<{ updated_at: number }>(
+      'SELECT updated_at FROM participants WHERE event_id=? AND user_id=?', eventId, importedParticipantId(importId),
+    );
+    const projectProfile = profileTarget === undefined || profileTarget.updated_at < row.updated_at;
+    await mergeImportedPlaceholder(db, eventId, importId, userId);
+    if (projectProfile) await upsertParticipantFromRow(db, eventId, guildId, userId, importId, name, profile);
+
+    // An old import can refresh profile data, but cannot migrate old answers
+    // into this form or replace answers already saved for the current version.
+    if (row.form_version === form.version) {
+      const previous = await db.get<{ form_version: number; answers_json: string; updated_at: number }>(
+        'SELECT form_version,answers_json,updated_at FROM registration_answers WHERE event_id=? AND user_id=?', eventId, userId,
+      );
+      if (previous !== undefined && (previous.form_version > form.version || previous.updated_at >= row.updated_at)) return userId;
+      if (previous !== undefined && previous.form_version < form.version) {
+        await archiveRegistrationAnswerVersion(db, eventId, userId, previous.form_version,
+          JSON.parse(previous.answers_json) as Record<string, string | string[]>, previous.updated_at);
+      }
+      await db.run(
+        `INSERT INTO registration_answers (event_id, user_id, form_version, answers_json, updated_at)
+         VALUES (?, ?, ?, ?, ?) ON CONFLICT (event_id, user_id) DO UPDATE
+         SET form_version = EXCLUDED.form_version, answers_json = EXCLUDED.answers_json, updated_at = EXCLUDED.updated_at
+         WHERE registration_answers.form_version < EXCLUDED.form_version OR
+           (registration_answers.form_version = EXCLUDED.form_version AND registration_answers.updated_at < ?)`,
+        eventId, userId, form.version, JSON.stringify(normalized.answers), Date.now(), row.updated_at,
+      );
+    }
+    return userId;
+  });
 }
 
 /** Bring one imported row's participant in line with the row. */
@@ -194,6 +263,7 @@ export async function reconcileImportedParticipants(
       if (row !== undefined && row.discordUserId === null) continue;
       await db.run('DELETE FROM participants WHERE event_id=? AND user_id=?', eventId, userId);
       await db.run('DELETE FROM registration_answers WHERE event_id=? AND user_id=?', eventId, userId);
+      await db.run('DELETE FROM registration_answer_history WHERE event_id=? AND user_id=?', eventId, userId);
       removedPlaceholders++;
     }
     return { participants: rows.length, removedPlaceholders, groupedTeams };

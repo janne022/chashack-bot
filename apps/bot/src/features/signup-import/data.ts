@@ -1,5 +1,6 @@
 import { newId, type Db } from '../../shared/db.js';
 import { audit } from '../../shared/audit.js';
+import { archiveImportedAnswerVersion } from '../registration/history.js';
 
 export interface ImportedSignup {
   id: string;
@@ -97,15 +98,29 @@ export async function createImportedSignups(db: Db, eventId: string, guildId: st
 
 export async function editImportedSignup(db: Db, eventId: string, id: string, edit: { values?: Record<string, string>; answers?: Record<string, string | string[]>; discordUsername?: string | null; formVersion?: number }): Promise<ImportedSignup | null> {
   return db.transaction(async () => {
-    const row = await db.get<Row>('SELECT id,event_id,source_row,source_timestamp,form_version,values_json,answers_json,discord_username,discord_user_id FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', id, eventId);
+    // Every path that touches an imported row takes the event lock first
+    // (projection, linking, creation). Keeping that order here stops an
+    // organizer edit and background reconciliation from deadlocking.
+    if (!await db.get('SELECT id FROM events WHERE id=? FOR UPDATE', eventId)) return null;
+    const row = await db.get<Row & { updated_at: number }>('SELECT id,event_id,source_row,source_timestamp,form_version,values_json,answers_json,discord_username,discord_user_id,updated_at FROM imported_signups WHERE id=? AND event_id=? FOR UPDATE', id, eventId);
     if (!row) return null;
     const values = { ...JSON.parse(row.values_json) as Record<string, string>, ...edit.values };
     if (edit.discordUsername !== undefined) values.discordUsername = edit.discordUsername?.trim() ?? '';
-    const answers = { ...JSON.parse(row.answers_json) as Record<string, string | string[]>, ...edit.answers };
+    const formVersion = edit.formVersion ?? row.form_version;
+    const previousAnswers = JSON.parse(row.answers_json) as Record<string, string | string[]>;
+    const answers = {
+      ...(formVersion === row.form_version ? previousAnswers : {}),
+      ...edit.answers,
+    };
     const sourceTimestamp = values.sourceTimestamp ?? row.source_timestamp;
+    if (formVersion !== row.form_version) {
+      await archiveImportedAnswerVersion(db, eventId, id, row.form_version,
+        JSON.parse(row.answers_json) as Record<string, string | string[]>,
+        JSON.parse(row.values_json) as Record<string, string>, row.updated_at);
+    }
     await db.run('UPDATE imported_signups SET values_json=?,answers_json=?,source_timestamp=?,discord_username=?,form_version=?,updated_at=? WHERE id=? AND event_id=?',
-      JSON.stringify(values), JSON.stringify(answers), sourceTimestamp, edit.discordUsername === undefined ? row.discord_username : edit.discordUsername?.trim() || null, edit.formVersion ?? row.form_version, Date.now(), id, eventId);
-    return decode({ ...row, source_timestamp: sourceTimestamp, form_version: edit.formVersion ?? row.form_version, values_json: JSON.stringify(values), answers_json: JSON.stringify(answers), discord_username: edit.discordUsername === undefined ? row.discord_username : edit.discordUsername?.trim() || null });
+      JSON.stringify(values), JSON.stringify(answers), sourceTimestamp, edit.discordUsername === undefined ? row.discord_username : edit.discordUsername?.trim() || null, formVersion, Math.max(Date.now() + 1, row.updated_at + 1), id, eventId);
+    return decode({ ...row, source_timestamp: sourceTimestamp, form_version: formVersion, values_json: JSON.stringify(values), answers_json: JSON.stringify(answers), discord_username: edit.discordUsername === undefined ? row.discord_username : edit.discordUsername?.trim() || null });
   });
 }
 
