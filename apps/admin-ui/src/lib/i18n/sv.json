@@ -469,6 +469,7 @@
   "teams.created": "Teamet “{name}” har skapats",
   "teams.create_failed": "Kunde inte skapa teamet",
   "teams.owner": "Lagägare",
+  "teams.owner_missing": "Laget har ingen tilldelad ägare.",
   "teams.choose_owner": "Välj en deltagare",
   "teams.no_owner_candidates": "Det finns inga aktiva deltagare utan lag.",
   "teams.owner_hint": "Ägaren måste fortfarande vara medlem på servern och ha slutfört sin anmälan.",

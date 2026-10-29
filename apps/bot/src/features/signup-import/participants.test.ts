@@ -114,15 +114,37 @@ test('imported participants enter matching and keep their team when they are lin
     assert.equal(linked.error, undefined);
     const ada = await getParticipant(db, eventId, ADA);
     assert.equal(ada?.teamId, team!.id, 'the matched team follows the person');
+    assert.equal((await db.get<{ owner_id: string }>('SELECT owner_id FROM teams WHERE id=?', team!.id))?.owner_id, ADA);
     assert.equal(ada?.importedSignupId, adaRowId);
     assert.equal(await getParticipant(db, eventId, placeholder), null, 'the placeholder is gone, not duplicated');
+  } finally { await close(); }
+});
+
+test('startup repairs stale imported owners only when the linked person is on that team', async () => {
+  const { db, eventId, form, close } = await setup('Import owner repair');
+  try {
+    const imported = await createImportedSignups(db, eventId, GUILD, form.version, [
+      { sourceRow: 2, values: { ...ADA_ROW, groupName: 'Alpha' }, answers: {} },
+      { sourceRow: 3, values: { ...BOB_ROW, groupName: 'Beta' }, answers: {} },
+    ]);
+    await reconcileImportedParticipants(db, eventId, GUILD, form);
+    for (const [row, userId] of [[imported.rows[0]!, ADA], [imported.rows[1]!, BOB]] as const) {
+      await linkImportedSignup(db, eventId, GUILD, row.id!, userId, form, { organizer: true });
+      await db.run('UPDATE teams SET owner_id=? WHERE event_id=? AND owner_id=?', importedParticipantId(row.id!), eventId, userId);
+    }
+    await db.run("UPDATE participants SET team_id=(SELECT id FROM teams WHERE event_id=? AND name='Alpha') WHERE event_id=? AND user_id=?", eventId, eventId, BOB);
+    await reconcileImportedParticipants(db, eventId, GUILD, form);
+    const teams = await db.all<{ name: string; owner_id: string | null }>('SELECT name,owner_id FROM teams WHERE event_id=? ORDER BY name', eventId);
+    assert.deepEqual(teams, [{ name: 'Alpha', owner_id: ADA }, { name: 'Beta', owner_id: null }]);
+    await reconcileImportedParticipants(db, eventId, GUILD, form);
+    assert.deepEqual(await db.all('SELECT name,owner_id FROM teams WHERE event_id=? ORDER BY name', eventId), teams);
   } finally { await close(); }
 });
 
 test('merging a placeholder onto an existing member keeps that member\'s team', async () => {
   const { db, eventId, form, close } = await setup('Import merge');
   try {
-    const imported = await createImportedSignups(db, eventId, GUILD, form.version, [{ sourceRow: 2, values: ADA_ROW, answers: {} }]);
+    const imported = await createImportedSignups(db, eventId, GUILD, form.version, [{ sourceRow: 2, values: { ...ADA_ROW, groupName: 'Imported group' }, answers: {} }]);
     const rowId = imported.rows[0]!.id!;
     await reconcileImportedParticipants(db, eventId, GUILD, form);
     const event = (await getEvent(db, eventId))!;
@@ -138,6 +160,7 @@ test('merging a placeholder onto an existing member keeps that member\'s team', 
     assert.equal(ada?.teamId, 'team-own');
     assert.equal(ada?.importedSignupId, rowId);
     assert.equal(ada?.displayName, 'Ada Andersson');
+    assert.equal((await db.get<{ owner_id: string | null }>("SELECT owner_id FROM teams WHERE event_id=? AND name='Imported group'", eventId))?.owner_id, null);
     assert.equal((await listParticipants(db, eventId)).length, 1);
   } finally { await close(); }
 });
