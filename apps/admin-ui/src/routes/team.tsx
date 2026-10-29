@@ -39,6 +39,42 @@ function TeamPage() {
   const [waiting, setWaiting] = useState(false)
   const [confirmLeave, setConfirmLeave] = useState(false)
   const base = `/api/participant/events/${encodeURIComponent(eventId)}`
+  const teamErrorMessage = (code: string, status: number, invite = false) => {
+    switch (code) {
+      case 'ineligible':
+      case 'no_signup':
+      case 'not_active':
+        return invite ? t('participant.team_target_not_registered') : t('participant.team_not_registered')
+      case 'team_full':
+        return t('participant.team_full')
+      case 'already_in_team':
+        return invite ? t('participant.team_target_already_in_team') : t('participant.team_already_in_team_self')
+      case 'already_requested':
+        return t('participant.team_already_requested')
+      case 'not_owner':
+        return t('participant.team_not_owner')
+      case 'private_team':
+        return t('participant.team_private')
+      case 'not_joinable':
+        return t('participant.team_not_joinable')
+      case 'not_found':
+        return t('participant.team_not_found')
+      case 'bad_name':
+        return t('participant.team_bad_name')
+      case 'no_team':
+        return t('participant.team_no_team')
+      case 'invalid_target':
+        return t('participant.team_invalid_target')
+      case 'already_decided':
+        return t('participant.team_already_decided')
+      case 'not_your_decision':
+        return t('participant.team_not_your_decision')
+      case 'event_unavailable':
+        return t('participant.team_not_registered')
+      default:
+        return status === 404 ? t('participant.team_not_registered') : t('participant.team_conflict')
+    }
+  }
   const load = async (signal?: AbortSignal) => {
     if (!eventId) { setError(t('participant.team_no_event')); return }
     setError('')
@@ -47,7 +83,11 @@ function TeamPage() {
       if (signal?.aborted) return
       if (response.status === 401) { location.assign('/auth/participant'); return }
       if (response.status === 429) throw new Error(rateLimitMessage(response))
-      if (!response.ok) throw new Error(response.status === 404 ? t('participant.team_complete') : t('participant.team_conflict'))
+      if (!response.ok) {
+        let code = ''
+        try { code = (await response.json() as { error?: string }).error ?? '' } catch { /* ignore */ }
+        throw new Error(teamErrorMessage(code, response.status))
+      }
       const value = await response.json() as TeamList
       if (!signal?.aborted) setData(value)
     } catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : t('participant.my_error')) }
@@ -92,7 +132,7 @@ function TeamPage() {
       const response = await fetch(`${base}${path}`, { method, ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) })
       const result = await response.json() as { error?: string }
       if (response.status === 429) throw new Error(rateLimitMessage(response))
-      if (!response.ok) throw new Error(result.error === 'team_full' ? t('participant.team_full') : result.error === 'already_in_team' ? t('participant.team_complete') : t('participant.team_conflict'))
+      if (!response.ok) throw new Error(teamErrorMessage(result.error ?? '', response.status, path.includes('/invites')))
       await load()
     } catch (e) { setError(e instanceof Error ? e.message : t('participant.team_mutation_failed')) }
     finally { setWaiting(false) }

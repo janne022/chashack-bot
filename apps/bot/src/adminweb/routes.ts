@@ -1433,10 +1433,19 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return;
     }
     const event = res.value
-    // Schedule now owns all Discord posts (including the signup panel). Activate just flips status to active.
-    // Add the signup panel as a schedule action (type post_signup) at the event's start time if you want it on a timer,
-    // or trigger announcements manually. The itinerary is posted/updated when the schedule is edited on a live event.
-    const panelResult: { ok: boolean; channelId?: string; edited?: boolean; reason?: string } = { ok: true, reason: 'schedule-driven — add a “Post signup” action to your Start block or any schedule item' }
+    // Schedule owns Discord posts (including the signup panel), but a newly activated
+    // event may already have due actions (e.g. a signup block whose time is in the
+    // past). Run delivery now so those post immediately instead of waiting for the
+    // next 5-minute maintenance tick.
+    if (deps.client !== null) {
+      try {
+        const { reconcileEventDelivery } = await import('../discord/event-delivery.js');
+        await reconcileEventDelivery(db, deps.client, event);
+      } catch (error) {
+        console.warn('Discord delivery on activate will retry during maintenance:', error);
+      }
+    }
+    const panelResult: { ok: boolean; channelId?: string; edited?: boolean; reason?: string } = { ok: true, reason: 'schedule-driven — add a “Post signup” action to your Signup block or run /hackathon-admin panel' }
     const announceResult: { posted: boolean; reason: string; channelId: string | null } | null = { posted: false, reason: 'schedule-driven — use Start/ schedule actions or manual Announce', channelId: null }
     const itineraryResult: { ok: boolean; channelId?: string; messageId?: string; edited?: boolean; reason?: string } | null = null
     // A launch is also the first point where a draft becomes visible: make sure
