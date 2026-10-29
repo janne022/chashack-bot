@@ -15,7 +15,15 @@ test('team panel is event-bound and excludes private join codes', () => {
   assert.match(JSON.stringify(json), /Alpha/);
   assert.match(JSON.stringify(json), /hack:team-panel:event-1:team-1:/);
   assert.doesNotMatch(JSON.stringify(json), /secret-code/);
-  assert.match(JSON.stringify(json), /Owner/);
+  assert.match(JSON.stringify(json), /👑 Owner — Teamägare/);
+  const english = buildTeamPanel(team, [{ userId: 'owner', displayName: 'Owner' }, { userId: 'member', displayName: 'Member' }], 'en');
+  const description = english.embeds[0]!.toJSON().description!;
+  assert.match(description, /👑 Owner — Team owner/);
+  assert.match(description, /• Member/);
+  assert.match(description, /Visibility: private/);
+  assert.match(description, /Status: space available/);
+  assert.match(buildTeamPanel({ ...team, kind: 'public' }, [], 'sv').embeds[0]!.toJSON().description!, /Synlighet: offentligt/);
+  assert.doesNotMatch(buildTeamPanel({ ...team, ownerId: null }, [{ userId: 'owner', displayName: 'Owner' }], 'en').embeds[0]!.toJSON().description!, /👑/);
 });
 
 test('leave confirmation is bound to the stored current panel message', () => {

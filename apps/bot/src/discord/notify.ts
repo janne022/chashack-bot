@@ -28,8 +28,9 @@ import {
 } from '../features/events/data.js';
 import type { KyselyDb } from '../shared/kysely.js';
 import { listParticipants } from '../features/signup/data.js';
-import { listTeams, getTeam, getGuildSettings, deleteEventTeams } from '../features/teams/data.js';
-import { listPendingTeamProvisionIds } from '../features/teams/provision-data.js';
+import { assignMissingMatchedOwners, listTeams, getTeam, getGuildSettings, deleteEventTeams } from '../features/teams/data.js';
+import { listPendingTeamProvisionIds, teamPanelOwnerIsCurrent, markTeamPanelOwnerCurrent } from '../features/teams/provision-data.js';
+import { refreshTeamPanel } from './team-panel.js';
 import { previewMatch, commitMatch } from '../features/matching/data.js';
 import { DEFAULT_FORM } from '../features/form/domain.js';
 import { getForm } from '../features/form/data.js';
@@ -449,6 +450,12 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
       try {
         const current = await getEvent(db, event.id);
         if (current?.status === 'active' && (current.endsAt === null || current.endsAt > now)) {
+          await assignMissingMatchedOwners(db, current.id);
+          for (const team of await listTeams(db, current.id)) {
+            if (team.textChannelId === null || await teamPanelOwnerIsCurrent(db, current.guildId, current.id, team.id, team.ownerId)) continue;
+            const refreshed = await refreshTeamPanel({ db, client, categoryIdFor: () => undefined }, team, botLocale());
+            if (refreshed) await markTeamPanelOwnerCurrent(db, current.guildId, current.id, team.id, team.ownerId);
+          }
           const pending = await listPendingTeamProvisionIds(db, current.id);
           if (pending.length > 0) {
             let fallback: string | undefined;

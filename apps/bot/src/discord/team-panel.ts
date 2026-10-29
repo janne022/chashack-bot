@@ -26,13 +26,17 @@ export function buildTeamPanel(
 ): { embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[] } {
   // An imported teammate has no mention: show the name the sheet gave instead of
   // a dead `<@imp:…>`.
-  const lines = roster.map(({ userId, displayName }) => isDiscordId(userId) ? `• ${displayName} <@${userId}>` : `• ${displayName}`);
+  const lines = roster.map(({ userId, displayName }) => {
+    const name = isDiscordId(userId) ? `${displayName} <@${userId}>` : displayName;
+    return userId === team.ownerId ? `👑 ${name} — ${t(locale, 'discord.team_panel.owner')}` : `• ${name}`;
+  });
   const status = team.kind === 'matched' ? t(locale, 'discord.team_panel.matched')
     : roster.length >= teamSize ? t(locale, 'discord.team_panel.full') : t(locale, 'discord.team_panel.open');
   const embed = new EmbedBuilder()
     .setTitle(t(locale, 'discord.team_panel.title', { team: team.name }))
     .setDescription([
       t(locale, 'discord.team_panel.status', { status }),
+      ...(team.kind === 'matched' ? [] : [t(locale, 'discord.team_panel.visibility', { visibility: t(locale, team.kind === 'private' ? 'discord.team_panel.private' : 'discord.team_panel.public') })]),
       t(locale, 'discord.team_panel.roster', { count: roster.length, size: teamSize }),
       ...lines,
     ].join('\n').slice(0, 4000))
@@ -48,14 +52,14 @@ export function buildTeamPanel(
   return { embeds: [embed], components: [row] };
 }
 
-export async function refreshTeamPanel(deps: ProvisionDeps, source: Team, locale: BotLocale = 'en'): Promise<void> {
+export async function refreshTeamPanel(deps: ProvisionDeps, source: Team, locale: BotLocale = 'en'): Promise<boolean> {
   try {
-    if (source.textChannelId === null) return;
+    if (source.textChannelId === null) return false;
     const team = await getTeam(deps.db, source.id);
-    if (team === null || team.textChannelId === null) return;
+    if (team === null || team.textChannelId === null) return false;
     const guild = await deps.client.guilds.fetch(team.guildId);
     const channel = await guild.channels.fetch(team.textChannelId);
-    if (channel === null || !channel.isTextBased()) return;
+    if (channel === null || !channel.isTextBased()) return false;
     const refKey = `team_panel:${team.id}`;
     const ref = await getMessageRef(deps.db, refKey);
     const payload = buildTeamPanel(team, await listTeamRoster(deps.db, team.id), locale, await eventTeamSize(deps.db, team.eventId, DEFAULT_FORM.teamSize));
@@ -65,12 +69,14 @@ export async function refreshTeamPanel(deps: ProvisionDeps, source: Team, locale
     if (message !== null && message.author.id === deps.client.user?.id) {
       await message.edit(payload);
       if (!message.pinned) await message.pin().catch(() => console.warn(`team panel pin denied for ${team.id}; controls remain available in ${team.textChannelId}`));
-      return;
+      return true;
     }
     const sent = await (channel as TextChannel).send(payload);
     await setMessageRef(deps.db, refKey, { channelId: team.textChannelId, messageId: sent.id });
     await sent.pin().catch(() => console.warn(`team panel pin denied for ${team.id}; controls remain available in ${team.textChannelId}`));
+    return true;
   } catch (error) {
     console.warn(`team panel refresh failed for ${source.id}:`, error);
+    return false;
   }
 }

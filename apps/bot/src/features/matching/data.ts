@@ -10,7 +10,7 @@ import type { FormConfig } from '../form/domain.js';
 import { getParticipant, listMatchable, projectParticipantForMatching } from '../signup/data.js';
 import { getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
-import { listTeams, lockEventTeams, nextTeamColor, type TeamWithMembers } from '../teams/data.js';
+import { assignMissingMatchedOwners, listTeams, lockEventTeams, nextTeamColor, type TeamWithMembers } from '../teams/data.js';
 import { markTeamProvisionPending } from '../teams/provision-data.js';
 import { buildTeams, type MatchResult } from './domain.js';
 import { createHash } from 'node:crypto';
@@ -74,6 +74,8 @@ export async function commitMatch(db: Db, actor: string, eventId: string, guildI
         await db.run('UPDATE participants SET team_id = ?, updated_at = ? WHERE event_id = ? AND user_id = ?', id, Date.now(), eventId, userId);
       }
     }
+
+    await assignMissingMatchedOwners(db, eventId);
 
     await db.run(
       'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',

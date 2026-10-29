@@ -89,7 +89,9 @@ Confirmed functionality (the README is the detailed inventory; this is the shape
   complementary role tracks, experience mix, friend pulls) with mutual friend
   mentions as a hard constraint and one-way mentions as soft preference; preview →
   conflict report → commit, never written until committed, and re-runnable.
-  New matched teams are kept as evenly sized as those friend groups allow.
+  New matched teams are kept as evenly sized as those friend groups allow. Matched
+  teams have an automatically selected owner, preferring a linked participant;
+  matched-team editing and invitations remain restricted.
 - Team spaces: every team (created or matched) gets a colored role + private text
   and voice channels under an organizer-chosen category, with welcome messages and
   full teardown on delete/reset/cleanup.

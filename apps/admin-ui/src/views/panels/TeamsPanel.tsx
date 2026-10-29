@@ -214,7 +214,7 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
               </DropdownMenu>
             </CardHeader>
             <CardContent>
-              {team.kind !== 'matched' && !team.members.some(member => member.userId === team.ownerId) && (
+              {!team.members.some(member => member.userId === team.ownerId) && (
                 <p className="mb-3 text-sm text-muted-foreground">{t('teams.owner_missing')}</p>
               )}
               {(!team.roleId || !team.textChannelId || !team.voiceChannelId) && <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border p-3 text-sm">

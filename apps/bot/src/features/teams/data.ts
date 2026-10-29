@@ -167,6 +167,15 @@ export async function getTeamForUser(db: Db, eventId: string, userId: string): P
   return row === undefined ? null : toTeam(row);
 }
 
+/** Give ownerless matched teams an active member, preferring linked Discord users. */
+export async function assignMissingMatchedOwners(db: Db, eventId: string): Promise<void> {
+  await db.run(`UPDATE teams AS t SET owner_id = (
+    SELECT p.user_id FROM participants AS p
+    WHERE p.event_id = t.event_id AND p.team_id = t.id AND p.status = 'active'
+    ORDER BY CASE WHEN p.user_id LIKE 'imp:%' THEN 1 ELSE 0 END, p.created_at, p.user_id LIMIT 1
+  ) WHERE t.event_id = ? AND t.kind = 'matched' AND t.owner_id IS NULL`, eventId);
+}
+
 export async function listTeams(db: Db, eventId: string, kind?: Team['kind']): Promise<TeamWithMembers[]> {
   const rows =
     kind === undefined
