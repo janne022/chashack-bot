@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS participants (
       status TEXT NOT NULL DEFAULT 'active',
       block_reason TEXT,
       imported_signup_id TEXT,
+      admin_added BIGINT NOT NULL DEFAULT 0,
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL,
       PRIMARY KEY (event_id, user_id)

@@ -278,5 +278,10 @@ test('incomplete custom-question signup links to the event web form instead of t
   const button = payload.components?.[0]?.components?.[0] as { data?: { url?: string; custom_id?: string } } | undefined;
   assert.equal(button?.data?.url, 'https://example.test/events/event-1/signup');
   assert.equal(button?.data?.custom_id, undefined);
+  await db.run("UPDATE participants SET admin_added=1 WHERE event_id='event-1' AND user_id='user-1'");
+  replies.length = 0;
+  await onModalSubmit(modal as never, { ...context(db), config, webCompletionUrl: 'https://example.test/events/event-1/signup', announce: async () => undefined });
+  const overridePayload = replies[0] as { components?: { components?: { data?: { custom_id?: string } }[] }[] };
+  assert.deepEqual(overridePayload.components?.[0]?.components?.map(item => item.data?.custom_id), [`${IDS.followCreateTeam}:event-1`, `${IDS.followBrowseTeams}:event-1`, `${IDS.followInvitations}:event-1`]);
   await db.close();
 });

@@ -117,6 +117,24 @@ test('Postgres migration repairs indexed and nullable columns before indexes wit
   } finally { await db.close(); }
 });
 
+test('participant override upgrades populated legacy rows and survives repeat migration', async () => {
+  const db = await openTestDb();
+  try {
+    await db.run('ALTER TABLE participants DROP COLUMN admin_added');
+    await db.run("INSERT INTO events(id,guild_id,name,status,created_at,updated_at) VALUES ('legacy','guild','Legacy','active',1,1)");
+    await db.run("INSERT INTO participants(event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,created_at,updated_at) VALUES ('legacy','member','guild','Member','expert','backend','[\"node\"]','join_team','[]','blocked',1,2)");
+    await db.run("INSERT INTO registration_answers VALUES ('legacy','member',1,'{\"answer\":\"kept\"}',3)");
+    const before = await db.get("SELECT * FROM participants WHERE event_id='legacy' AND user_id='member'");
+    await migratePostgres(db);
+    const upgraded = await db.get<{ admin_added: number }>("SELECT * FROM participants WHERE event_id='legacy' AND user_id='member'");
+    assert.deepEqual(upgraded, { ...before, admin_added: 0 });
+    await db.run("UPDATE participants SET admin_added=1 WHERE event_id='legacy' AND user_id='member'");
+    await migratePostgres(db);
+    assert.equal((await db.get<{ admin_added: number }>("SELECT admin_added FROM participants WHERE event_id='legacy' AND user_id='member'"))?.admin_added, 1);
+    assert.equal((await db.get<{ answers_json: string }>("SELECT answers_json FROM registration_answers WHERE event_id='legacy' AND user_id='member'"))?.answers_json, '{"answer":"kept"}');
+  } finally { await db.close(); }
+});
+
 test('existing install gains the composite import key before answer history is created', async () => {
   const db = await openTestDb();
   try {

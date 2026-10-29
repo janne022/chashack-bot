@@ -9,7 +9,7 @@ import { openTestDb } from '../../shared/test-db.js';
 import { openPostgres } from '../../shared/postgres.js';
 import { activateEvent, createEvent, getEvent, getEventForm } from '../events/data.js';
 import { getForm } from '../form/data.js';
-import { getParticipant, listMatchable, listParticipants } from '../signup/data.js';
+import { adminAddParticipant, getParticipant, listMatchable, listParticipants } from '../signup/data.js';
 import { previewMatch } from '../matching/data.js';
 import { createImportedSignups, deleteImportedSignup, editImportedSignup, listImportedSignups } from './data.js';
 import { autoLinkImportedSignups, autoLinkPresentMembers } from './auto-link.js';
@@ -59,6 +59,27 @@ test('an import materialises one participant per row, tagged with its provenance
       assert.equal(participant.teamPref, 'random_team');
     }
     assert.deepEqual(participants.map((p) => p.displayName).sort(), ['Ada Andersson', 'Bob Bsson']);
+  } finally { await close(); }
+});
+
+test('a force-added member can claim an import only while their registration is empty', async () => {
+  const { db, eventId, form, close } = await setup('Force add import');
+  try {
+    assert.ok((await activateEvent(db, 'test', eventId)).ok);
+    const imported = await createImportedSignups(db, eventId, GUILD, form.version, [
+      { sourceRow: 2, values: ADA_ROW, answers: {} },
+      { sourceRow: 3, values: BOB_ROW, answers: {} },
+    ]);
+    await reconcileImportedParticipants(db, eventId, GUILD, form);
+    assert.ok((await adminAddParticipant(db, 'admin', eventId, GUILD, ADA, 'Ada')).ok);
+    const claimed = await linkImportedSignup(db, eventId, GUILD, imported.rows[0]!.id!, ADA, form);
+    assert.equal(claimed.linked, true);
+    assert.equal((await getParticipant(db, eventId, ADA))?.importedSignupId, imported.rows[0]!.id);
+    assert.ok((await adminAddParticipant(db, 'admin', eventId, GUILD, BOB, 'Bob')).ok);
+    await db.run('UPDATE participants SET experience=? WHERE event_id=? AND user_id=?', 'veteran', eventId, BOB);
+    const conflict = await linkImportedSignup(db, eventId, GUILD, imported.rows[1]!.id!, BOB, form);
+    assert.equal(conflict.error, 'participant_conflict');
+    assert.equal((await getParticipant(db, eventId, BOB))?.experience, 'veteran');
   } finally { await close(); }
 });
 
