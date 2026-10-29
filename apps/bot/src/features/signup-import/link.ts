@@ -3,6 +3,7 @@ import { audit } from '../../shared/audit.js';
 import type { FormConfig } from '../form/domain.js';
 import { validateCustomAnswers } from '../form/domain.js';
 import { getParticipant } from '../signup/data.js';
+import { getRegistrationAnswers } from '../registration/data.js';
 import { joinGroupTeam, type GroupTeamMembership } from '../teams/group-teams.js';
 import { getTeamForUser } from '../teams/data.js';
 import { markTeamProvisionPending } from '../teams/provision-data.js';
@@ -103,7 +104,12 @@ export async function linkImportedSignup(
     if (role && !form.roleTracks.some((option) => option.id === role)) return { linked: false, activated: false, missingFields: ['role'], error: 'invalid_core_answer' };
     if (teamPref && !form.teamPrefs.some((option) => option.id === teamPref)) return { linked: false, activated: false, missingFields: ['teamPref'], error: 'invalid_core_answer' };
     if (skills.some((skill) => !form.skills.some((option) => option.id === skill))) return { linked: false, activated: false, missingFields: ['skills'], error: 'invalid_core_answer' };
-    if (hadParticipant && !options.organizer && missingFields.length === 0) return { linked: false, activated: false, missingFields: [], error: 'participant_conflict' };
+    // A force-added row with no profile or answers is a placeholder, not a
+    // competing registration. Preserve the usual conflict check for real data.
+    const emptyAdminRow = target?.adminAdded === true && target.importedSignupId === null &&
+      !target.experience && !target.roleTrack && !target.skills.length && !target.teamPref &&
+      !target.teammates.length && await getRegistrationAnswers(db, eventId, userId) === null;
+    if (hadParticipant && !options.organizer && !emptyAdminRow && missingFields.length === 0) return { linked: false, activated: false, missingFields: [], error: 'participant_conflict' };
     const placeholder = await getParticipant(db, eventId, `imp:${importId}`);
     if (placeholder?.status === 'blocked') return { linked: false, activated: false, missingFields: [], error: 'registration_blocked' };
     await mergeImportedPlaceholder(db, eventId, importId, userId);
@@ -139,7 +145,7 @@ export async function linkImportedSignup(
     if (hadParticipant) {
       // A participant claim stays strict: an existing registration is not silently
       // merged with an imported row. An organizer may adopt it on purpose.
-      if (!options.organizer) return { linked: false, activated: false, missingFields: [], error: 'participant_conflict' };
+      if (!options.organizer && !emptyAdminRow) return { linked: false, activated: false, missingFields: [], error: 'participant_conflict' };
       await persist();
       await project();
       const groupTeam = await joinGroupTeam(db, actor, eventId, guildId, userId, values.groupName);

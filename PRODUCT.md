@@ -180,6 +180,10 @@ active participants may still edit or withdraw. Legacy events remain unrestricte
 unless organizers enable enforcement. Signup can stay open after kickoff.
 Organizers can enable a separate participant submission form, review its answers and
 choose whether completed submissions remain editable.
+Organizers can add a current Discord server member to an active event, granting team
+access even before required signup questions are answered. This organizer override remains
+in effect across later form changes. The action preserves existing answers and does not
+unblock blocked participants.
 
 The signup panel retains team creation and invitation controls. Team departure posts a
 notice to the team channel. Team roles are displayed separately. Optional member-only

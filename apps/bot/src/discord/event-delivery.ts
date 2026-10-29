@@ -83,7 +83,7 @@ async function reconcileEventDeliveryPass(db: Db, client: Client, event: Hackath
         if (item.time > now && !prior) continue;
         if (action.type === 'post_signup') {
           const channelId = action.channelId ?? event.panelChannelId ?? fallbackPanel;
-          if (!channelId) continue;
+          if (!channelId) { console.warn('Event delivery ' + key + ': post_signup skipped - no panel channel configured for event ' + event.id); continue; }
           const hash = fingerprint([channelId, form, event.name, event.signupStartsAt, event.signupEndsAt]);
           if (prior?.fingerprint === hash) continue;
           const actionRef = prior?.channelId && prior.messageId

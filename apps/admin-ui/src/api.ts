@@ -50,6 +50,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  async addParticipant(eventId: string, userId: string): Promise<void> {
+    await request(`/api/events/${encodeURIComponent(eventId)}/participants`, { method: 'POST', body: JSON.stringify({ userId }) })
+  },
   async registrationAnswers(eventId: string, userId: string): Promise<AnswerVersion & { answerHistory: AnswerVersion[] }> {
     return request(`/api/events/${encodeURIComponent(eventId)}/registrations/${encodeURIComponent(userId)}`)
   },

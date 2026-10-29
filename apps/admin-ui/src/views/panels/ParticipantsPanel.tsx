@@ -8,6 +8,7 @@ import { flexRender, useTable } from '@tanstack/react-table'
 import type { Cell, SortingState } from '@tanstack/react-table'
 import type { AnswerVersion, AppState, Participant } from '@/types'
 import { AnswerVersions } from '@/components/answer-versions'
+import { MemberCombobox, type GuildMemberOption } from '@/components/member-combobox'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { api } from '@/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -76,6 +77,23 @@ export function ParticipantsPanel({
   const t = useT()
 
   const [query, setQuery] = useState('')
+  const [selectedMember, setSelectedMember] = useState<GuildMemberOption | null>(null)
+  const [adding, setAdding] = useState(false)
+  const canAdd = state.events.some(event => event.id === eventId && event.status === 'active')
+  async function addMember() {
+    if (!eventId || !selectedMember || adding) return
+    setAdding(true)
+    try {
+      await api.addParticipant(eventId, selectedMember.id)
+      setSelectedMember(null)
+      toast.success(t('participants.added'))
+      await refresh()
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : ''
+      toast.error(code === 'blocked' ? t('participants.add_blocked') : code === 'invalid_member' ? t('participants.add_invalid') : code === 'event_not_active' ? t('participants.add_event_closed') : t('participants.add_failed'))
+    } finally { setAdding(false) }
+  }
+  const addControl = canAdd ? <Card><CardContent className="flex flex-col gap-3 p-4"><div><p className="font-medium">{t('participants.add_title')}</p><p className="text-sm text-muted-foreground">{t('participants.add_description')}</p></div><div className="flex flex-wrap items-center gap-2"><div className="min-w-52 flex-1"><MemberCombobox value={selectedMember} onSelect={setSelectedMember} disabled={adding} /></div><Button disabled={!selectedMember || adding} onClick={() => void addMember()}>{t('participants.add_button')}</Button></div></CardContent></Card> : null
   const [filter, setFilter] = useState<StatusFilter>('all')
   const suggestions = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -313,6 +331,8 @@ export function ParticipantsPanel({
 
   if (state.participants.length === 0) {
     return (
+      <div className="flex flex-col gap-4">
+      {addControl}
       <Card>
         <CardContent>
           <EmptyState
@@ -322,11 +342,13 @@ export function ParticipantsPanel({
           />
         </CardContent>
       </Card>
+      </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-4">
+      {addControl}
       <Card>
         <CardContent className="flex flex-wrap items-center gap-3 p-4">
           <div className="relative min-w-52 flex-1">

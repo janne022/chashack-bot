@@ -91,6 +91,7 @@ export interface Participant {
   blockReason: string | null;
   /** Set when this row exists because of an imported signup (placeholder or linked). */
   importedSignupId: string | null;
+  adminAdded?: boolean;
   createdAt: number;
   updatedAt: number;
   matchingImportance?: Partial<Record<'experience' | 'role' | 'skills', number>>;
@@ -110,6 +111,7 @@ interface ParticipantRow {
   status: string;
   block_reason: string | null;
   imported_signup_id: string | null;
+  admin_added: number | string;
   created_at: number;
   updated_at: number;
 }
@@ -129,9 +131,28 @@ function toParticipant(row: ParticipantRow): Participant {
     status: row.status as ParticipantStatus,
     blockReason: row.block_reason,
     importedSignupId: row.imported_signup_id ?? null,
+    adminAdded: Number(row.admin_added) === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/** Add a member without inventing signup answers or changing existing profile data. */
+export async function adminAddParticipant(db: Db, actor: string, eventId: string, guildId: string, userId: string, displayName: string): Promise<Result<Participant>> {
+  return db.transaction(async () => {
+    await db.get('SELECT id FROM events WHERE id = ? FOR UPDATE', eventId);
+    const event = await getEvent(db, eventId);
+    if (!event || event.guildId !== guildId || event.status !== 'active') return err('event_not_active', 'Event is not active.');
+    const existing = await getParticipant(db, eventId, userId);
+    if (existing?.status === 'blocked') return err('blocked', 'Participant is blocked.');
+    const now = Date.now();
+    await db.run(`INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,status,admin_added,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,'[]',?,'[]','active',1,?,?)
+      ON CONFLICT (event_id,user_id) DO UPDATE SET status='active', admin_added=1, updated_at=excluded.updated_at`,
+      eventId, userId, guildId, displayName, '', '', '', now, now);
+    await audit(db, actor, 'participant.admin_add', eventId, { userId }, guildId);
+    return ok((await getParticipant(db, eventId, userId))!);
+  });
 }
 
 export async function upsertParticipant(
@@ -231,10 +252,10 @@ export async function listMatchable(db: Db, eventId: string): Promise<Participan
 
 export async function projectParticipantForMatching(db: Db, participant: Participant, form: import('../form/domain.js').FormConfig): Promise<Participant | null> {
   const stored = await getRegistrationAnswers(db, participant.eventId, participant.userId);
-  if ((form.customQuestions ?? []).some((q) => q.required) && stored?.formVersion !== form.version) return null;
+  if (!participant.adminAdded && (form.customQuestions ?? []).some((q) => q.required) && stored?.formVersion !== form.version) return null;
   const answers = stored?.formVersion === form.version ? stored.answers : {};
   const checked = validateStoredParticipantAnswers(form, answers);
-  if (!checked.ok || checked.missingRequiredQuestionIds.length > 0) return null;
+  if (!checked.ok || (!participant.adminAdded && checked.missingRequiredQuestionIds.length > 0)) return participant.adminAdded ? participant : null;
   return projectMatchingParticipant(participant, form, checked.answers);
 }
 

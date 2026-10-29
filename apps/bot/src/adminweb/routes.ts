@@ -44,6 +44,7 @@ import {
   getParticipant,
   checkSignupWrite,
   reactivateParticipant,
+  adminAddParticipant,
 } from '../features/signup/data.js';
 import {
   createTeam,
@@ -1433,10 +1434,19 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       return;
     }
     const event = res.value
-    // Schedule now owns all Discord posts (including the signup panel). Activate just flips status to active.
-    // Add the signup panel as a schedule action (type post_signup) at the event's start time if you want it on a timer,
-    // or trigger announcements manually. The itinerary is posted/updated when the schedule is edited on a live event.
-    const panelResult: { ok: boolean; channelId?: string; edited?: boolean; reason?: string } = { ok: true, reason: 'schedule-driven — add a “Post signup” action to your Start block or any schedule item' }
+    // Schedule owns Discord posts (including the signup panel), but a newly activated
+    // event may already have due actions (e.g. a signup block whose time is in the
+    // past). Run delivery now so those post immediately instead of waiting for the
+    // next 5-minute maintenance tick.
+    if (deps.client !== null) {
+      try {
+        const { reconcileEventDelivery } = await import('../discord/event-delivery.js');
+        await reconcileEventDelivery(db, deps.client, event);
+      } catch (error) {
+        console.warn('Discord delivery on activate will retry during maintenance:', error);
+      }
+    }
+    const panelResult: { ok: boolean; channelId?: string; edited?: boolean; reason?: string } = { ok: true, reason: 'schedule-driven — add a “Post signup” action to your Signup block or run /hackathon-admin panel' }
     const announceResult: { posted: boolean; reason: string; channelId: string | null } | null = { posted: false, reason: 'schedule-driven — use Start/ schedule actions or manual Announce', channelId: null }
     const itineraryResult: { ok: boolean; channelId?: string; messageId?: string; edited?: boolean; reason?: string } | null = null
     // A launch is also the first point where a draft becomes visible: make sure
@@ -1842,6 +1852,27 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     }
     const settings = await updateGuildSettings(db, await actorOf(req), await guildOf(req), cleaned)
     return { ok: true, settings }
+  });
+
+  app.post('/api/events/:eventId/participants', async (req, reply) => {
+    const guildId = await guildOf(req);
+    const event = await getEvent(db, (req.params as { eventId: string }).eventId);
+    if (!event || event.guildId !== guildId || event.status !== 'active') return reply.code(404).send({ error: 'event_not_active' });
+    const userId = (req.body as { userId?: unknown } | null)?.userId;
+    if (typeof userId !== 'string' || !isSnowflake(userId)) return reply.code(400).send({ error: 'invalid_member' });
+    if (!deps.client) return reply.code(503).send({ error: 'member_unavailable' });
+    let member;
+    try {
+      const guild = await deps.client.guilds.fetch(guildId);
+      member = await guild.members.fetch({ user: userId, force: true });
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 10007) return reply.code(404).send({ error: 'invalid_member' });
+      return reply.code(503).send({ error: 'member_unavailable' });
+    }
+    if (member.user.bot) return reply.code(400).send({ error: 'invalid_member' });
+    const result = await adminAddParticipant(db, await actorOf(req), event.id, guildId, userId, member.displayName);
+    if (!result.ok) return reply.code(409).send({ error: result.code });
+    return { ok: true };
   });
 
   app.post('/api/participants/:userId/status', async (req, reply) => {

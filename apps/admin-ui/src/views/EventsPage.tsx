@@ -1296,8 +1296,17 @@ function syntheticBlock(
   title: string,
   actions: import('@/types').ScheduleAction[],
 ): import('@/types').ScheduleItem[] {
-  if (actions.length === 0 || (time === null && id !== '__start__')) return []
-  return [{ id, time: time ?? 0, title, kind: 'custom', actions, ...(id === '__start__' ? { anchor: 'hackathon_start' as const, offsetMinutes: 0 } : {}) }]
+  // Synthetic blocks are anchored placeholders: a missing date keeps them pending
+  // (time 0 + anchor) instead of dropping them, so a chosen action like "post
+  // signup" survives until its anchor date is set instead of being silently lost.
+  if (actions.length === 0) return []
+  if (time === null && id !== '__start__' && id !== '__signup__' && id !== '__end__') return []
+  const anchor =
+    id === '__start__' ? 'hackathon_start' :
+    id === '__signup__' ? 'signup_start' :
+    id === '__end__' ? 'hackathon_end' :
+    undefined
+  return [{ id, time: time ?? 0, title, kind: 'custom', actions, ...(anchor ? { anchor: anchor as 'hackathon_start' | 'signup_start' | 'hackathon_end', offsetMinutes: 0 } : {}) }]
 }
 
 function dateInputToMs(v: string): number | null {

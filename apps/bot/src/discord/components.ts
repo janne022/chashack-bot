@@ -266,7 +266,7 @@ async function handleSignupModal(i: ModalSubmitInteraction, ctx: Ctx & Announcer
   const customAnswers = registration?.formVersion === ctx.config.version ? registration.answers : {};
   const customValidation = validateStoredParticipantAnswers(ctx.config, customAnswers);
   const incomplete = !customValidation.ok || customValidation.missingRequiredQuestionIds.length > 0;
-  const actions = incomplete
+  const actions = incomplete && !saved.value.adminAdded
     ? ctx.webCompletionUrl
       ? new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder()
         .setLabel(t(locale, 'discord.join.web_complete_btn'))
