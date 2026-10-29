@@ -170,7 +170,7 @@ Constraints and deliberate limits:
 Organizers choose web-only signup or Discord profile signup with remaining questions on
 web. Extra custom questions are explicitly identified as web steps. Web custom fields
 include text, choices, a 1–10 slider and yes/no choices. Saved answers have an explicit
-edit state; participants can choose light, dark, system, or the event default.
+edit state. Signup uses the event theme; other participant pages offer light, dark, system, and event-default modes.
 Event creation can save incomplete signup questions in a draft; activation requires
 valid questions. A custom event form is stored with the event rather than creating
 a separate form template as a side effect.

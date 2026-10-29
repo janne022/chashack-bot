@@ -2,7 +2,7 @@
  * Admin web routes. Session auth via HMAC-signed cookie; all state-changing
  * routes are POST + JSON. UI files served from public/.
  */
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Guild } from 'discord.js';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -276,6 +276,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     return live?.session?.selectedGuildId ?? '';
   };
 
+  const participantAuthority = new WeakMap<FastifyRequest, { eventId: string; guildId: string; userId: string }>();
   app.addHook('preValidation', (req, reply, done) => {
     if (req.url.startsWith('/api/participant/events/')) {
       void (async () => {
@@ -283,12 +284,12 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
         const eventId = (req.params as { eventId?: string }).eventId;
         if (session && eventId) {
           for (const guildId of installedGuildIds()) {
-            if (!await currentMember(guildId, session.userId)) continue;
             const event = await withGuildContext(db, guildId, () => getEvent(db, eventId));
-            if (event?.guildId === guildId && event.status === 'active') {
-              runWithGuildContext(db, guildId, done);
-              return;
-            }
+            if (event?.guildId !== guildId || event.status !== 'active') continue;
+            if (!await currentMember(guildId, session.userId)) break;
+            participantAuthority.set(req, { eventId, guildId, userId: session.userId });
+            runWithGuildContext(db, guildId, done);
+            return;
           }
           void reply.code(404).send({ error: 'event_unavailable' });
           return;
@@ -715,7 +716,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     };
   });
 
-  app.get('/events/:eventId', async (req, reply) => {
+  const publicEventPage = async (req: FastifyRequest, reply: FastifyReply) => {
     const published = await publishedEvent((req.params as { eventId: string }).eventId);
     if (published === null) return reply.code(404).type('text/html; charset=utf-8').send('<!doctype html><title>Event not found</title>');
     const { event, form } = published;
@@ -723,8 +724,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const name = escape(event.name);
     const description = escape(event.description);
     const appearance = resolveAppearance(form);
-    const image = appearance.bannerUrl ? `<meta property="og:image" content="${escape(appearance.bannerUrl)}">` : '';
-    const metadata = `<title>${name}</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta name="description" content="${description}"><meta property="og:title" content="${name}"><meta property="og:description" content="${description}">${image}`;
+    const image = appearance.bannerUrl ? `<meta property="og:image" content="${escape(appearance.bannerUrl)}"><meta name="twitter:image" content="${escape(appearance.bannerUrl)}">` : '';
+    const eventPath = `/events/${encodeURIComponent(event.id)}${req.url.split('?')[0]?.endsWith('/signup') ? '/signup' : ''}`;
+    const canonical = config.publicUrl ? `<meta property="og:url" content="${escape(new URL(eventPath, config.publicUrl).href)}">` : '';
+    const metadata = `<title>${name}</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta name="description" content="${description}"><meta property="og:type" content="website"><meta property="og:site_name" content="ChasHack"><meta property="og:title" content="${name}"><meta property="og:description" content="${description}">${canonical}${image}<meta name="twitter:card" content="${appearance.bannerUrl ? 'summary_large_image' : 'summary'}"><meta name="twitter:title" content="${name}"><meta name="twitter:description" content="${description}">`;
     const date = (value: number | null): string => value === null ? '' : escape(new Intl.DateTimeFormat('en', { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' }).format(value));
     const dates = event.startsAt === null && event.endsAt === null ? '' : `<dl class="event-details">${event.startsAt === null ? '' : `<div><dt>Starts</dt><dd><time datetime="${new Date(event.startsAt).toISOString()}">${date(event.startsAt)} UTC</time></dd></div>`}${event.endsAt === null ? '' : `<div><dt>Ends</dt><dd><time datetime="${new Date(event.endsAt).toISOString()}">${date(event.endsAt)} UTC</time></dd></div>`}</dl>`;
     const fallback = `<main><h1>${name}</h1><p>${description}</p>${dates}<a href="/events/${encodeURIComponent(event.id)}/signup">Sign up</a></main>`;
@@ -733,15 +736,19 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     for (const path of candidates) {
       try {
         const shell = await readFile(join(path, 'index.html'), 'utf8');
-        return reply.type('text/html; charset=utf-8').send(shell.replace('<title>Hackathon Admin</title>', metadata).replace('<div id="root"></div>', `<div id="root">${fallback}</div>`));
+        return reply.type('text/html; charset=utf-8').send(shell.replace(/<meta\s+data-social-default(?:="")?\s+[^>]*>/g, '').replace('<title>Hackathon Admin</title>', metadata).replace('<div id="root"></div>', `<div id="root">${fallback}</div>`));
       } catch { /* API-only mode still serves accessible details. */ }
     }
     return reply.type('text/html; charset=utf-8').send(`<!doctype html><html lang="en"><head>${metadata}</head><body>${fallback}</body></html>`);
-  });
+  };
+  app.get('/events/:eventId', publicEventPage);
+  app.get('/events/:eventId/signup', publicEventPage);
 
-  const participantEvent = async (eventId: string, userId: string) => {
+  const participantEvent = async (eventId: string, userId: string, req?: FastifyRequest) => {
     const event = await getEvent(db, eventId);
     if (event === null || event.status !== 'active' || deps.client === null) return null;
+    const authority = req ? participantAuthority.get(req) : undefined;
+    if (authority?.eventId === eventId && authority.guildId === event.guildId && authority.userId === userId) return event;
     try {
       if (!(await lookupGuildMember(deps.client, event.guildId, userId))) return null;
     } catch { return null; }
@@ -803,7 +810,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/participant/events/:eventId/schedule', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null || (await getParticipant(db, event.id, session!.userId))?.status !== 'active') {
       return reply.code(404).send({ error: 'event_unavailable' });
     }
@@ -813,7 +820,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
   app.get('/api/participant/events/:eventId/members', async (req, reply) => {
     const session = await participantSessionFrom(req);
     if (!session) return reply.code(401).send({ error: 'unauthorized' });
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session.userId, req);
     if (!event) return reply.code(404).send({ error: 'event_unavailable' });
     const query = memberDirectoryQuery(req.query);
     if (!query) return reply.code(400).send({ error: 'invalid_query' });
@@ -829,7 +836,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/participant/events/:eventId/submission', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (!event || !await eligibleParticipant(db, event.id, session!.userId)) return reply.code(404).send({ error: 'event_unavailable' });
     const form = await getSubmissionForm(db, event.id);
     if (!form.enabled) return { form, submission: null, complete: false, editable: false, missingRequiredQuestionIds: [] };
@@ -843,7 +850,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.put('/api/participant/events/:eventId/submission', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (!event || !await eligibleParticipant(db, event.id, session!.userId)) return reply.code(404).send({ error: 'event_unavailable' });
     const body = req.body as { formVersion?: unknown; answers?: unknown } | null;
     if (!Number.isSafeInteger(body?.formVersion)) return reply.code(400).send({ error: 'invalid_form_version' });
@@ -876,7 +883,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.get('/api/participant/events/:eventId/registration', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     const stored = await getRegistrationAnswers(db, event.id, session!.userId);
@@ -899,7 +906,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.put('/api/participant/events/:eventId/registration', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const body = req.body as { formVersion?: unknown; answers?: unknown; profile?: { experience?: unknown; roleTrack?: unknown; skills?: unknown; teamPref?: unknown }; teamPref?: unknown } | null;
     const form = getEventForm(db, event, await getForm(db, event.guildId));
@@ -945,7 +952,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.delete('/api/participant/events/:eventId/registration', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const result = await withdrawParticipant(db, `discord:${session!.userId}`, event.id, session!.userId);
     if (!result.ok) return reply.code(404).send({ error: result.code });
@@ -960,7 +967,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
    */
   app.post('/api/participant/events/:eventId/claim/lookup', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const email = (req.body as { email?: unknown } | null)?.email;
     if (typeof email !== 'string' || email.trim().length < 3 || email.length > 254 || !email.includes('@')) return reply.code(400).send({ error: 'invalid_email' });
@@ -971,7 +978,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
 
   app.post('/api/participant/events/:eventId/claim', async (req, reply) => {
     const session = await participantSessionFrom(req);
-    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId);
+    const event = await participantEvent((req.params as { eventId: string }).eventId, session!.userId, req);
     if (event === null) return reply.code(404).send({ error: 'event_unavailable' });
     const email = (req.body as { email?: unknown } | null)?.email;
     if (typeof email !== 'string' || email.trim().length < 3 || email.length > 254 || !email.includes('@')) return reply.code(400).send({ error: 'invalid_email' });

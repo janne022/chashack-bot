@@ -333,6 +333,15 @@ test('public event DTO and initial HTML expose only published escaped content', 
   assert.match(html.body, /og:description/);
   assert.match(html.body, /og:image" content="https:\/\/cdn\.example\.test\/banner\.webp/);
   assert.equal(html.body.includes('SENTINEL_PRIVATE'), false);
+  const signupHtml = await app.inject({ url: route('events', 'public-event', 'signup') });
+  assert.equal(signupHtml.statusCode, 200);
+  assert.equal((signupHtml.body.match(/property="og:title"/g) ?? []).length, 1);
+  assert.match(signupHtml.body, /og:title" content="&lt;Hack &amp; Win&gt;/);
+  assert.match(signupHtml.body, /og:image" content="https:\/\/cdn\.example\.test\/banner\.webp/);
+  assert.match(signupHtml.body, /twitter:card" content="summary_large_image/);
+  assert.doesNotMatch(signupHtml.body, /SENTINEL_PRIVATE|private-q/);
+  await db.run("UPDATE events SET status='draft' WHERE id='public-event'");
+  assert.equal((await app.inject({ url: route('events', 'public-event', 'signup') })).statusCode, 404);
   await app.close();
   await db.close();
 });

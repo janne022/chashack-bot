@@ -243,20 +243,36 @@ try {
   const desktop=await evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth})`);
   check('desktop viewport is confirmed before layout assertions',desktop.width===1440&&desktop.scroll<=1440);
   await send('Network.setCookie',{name:'hackpartsess',value:decodeURIComponent(cookies['participant-a'].split('=')[1]),url:base,httpOnly:true},sid);
-  await nav('/');await evaluate(`localStorage.setItem('chas-locale','en')`);await nav(`/events/${eventId}/signup`);await wait(`!!document.querySelector('textarea#idea')`);
+  await nav('/');await evaluate(`localStorage.setItem('chas-locale','en');localStorage.setItem('chas-participant-mode','light')`);
+  const delayRegistration = await send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{const original=window.fetch;window.fetch=(...args)=>String(args[0]).includes('/api/participant/events/${eventId}/registration')?new Promise(resolve=>setTimeout(()=>resolve(original(...args)),1200)):original(...args)})()`},sid);
+  await nav(`/events/${eventId}/signup`);
+  await wait(`!!document.querySelector('main.participant-frame')&&document.documentElement.dataset.theme==='dark'`);
+  check('event-themed signup shell appears while participant registration is still loading',await evaluate(`!!document.querySelector('main.participant-frame')&&!document.querySelector('textarea#idea')`));
+  check('signup does not flash the anonymous login action while registration is loading',await evaluate(`![...document.querySelectorAll('button')].some(b=>b.innerText.includes('Continue'))`));
+  await send('Page.removeScriptToEvaluateOnNewDocument',{identifier:delayRegistration.identifier},sid);
+  await wait(`!!document.querySelector('textarea#idea')`);
   check('English locale also renders the participant signup labels',await evaluate(`document.documentElement.lang==='en'&&document.querySelector('label[for=idea]')?.innerText.includes('Your idea')`));
   check('desktop signup fits the viewport with no horizontal overflow',await evaluate(`document.documentElement.scrollWidth<=innerWidth`));
   check('saved signup requires explicit editing', await evaluate(`document.querySelector('textarea#idea').matches(':disabled')&&!![...document.querySelectorAll('button')].find(b=>b.innerText.includes('Edit answers'))`));
   await screenshot('signup-desktop-en.png');
-  await click(`document.querySelector('button[aria-label="Theme"]')`);
-  await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(b=>b.innerText.trim()==='Light')`);
-  await wait(`document.documentElement.dataset.theme==='light'`);
-  check('light mode preserves the seasonal accent', await evaluate(`getComputedStyle(document.querySelector('main')).backgroundColor==='rgb(247, 245, 240)'&&getComputedStyle(document.querySelector('main')).getPropertyValue('--participant-accent').trim()==='#ef793e'`));
-  await screenshot('signup-desktop-light-en.png');
+  check('signup always uses the event appearance and hides the ineffective theme control',await evaluate(`document.documentElement.dataset.theme==='dark'&&getComputedStyle(document.querySelector('main')).backgroundColor==='rgb(16, 24, 32)'&&localStorage.getItem('chas-participant-mode')==='light'&&!document.querySelector('button[aria-label="Theme"]')`));
+  await screenshot('signup-event-appearance-en.png');
+
+  await evaluate(`(()=>{window.__publicEventFetches=0;const original=window.fetch;window.fetch=(...args)=>{if(String(args[0]).includes('/api/public/events/${eventId}'))window.__publicEventFetches++;return original(...args)}})()`);
+  await click(`document.querySelector('nav a[href*="view=schedule"]')`);
+  await wait(`(location.pathname==='/events/${eventId}'||location.pathname==='/events/${eventId}/')&&location.search.includes('view=schedule')&&document.querySelector('nav a[aria-current="page"]')?.getAttribute('href')?.includes('view=schedule')`);
+  check('participant navigation preserves the event search state and marks the active tab',await evaluate(`location.search==='?view=schedule'&&document.querySelector('nav a[aria-current="page"]')?.getAttribute('href')?.includes('view=schedule')`));
+  await evaluate(`history.back()`);
+  await wait(`location.pathname==='/events/${eventId}/signup'&&document.querySelector('nav a[aria-current="page"]')?.getAttribute('href')?.endsWith('/signup')`);
+  check('browser back returns to signup with the correct active state',await evaluate(`location.pathname.endsWith('/signup')&&document.querySelector('nav a[aria-current="page"]')?.getAttribute('href')?.endsWith('/signup')`));
+  check('client navigation preserves the shared public-event query cache',await evaluate(`window.__publicEventFetches===0`));
+
+  await nav('/my-hackathons'); await wait(`document.body.innerText.includes('Svensk hackathon')`); await screenshot('my-hackathons-desktop.png');
+  check('participant theme preference remains saved outside signup', await evaluate(`localStorage.getItem('chas-participant-mode')==='light'&&document.documentElement.dataset.theme==='light'`));
   await click(`document.querySelector('button[aria-label="Theme"]')`);
   await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(b=>b.innerText.trim()==='Event default')`);
-  await wait(`document.documentElement.dataset.theme==='dark'`);
-  check('event default restores the authored theme',await evaluate(`!localStorage.getItem('chas-participant-mode')`));
+  await wait(`!localStorage.getItem('chas-participant-mode')`);
+  check('event default clears the participant mode preference',await evaluate(`!localStorage.getItem('chas-participant-mode')`));
   await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'light'}]},sid);
   await click(`document.querySelector('button[aria-label="Theme"]')`);
   await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(b=>b.innerText.trim()==='System')`);
@@ -267,9 +283,6 @@ try {
   await click(`document.querySelector('button[aria-label="Theme"]')`);
   await click(`[...document.querySelectorAll('[role=menuitemradio]')].find(b=>b.innerText.trim()==='Light')`);
   await wait(`document.documentElement.dataset.theme==='light'`);
-
-  await nav('/my-hackathons'); await wait(`document.body.innerText.includes('Svensk hackathon')`); await screenshot('my-hackathons-desktop.png');
-  check('participant mode survives navigation', await evaluate(`localStorage.getItem('chas-participant-mode')==='light'&&document.documentElement.dataset.theme==='light'`));
   await nav(`/team?eventId=${eventId}`); await wait(`document.body.innerText.includes('Workshop crew')`); await screenshot('team-desktop.png');
   await nav(`/events/${eventId}/signup`); await wait(`!!document.querySelector('textarea#idea')`);
   await click(`[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Edit answers'))`);

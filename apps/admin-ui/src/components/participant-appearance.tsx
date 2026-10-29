@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { Link } from '@tanstack/react-router'
 import type { FormConfig } from '@/types'
 import { Hexagon, ArrowLeft, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -27,7 +28,7 @@ export function frameColors(appearance: Appearance) {
   }
 }
 
-export function ParticipantFrame({ appearance, children, preview = false }: { appearance: Appearance; children: ReactNode; preview?: boolean }) {
+export function ParticipantFrame({ appearance, children, preview = false, forceEventMode = false }: { appearance: Appearance; children: ReactNode; preview?: boolean; forceEventMode?: boolean }) {
   const t = useT()
   const [preference, setPreference] = useState<'light' | 'dark' | 'system' | 'event'>(() => {
     try { const value = localStorage.getItem('chas-participant-mode'); return value === 'light' || value === 'dark' || value === 'system' ? value : 'event' } catch { return 'event' }
@@ -35,7 +36,7 @@ export function ParticipantFrame({ appearance, children, preview = false }: { ap
   const authoredMode = appearance.mode ?? (appearance.themePreset === 'default' ? 'light' : 'dark')
   const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   useEffect(() => { const media = window.matchMedia('(prefers-color-scheme: dark)'); const change = (event: MediaQueryListEvent) => setSystemDark(event.matches); media.addEventListener('change', change); return () => media.removeEventListener('change', change) }, [])
-  const mode = preview || preference === 'event' ? authoredMode : preference === 'system' ? (systemDark ? 'dark' : 'light') : preference
+  const mode = preview || forceEventMode || preference === 'event' ? authoredMode : preference === 'system' ? (systemDark ? 'dark' : 'light') : preference
   const { accent, background, surface, text } = frameColors(mode === authoredMode ? appearance : {
     ...appearance, mode, backgroundColor: undefined, surfaceColor: undefined, textColor: undefined,
   })
@@ -79,14 +80,14 @@ export function ParticipantFrame({ appearance, children, preview = false }: { ap
     <div className="relative mx-auto max-w-6xl px-5 pb-16 sm:px-10">
       {!preview && <header className="participant-header">
         {location.pathname === '/my-hackathons'
-          ? <a href="/my-hackathons" aria-label="ChasHack" className="inline-flex min-h-11 items-center gap-3 text-xl font-bold tracking-tight"><Hexagon aria-hidden="true" className="size-7" style={{ color: accent }} />ChasHack<span className="hidden border-l border-current/20 pl-3 text-xs font-normal tracking-normal opacity-70 sm:inline">{t('participant.community')}</span></a>
+          ? <Link to="/my-hackathons" aria-label="ChasHack" className="inline-flex min-h-11 items-center gap-3 text-xl font-bold tracking-tight"><Hexagon aria-hidden="true" className="size-7" style={{ color: accent }} />ChasHack<span className="hidden border-l border-current/20 pl-3 text-xs font-normal tracking-normal opacity-70 sm:inline">{t('participant.community')}</span></Link>
           : <span className="inline-flex min-h-11 items-center gap-3 text-xl font-bold tracking-tight"><Hexagon aria-hidden="true" className="size-7" style={{ color: accent }} />ChasHack<span className="hidden border-l border-current/20 pl-3 text-xs font-normal tracking-normal opacity-70 sm:inline">{t('participant.community')}</span></span>}
         <div className="flex items-center gap-1">
           <LanguageMenu compact />
-          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" className="min-h-11 min-w-11" aria-label={t('common.theme_mode')}><Sun aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuRadioGroup value={preference} onValueChange={value => selectPreference(value as typeof preference)}><DropdownMenuRadioItem value="event">{t('participant.theme_event')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="light">{t('common.theme_light_mode')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="dark">{t('common.theme_dark_mode')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="system">{t('common.theme_system')}</DropdownMenuRadioItem></DropdownMenuRadioGroup></DropdownMenuContent></DropdownMenu>
+          {!forceEventMode && <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" className="min-h-11 min-w-11" aria-label={t('common.theme_mode')}><Sun aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuRadioGroup value={preference} onValueChange={value => selectPreference(value as typeof preference)}><DropdownMenuRadioItem value="event">{t('participant.theme_event')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="light">{t('common.theme_light_mode')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="dark">{t('common.theme_dark_mode')}</DropdownMenuRadioItem><DropdownMenuRadioItem value="system">{t('common.theme_system')}</DropdownMenuRadioItem></DropdownMenuRadioGroup></DropdownMenuContent></DropdownMenu>}
         </div>
       </header>}
-      {!preview && location.pathname !== '/my-hackathons' && <a href="/my-hackathons" className="mb-5 inline-flex min-h-11 items-center gap-2 text-sm opacity-75 hover:opacity-100"><ArrowLeft aria-hidden="true" size={16} />{t('participant.my_title')}</a>}
+      {!preview && location.pathname !== '/my-hackathons' && <Link to="/my-hackathons" className="mb-5 inline-flex min-h-11 items-center gap-2 text-sm opacity-75 hover:opacity-100"><ArrowLeft aria-hidden="true" size={16} />{t('participant.my_title')}</Link>}
       {appearance.bannerUrl && /^https:\/\//i.test(appearance.bannerUrl) && <img key={appearance.bannerUrl} src={appearance.bannerUrl} alt="" referrerPolicy="no-referrer" className="mb-8 max-h-64 w-full rounded-2xl object-cover" onError={event => { event.currentTarget.hidden = true }} />}
       {children}
     </div>

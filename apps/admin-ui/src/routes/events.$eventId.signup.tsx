@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { rateLimitMessage } from '@/api'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
@@ -86,8 +86,17 @@ function Signup() {
     const run = ++sequence.current
     if (!background) { setState('loading'); setMessage(''); setStale(false) }
     try {
+      const eventPromise = queryClient.fetchQuery(publicEventQuery(eventId, background)).then(next => {
+        if (run === sequence.current) {
+          if (dirty.current && event && next.form.version !== event.form.version) {
+            setStale(true); setMessage(t('participant.signup_stale'))
+            setEvent({ ...next, form: event.form })
+          } else setEvent(next)
+        }
+        return next
+      })
       const [next, lookup] = await Promise.all([
-        queryClient.fetchQuery(publicEventQuery(eventId, background)),
+        eventPromise,
         queryClient.fetchQuery(registrationQuery(eventId, background)),
       ])
       if (run !== sequence.current) return
@@ -166,7 +175,7 @@ function Signup() {
     } catch (error) { setMessage(error instanceof Error ? error.message : t('participant.signup_failed')); setState('failed') }
   }
   if (!event) return <main className="mx-auto max-w-2xl space-y-4 p-6">{state === 'loading' ? <PageSkeleton /> : <><p role="alert">{message}</p><Button onClick={() => void load()}>{t('participant.retry')}</Button></>}</main>
-  return <ParticipantFrame appearance={event.form.appearance}>
+  return <ParticipantFrame appearance={event.form.appearance} forceEventMode>
     <ParticipantNavigation eventId={eventId} active="signup" />
     <LiveStatus {...live} />
     <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
@@ -192,7 +201,8 @@ function Signup() {
             setMessage(t('participant.claim_prefilled'))
           }}
         />}
-        {!registration && access === 'anonymous' && state !== 'failed' && <section className="rounded-xl border p-5">
+        {!registration && state === 'loading' && <PageSkeleton />}
+        {!registration && access === 'anonymous' && state === 'idle' && <section className="rounded-xl border p-5">
         <h2 className="text-lg font-semibold">{t('participant.signup_login')}</h2>
           <p className="my-2 text-sm opacity-80">{t('participant.signup_login_desc')}</p>
           <Button onClick={() => location.assign('/auth/participant')}>{t('participant.signup_continue')}</Button>
@@ -217,7 +227,7 @@ function Signup() {
           </fieldset>
           {message && <p role={state === 'failed' ? 'alert' : 'status'} tabIndex={-1}>{message}</p>}
           {!readOnly && <div className="participant-savebar"><Button type="submit" className="min-h-11" disabled={state === 'waiting' || stale || !canSubmit} aria-busy={state === 'waiting'}>{state === 'waiting' ? t('participant.team_save') : registration.complete ? t('participant.signup_update') : t('participant.signup_submit')}</Button>{stale ? <Button type="button" className="min-h-11" variant="outline" onClick={() => void refreshForm()}>{t('participant.signup_reload')}</Button> : state === 'failed' && <Button type="submit" className="min-h-11" variant="outline">{t('participant.retry')}</Button>}</div>}
-          {registration.complete && <section className="space-y-3 border-t border-current/15 pt-4"><p role="status">{t('participant.signup_success')}</p><Button asChild variant="outline" className="min-h-11"><a href={`/team?eventId=${encodeURIComponent(eventId)}`}>{t('participant.team_title')}</a></Button></section>}
+          {registration.complete && <section className="space-y-3 border-t border-current/15 pt-4"><p role="status">{t('participant.signup_success')}</p><Button asChild variant="outline" className="min-h-11"><Link to="/team" search={{ eventId }}>{t('participant.team_title')}</Link></Button></section>}
         </form>}
         {message && !registration && <p role={state === 'failed' ? 'alert' : 'status'}>{message} {state === 'failed' && <Button onClick={() => void load()}>{t('participant.retry')}</Button>}</p>}
       </section>
@@ -227,7 +237,7 @@ function Signup() {
         <p className="mt-2 whitespace-pre-wrap text-sm opacity-80">{event.event.description}</p>
         {event.event.startsAt && <p className="mt-4 text-sm"><strong>{t('participant.event_starts')}</strong><br /><time>{new Date(event.event.startsAt).toLocaleString(language === 'sv' ? 'sv-SE' : 'en-US')}</time></p>}
         {event.event.endsAt && <p className="mt-3 text-sm"><strong>{t('participant.event_ends')}</strong><br /><time>{new Date(event.event.endsAt).toLocaleString(language === 'sv' ? 'sv-SE' : 'en-US')}</time></p>}
-        <div className="border-t pt-5"><h3 className="font-semibold">{t('participant.next_step')}</h3><p className="mt-2 text-sm opacity-75">{t('participant.next_hint')}</p><a className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold" href={`/team?eventId=${encodeURIComponent(eventId)}`}>{t('participant.team_title')}<ArrowRight size={16} /></a></div>
+        <div className="border-t pt-5"><h3 className="font-semibold">{t('participant.next_step')}</h3><p className="mt-2 text-sm opacity-75">{t('participant.next_hint')}</p><Link to="/team" search={{ eventId }} className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold">{t('participant.team_title')}<ArrowRight size={16} /></Link></div>
       </aside>
     </div>
   </ParticipantFrame>

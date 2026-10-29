@@ -51,9 +51,11 @@ test('real app-role handlers bind fresh participant authority, public projection
   const organizer = await createSession(owner, { userId: 'organizer', username: 'Organizer', avatar: null, guilds: [{ id: guildA, name: 'A', icon: null }, { id: guildB, name: 'B', icon: null }] });
   const allowed = new Set([guildA]);
   let unavailable = false;
+  let memberLookups = 0;
   const guilds = new Map([guildA, guildB].map((id) => [id, {
     id, name: id, ownerId: 'organizer', available: true,
     members: { fetch: async (input: string | { user: string }) => {
+      memberLookups++;
       const user = typeof input === 'string' ? input : input.user;
       if (unavailable) throw new Error('Discord unavailable');
       if (user !== 'organizer' && !allowed.has(id)) throw Object.assign(new Error('Unknown Member'), { code: 10007 });
@@ -69,8 +71,10 @@ test('real app-role handlers bind fresh participant authority, public projection
   const get = (id: string) => app.inject({ url: `/api/participant/events/${id}/registration`, headers });
 
   await t.test('participant can read and edit their own private answers; team path inherits the context', async () => {
+    memberLookups = 0;
     const response = await get('a');
     assert.equal(response.statusCode, 200, response.body);
+    assert.equal(memberLookups, 1, 'each registration request checks membership once');
     assert.deepEqual(response.json().answers, { private: 'PRIVATE_a' });
     assert.equal(response.json().questions[0].id, 'private');
     const profile = { experience: 'veteran', roleTrack: 'backend', skills: ['ui_design'], teamPref: 'random_team' };
