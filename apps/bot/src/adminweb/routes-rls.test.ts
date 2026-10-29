@@ -68,16 +68,17 @@ test('real app-role handlers bind fresh participant authority, public projection
   const headers = { cookie: `hackpartsess=${encodeURIComponent(makeDiscordToken(secret, participant.id, Date.now(), 'participant'))}` };
   const get = (id: string) => app.inject({ url: `/api/participant/events/${id}/registration`, headers });
 
-  await t.test('participant cannot read or overwrite organizer-only answers; team path inherits the context', async () => {
+  await t.test('participant can read and edit their own private answers; team path inherits the context', async () => {
     const response = await get('a');
     assert.equal(response.statusCode, 200, response.body);
-    assert.deepEqual(response.json().answers, {});
+    assert.deepEqual(response.json().answers, { private: 'PRIVATE_a' });
+    assert.equal(response.json().questions[0].id, 'private');
     const profile = { experience: 'veteran', roleTrack: 'backend', skills: ['ui_design'], teamPref: 'random_team' };
-    const rejected = await app.inject({ method: 'PUT', url: '/api/participant/events/a/registration', headers, payload: { formVersion: 1, answers: { private: 'UPDATED' }, profile } });
-    assert.equal(rejected.statusCode, 400);
-    const saved = await app.inject({ method: 'PUT', url: '/api/participant/events/a/registration', headers, payload: { formVersion: 1, answers: {}, profile, guildId: guildB, userId: 'forged' } });
+    const updated = await app.inject({ method: 'PUT', url: '/api/participant/events/a/registration', headers, payload: { formVersion: 1, answers: { private: 'UPDATED' }, profile } });
+    assert.equal(updated.statusCode, 200);
+    const saved = await app.inject({ method: 'PUT', url: '/api/participant/events/a/registration', headers, payload: { formVersion: 1, answers: { private: 'PRIVATE_a' }, profile, guildId: guildB, userId: 'forged' } });
     assert.equal(saved.statusCode, 200, saved.body);
-    assert.deepEqual((await get('a')).json().answers, {});
+    assert.deepEqual((await get('a')).json().answers, { private: 'PRIVATE_a' });
     assert.equal(JSON.parse((await owner.get<{ answers_json: string }>("SELECT answers_json FROM registration_answers WHERE event_id='a'"))!.answers_json).private, 'PRIVATE_a');
     const teams = await app.inject({ url: '/api/participant/events/a/teams', headers });
     assert.equal(teams.statusCode, 200, teams.body);

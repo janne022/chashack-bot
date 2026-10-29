@@ -783,7 +783,7 @@
   "form.single_choice": "Ett val",
   "form.multi_choice": "Flera val",
   "form.shared": "Deltagare och arrangörer",
-  "form.private": "Privat — endast arrangörer",
+  "form.private": "Privat — endast deltagaren och arrangörer",
   "form.required": "Obligatorisk",
   "form.also_discord": "Fråga även i Discord",
   "form.choices": "Alternativ",

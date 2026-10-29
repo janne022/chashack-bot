@@ -366,11 +366,11 @@ test('participant registration saves validated answers and stale form versions p
   assert.deepEqual(complete.json().profile, profile);
   await db.run('UPDATE registration_answers SET answers_json = ? WHERE event_id = ? AND user_id = ?', JSON.stringify({ goal: 'A private answer sentinel', organizer_note: 'organizer-only secret', retired: 'historical answer' }), 'signup-event', 'participant-user');
   const filtered = await app.inject({ url: route('api', 'participant', 'events', 'signup-event', 'registration'), headers });
-  assert.deepEqual(filtered.json().answers, { goal: 'A private answer sentinel' });
-  assert.equal((await put(2, { goal: 'A private answer sentinel', organizer_note: 'malicious overwrite' })).statusCode, 400);
+  assert.deepEqual(filtered.json().answers, { goal: 'A private answer sentinel', organizer_note: 'organizer-only secret' });
+  assert.equal((await put(2, { goal: 'A private answer sentinel', organizer_note: 'updated by subject' })).statusCode, 200);
   const edited = await put(2, { goal: 'Edited answer' });
   assert.deepEqual(edited.json().answers, { goal: 'Edited answer' });
-  assert.deepEqual(JSON.parse((await db.get<{ answers_json: string }>('SELECT answers_json FROM registration_answers WHERE event_id = ? AND user_id = ?', 'signup-event', 'participant-user'))!.answers_json), { goal: 'Edited answer', organizer_note: 'organizer-only secret', retired: 'historical answer' });
+  assert.deepEqual(JSON.parse((await db.get<{ answers_json: string }>('SELECT answers_json FROM registration_answers WHERE event_id = ? AND user_id = ?', 'signup-event', 'participant-user'))!.answers_json), { goal: 'Edited answer', retired: 'historical answer' });
   assert.deepEqual((await db.get<{ experience: string; role_track: string; skills: string; team_pref: string }>('SELECT experience, role_track, skills, team_pref FROM participants WHERE event_id=? AND user_id=?', 'signup-event', 'participant-user')), {
     experience: 'some_experience', role_track: 'fullstack', skills: '["backend_node"]', team_pref: 'random_team',
   });

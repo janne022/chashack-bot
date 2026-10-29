@@ -17,7 +17,7 @@ import { Check, Pencil, ArrowRight } from 'lucide-react'
 
 type Profile = { experience: string; roleTrack: string; skills: string[]; teamPref: string }
 type EventForm = PublicEvent
-type Registration = { answers: Record<string, string | string[]>; profile: Profile | null; complete: boolean; missingRequiredQuestionIds: string[]; status: string; signupWindowReason?: 'signup_not_open' | 'signup_closed' | null }
+type Registration = { questions: PublicEvent['form']['questions']; answers: Record<string, string | string[]>; profile: Profile | null; complete: boolean; missingRequiredQuestionIds: string[]; status: string; signupWindowReason?: 'signup_not_open' | 'signup_closed' | null }
 type RegistrationLookup = { kind: 'member'; registration: Registration } | { kind: 'nonmember' } | { kind: 'anonymous' }
 export const Route = createFileRoute('/events/$eventId/signup')({ component: Signup })
 
@@ -61,7 +61,7 @@ function Signup() {
 
   const language = locale
   const label = (value: Localized) => typeof value === 'string' ? value : value[language] || value.en
-  const visibleQuestions = event?.form.questions ?? []
+  const visibleQuestions = registration?.questions ?? []
   const profileFields = event?.form.profileFields
   const profileRequired = !!profileFields && profileFields.experiences.length + profileFields.roleTracks.length + profileFields.skills.length + profileFields.teamPrefs.length > 0
   const canSubmit = profileRequired || visibleQuestions.length > 0
@@ -120,9 +120,10 @@ function Signup() {
   const refreshForm = async () => {
     setState('waiting')
     try {
-      const next = await queryClient.fetchQuery(publicEventQuery(eventId, true))
-      const previous = new Map(event?.form.questions.map(q => [q.id, q.kind]))
-      setAnswers(current => Object.fromEntries(next.form.questions.flatMap((q): [string, string | string[]][] => {
+      const [next, lookup] = await Promise.all([queryClient.fetchQuery(publicEventQuery(eventId, true)), queryClient.fetchQuery(registrationQuery(eventId, true))])
+      if (lookup.kind !== 'member') throw new Error('participant.signup_member')
+      const previous = new Map(visibleQuestions.map(q => [q.id, q.kind]))
+      setAnswers(current => Object.fromEntries(lookup.registration.questions.flatMap((q): [string, string | string[]][] => {
         const answer = current[q.id]
         if (previous.get(q.id) !== q.kind || answer === undefined) return []
         if (q.kind === 'multi_choice' && Array.isArray(answer)) return [[q.id, answer.filter(id => q.choices?.some(choice => choice.id === id))]]
@@ -130,7 +131,7 @@ function Signup() {
         return typeof answer === 'string' && !['multi_choice', 'single_choice'].includes(q.kind) ? [[q.id, answer]] : []
       })))
       setEvent(next)
-      setRegistration(current => current ? { ...current, complete: false, missingRequiredQuestionIds: [] } : current)
+      setRegistration({ ...lookup.registration, complete: false, missingRequiredQuestionIds: [] })
       setStale(false); setMessage(t('participant.signup_review')); setState('idle')
     } catch (error) {
       const key = error instanceof Error && error.message.startsWith('participant.') ? error.message : ''
@@ -145,9 +146,9 @@ function Signup() {
     if (!canSubmit) { setMessage(t('participant.signup_empty')); return }
     const missingProfile = !!profileFields && ((profileFields.experiences.length > 0 && !profile.experience) || (profileFields.roleTracks.length > 0 && !profile.roleTrack) || (profileFields.skills.length > 0 && profile.skills.length === 0) || (profileFields.teamPrefs.length > 0 && !profile.teamPref))
     if (missingProfile) { setMessage(t('participant.signup_profile_required')); document.getElementById('profile-experience')?.focus(); return }
-    const missing = event.form.questions.filter((q) => { const answer = answers[q.id]; return q.required && !(Array.isArray(answer) ? answer.length : typeof answer === 'string' && answer.trim()) }).map((q) => q.id)
+    const missing = visibleQuestions.filter((q) => { const answer = answers[q.id]; return q.required && !(Array.isArray(answer) ? answer.length : typeof answer === 'string' && answer.trim()) }).map((q) => q.id)
     if (missing.length) {
-      setRegistration({ answers, profile, complete: false, missingRequiredQuestionIds: missing, status: registration?.status ?? 'not_registered' })
+      setRegistration({ questions: visibleQuestions, answers, profile, complete: false, missingRequiredQuestionIds: missing, status: registration?.status ?? 'not_registered' })
       setMessage(t('participant.signup_required'))
       document.getElementById(missing[0]!)?.focus()
       return

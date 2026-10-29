@@ -783,7 +783,7 @@
   "form.single_choice": "Single choice",
   "form.multi_choice": "Multiple choice",
   "form.shared": "Participant and organizers",
-  "form.private": "Private — organizers only",
+  "form.private": "Private — participant and organizers only",
   "form.required": "Required",
   "form.also_discord": "Also ask in Discord",
   "form.choices": "Choices",

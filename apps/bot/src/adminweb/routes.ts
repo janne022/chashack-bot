@@ -881,14 +881,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     const stored = await getRegistrationAnswers(db, event.id, session!.userId);
     const participant = await getParticipant(db, event.id, session!.userId);
-    const participantQuestions = (form.customQuestions ?? []).filter(q => q.visibility === 'self_and_organizer' && (q.presentation === 'web' || q.presentation === 'both'));
+    const participantQuestions = (form.customQuestions ?? []).filter(q => q.presentation === 'web' || q.presentation === 'both');
     const visibleIds = new Set(participantQuestions.map(q => q.id));
     const answers = Object.fromEntries(Object.entries(stored?.answers ?? {}).filter(([id]) => visibleIds.has(id)));
     const checked = validateCustomAnswers({ ...form, customQuestions: participantQuestions }, answers);
     const profileRequired = form.experiences.length + form.roleTracks.length + form.skills.length + form.teamPrefs.length > 0;
-    const hasQuestions = (form.customQuestions ?? []).some((question) => question.visibility !== 'organizer_only' && (question.presentation === 'web' || question.presentation === 'both'));
+    const hasQuestions = (form.customQuestions ?? []).some((question) => question.presentation === 'web' || question.presentation === 'both');
     return { eventId: event.id, formVersion: form.version, answers,
-      // Only the authenticated participant's own visible definitions are exposed; organizer-only questions stay hidden.
+      // Private definitions and answers are visible only to their authenticated subject and organizers.
       questions: participantQuestions,
       profile: participant === null ? null : { experience: participant.experience, roleTrack: participant.roleTrack, skills: participant.skills, teamPref: participant.teamPref },
       missingRequiredQuestionIds: checked.ok ? checked.missingRequiredQuestionIds : [],
@@ -904,14 +904,14 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
     const body = req.body as { formVersion?: unknown; answers?: unknown; profile?: { experience?: unknown; roleTrack?: unknown; skills?: unknown; teamPref?: unknown }; teamPref?: unknown } | null;
     const form = getEventForm(db, event, await getForm(db, event.guildId));
     if (!Number.isInteger(body?.formVersion) || body?.formVersion !== form.version) return reply.code(409).send({ error: 'stale_form_version' });
-    const participantQuestions = (form.customQuestions ?? []).filter(q => q.visibility === 'self_and_organizer' && (q.presentation === 'web' || q.presentation === 'both'));
+    const participantQuestions = (form.customQuestions ?? []).filter(q => q.presentation === 'web' || q.presentation === 'both');
     const checked = validateCustomAnswers({ ...form, customQuestions: participantQuestions }, body?.answers);
     if (!checked.ok) return reply.code(400).send({ error: 'invalid_answers', details: checked.errors });
     const teamPref = body?.teamPref;
     if (teamPref !== undefined && teamPref !== null && (typeof teamPref !== 'string' || !['create_team', 'join_team', 'random_team'].includes(teamPref))) return reply.code(400).send({ error: 'invalid_team_pref' });
     const profile = body?.profile;
     const profileRequired = form.experiences.length + form.roleTracks.length + form.skills.length + form.teamPrefs.length > 0;
-    const hasQuestions = (form.customQuestions ?? []).some((question) => question.visibility !== 'organizer_only' && (question.presentation === 'web' || question.presentation === 'both'));
+    const hasQuestions = (form.customQuestions ?? []).some((question) => question.presentation === 'web' || question.presentation === 'both');
     if (!profileRequired && !hasQuestions) return reply.code(400).send({ error: 'empty_signup_form' });
     if (profile !== undefined && (!profile || (form.experiences.length > 0 ? typeof profile.experience !== 'string' || !form.experiences.some((item) => item.id === profile.experience) : !!profile.experience) || (form.roleTracks.length > 0 ? typeof profile.roleTrack !== 'string' || !form.roleTracks.some((item) => item.id === profile.roleTrack) : !!profile.roleTrack) || !Array.isArray(profile.skills) || (form.skills.length > 0 && profile.skills.length === 0) || profile.skills.some((id) => typeof id !== 'string' || !form.skills.some((item) => item.id === id)) || new Set(profile.skills).size !== profile.skills.length || [...new Set(profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean))].length !== profile.skills.map((id) => form.skills.find((item) => item.id === id)?.group).filter(Boolean).length || (form.teamPrefs.length > 0 ? typeof profile.teamPref !== 'string' || !form.teamPrefs.some((item) => item.id === profile.teamPref) : !!profile.teamPref))) return reply.code(400).send({ error: 'invalid_profile' });
     return db.transaction(async () => {
@@ -936,7 +936,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       } else if (existing?.status === 'withdrawn') {
         await db.run("UPDATE participants SET status = 'active', updated_at = ? WHERE event_id = ? AND user_id = ?", Date.now(), event.id, session!.userId);
       }
-      return { eventId: event.id, formVersion: form.version, answers: checked.answers,
+      return { eventId: event.id, formVersion: form.version, answers: checked.answers, questions: participantQuestions,
         missingRequiredQuestionIds: checked.missingRequiredQuestionIds, complete: checked.missingRequiredQuestionIds.length === 0 && (!profileRequired || ((form.experiences.length === 0 || !!(profile?.experience ?? existing?.experience)) && (form.roleTracks.length === 0 || !!(profile?.roleTrack ?? existing?.roleTrack)) && (form.skills.length === 0 || (Array.isArray(profile?.skills) ? profile.skills.length > 0 : !!existing?.skills.length)) && (form.teamPrefs.length === 0 || !!(profile?.teamPref ?? teamPref ?? existing?.teamPref)))),
         profile: effectiveProfile,
         teamPref: typeof profile?.teamPref === 'string' ? profile.teamPref : typeof teamPref === 'string' ? teamPref : existing?.teamPref ?? null, status: existing?.status === 'withdrawn' ? 'active' : existing?.status ?? 'active' };
