@@ -1,7 +1,17 @@
 import type { Db } from '../../shared/db.js';
 import { randomUUID } from 'node:crypto';
 
-/** A marker exists only for teams whose provisioning has been requested. */
+const panelOwnerKey = (guildId: string, eventId: string, teamId: string) => `team_panel_owner_v1:${guildId}:${eventId}:${teamId}`;
+
+export async function teamPanelOwnerIsCurrent(db: Db, guildId: string, eventId: string, teamId: string, ownerId: string | null): Promise<boolean> {
+  const row = await db.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', panelOwnerKey(guildId, eventId, teamId));
+  return row?.value === (ownerId ?? '');
+}
+
+export async function markTeamPanelOwnerCurrent(db: Db, guildId: string, eventId: string, teamId: string, ownerId: string | null): Promise<void> {
+  await db.run('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', panelOwnerKey(guildId, eventId, teamId), ownerId ?? '');
+}
+
 const key = (guildId: string, eventId: string, teamId: string) => `team_provision:${guildId}:${eventId}:${teamId}`;
 
 export async function markTeamProvisionPending(db: Db, guildId: string, eventId: string, teamId: string): Promise<string> {
@@ -11,7 +21,7 @@ export async function markTeamProvisionPending(db: Db, guildId: string, eventId:
 }
 
 export async function clearTeamProvisionPending(db: Db, guildId: string, eventId: string, teamId: string): Promise<void> {
-  await db.run('DELETE FROM meta WHERE key = ?', key(guildId, eventId, teamId));
+  await db.run('DELETE FROM meta WHERE key IN (?, ?)', key(guildId, eventId, teamId), panelOwnerKey(guildId, eventId, teamId));
 }
 
 /** Do not clear work requested after the reconciliation pass began. */
@@ -29,5 +39,6 @@ export async function listPendingTeamProvisionIds(db: Db, eventId: string): Prom
 
 export async function clearEventTeamProvisionMarkers(db: Db, eventId: string): Promise<void> {
   await db.run(`DELETE FROM meta WHERE key IN (SELECT 'team_provision:' || guild_id || ':' || event_id || ':' || id
-    FROM teams WHERE event_id = ?)`, eventId);
+    FROM teams WHERE event_id = ?) OR key IN (SELECT 'team_panel_owner_v1:' || guild_id || ':' || event_id || ':' || id
+    FROM teams WHERE event_id = ?)`, eventId, eventId);
 }

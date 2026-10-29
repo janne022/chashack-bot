@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { openTestDb } from '../../shared/test-db.js';
 import { DEFAULT_FORM, TEAM_COLORS } from '../form/domain.js';
 import { commitMatch, previewMatch } from './data.js';
-import { createTeam } from '../teams/data.js';
+import { assignMissingMatchedOwners, createTeam } from '../teams/data.js';
 import { listPendingTeamProvisionIds } from '../teams/provision-data.js';
 
 const GUILD = 'g1';
@@ -70,6 +70,22 @@ test('commitMatch creates one team row per previewed team, all event-scoped', as
 
   const members = await db.all<{ user_id: string }>("SELECT user_id FROM participants WHERE event_id = ? AND team_id = ? ORDER BY user_id", EVENT, forEvent[0]!.id);
   assert.deepEqual(members.map((m) => m.user_id), ['u1', 'u2'], 'opt-ins land in the team');
+  assert.equal((await db.get<{ owner_id: string }>('SELECT owner_id FROM teams WHERE id=?', forEvent[0]!.id))?.owner_id, 'u1');
+});
+
+test('ownerless matched teams pick an active linked member and preserve an existing owner', async () => {
+  const db = await seed();
+  try {
+    await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM);
+    const team = (await db.get<{ id: string }>('SELECT id FROM teams WHERE event_id=?', EVENT))!;
+    await db.run('UPDATE teams SET owner_id=NULL WHERE id=?', team.id);
+    await db.run("UPDATE participants SET user_id='imp:old', created_at=0 WHERE event_id=? AND user_id='u1'", EVENT);
+    await assignMissingMatchedOwners(db, EVENT);
+    assert.equal((await db.get<{ owner_id: string }>('SELECT owner_id FROM teams WHERE id=?', team.id))?.owner_id, 'u2');
+    await db.run("UPDATE teams SET owner_id='imp:old' WHERE id=?", team.id);
+    await assignMissingMatchedOwners(db, EVENT);
+    assert.equal((await db.get<{ owner_id: string }>('SELECT owner_id FROM teams WHERE id=?', team.id))?.owner_id, 'imp:old');
+  } finally { await db.close(); }
 });
 
 test('commitMatch replaces previous matched teams instead of stacking them', async () => {
