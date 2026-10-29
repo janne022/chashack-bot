@@ -180,6 +180,12 @@ export async function reconcileImportedParticipants(
       }
     }
 
+    // Repair owners left behind by older placeholder links, within this guild.
+    await db.run(`UPDATE teams AS t SET owner_id = CASE WHEN p.team_id = t.id THEN p.user_id ELSE NULL END
+      FROM imported_signups AS i JOIN participants AS p ON p.event_id = i.event_id AND p.user_id = i.discord_user_id
+      WHERE t.event_id = ? AND i.event_id = t.event_id AND t.owner_id = 'imp:' || i.id AND i.discord_user_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM participants AS placeholder WHERE placeholder.event_id = t.event_id AND placeholder.user_id = t.owner_id)`, eventId);
+
     const placeholders = await db.all<{ user_id: string }>(
       "SELECT user_id FROM participants WHERE event_id=? AND user_id LIKE 'imp:%'", eventId);
     let removedPlaceholders = 0;

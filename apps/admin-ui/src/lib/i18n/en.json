@@ -469,6 +469,7 @@
   "teams.created": "Team “{name}” created",
   "teams.create_failed": "Could not create team",
   "teams.owner": "Team owner",
+  "teams.owner_missing": "No team owner is assigned.",
   "teams.choose_owner": "Choose a participant",
   "teams.no_owner_candidates": "No active participants are available without a team.",
   "teams.owner_hint": "The owner must still be a server member and have completed registration.",

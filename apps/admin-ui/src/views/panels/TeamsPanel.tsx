@@ -214,6 +214,9 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
               </DropdownMenu>
             </CardHeader>
             <CardContent>
+              {team.kind !== 'matched' && !team.members.some(member => member.userId === team.ownerId) && (
+                <p className="mb-3 text-sm text-muted-foreground">{t('teams.owner_missing')}</p>
+              )}
               {(!team.roleId || !team.textChannelId || !team.voiceChannelId) && <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border p-3 text-sm">
                 <span className="flex-1">{t('teams.provision_incomplete')}</span>
                 <Button variant="outline" size="sm" disabled={retryingTeam !== null} onClick={() => void retryProvisioning(team)}>{t('teams.retry_provision')}</Button>
@@ -228,7 +231,7 @@ export function TeamsPanel({ state, refresh }: { state: AppState; refresh: () =>
                       className="flex items-center justify-between gap-2 rounded-lg bg-surface-2/60 px-3 py-2"
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{m.displayName}</div>
+                        <div className="text-sm font-medium">{m.displayName}{m.userId === team.ownerId && <span className="ml-2 text-xs text-muted-foreground">{t('teams.owner')}</span>}</div>
                         <div className="truncate text-xs text-muted-foreground">
                           {labelFor(state.config, 'roleTracks', m.roleTrack)}
                           {m.skills.length > 0 && ` · ${m.skills.map((s) => labelFor(state.config, 'skills', s)).join(', ')}`}
