@@ -95,7 +95,8 @@ export async function sendAnnouncement(
   message: string,
   dmParticipants: boolean,
   overrideChannelId?: string,
-): Promise<{ posted: boolean; reason: string; channelId: string | null; dmSent: number; dmFailed: number }> {
+  teamChats = false,
+): Promise<{ posted: boolean; reason: string; channelId: string | null; dmSent: number; dmFailed: number; teamSent: number; teamFailed: number }> {
   const { client, db } = deps
   let posted = false
   let reason = 'no_channel_configured'
@@ -177,8 +178,31 @@ export async function sendAnnouncement(
     }
   }
 
-  await audit(db, actor, 'announce.send', event.id, { title, posted, dmSent, dmFailed }, event.guildId);
-  return { posted, reason, channelId, dmSent, dmFailed };
+  let teamSent = 0;
+  let teamFailed = 0;
+  if (teamChats) {
+    const teams = await listTeams(db, event.id);
+    const rendered = renderTags(event, title, message);
+    const embed = buildAnnouncementEmbed(event, rendered.title, rendered.message);
+    const channels = new Set(teams.map(team => team.textChannelId));
+    if (channels.delete(null)) teamFailed += teams.filter(team => team.textChannelId === null).length;
+    for (const id of channels) {
+      try {
+        const guild = await client.guilds.fetch(event.guildId);
+        const channel = await guild.channels.fetch(id!);
+        if (!channel?.isTextBased()) throw new Error('Team chat unavailable');
+        const payload = rendered.hasEveryone || rendered.hasHere
+          ? { embeds: [embed], content: rendered.message, allowedMentions: { parse: ['everyone'] } }
+          : { embeds: [embed], allowedMentions: { parse: [] } };
+        await channel.send(payload as never);
+        teamSent++;
+      } catch {
+        teamFailed++;
+      }
+    }
+  }
+  await audit(db, actor, 'announce.send', event.id, { title, posted, dmSent, dmFailed, teamSent, teamFailed }, event.guildId);
+  return { posted, reason, channelId, dmSent, dmFailed, teamSent, teamFailed };
 }
 
 async function readGuildPanel(db: Db, guildId: string, eventId: string): Promise<string | null> {

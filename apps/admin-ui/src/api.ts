@@ -281,10 +281,11 @@ export const api = {
     message: string,
     dm: boolean,
     channelId?: string,
-  ): Promise<{ posted: boolean; reason: string; channelId: string | null; dmSent: number; dmFailed: number }> {
+    teamChats = false,
+  ): Promise<{ posted: boolean; reason: string; channelId: string | null; dmSent: number; dmFailed: number; teamSent: number; teamFailed: number }> {
     return request('/api/events/announce', {
       method: 'POST',
-      body: JSON.stringify({ eventId, title, message, dm, channelId }),
+      body: JSON.stringify({ eventId, title, message, dm, channelId, teamChats }),
     })
   },
 

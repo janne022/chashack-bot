@@ -1524,7 +1524,7 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send({ ok: false, code: 'guild_not_configured', message: 'DISCORD_GUILD_ID is not set or not a snowflake. Configure it in .env or Config → Guild defaults.' });
       return;
     }
-    const body = req.body as { eventId?: string; title?: string; message?: string; dm?: boolean; channelId?: string } | null
+    const body = req.body as { eventId?: string; title?: string; message?: string; dm?: boolean; channelId?: string; teamChats?: boolean } | null
     const event = body?.eventId !== undefined ? await getEvent(db, body.eventId) : await getActiveEvent(db, await guildOf(req))
     if (event === null) {
       await reply.code(400).send({ ok: false, code: 'not_found', message: 'Event not found.' })
@@ -1538,7 +1538,10 @@ export function registerRoutes(app: FastifyInstance, deps: WebDeps): void {
       await reply.code(400).send({ ok: false, code: 'bad_input', message: 'title and message are required.' })
       return
     }
-    const result = await sendAnnouncement({ db, client: deps.client }, await actorOf(req), event, body.title, body.message, body.dm ?? false, body.channelId)
+    if (body.teamChats !== undefined && typeof body.teamChats !== 'boolean') {
+      await reply.code(400).send({ ok: false, code: 'bad_input', message: 'teamChats must be a boolean.' }); return
+    }
+    const result = await sendAnnouncement({ db, client: deps.client }, await actorOf(req), event, body.title, body.message, body.dm ?? false, body.channelId, body.teamChats)
     // Surface detailed reason to the UI so it can show "why not posted" instead of generic unreachable
     return { ok: true, ...result }
   })
