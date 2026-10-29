@@ -299,6 +299,8 @@
   "events.announce_channel_default": "Use default / panel",
   "events.announce_channel_id": "Override channel ID (optional)",
   "events.message_placeholder": "What to say…",
+  "events.also_team_chats": "Also send to all team chats",
+  "events.announce_teams_result": "Team chats: {sent} delivered, {failed} unavailable or failed.",
   "events.also_dm": "Also DM all participants",
   "events.send": "Send",
   "events.posted": "Posted",

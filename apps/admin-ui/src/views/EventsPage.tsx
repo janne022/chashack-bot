@@ -1615,6 +1615,7 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
   const [dm, setDm] = useState(false)
+  const [teamChats, setTeamChats] = useState(false)
   const [channelId, setChannelId] = useState('')
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -1650,14 +1651,16 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
     setSendError('')
     try {
       const targetChannel = channelId.trim() || undefined
-      const res = await api.announce(event.id, title.trim(), message.trim(), dm, targetChannel)
+      const res = await api.announce(event.id, title.trim(), message.trim(), dm, targetChannel, teamChats)
       if (res.posted) {
         toast.success(dm ? t('events.posted_with_dms', { count: res.dmSent }) : t('events.posted'))
       } else {
         const detail = [t(announcementFailureKey(res.reason)), ...(res.dmSent > 0 ? [t('events.announce_dms_sent_retry', { count: res.dmSent })] : []), ...(res.dmFailed > 0 ? [t('events.announce_dms_failed', { count: res.dmFailed })] : [])].join(' ')
         setSendError(detail)
         if (res.dmSent > 0) setDm(false)
+        if (res.teamSent > 0) setTeamChats(false)
       }
+      if (teamChats) toast.info(t('events.announce_teams_result', { sent: res.teamSent, failed: res.teamFailed }))
       if (res.posted && res.dmFailed > 0) toast.info(t('events.announce_dms_failed', { count: res.dmFailed }))
       if (res.posted) {
         setOpen(false)
@@ -1665,6 +1668,7 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
         setMessage('')
         setChannelId('')
         setDm(false)
+        setTeamChats(false)
       }
       await refresh()
     } catch (e) {
@@ -1722,6 +1726,10 @@ function NotificationButtons({ event, refresh }: { event: HackathonEvent; refres
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={dm} onCheckedChange={setDm} />
                 {t('events.also_dm')}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={teamChats} onCheckedChange={setTeamChats} />
+                {t('events.also_team_chats')}
               </label>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>

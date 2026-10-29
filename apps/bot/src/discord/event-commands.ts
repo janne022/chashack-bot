@@ -300,13 +300,14 @@ export async function handleEventAdminCommand(
       const title = i.options.getString('title', true);
       const message = i.options.getString('message', true);
       const dm = i.options.getBoolean('dm') ?? false;
+      const teamChats = i.options.getBoolean('team-chats') ?? false;
       const { sendAnnouncement } = await import('./notify.js');
       await i.deferReply({ flags: MessageFlags.Ephemeral });
-      const result = await sendAnnouncement({ db, client: ctx.client }, actor, event, title, message, dm);
+      const result = await sendAnnouncement({ db, client: ctx.client }, actor, event, title, message, dm, undefined, teamChats);
       await i.editReply({
         content: `📣 ${result.posted ? t(locale, 'discord.events.announce_posted') : t(locale, 'discord.events.announce_not_posted')}${
           dm ? `\n${t(locale, 'discord.events.announce_dms', { sent: result.dmSent, failed: result.dmFailed })}` : ''
-        }`,
+        }${teamChats ? `\n${t(locale, 'discord.events.announce_teams', { sent: result.teamSent, failed: result.teamFailed })}` : ''}`,
       });
       return;
     }

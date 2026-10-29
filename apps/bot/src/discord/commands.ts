@@ -182,7 +182,8 @@ export const HACKATHON_ADMIN_COMMAND = new SlashCommandBuilder()
       x
         .addStringOption((o) => o.setName('title').setDescription('Headline').setRequired(true).setMaxLength(100))
         .addStringOption((o) => o.setName('message').setDescription('What to say').setRequired(true).setMaxLength(800))
-        .addBooleanOption((o) => o.setName('dm').setDescription('Also DM every signed-up user (default false)')),
+        .addBooleanOption((o) => o.setName('dm').setDescription('Also DM every signed-up user (default false)'))
+        .addBooleanOption((o) => o.setName('team-chats').setDescription('Also send to all team chats')),
     ),
   )
   .addSubcommand((b) =>

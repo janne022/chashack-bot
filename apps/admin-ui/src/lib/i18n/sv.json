@@ -299,6 +299,8 @@
   "events.announce_channel_default": "Använd standard / panel",
   "events.announce_channel_id": "Ange kanal-ID (valfritt)",
   "events.message_placeholder": "Vad vill du säga…",
+  "events.also_team_chats": "Skicka även till alla teamchattar",
+  "events.announce_teams_result": "Teamchattar: {sent} levererade, {failed} saknas eller misslyckades.",
   "events.also_dm": "Skicka även DM till alla deltagare",
   "events.send": "Skicka",
   "events.posted": "Publicerat",
