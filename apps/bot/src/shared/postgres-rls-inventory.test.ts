@@ -9,7 +9,7 @@ const inventory: Record<string, string[]> = {
   events: ['id','guild_id','name','description','starts_at','ends_at','signup_starts_at','signup_ends_at','status','form_json','panel_channel_id','category_id','cleanup_delay_hours','cleanup_done','cleanup_warned_72h','cleanup_warned_24h','reminded_24h','match_at','match_locked','discord_event_ids','announcement_channel_id','schedule_channel_id','schedule_json','announcements_json','assignments_json','announced_schedule_ids','created_at','updated_at'],
   event_templates: ['id','guild_id','name','kind','json','created_at'],
   form_config: ['guild_id','json','updated_at'],
-  participants: ['event_id','user_id','guild_id','display_name','experience','role_track','skills','team_pref','teammates','team_id','status','block_reason','imported_signup_id','created_at','updated_at'],
+  participants: ['event_id','user_id','guild_id','display_name','experience','role_track','skills','team_pref','teammates','team_id','status','block_reason','imported_signup_id','admin_added','created_at','updated_at'],
   registration_answers: ['event_id','user_id','form_version','answers_json','updated_at'],
   registration_form_versions: ['event_id','form_version','form_json','created_at'],
   registration_answer_history: ['event_id','user_id','form_version','answers_json','updated_at'],

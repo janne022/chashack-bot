@@ -135,8 +135,8 @@ test('existing matched teams survive a later match of new eligible opt-ins', asy
   try {
     assert.ok((await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM)).ok);
     const original = await db.all('SELECT id FROM teams WHERE event_id=?', EVENT);
-    await db.run("INSERT INTO participants SELECT event_id,'new-one',guild_id,'New',experience,role_track,skills,team_pref,teammates,NULL,status,NULL,NULL,created_at,updated_at FROM participants WHERE event_id=? AND user_id='u1'", EVENT);
-    await db.run("INSERT INTO participants SELECT event_id,'new-two',guild_id,'New',experience,role_track,skills,team_pref,teammates,NULL,status,NULL,NULL,created_at,updated_at FROM participants WHERE event_id=? AND user_id='u2'", EVENT);
+    await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,team_id,status,block_reason,imported_signup_id,created_at,updated_at) SELECT event_id,'new-one',guild_id,'New',experience,role_track,skills,team_pref,teammates,NULL,status,NULL,NULL,created_at,updated_at FROM participants WHERE event_id=? AND user_id='u1'", EVENT);
+    await db.run("INSERT INTO participants (event_id,user_id,guild_id,display_name,experience,role_track,skills,team_pref,teammates,team_id,status,block_reason,imported_signup_id,created_at,updated_at) SELECT event_id,'new-two',guild_id,'New',experience,role_track,skills,team_pref,teammates,NULL,status,NULL,NULL,created_at,updated_at FROM participants WHERE event_id=? AND user_id='u2'", EVENT);
     assert.ok((await commitMatch(db, 'test', EVENT, GUILD, DEFAULT_FORM)).ok);
     assert.equal((await db.all('SELECT id FROM teams WHERE event_id=?', EVENT)).length, 2);
     assert.ok(await db.get('SELECT id FROM teams WHERE id=?', original[0]!.id));
