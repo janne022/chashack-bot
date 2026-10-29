@@ -101,10 +101,10 @@ test('a delayed import projection cannot overwrite active-version answers after 
     assert.equal((await db.get<{ display_name: string; experience: string }>('SELECT display_name,experience FROM participants WHERE event_id=? AND user_id=?', eventId, ADA))?.display_name, 'Ada Andersson');
 
     await db.run('UPDATE participants SET updated_at=? WHERE event_id=? AND user_id=?', manualSavedAt, eventId, ADA);
-    await db.run('UPDATE imported_signups SET values_json=?,answers_json=?,updated_at=? WHERE id=?', JSON.stringify({ name: 'Organizer Edited Name', email: 'ada@example.test', experience: 'veteran', skills: 'backend_node' }), JSON.stringify({ reused: 'ORGANIZER_EDITED_IMPORT' }), manualSavedAt + 10, importId);
+    await db.run('UPDATE imported_signups SET values_json=?,answers_json=?,updated_at=? WHERE id=?', JSON.stringify({ name: 'Organizer Edited Name', email: 'ada@example.test', experience: 'veteran', skills: 'backend_node' }), JSON.stringify({ reused: 'ORGANIZER_EDITED_IMPORT' }), manualSavedAt + 10, importId); // g0:allow:secrets PR #73 - synthetic organizer edit fixture, not a credential.
     const editedSameVersion = (await listImportedSignups(db, eventId))[0]!;
     await syncImportedRow(db, eventId, GUILD, editedSameVersion, nextForm);
-    assert.deepEqual(JSON.parse((await db.get<{ answers_json: string }>('SELECT answers_json FROM registration_answers WHERE event_id=? AND user_id=?', eventId, ADA))!.answers_json), { reused: 'ORGANIZER_EDITED_IMPORT' });
+    assert.deepEqual(JSON.parse((await db.get<{ answers_json: string }>('SELECT answers_json FROM registration_answers WHERE event_id=? AND user_id=?', eventId, ADA))!.answers_json), { reused: 'ORGANIZER_EDITED_IMPORT' }); // g0:allow:secrets PR #73 - synthetic organizer edit assertion, not a credential.
     assert.equal((await db.get<{ display_name: string }>('SELECT display_name FROM participants WHERE event_id=? AND user_id=?', eventId, ADA))?.display_name, 'Organizer Edited Name');
   } finally { await workerDb.close(); await close(); }
 });

@@ -75,9 +75,9 @@ test('expiry erases private answers from each archived definition while preservi
     await db.run('INSERT INTO registration_answer_history VALUES (?,?,?,?,?)', 'versioned', 'same-user', 1, JSON.stringify({ diet: 'OLD_PRIVATE', intro: 'retain' }), cutoff - 1);
     await db.run('INSERT INTO registration_answers VALUES (?,?,?,?,?)', 'versioned', 'same-user', 2, JSON.stringify({ diet: 'FRESH_PUBLIC' }), cutoff + 1);
     await db.run('INSERT INTO imported_signups (id,event_id,guild_id,source_row,form_version,values_json,answers_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
-      'versioned-import', 'versioned', 'guild', 2, 1, JSON.stringify({ allergies: 'OLD_ALLERGIES', name: 'Keep name' }), JSON.stringify({ diet: 'OLD_IMPORTED_PRIVATE' }), 1, cutoff - 1);
+      'versioned-import', 'versioned', 'guild', 2, 1, JSON.stringify({ allergies: 'OLD_ALLERGIES', name: 'Keep name' }), JSON.stringify({ diet: 'OLD_IMPORTED_PRIVATE' }), 1, cutoff - 1); // g0:allow:secrets PR #73 - synthetic retention filler, not a credential.
     await db.run('INSERT INTO imported_signup_answer_history VALUES (?,?,?,?,?,?)', 'versioned', 'versioned-import', 1,
-      JSON.stringify({ diet: 'OLD_IMPORTED_ARCHIVE', intro: 'retain' }), JSON.stringify({ allergies: 'OLD_ARCHIVED_ALLERGIES', name: 'Keep archived name' }), cutoff - 2);
+      JSON.stringify({ diet: 'OLD_IMPORTED_ARCHIVE', intro: 'retain' }), JSON.stringify({ allergies: 'OLD_ARCHIVED_ALLERGIES', name: 'Keep archived name' }), cutoff - 2); // g0:allow:secrets PR #73 - synthetic retention filler, not a credential.
     await db.run("INSERT INTO meta VALUES ('fake_fixture','true')");
     await recoverFakeFixture(db, restored);
 
@@ -119,12 +119,12 @@ test('expired ambiguous payloads are erased without stalling cleanup or deleting
     await db.run('INSERT INTO imported_signups (id,event_id,guild_id,source_row,form_version,values_json,answers_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
       'legacy-import', 'legacy-ambiguous', 'guild', 2, 1, JSON.stringify({ name: 'Ada', email: 'ada@example.test', allergies: 'KNOWN_PRIVATE', 'source:Food notes': 'UNKNOWN_PRIVATE' }), JSON.stringify({ old: 'UNCLASSIFIED_ANSWER' }), 1, cutoff - 1);
     await db.run('INSERT INTO imported_signup_answer_history VALUES (?,?,?,?,?,?)', 'legacy-ambiguous', 'legacy-import', 1,
-      JSON.stringify({ old: 'UNCLASSIFIED_ARCHIVE' }), JSON.stringify({ allergies: 'KNOWN_ARCHIVED_PRIVATE', 'source:Food notes': 'UNKNOWN_ARCHIVED_PRIVATE' }), cutoff - 2);
+      JSON.stringify({ old: 'UNCLASSIFIED_ARCHIVE' }), JSON.stringify({ allergies: 'KNOWN_ARCHIVED_PRIVATE', 'source:Food notes': 'UNKNOWN_ARCHIVED_PRIVATE' }), cutoff - 2); // g0:allow:secrets PR #73 - synthetic retention filler, not a credential.
 
     const knownForm = { ...DEFAULT_FORM, customQuestions: [{ id: 'private', kind: 'text' as const, label: { en: 'Private' }, help: { en: '' }, required: false, presentation: 'web' as const, visibility: 'organizer_only' as const }] };
     await db.run('INSERT INTO events (id,guild_id,name,status,ends_at,form_json,created_at,updated_at) VALUES (?,?,?,\'ended\',?,?,1,1)', 'known-event', 'guild', 'Known', end, JSON.stringify(knownForm));
     await db.run('INSERT INTO registration_form_versions VALUES (?,?,?,1)', 'known-event', knownForm.version, JSON.stringify(knownForm));
-    await db.run('INSERT INTO registration_answer_history VALUES (?,?,?,?,?)', 'known-event', 'known-user', knownForm.version, JSON.stringify({ private: 'KNOWN_PRIVATE_ANSWER' }), cutoff - 1);
+    await db.run('INSERT INTO registration_answer_history VALUES (?,?,?,?,?)', 'known-event', 'known-user', knownForm.version, JSON.stringify({ private: 'KNOWN_PRIVATE_ANSWER' }), cutoff - 1); // g0:allow:secrets PR #73 - synthetic retention filler, not a credential.
 
     assert.deepEqual(await purgeExpiredPrivateAnswers(db, cutoff), ['legacy-ambiguous', 'known-event']);
     assert.deepEqual(JSON.parse((await db.get<{ answers_json: string }>("SELECT answers_json FROM registration_answer_history WHERE event_id='known-event'"))!.answers_json), {});
@@ -147,8 +147,8 @@ test('withdrawal deletion replays after restore and preserves later registration
     await db.run('INSERT INTO registration_answers VALUES (?,?,?,?,?)', 'withdraw-event', 'withdraw-user', 1, JSON.stringify({ old: 'WITHDRAWN_ANSWER' }), 100);
     await db.run('INSERT INTO registration_answer_history VALUES (?,?,?,?,?)', 'withdraw-event', 'withdraw-user', 0, JSON.stringify({ old: 'WITHDRAWN_ARCHIVE' }), 90);
     await db.run('INSERT INTO imported_signups (id,event_id,guild_id,source_row,form_version,values_json,answers_json,discord_user_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      'withdraw-import', 'withdraw-event', 'guild', 2, 1, JSON.stringify({ name: 'Ada', email: 'ada@example.test', 'source:private': 'WITHDRAWN_SOURCE' }), JSON.stringify({ q: 'WITHDRAWN_IMPORT_ANSWER' }), 'withdraw-user', 1, 100);
-    await db.run('INSERT INTO imported_signup_answer_history VALUES (?,?,?,?,?,?)', 'withdraw-event', 'withdraw-import', 0, JSON.stringify({ q: 'WITHDRAWN_IMPORT_ARCHIVE' }), JSON.stringify({ 'source:private': 'WITHDRAWN_ARCHIVED_SOURCE' }), 90);
+      'withdraw-import', 'withdraw-event', 'guild', 2, 1, JSON.stringify({ name: 'Ada', email: 'ada@example.test', 'source:private': 'WITHDRAWN_SOURCE' }), JSON.stringify({ q: 'WITHDRAWN_IMPORT_ANSWER' }), 'withdraw-user', 1, 100); // g0:allow:secrets PR #73 - synthetic withdrawal fixture, not a credential.
+    await db.run('INSERT INTO imported_signup_answer_history VALUES (?,?,?,?,?,?)', 'withdraw-event', 'withdraw-import', 0, JSON.stringify({ q: 'WITHDRAWN_IMPORT_ARCHIVE' }), JSON.stringify({ 'source:private': 'WITHDRAWN_ARCHIVED_SOURCE' }), 90); // g0:allow:secrets PR #73 - synthetic withdrawal fixture, not a credential.
     await db.run("INSERT INTO meta VALUES ('fake_fixture','true')");
     await recoverFakeFixture(db, restored);
     await deleteRegistrationAnswers(db, 'withdraw-event', 'withdraw-user');
@@ -161,12 +161,12 @@ test('withdrawal deletion replays after restore and preserves later registration
     assert.equal(await restored.get("SELECT 1 FROM registration_answers WHERE event_id='withdraw-event' AND user_id='withdraw-user'"), undefined);
     assert.equal(await restored.get("SELECT 1 FROM registration_answer_history WHERE event_id='withdraw-event' AND user_id='withdraw-user'"), undefined);
     const deletedAt = Number(records[0]!.deleted_at);
-    await restored.run('UPDATE imported_signups SET answers_json=?,values_json=?,updated_at=? WHERE id=?', JSON.stringify({ q: 'REJOINED_IMPORT_ANSWER' }), JSON.stringify({ name: 'Ada', email: 'ada@example.test', 'source:new': 'NEW_SOURCE' }), deletedAt + 1, 'withdraw-import');
+    await restored.run('UPDATE imported_signups SET answers_json=?,values_json=?,updated_at=? WHERE id=?', JSON.stringify({ q: 'REJOINED_IMPORT_ANSWER' }), JSON.stringify({ name: 'Ada', email: 'ada@example.test', 'source:new': 'NEW_SOURCE' }), deletedAt + 1, 'withdraw-import'); // g0:allow:secrets PR #73 - synthetic rejoin fixture, not a credential.
     await restored.run('INSERT INTO registration_answers VALUES (?,?,?,?,?)', 'withdraw-event', 'withdraw-user', 2, JSON.stringify({ new: 'REJOINED_ANSWER' }), deletedAt + 1);
     await restored.run('INSERT INTO registration_answer_history VALUES (?,?,?,?,?)', 'withdraw-event', 'withdraw-user', 1, JSON.stringify({ old: 'OLD_ARCHIVE' }), deletedAt);
     await replayPrivateAnswerDeletions(restored, records.map((r) => ({ eventId: r.event_id, guildId: r.guild_id, userId: r.user_id, deletedAt: Number(r.deleted_at) })));
     assert.equal((await restored.get<{ answers_json: string }>("SELECT answers_json FROM registration_answers WHERE event_id='withdraw-event' AND user_id='withdraw-user'"))?.answers_json, JSON.stringify({ new: 'REJOINED_ANSWER' }));
-    assert.equal((await restored.get<{ answers_json: string }>("SELECT answers_json FROM imported_signups WHERE id='withdraw-import'"))?.answers_json, JSON.stringify({ q: 'REJOINED_IMPORT_ANSWER' }));
+    assert.equal((await restored.get<{ answers_json: string }>("SELECT answers_json FROM imported_signups WHERE id='withdraw-import'"))?.answers_json, JSON.stringify({ q: 'REJOINED_IMPORT_ANSWER' })); // g0:allow:secrets PR #73 - synthetic rejoin assertion, not a credential.
     assert.equal(await restored.get("SELECT 1 FROM registration_answer_history WHERE event_id='withdraw-event' AND user_id='withdraw-user'"), undefined);
   } finally { await restored.close(); await db.close(); }
 });

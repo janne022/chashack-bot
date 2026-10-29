@@ -121,7 +121,7 @@ test('existing install gains the composite import key before answer history is c
   const db = await openTestDb();
   try {
     // Shape of a database created before form-version history shipped.
-    await db.run('DROP TABLE imported_signup_answer_history');
+    await db.run('DROP TABLE imported_signup_answer_history'); // db-guard:allow:db-name-guard t_25580df8 - fixture table created by this test inside openTestDb's disposable schema.
     await db.run('ALTER TABLE imported_signups DROP CONSTRAINT imported_signups_event_id_id_key');
     await migratePostgres(db);
     await db.run("INSERT INTO events(id,guild_id,name,created_at,updated_at) VALUES ('legacy-event','guild','Legacy',1,1)");
