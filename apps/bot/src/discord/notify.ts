@@ -49,6 +49,8 @@ export interface NotifyDeps {
   client: Client;
   kysely?: KyselyDb;
   now?: number;
+  scheduledOnly?: boolean;
+  housekeepingOnly?: boolean;
 }
 
 const SNOWFLAKE_RE = /^[0-9]{17,20}$/;
@@ -404,7 +406,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
 
   // System maintenance enumerates installed guilds, then uses ordinary tenant-scoped reads.
   const guildIds = [...client.guilds.cache.values()].filter((guild) => guild.available !== false).map((guild) => guild.id);
-  for (const guildId of guildIds) {
+  if (!deps.scheduledOnly) for (const guildId of guildIds) {
     const retry = await withGuildContext(db, guildId, () => retryFailedParticipantRoleRevocations(db, guildId, async (targetGuildId, userId, roleId) => {
       if (targetGuildId !== guildId) throw new Error('role retry guild mismatch');
       const guild = client.guilds.cache.get(guildId);
@@ -426,6 +428,7 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
   }
   const allEvents: HackathonEvent[] = [];
   for (const guildId of guildIds) allEvents.push(...await withGuildContext(db, guildId, () => listEvents(db, guildId)));
+  if (!deps.scheduledOnly) {
   // Backfill: imported signups are participants, even ones imported before this
   // feature shipped or whose reconcile step was missed. Idempotent.
   for (const event of allEvents) {
@@ -497,8 +500,12 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
       } catch (error) { console.warn(`Team provisioning recovery failed for ${event.id}:`, error); }
     });
   }
-  const actions = planMaintenance(allEvents, now);
-  for (const guildId of guildIds) {
+  }
+  const actions = planMaintenance(allEvents, now).filter(action => {
+    const timed = action.type === 'schedule' || action.type === 'auto_match';
+    return deps.scheduledOnly ? timed : deps.housekeepingOnly ? !timed : true;
+  });
+  if (!deps.scheduledOnly) for (const guildId of guildIds) {
     for (const eventId of await withGuildContext(db, guildId, () => purgeExpiredPrivateAnswers(db, now))) summary.push(`purged private answers: ${eventId}`);
   }
   if (actions.length === 0) return summary;
@@ -508,6 +515,10 @@ export async function runMaintenance(deps: NotifyDeps): Promise<string[]> {
     if (snapshot === null) continue;
     await withGuildContext(db, snapshot.guildId, async () => {
     let needsProvisioning = false;
+    if (deps.scheduledOnly && planned.type === 'schedule') {
+      try { await reconcileEventDelivery(db, client, snapshot, now); }
+      catch (error) { console.warn(`Event delivery sync failed for ${snapshot.id}:`, error); }
+    }
     await db.tryAdvisoryLock(`event-maintenance:${snapshot.guildId}:${snapshot.id}`, async () => {
     try {
       const event = await getEvent(db, snapshot.id);

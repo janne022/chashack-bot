@@ -9,6 +9,7 @@ import { audit } from './shared/audit.js';
 import { registerInteractionHandlers } from './discord/dispatch.js';
 import { startAdminServer } from './adminweb/server.js';
 import { runMaintenance } from './discord/notify.js';
+import { startScheduleRunner } from './discord/schedule-runner.js';
 import { registerCommands, registerCommandsInGuild } from './register-commands-lib.js';
 import { registerMemberLifecycle } from './discord/member-lifecycle.js';
 
@@ -22,12 +23,15 @@ const client = new Client({
 });
 const reconcileMembers = registerMemberLifecycle(db, client);
 
+let stopScheduleRunner: (() => void) | undefined;
+
 client.once(Events.ClientReady, async (ready) => {
   console.log(`Logged in as ${ready.user.tag}`);
   if (config.guildId) {
     console.log(`Configured guild (fallback for password sessions): ${config.guildId}`);
   }
   console.log(`Serving ${ready.guilds.cache.size} guild(s).`);
+  stopScheduleRunner = startScheduleRunner({ db, client, kysely });
   // Register slash commands on every boot — idempotent (PUT to the exact set),
   // so new installs and upgrades just work without a separate script.
   try {
@@ -35,7 +39,7 @@ client.once(Events.ClientReady, async (ready) => {
   } catch (error) {
     console.error('Slash command registration failed (bot keeps running; fix and restart or run register:commands):', error);
   }
-  try { await runMaintenance({ db, client, kysely }); }
+  try { await runMaintenance({ db, client, kysely, housekeepingOnly: true }); }
   catch (error) { console.error('Startup catch-up failed; maintenance will retry:', error); }
 });
 
@@ -89,7 +93,7 @@ const server = await startAdminServer({ db, config, announce, client });
 const MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
 const maintenanceTimer = setInterval(() => {
   if (!config.skipDiscord && client.isReady()) void reconcileMembers().catch((error) => console.error('Member reconciliation failed:', error));
-  void runMaintenance({ db, client, kysely })
+  void runMaintenance({ db, client, kysely, housekeepingOnly: true })
     .then((summary) => {
       for (const line of summary) console.log(`[maintenance] ${line}`);
     })
@@ -100,6 +104,7 @@ maintenanceTimer.unref();
 async function shutdown(signal: string): Promise<void> {
   console.log(`${signal} received, shutting down…`);
   clearInterval(maintenanceTimer);
+  stopScheduleRunner?.();
   try {
     await server.stop();
     await client.destroy();

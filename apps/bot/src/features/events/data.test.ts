@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { nextScheduleDelay } from '../../discord/schedule-runner.js';
 import assert from 'node:assert/strict';
 import { planMaintenance, renderAnnouncementTags, scheduleTimeResolved, type HackathonEvent } from './data.js';
 
@@ -193,4 +194,25 @@ test('planner catches overdue actions after extended downtime', () => {
   const now = 1000 * H;
   const event = ev({ status: 'active', matchLocked: true, schedule: [{ id: 'overdue', time: now - 48 * H, title: 'Open signup', actions: [{ id: 'post', type: 'post_signup' }] }] });
   assert.ok(planMaintenance([event], now).some(action => action.type === 'schedule' && action.scheduleId === 'overdue'));
+});
+
+
+test('schedule wake-up follows the next pending resolved action and retries overdue work', () => {
+  const now = 1_000_000;
+  const event = ev({ status: 'active', matchLocked: true, schedule: [
+    { id: 'done', title: 'Done', time: now + 1000 },
+    { id: 'next', title: 'Next', time: now + 12_000 },
+    { id: 'unresolved', title: 'Undated', time: 0, anchor: 'hackathon_start', offsetMinutes: 0 },
+  ], announcedScheduleIds: ['done'] });
+  assert.equal(nextScheduleDelay([event], now), 12_000);
+  assert.equal(nextScheduleDelay([{ ...event, schedule: [{ id: 'late', title: 'Late', time: now - 1 }] }], now), 60_000);
+  assert.equal(nextScheduleDelay([{ ...event, matchLocked: false, matchAt: now + 5000 }], now), 5000);
+  assert.equal(nextScheduleDelay([{ ...event, status: 'ended' }], now), 60_000);
+});
+
+
+test('planner processes due schedule blocks before ending an event', () => {
+  const event = ev({ status: 'active', endsAt: 1000, matchLocked: true, schedule: [{ id: 'end', title: 'End', time: 1000 }] });
+  assert.deepEqual(planMaintenance([event], 1000).map(action => action.type), ['schedule']);
+  assert.deepEqual(planMaintenance([{ ...event, announcedScheduleIds: ['end'] }], 1000).map(action => action.type), ['end_event']);
 });
