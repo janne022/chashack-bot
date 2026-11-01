@@ -756,6 +756,9 @@ try {
   await send('Page.removeScriptToEvaluateOnNewDocument',{identifier:emptyScript.identifier},sid);
 
   // The authored question answered by a real participant browser, then reloaded from the server.
+  // The date-picker journey can choose a future window; open it for this participant journey.
+  const signupNow = Date.now();
+  await api(`/api/events/${event.id}`, { signupStartsAt: signupNow - 60_000, signupEndsAt: signupNow + 86_400_000 }, 'PATCH');
   const participantSession=await createSession(db,{userId:'authored-participant',username:'Authored participant',avatar:null,guilds:[],audience:'participant'});
   await send('Network.setCookie',{name:'hackpartsess',value:makeDiscordToken(config.adminSessionSecret,participantSession.id,Date.now(),'participant'),url:base,httpOnly:true},sid);
   const choose=async(el,text)=>{const names=[].concat(text);await click(el);await click(`[...document.querySelectorAll('[role=option]')].find(e=>${JSON.stringify(names)}.includes(e.innerText.trim()))`);};

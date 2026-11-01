@@ -55,7 +55,9 @@ self-cleaning weekend.
 - The **schedule is the source of truth**: pinned Hackathon Starts / Signup window
   / Hackathon Ends blocks plus middle blocks carry the actions (announcements,
   post signup, lock teams, auto-match, distribute assignments) that fire at their
-  time. Activating an event only flips its status; nothing is posted on Activate.
+  time. The bot wakes for the next scheduled action and reloads its timing when
+  an event changes; missed actions are retried after restart. Activating an event
+  only flips its status; nothing is posted on Activate.
   A linked Discord scheduled event mirrors the hackathon's name, description and
   dates: creating or launching a dated event creates it, edits resync it, and
   cleanup removes it. An active event that has no linked Discord event gets one

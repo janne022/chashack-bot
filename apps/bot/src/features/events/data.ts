@@ -929,7 +929,10 @@ export function planMaintenance(events: HackathonEvent[], now: number): Maintena
       ) {
         actions.push({ type: 'auto_match', eventId: event.id });
       }
-      if (event.endsAt !== null && event.endsAt <= now) {
+      // Keep the event active until due schedule blocks have been processed.
+      const pendingSchedule = (event.schedule ?? []).some(item =>
+        scheduleTimeResolved(event, item) && item.time <= now && !(event.announcedScheduleIds ?? []).includes(item.id));
+      if (event.endsAt !== null && event.endsAt <= now && !pendingSchedule) {
         actions.push({ type: 'end_event', eventId: event.id });
       }
       // Durable operations catch up after downtime; message delivery has its own persisted receipts.
